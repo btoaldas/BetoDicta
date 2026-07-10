@@ -1,10 +1,14 @@
 import AppKit
+import ApplicationServices
 import AVFoundation
 import Carbon.HIToolbox
 
 // MARK: - Pegado (clipboard + Cmd+V, restaurando lo que había)
 
 func pasteText(_ text: String) {
+    if !AXIsProcessTrusted() {
+        Log.write("⚠️ PEGADO BLOQUEADO: falta permiso de Accesibilidad para BetoDicta")
+    }
     let pb = NSPasteboard.general
     let previous = pb.string(forType: .string)
     pb.clearContents()

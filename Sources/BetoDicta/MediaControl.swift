@@ -1,86 +1,126 @@
 import AppKit
-import CoreAudio
 
-// MARK: - Control multimedia (pausa lo que suena y atenúa el volumen al dictar)
+// MARK: - Control multimedia (pausa REAL vía mediaremote-adapter)
+
+/// Pausa/reanuda lo que suene usando el adapter de Jonas van den Berg
+/// (github.com/ungive/mediaremote-adapter, BSD-3). macOS 15.4+ bloqueó
+/// MediaRemote para apps de terceros; el truco es invocar `/usr/bin/perl`
+/// (binario del sistema con el entitlement) que carga el framework y ejecuta
+/// el comando. Así se lee el estado REAL y se pausa explícitamente —cero bug
+/// del toggle, sin tocar el navegador—. Bundle: Resources/mediaremote-adapter.pl
+/// + Resources/MediaRemoteAdapter.framework.
+private enum MediaAdapter {
+    static let play = 0
+    static let pause = 1
+
+    private static var scriptPath: String? {
+        Bundle.main.path(forResource: "mediaremote-adapter", ofType: "pl")
+    }
+    private static var frameworkPath: String? {
+        Bundle.main.path(forResource: "MediaRemoteAdapter", ofType: "framework")
+    }
+
+    /// ¿Hay algo reproduciéndose ahora? (lee "playing" del JSON del adapter)
+    static func isPlaying() -> Bool {
+        guard let out = run(["get"]) else { return false }
+        // Respuesta JSON con campo "playing":true/false
+        if let data = out.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let playing = json["playing"] as? Bool {
+            return playing
+        }
+        return out.contains("\"playing\":true")
+    }
+
+    @discardableResult
+    static func send(_ command: Int) -> Bool {
+        run(["send", String(command)]) != nil
+    }
+
+    private static func run(_ args: [String]) -> String? {
+        guard let scriptPath, let frameworkPath else {
+            Log.debug("adapter: recursos no encontrados en el bundle")
+            return nil
+        }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        task.arguments = [scriptPath, frameworkPath] + args
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = FileHandle.nullDevice
+        do {
+            try task.run()
+            // El adapter responde al instante para get/send; tope de seguridad
+            let deadline = Date().addingTimeInterval(3)
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
+            _ = deadline
+            return String(data: data, encoding: .utf8)
+        } catch {
+            Log.debug("adapter: no se pudo lanzar perl: \(error.localizedDescription)")
+            return nil
+        }
+    }
+}
 
 final class MediaControl {
-    private var previousVolume: Int?
     private var pausedMedia = false
+    // Respaldo por mute (opcional, config "silenciar_ademas")
+    private var previousVolume: Int?
+    private var wasMuted = false
+    private var didMute = false
 
-    /// Al empezar a dictar: recuerda el volumen, lo baja, y pausa lo que suene.
+    /// Al empezar a dictar: pausa REAL lo que suene.
     func dictationStarted() {
         guard Config.duckMedia() else { return }
-        // Detectar ANTES de tocar nada (nuestros propios sonidos también cuentan)
-        let algoSuena = Self.isAudioPlaying()
-        previousVolume = readVolume()
-        setVolume(Config.duckVolume())
-        // Ojo: un video EN PAUSA puede mantener el audio "abierto" y disparar
-        // un play fantasma (se auto-corrige al terminar). Interruptor propio:
-        if Config.pausePlayback(), algoSuena {
-            Self.sendPlayPauseKey()
-            pausedMedia = true
+
+        if MediaAdapter.isPlaying() {
+            let ok = MediaAdapter.send(MediaAdapter.pause)
+            pausedMedia = ok
+            Log.write("multimedia: PAUSADO (adapter, ok=\(ok))")
+        } else {
+            Log.debug("multimedia: nada reproduciendose")
+        }
+
+        // Baja el volumen a 0 (respaldo visible para audio que no pausa y para
+        // que se vea el nivel bajar). Se restaura EXACTO al terminar.
+        if Config.muteToo() {
+            previousVolume = readVolume()
+            setVolume(0)
+            didMute = true
+            Log.debug("multimedia: volumen \(previousVolume ?? -1) → 0")
         }
     }
 
-    /// Al terminar o cancelar: volumen EXACTO de antes y play solo si estaba sonando.
+    /// Al terminar o cancelar: reanuda solo lo que ESTA app pausó.
     func dictationEnded() {
-        if let volume = previousVolume {
-            setVolume(volume)
-            previousVolume = nil
-        }
         if pausedMedia {
-            Self.sendPlayPauseKey()
+            MediaAdapter.send(MediaAdapter.play)
             pausedMedia = false
+            Log.write("multimedia: reanudado (adapter)")
         }
-    }
-
-    /// ¿La salida de audio está en uso? (CoreAudio: cubre Edge, YouTube,
-    /// Spotify, Música — cualquier app que esté reproduciendo sonido)
-    private static func isAudioPlaying() -> Bool {
-        var deviceID = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject),
-                                         &address, 0, nil, &size, &deviceID) == noErr else { return false }
-        var running: UInt32 = 0
-        size = UInt32(MemoryLayout<UInt32>.size)
-        address.mSelector = kAudioDevicePropertyDeviceIsRunningSomewhere
-        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &running) == noErr else { return false }
-        return running != 0
-    }
-
-    /// Simula la tecla física ⏯ del teclado — la misma que pausa YouTube,
-    /// Spotify o lo que el sistema tenga "sonando ahora".
-    private static func sendPlayPauseKey() {
-        let NX_KEYTYPE_PLAY: Int32 = 16
-        func post(down: Bool) {
-            let data1 = Int((Int(NX_KEYTYPE_PLAY) << 16) | ((down ? 0x0A : 0x0B) << 8))
-            let event = NSEvent.otherEvent(
-                with: .systemDefined,
-                location: .zero,
-                modifierFlags: NSEvent.ModifierFlags(rawValue: down ? 0xA00 : 0xB00),
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: 0, context: nil,
-                subtype: 8, data1: data1, data2: -1)
-            event?.cgEvent?.post(tap: .cghidEventTap)
+        if didMute {
+            didMute = false
+            if let v = previousVolume {
+                setVolume(v)
+                Log.debug("multimedia: volumen restaurado a \(v)")
+                previousVolume = nil
+            }
         }
-        post(down: true)
-        post(down: false)
     }
 
     private func readVolume() -> Int {
-        let script = NSAppleScript(source: "output volume of (get volume settings)")
-        var error: NSDictionary?
-        let result = script?.executeAndReturnError(&error)
-        return Int(result?.int32Value ?? 50)
+        Int(runOSA("output volume of (get volume settings)")?.int32Value ?? 50)
     }
+    private func readMuted() -> Bool {
+        runOSA("output muted of (get volume settings)")?.booleanValue ?? false
+    }
+    private func setVolume(_ value: Int) { _ = runOSA("set volume output volume \(max(0, min(100, value)))") }
+    private func setMuted(_ muted: Bool) { _ = runOSA("set volume output muted \(muted)") }
 
-    private func setVolume(_ value: Int) {
-        let script = NSAppleScript(source: "set volume output volume \(max(0, min(100, value)))")
+    @discardableResult
+    private func runOSA(_ source: String) -> NSAppleEventDescriptor? {
         var error: NSDictionary?
-        script?.executeAndReturnError(&error)
+        return NSAppleScript(source: source)?.executeAndReturnError(&error)
     }
 }

@@ -20,5 +20,7 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BetoDicta graba tu voz para transcribirla con ElevenLabs Scribe.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>BetoDicta pausa la música y los videos que estés reproduciendo mientras dictas, y los reanuda al terminar.</string>
 </dict>
 </plist>

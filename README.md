@@ -14,6 +14,7 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 - **Keyterms**: tu vocabulario personal viaja al modelo — nombres propios y términos técnicos salen bien a la primera
 - **Reemplazos**: correcciones automáticas post-transcripción (palabra completa, sin distinguir mayúsculas)
 - **Caja negra**: cada dictado guarda audio y texto en `historial/año/mes/día/` — el audio se escribe a disco EN VIVO chunk a chunk; un crash no te roba ni un segundo
+- **Pausa real de multimedia**: al dictar pausa lo que suene (Edge, Chrome, Music, Spotify, YouTube…) y lo reanuda al terminar, además de bajar el volumen; usa el estado real de reproducción, sin bug de toggle
 - **Guardián del silencio**: si te olvidas la tecla abierta, se cierra solo tras N segundos sin voz (no le regalas plata a la nube)
 - **Odómetro**: minutos dictados por día/semana/mes/año y costo estimado, en el menú
 - **Copiar último dictado**: rescate en un clic desde el menú
@@ -84,6 +85,8 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 ## Créditos
 
 Creado por **Alberto Aldás** ([@btoaldas](https://github.com/btoaldas)) en compañía de **Claude** (Anthropic) — programado a pura voz, dictándole a las mismas herramientas que lo inspiraron.
+
+La pausa de multimedia usa [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) de Jonas van den Berg (BSD-3-Clause).
 
 Inspirado en el gran corazón open source de [Handy](https://github.com/cjpais/Handy) de **@cjpais** — si prefieres dictado 100% local y gratuito, empieza por ahí.
 

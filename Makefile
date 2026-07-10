@@ -13,7 +13,9 @@ bundle: build/release/$(APP)
 	mkdir -p $(BUNDLE)/Contents/MacOS
 	cp build/release/$(APP) $(BUNDLE)/Contents/MacOS/
 	cp Info.plist $(BUNDLE)/Contents/
-	codesign --force --deep --sign - $(BUNDLE)
+	mkdir -p $(BUNDLE)/Contents/Resources
+	cp -R Resources/ $(BUNDLE)/Contents/Resources/
+	codesign --force --deep --sign "BetoDicta Self Signed" $(BUNDLE)
 	@echo "Listo: $(BUNDLE)"
 
 install: bundle

@@ -3,6 +3,12 @@ import Foundation
 // MARK: - Registro simple (~/.betodicta/betodicta.log) para diagnosticar sin adivinar
 
 enum Log {
+    /// Nota de depuración: solo se escribe si modo_desarrollo está activo.
+    static func debug(_ message: String) {
+        guard Config.devMode() else { return }
+        write("🔧 " + message)
+    }
+
     static func write(_ message: String) {
         let url = Config.dir.appendingPathComponent("betodicta.log")
         let formatter = DateFormatter()
