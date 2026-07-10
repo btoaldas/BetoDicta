@@ -45,7 +45,19 @@ o exporta la variable de entorno `ELEVENLABS_API_KEY`.
 
 ### Permisos de macOS
 
-BetoDicta necesita **Micrófono**, **Monitorización de entrada** (para la tecla `fn`) y **Accesibilidad** (para pegar el texto). macOS los pedirá al primer uso. La app se firma con un certificado propio estable, así que los permisos se conservan entre recompilaciones.
+BetoDicta necesita **Micrófono**, **Monitorización de entrada** (para la tecla `fn`) y **Accesibilidad** (para pegar el texto). macOS los pedirá al primer uso.
+
+### Firma de código (opcional pero recomendado)
+
+macOS identifica cada app por su firma. Con firma **ad-hoc** (por defecto), cada `make install` genera una firma distinta y macOS te vuelve a pedir los permisos. Para que **los permisos se conserven entre recompilaciones**, crea tu propio certificado — una sola vez:
+
+```bash
+./scripts/crear-certificado.sh
+```
+
+Genera un certificado personal `BetoDicta Self Signed` en **tu** llavero. El `make install` lo detecta y firma con él automáticamente (si no existe, cae a ad-hoc sin fallar).
+
+**¿Por qué no viene un certificado en el repo?** Porque un certificado de firma es una **identidad personal**, como tu firma o la llave de tu casa: compartir su clave privada dejaría que cualquiera suplante tu app. Por eso cada quien crea el suyo y la clave privada nunca sale de tu Mac. No es un secreto tan crítico como una API key, pero la buena práctica es que sea tuyo e intransferible.
 
 ## Configuración
 

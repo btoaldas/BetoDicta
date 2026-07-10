@@ -15,7 +15,9 @@ bundle: build/release/$(APP)
 	cp Info.plist $(BUNDLE)/Contents/
 	mkdir -p $(BUNDLE)/Contents/Resources
 	cp -R Resources/ $(BUNDLE)/Contents/Resources/
-	codesign --force --deep --sign "BetoDicta Self Signed" $(BUNDLE)
+	@IDENTITY=$$(security find-certificate -c "BetoDicta Self Signed" >/dev/null 2>&1 && echo "BetoDicta Self Signed" || echo "-"); \
+	echo "Firmando con: $$IDENTITY"; \
+	codesign --force --deep --sign "$$IDENTITY" $(BUNDLE)
 	@echo "Listo: $(BUNDLE)"
 
 install: bundle
