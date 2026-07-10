@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.15.0"
+    static let numero = "0.16.0"
     static let fecha = "2026-07-10"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.16.0", "2026-07-10", [
+            "Actualización con un clic: la app revisa GitHub, descarga la versión nueva y se reinstala sola",
+            "Botón 'Verificar actualización' junto a la versión",
+        ]),
         ("0.15.0", "2026-07-10", [
             "Proveedores separados por familia: Voxtral, Nemotron y Canary, cada uno con su switch y su modelo",
             "Cascada de failover con arrastre (drag & drop) y etiquetas EN VIVO",

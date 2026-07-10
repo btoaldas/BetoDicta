@@ -286,12 +286,56 @@ struct SettingsView: View {
                 .padding(.vertical, 2)
             }
             Spacer()
-            Text("v\(Version.numero)")
-                .font(.caption2).foregroundStyle(.tertiary)
-                .padding(.horizontal, 20).padding(.bottom, 12)
+            pieActualizacion
         }
         .frame(width: 190)
         .background(Color(nsColor: .underPageBackgroundColor))
+    }
+
+    // ---- Pie del sidebar: versión + actualización con un clic ----
+    @State private var estadoUpdate: Updater.Estado = .reposo
+
+    private var pieActualizacion: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("v\(Version.numero)")
+                .font(.caption2).foregroundStyle(.tertiary)
+            switch estadoUpdate {
+            case .reposo:
+                Button("Verificar actualización") {
+                    estadoUpdate = .buscando
+                    Updater.verificar { estadoUpdate = $0 }
+                }
+                .buttonStyle(.plain).font(.caption2).foregroundStyle(acento)
+            case .buscando:
+                Label("Buscando…", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption2).foregroundStyle(.secondary)
+            case .alDia:
+                Label("Ya estás en la última versión", systemImage: "checkmark.circle.fill")
+                    .font(.caption2).foregroundStyle(.green)
+            case .disponible(let v, let dmg):
+                Button {
+                    estadoUpdate = .descargando
+                    Updater.actualizar(dmg: dmg) { estadoUpdate = $0 }
+                } label: {
+                    Label("Actualizar a v\(v)", systemImage: "arrow.down.circle.fill")
+                        .font(.caption2).bold()
+                }
+                .buttonStyle(.borderedProminent).tint(acento).controlSize(.small)
+            case .descargando:
+                Label("Descargando… se reiniciará sola", systemImage: "arrow.down.circle")
+                    .font(.caption2).foregroundStyle(.secondary)
+            case .error(let msg):
+                Button {
+                    estadoUpdate = .buscando
+                    Updater.verificar { estadoUpdate = $0 }
+                } label: {
+                    Label(msg, systemImage: "exclamationmark.triangle")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16).padding(.bottom, 12)
     }
 
     private var encabezado: some View {
