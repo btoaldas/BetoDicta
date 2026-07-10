@@ -137,6 +137,13 @@ enum Failover {
             completion(.failure(ultimoError ?? ScribeError.sinTexto)); return
         }
         let p = cadena[idx]
+        // Red hacia ElevenLabs recién caída: saltarlo sin gastar su timeout —
+        // el siguiente de la cascada responde ya.
+        if p.id == "elevenlabs" && StreamClient.enCuarentena {
+            Log.log(.ia, "failover: ElevenLabs en cuarentena (red caída) → siguiente")
+            intentar(wav: wav, cadena: cadena, idx: idx + 1, ultimoError: ultimoError, completion: completion)
+            return
+        }
         Log.log(.ia, "failover: intentando \(p.nombre) (#\(idx + 1))")
 
         let siguiente: (Result<String, Error>) -> Void = { r in

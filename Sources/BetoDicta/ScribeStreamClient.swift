@@ -23,12 +23,34 @@ final class StreamClient: NSObject {
     static func registrarFallo() { ultimoFallo = Date() }
     static func registrarExito() { ultimoFallo = nil }
 
+    /// true cuando el servidor confirmó la sesión (session_started).
+    private(set) var conectado = false
+
     func connect(completion: @escaping (Result<Void, Error>) -> Void) {
         guard let key = Config.apiKey() else {
             completion(.failure(ScribeError.sinApiKey))
             return
         }
         committedPieces = []
+
+        // Tope de conexión: con red mala el TLS puede colgarse un minuto;
+        // a los 4 s cortamos y el dictado sigue por otro camino.
+        var respondido = false
+        let responder: (Result<Void, Error>) -> Void = { [weak self] r in
+            guard !respondido else { return }
+            respondido = true
+            if case .success = r { self?.conectado = true }
+            completion(r)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard !respondido else { return }
+            self?.disconnect()
+            responder(.failure(ScribeError.ws("conexión tardó más de 4 s")))
+        }
+        conectar(key: key, completion: responder)
+    }
+
+    private func conectar(key: String, completion: @escaping (Result<Void, Error>) -> Void) {
 
         var components = URLComponents(string: "wss://api.elevenlabs.io/v1/speech-to-text/realtime")!
         var items = [
@@ -130,7 +152,13 @@ final class StreamClient: NSObject {
             guard let self else { return }
             switch result {
             case .failure:
-                return // conexión cerrada
+                // Conexión muerta a mitad del dictado: marcarlo para que el
+                // cierre tome la ruta de rescate (cascada con el wav completo).
+                DispatchQueue.main.async {
+                    self.conectado = false
+                    StreamClient.registrarFallo()
+                }
+                return
             case .success(let message):
                 if case .string(let text) = message { self.handle(text) }
                 self.receiveLoop()

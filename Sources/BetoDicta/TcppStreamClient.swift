@@ -75,10 +75,16 @@ final class TcppStreamClient {
         Log.log(.ia, "beto-stream arrancó (pid \(process.processIdentifier)) con \(modelo)")
     }
 
+    /// true una vez encolado el cierre de stdin — protegido por colaEscritura.
+    private var entradaCerrada = false
+
     /// PCM int16 16 kHz mono, tal cual sale del Recorder.
+    /// El fd se toca SOLO dentro de colaEscritura y con el guard de cierre:
+    /// pedir .fileDescriptor a un handle ya cerrado crashea con NSException.
     func send(chunk: Data) {
-        let fd = entrada.fileHandleForWriting.fileDescriptor
-        colaEscritura.async {
+        colaEscritura.async { [weak self] in
+            guard let self, !self.entradaCerrada else { return }
+            let fd = self.entrada.fileHandleForWriting.fileDescriptor
             chunk.withUnsafeBytes { buf in
                 var restante = buf.count
                 var p = buf.baseAddress!
@@ -94,15 +100,21 @@ final class TcppStreamClient {
 
     /// Fin del dictado: cerrar stdin → el motor hace finalize y emite {"f":…}.
     func finish() {
-        colaEscritura.async { [entrada] in
-            try? entrada.fileHandleForWriting.close()
+        colaEscritura.async { [weak self] in
+            guard let self, !self.entradaCerrada else { return }
+            self.entradaCerrada = true
+            try? self.entrada.fileHandleForWriting.close()
         }
     }
 
     func cancel() {
         terminado = true
         salida.fileHandleForReading.readabilityHandler = nil
-        colaEscritura.async { [entrada] in try? entrada.fileHandleForWriting.close() }
+        colaEscritura.async { [weak self] in
+            guard let self, !self.entradaCerrada else { return }
+            self.entradaCerrada = true
+            try? self.entrada.fileHandleForWriting.close()
+        }
         if process.isRunning { process.terminate() }
     }
 

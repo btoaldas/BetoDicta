@@ -95,6 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         liveTimer?.invalidate()
         liveTimer = nil
         _ = recorder.stop()
+        entregaVivo = nil
+        vivoBuffer = Data()
         stream?.disconnect()
         stream = nil
         tcppStream?.cancel()
@@ -628,130 +630,133 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let history = HistoryWriter()
         self.history = history
 
-        // Streaming local NATIVO: proveedor #1 local con modelo streaming
-        // (Nemotron 3.5, Voxtral Realtime) → texto en vivo 100% offline.
-        if let primero = Providers.cadena().first,
-           ["nemotron_local", "voxtral_local", "canary_local"].contains(primero.id),
-           TcppStreamClient.disponible(proveedor: primero.id) {
-            let client = TcppStreamClient(proveedor: primero.id)
-            self.tcppStream = client
-            client.onPartial = { [weak self] texto in
-                guard let self, self.recorder.isRecording else { return }
-                self.lastPartial = texto
-                self.panel.update(texto)
-                self.history?.savePartial(texto)
-            }
-            recorder.onChunk = { [weak client] chunk in
-                history.append(chunk: chunk)
-                client?.send(chunk: chunk)
-            }
-            do {
-                try client.start()
-                try recorder.start()
-                armEsc()
-                media.dictationStarted()
-                playSound("Tink")
-                panel.show("Escuchando (local en vivo)… (\(tecla) termina)")
-            } catch {
-                self.tcppStream = nil
-                panel.show("⚠️ \(error.localizedDescription)")
-                panel.hide(after: 3)
-                history.discard(); self.history = nil
-            }
+        // EL MICRÓFONO ARRANCA YA — la conexión al motor en vivo (nube o
+        // local) ocurre EN PARALELO y recibe después el audio acumulado.
+        // Nada se pierde y no hay espera de "Conectando…".
+        recorder.onChunk = { [weak self] chunk in
+            history.append(chunk: chunk)
+            // Serializado en main: orden garantizado hacia el motor en vivo.
+            DispatchQueue.main.async { self?.entregarVivo(chunk) }
+        }
+        entregaVivo = nil
+        vivoBuffer = Data()
+        do {
+            try recorder.start()
+            armEsc()
+            media.dictationStarted()
+            playSound("Tink")
+            panel.show("Escuchando… (\(tecla) para terminar)")
+        } catch {
+            panel.show("⚠️ Micrófono: \(error.localizedDescription)")
+            panel.hide(after: 3)
+            history.discard(); self.history = nil
             return
         }
 
-        if isStreamingModel {
-            // Circuit breaker: si el WS acaba de fallar (red caída), no
-            // volver a esperar el timeout — grabar directo y failover al final.
+        // Motor en vivo según el #1 de la cascada (con plan B transparente).
+        let primero = Providers.cadena().first
+        if let id = primero?.id, ["nemotron_local", "voxtral_local", "canary_local"].contains(id),
+           TcppStreamClient.disponible(proveedor: id) {
+            arrancarTcppVivo(proveedor: id, history: history)
+        } else if isStreamingModel {
             if StreamClient.enCuarentena {
-                recorder.onChunk = { chunk in history.append(chunk: chunk) }
-                do {
-                    try recorder.start()
-                    armEsc()
-                    media.dictationStarted()
-                    playSound("Tink")
-                    panel.show("Escuchando (red caída — se transcribe al soltar)…")
-                } catch {
-                    panel.show("⚠️ Micrófono: \(error.localizedDescription)")
-                    panel.hide(after: 3)
-                    history.discard(); self.history = nil
-                }
-                return
-            }
-            panel.show("Conectando con Scribe…")
-            let stream = StreamClient()
-            self.stream = stream
-            stream.onPartial = { [weak self] text in
-                guard let self else { return }
-                self.lastPartial = text
-                let done = stream.fullText()
-                let visible = done.isEmpty ? text : done + " " + text
-                self.panel.update(visible)
-                history.savePartial(visible)
-            }
-            stream.onCommitted = { [weak self] full in
-                self?.panel.update(full)
-                history.savePartial(full, force: true)
-            }
-            stream.onError = { [weak self] message in
-                Log.write("stream: ERROR \(message)")
-                self?.panel.update("⚠️ \(message)")
-            }
-            stream.connect { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .failure(let error):
-                    // Sin streaming (sin red/saldo): grabar igual y usar el
-                    // failover al terminar. El dictado no se pierde.
-                    Log.log(.ia, "streaming no conectó (\(error.localizedDescription)) → grabando para failover")
-                    StreamClient.registrarFallo()
-                    self.stream = nil
-                    self.recorder.onChunk = { chunk in history.append(chunk: chunk) }
-                    do {
-                        try self.recorder.start()
-                        self.armEsc()
-                        self.media.dictationStarted()
-                        self.playSound("Tink")
-                        self.panel.update("Escuchando (sin conexión)… (\(self.tecla) termina)")
-                    } catch {
-                        self.panel.update("⚠️ Micrófono: \(error.localizedDescription)")
-                        self.panel.hide(after: 3)
-                        history.discard(); self.history = nil
-                    }
-                case .success:
-                    StreamClient.registrarExito()
-                    self.recorder.onChunk = { [weak stream] chunk in
-                        history.append(chunk: chunk)
-                        stream?.send(chunk: chunk)
-                    }
-                    do {
-                        try self.recorder.start()
-                        self.armEsc()
-                        self.media.dictationStarted()
-                        self.playSound("Tink")
-                        self.panel.update("Escuchando… (\(self.tecla) para terminar)")
-                    } catch {
-                        self.panel.update("⚠️ Micrófono: \(error.localizedDescription)")
-                        self.panel.hide(after: 3)
-                    }
-                }
+                // Red recién caída: ni intentar la nube — plan B directo.
+                planBVivo(history: history)
+            } else {
+                conectarScribeVivo(history: history)
             }
         } else {
-            recorder.onChunk = { chunk in
-                history.append(chunk: chunk)
+            startLiveLocal(history: history)
+        }
+    }
+
+    /// Entrega serializada de chunks al motor en vivo activo. Mientras el
+    /// motor no está listo, los chunks se acumulan en vivoBuffer (solo main);
+    /// al fijar el motor recibe ese buffer como backlog y luego el flujo
+    /// directo — mismo carril, cero duplicados, cero pérdidas.
+    private var entregaVivo: ((Data) -> Void)?
+    private var vivoBuffer = Data()
+    private func entregarVivo(_ chunk: Data) {
+        if let entrega = entregaVivo { entrega(chunk) } else { vivoBuffer.append(chunk) }
+    }
+    /// Fija el motor en vivo drenando primero el backlog (todo en main).
+    private func fijarMotorVivo(_ entrega: @escaping (Data) -> Void) {
+        if !vivoBuffer.isEmpty { entrega(vivoBuffer) }
+        vivoBuffer = Data()
+        entregaVivo = entrega
+    }
+
+    /// Streaming local nativo (Nemotron/Voxtral RT) con el audio ya acumulado.
+    private func arrancarTcppVivo(proveedor id: String, history: HistoryWriter) {
+        let client = TcppStreamClient(proveedor: id)
+        client.onPartial = { [weak self, weak client] texto in
+            // Guard por GENERACIÓN: un parcial rezagado de un dictado ya
+            // cerrado no debe pintar ni escribir el historial del siguiente.
+            guard let self, let client, self.tcppStream === client,
+                  self.recorder.isRecording else { return }
+            self.lastPartial = texto
+            self.panel.update(texto)
+            history.savePartial(texto)
+        }
+        do {
+            try client.start()
+            self.tcppStream = client
+            // Backlog del buffer + flujo directo: mismo carril en main.
+            fijarMotorVivo { [weak client] chunk in client?.send(chunk: chunk) }
+            panel.update("Escuchando (local en vivo)… (\(tecla) termina)")
+        } catch {
+            Log.log(.ia, "tcpp vivo no arrancó (\(error.localizedDescription)) — batch al soltar")
+        }
+    }
+
+    /// Nube en vivo (ElevenLabs). Si no conecta en 4 s → plan B transparente.
+    private func conectarScribeVivo(history: HistoryWriter) {
+        let stream = StreamClient()
+        self.stream = stream
+        stream.onPartial = { [weak self, weak stream] text in
+            guard let self, let stream, self.stream === stream,
+                  self.recorder.isRecording else { return }
+            self.lastPartial = text
+            let done = stream.fullText()
+            let visible = done.isEmpty ? text : done + " " + text
+            self.panel.update(visible)
+            history.savePartial(visible)
+        }
+        stream.onCommitted = { [weak self, weak stream] full in
+            guard let self, let stream, self.stream === stream,
+                  self.recorder.isRecording else { return }
+            self.panel.update(full)
+            history.savePartial(full, force: true)
+        }
+        stream.onError = { message in
+            Log.write("stream: ERROR \(message)")
+        }
+        stream.connect { [weak self] result in
+            guard let self, self.recorder.isRecording else { return }
+            switch result {
+            case .failure(let error):
+                Log.log(.ia, "streaming no conectó (\(error.localizedDescription)) → plan B")
+                StreamClient.registrarFallo()
+                self.stream = nil
+                self.planBVivo(history: history)
+            case .success:
+                StreamClient.registrarExito()
+                self.fijarMotorVivo { [weak stream] chunk in stream?.send(chunk: chunk) }
             }
-            do {
-                try recorder.start()
-                armEsc()
-                media.dictationStarted()
-                playSound("Tink")
-                panel.show("Escuchando… (\(tecla) para terminar)")
-                startLiveLocal(history: history)
-            } catch {
-                panel.show("⚠️ Micrófono: \(error.localizedDescription)")
-                panel.hide(after: 3)
-            }
+        }
+    }
+
+    /// La nube en vivo no está: el siguiente streaming LOCAL de la cascada
+    /// toma el mando como si siempre hubiera sido el #1. Si no hay ninguno,
+    /// se sigue grabando y la cascada batch resuelve al soltar.
+    private func planBVivo(history: HistoryWriter) {
+        if let id = Providers.cadena().first(where: {
+            ["nemotron_local", "voxtral_local", "canary_local"].contains($0.id)
+                && TcppStreamClient.disponible(proveedor: $0.id)
+        })?.id {
+            arrancarTcppVivo(proveedor: id, history: history)
+        } else {
+            startLiveLocal(history: history)
         }
     }
 
@@ -779,11 +784,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             WhisperServer.transcribe(wav: HistoryWriter.wavData(pcm: pcm)) { [weak self] r in
                 guard let self else { return }
                 self.liveEnVuelo = false
-                // Solo pintar si seguimos grabando (evita pisar el resultado final)
-                if case .success(let texto) = r, self.recorder.isRecording, !texto.isEmpty {
+                // Solo pintar si ESTE dictado sigue vivo (no el siguiente)
+                if case .success(let texto) = r, self.recorder.isRecording,
+                   self.history === history, !texto.isEmpty {
                     self.lastPartial = texto
                     self.panel.update(texto)
-                    self.history?.savePartial(texto)
+                    history.savePartial(texto)
                 }
             }
         }
@@ -798,13 +804,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         liveTimer = nil
         let wav = recorder.stop()
         let seconds = Double(wav.count - 44) / 32000.0
+        // Cortar la entrega en vivo YA: un chunk rezagado en main no debe
+        // tocar el pipe/WS que estamos por cerrar.
+        entregaVivo = nil
+        vivoBuffer = Data()
+
+        // El HistoryWriter de ESTE dictado viaja capturado por las entregas
+        // asíncronas: una entrega tardía jamás toca el historial del próximo.
+        let historyActual = self.history
+        self.history = nil
+        let ultimoParcial = lastPartial
+
+        func rescatarConCascada(_ etiquetaFallo: String) {
+            Failover.transcribe(wav: wav) { [weak self] r in
+                switch r {
+                case .success(let (raw, proveedor)):
+                    self?.deliver(raw: raw, wav: wav, via: proveedor, history: historyActual)
+                case .failure(let error):
+                    Log.log(.ia, "failover agotado: \(error.localizedDescription)")
+                    if !ultimoParcial.isEmpty {
+                        // Último recurso: el parcial que alcanzó a llegar.
+                        self?.deliver(raw: ultimoParcial, wav: wav,
+                                      via: "\(etiquetaFallo) (parcial)", history: historyActual)
+                    } else {
+                        historyActual?.finish(wav: wav, finalText: "")
+                        self?.avisarSiLibre("⚠️ \(etiquetaFallo) — audio guardado")
+                    }
+                }
+            }
+        }
 
         // Streaming local nativo: cerrar el audio y esperar el texto final.
         if let tcpp = tcppStream {
             self.tcppStream = nil
             guard seconds > 0.4 else {
                 tcpp.cancel()
-                history?.discard(); history = nil
+                historyActual?.discard()
                 panel.update("Muy corto — nada que transcribir")
                 panel.hide(after: 1.2)
                 return
@@ -812,76 +847,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.update("⏳ Cerrando dictado…")
             var entregado = false
             tcpp.onFinal = { [weak self] final in
-                guard let self, !entregado else { return }
+                guard !entregado else { return }
                 entregado = true
                 if final.isEmpty {
-                    // Motor cerró sin texto: que la cascada normal lo rescate.
-                    Failover.transcribe(wav: wav) { [weak self] r in
-                        if case .success(let (raw, proveedor)) = r {
-                            self?.deliver(raw: raw, wav: wav, via: proveedor)
-                        } else {
-                            self?.history?.finish(wav: wav, finalText: "")
-                            self?.history = nil
-                            self?.panel.update("⚠️ Sin texto — audio guardado")
-                            self?.panel.hide(after: 3)
-                        }
-                    }
+                    rescatarConCascada("Sin texto")
                 } else {
-                    self.deliver(raw: final, wav: wav, via: "Nemotron (en vivo)")
+                    self?.deliver(raw: final, wav: wav, via: "Local (en vivo)", history: historyActual)
                 }
             }
             tcpp.finish()
             // Tope: si el motor no responde en 20 s, cascada normal.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
                 guard !entregado else { return }
                 entregado = true
                 tcpp.cancel()
                 Log.log(.ia, "beto-stream no entregó el final → failover")
-                Failover.transcribe(wav: wav) { [weak self] r in
-                    if case .success(let (raw, proveedor)) = r {
-                        self?.deliver(raw: raw, wav: wav, via: proveedor)
-                    } else {
-                        self?.history?.finish(wav: wav, finalText: "")
-                        self?.history = nil
-                        self?.panel.update("⚠️ Todos fallaron — audio guardado")
-                        self?.panel.hide(after: 3)
-                    }
-                }
+                rescatarConCascada("Motor local no respondió")
             }
             return
         }
 
-        if let stream {
+        if let stream, stream.conectado {
             guard seconds > 0.4 else {
                 stream.disconnect()
                 self.stream = nil
-                history?.discard()
-                history = nil
+                historyActual?.discard()
                 panel.update("Muy corto — nada que transcribir")
                 panel.hide(after: 1.2)
                 return
             }
             panel.update("⏳ Cerrando dictado…")
             stream.commit()
-            // Esperar el committed final (con tope de 6 s y respaldo al último parcial)
+            // Esperar el committed final; si no llega en 6 s la red murió a
+            // mitad del dictado → el wav completo va por la cascada (no se
+            // entrega un parcial recortado como si fuera el dictado entero).
             var finished = false
-            let finish: (String) -> Void = { [weak self] raw in
-                guard let self, !finished else { return }
+            stream.onCommitted = { [weak self] full in
+                guard !finished else { return }
                 finished = true
                 stream.disconnect()
-                self.stream = nil
-                self.deliver(raw: raw, wav: wav, via: "ElevenLabs (en vivo)")
+                self?.stream = nil
+                if full.isEmpty {
+                    rescatarConCascada("Sin texto")
+                } else {
+                    self?.deliver(raw: full, wav: wav, via: "ElevenLabs (en vivo)", history: historyActual)
+                }
             }
-            stream.onCommitted = { full in finish(full) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
-                guard let self, !finished else { return }
-                let fallback = stream.fullText().isEmpty ? self.lastPartial : stream.fullText()
-                finish(fallback)
+                guard !finished else { return }
+                finished = true
+                Log.log(.ia, "committed no llegó en 6s (red murió a mitad) → failover con el wav")
+                StreamClient.registrarFallo()
+                stream.disconnect()
+                self?.stream = nil
+                rescatarConCascada("Red se cayó")
             }
         } else {
+            // Un WS que nunca llegó a conectar se limpia aquí: el audio
+            // completo está en el wav y la cascada batch lo resuelve.
+            stream?.disconnect()
+            stream = nil
             guard seconds > 0.4 else {
-                history?.discard()
-                history = nil
+                historyActual?.discard()
                 panel.update("Muy corto — nada que transcribir")
                 panel.hide(after: 1.2)
                 return
@@ -891,20 +918,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Failover.transcribe(wav: wav) { [weak self] result in
                 switch result {
                 case .success(let (raw, proveedor)):
-                    if proveedor != "ElevenLabs Scribe" { self?.panel.update("vía \(proveedor)") }
-                    self?.deliver(raw: raw, wav: wav, via: proveedor)
+                    self?.deliver(raw: raw, wav: wav, via: proveedor, history: historyActual)
                 case .failure(let error):
-                    self?.history?.finish(wav: wav, finalText: "")
-                    self?.history = nil
-                    self?.panel.update("⚠️ Todos los proveedores fallaron — audio guardado")
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
-                    self?.panel.hide(after: 4)
+                    historyActual?.finish(wav: wav, finalText: "")
+                    self?.avisarSiLibre("⚠️ Todos los proveedores fallaron — audio guardado")
                 }
             }
         }
     }
 
-    private func deliver(raw: String, wav: Data, via proveedor: String) {
+    /// Mensaje al panel SOLO si no hay otro dictado en curso (una entrega
+    /// tardía no debe pisar el panel del dictado siguiente).
+    private func avisarSiLibre(_ mensaje: String) {
+        guard !recorder.isRecording else { return }
+        panel.update(mensaje)
+        panel.hide(after: 3)
+    }
+
+    private func deliver(raw: String, wav: Data, via proveedor: String, history: HistoryWriter?) {
         let segundos = Double(wav.count - 44) / 32000.0
         UsageLog.record(provider: proveedor, seconds: segundos)
 
@@ -920,17 +952,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         guard !trasReglas.isEmpty else {
             history?.finish(wav: wav, finalText: "")
-            history = nil
-            panel.update("(silencio)")
-            panel.hide(after: 1.8)
+            avisarSiLibre("(silencio)")
             return
         }
         // Paso opcional: pulir con IA → luego traducir (si están activos)
         let seguir: (String) -> Void = { [weak self] texto in
-            self?.talVezTraducir(texto, rawText: crudo, wav: wav)
+            self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)
         }
         if Config.postProcess(), Config.groqKey() != nil {
-            panel.update("🤖 Puliendo…")
+            if !recorder.isRecording { panel.update("🤖 Puliendo…") }
             LLMPostProcess.enhance(trasReglas) { pulido in
                 if pulido != trasReglas { Log.write("  3·IA:         \(pulido)") }
                 seguir(pulido)
@@ -941,29 +971,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Si "traducir" está activo, traduce antes de entregar; si no, entrega directo.
-    private func talVezTraducir(_ text: String, rawText: String, wav: Data) {
+    private func talVezTraducir(_ text: String, rawText: String, wav: Data, history: HistoryWriter?) {
         if Config.translate(), Config.groqKey() != nil {
             let idioma = Config.translateTo()
-            panel.update("🌐 Traduciendo a \(idioma)…")
+            if !recorder.isRecording { panel.update("🌐 Traduciendo a \(idioma)…") }
             Translate.to(idioma, text: text) { [weak self] traducido in
                 Log.write("  4·traducido:  \(traducido)")
                 Log.write("  ✓ entregado:  \(traducido)")
-                self?.finishDelivery(traducido, rawText: rawText, wav: wav)
+                self?.finishDelivery(traducido, rawText: rawText, wav: wav, history: history)
             }
         } else {
             Log.write("  ✓ entregado:  \(text)")
-            finishDelivery(text, rawText: rawText, wav: wav)
+            finishDelivery(text, rawText: rawText, wav: wav, history: history)
         }
     }
 
-    private func finishDelivery(_ text: String, rawText: String, wav: Data) {
+    private func finishDelivery(_ text: String, rawText: String, wav: Data, history: HistoryWriter?) {
         // El .txt guarda SOLO lo entregado, limpio. El crudo queda en el log.
         history?.finish(wav: wav, finalText: text)
-        history = nil
         pasteText(text)
         playSound("Glass")
-        panel.update("✓ " + text)
-        panel.hide(after: 1.8)
+        // Si ya hay otro dictado grabando, no pisar su panel.
+        if !recorder.isRecording {
+            panel.update("✓ " + text)
+            panel.hide(after: 1.8)
+        }
     }
 }
 

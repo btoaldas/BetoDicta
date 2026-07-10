@@ -7,6 +7,9 @@ import Carbon.HIToolbox
 final class Recorder {
     private let engine = AVAudioEngine()
     private var samples = Data()
+    // El tap escribe desde el hilo de audio y main lee a mitad de grabación
+    // (backlog en vivo): sin este candado es una carrera de datos real.
+    private let candado = NSLock()
     private var converter: AVAudioConverter?
     private let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
 
@@ -15,7 +18,10 @@ final class Recorder {
     private(set) var isRecording = false
 
     /// PCM crudo acumulado hasta ahora (para transcripción parcial en vivo).
-    var pcmAcumulado: Data { samples }
+    var pcmAcumulado: Data {
+        candado.lock(); defer { candado.unlock() }
+        return samples
+    }
 
     func start() throws {
         samples = Data()
@@ -48,7 +54,9 @@ final class Recorder {
             }
             guard out.frameLength > 0, let ch = out.int16ChannelData else { return }
             let chunk = Data(bytes: ch[0], count: Int(out.frameLength) * 2)
+            self.candado.lock()
             self.samples.append(chunk)
+            self.candado.unlock()
             self.onChunk?(chunk)
 
             var sum: Double = 0
@@ -63,7 +71,14 @@ final class Recorder {
         }
 
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            // Sin esto el tap queda huérfano y el próximo start crashea
+            // (doble installTap en el mismo bus).
+            input.removeTap(onBus: 0)
+            throw error
+        }
         isRecording = true
     }
 
@@ -71,6 +86,7 @@ final class Recorder {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         isRecording = false
+        candado.lock(); defer { candado.unlock() }
         return wavFile(from: samples)
     }
 
