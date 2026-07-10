@@ -1,0 +1,67 @@
+import Foundation
+
+// MARK: - Motor transcribe.cpp (Nemotron, Parakeet, Canary… — el motor de Handy)
+//
+// CLI efímero: carga el modelo, transcribe y muere (los modelos son chicos,
+// ~500-750 MB, cargan en segundos). Sin glosario nativo — los reemplazos
+// corrigen después, como siempre. Nemotron 3.5 streaming es multilingüe
+// (40 locales) con puntuación y mayúsculas nativas.
+
+enum TranscribeCpp {
+    static var modelsDir: URL { Config.dir.appendingPathComponent("models") }
+
+    static var cliURL: URL? {
+        if let p = Bundle.main.path(forResource: "transcribe-cli", ofType: nil) { return URL(fileURLWithPath: p) }
+        let dev = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("transcribe.cpp/build/bin/transcribe-cli")
+        return FileManager.default.isExecutableFile(atPath: dev.path) ? dev : nil
+    }
+
+    /// Estado para la UI: qué le falta a este motor.
+    static func diagnostico(modelo archivo: String) -> String? {
+        if cliURL == nil { return "falta el motor transcribe.cpp (~/transcribe.cpp)" }
+        let m = modelsDir.appendingPathComponent(archivo)
+        guard FileManager.default.fileExists(atPath: m.path) else { return "falta descargar el modelo" }
+        return nil
+    }
+
+    static func run(wav: Data, modelo archivo: String,
+                    completion: @escaping (Result<String, Error>) -> Void) {
+        guard let cli = cliURL else {
+            completion(.failure(ScribeError.ws("transcribe-cli no encontrado"))); return
+        }
+        let modelURL = modelsDir.appendingPathComponent(archivo)
+        guard FileManager.default.fileExists(atPath: modelURL.path) else {
+            completion(.failure(ScribeError.ws("Falta el modelo — descárgalo en Modelos"))); return
+        }
+        DispatchQueue.global().async {
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("beto-\(UUID().uuidString).wav")
+            try? wav.write(to: tmp)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+
+            let task = Process()
+            task.executableURL = cli
+            task.arguments = ["-m", modelURL.path, "--language", "es-US", tmp.path]
+            let out = Pipe()
+            task.standardOutput = out
+            task.standardError = Pipe()
+            do {
+                try task.run()
+                let data = out.fileHandleForReading.readDataToEndOfFile()
+                task.waitUntilExit()
+                let salida = String(data: data, encoding: .utf8) ?? ""
+                // La transcripción viene en la línea "text: …"
+                let texto = salida.split(separator: "\n")
+                    .first { $0.hasPrefix("text: ") }
+                    .map { String($0.dropFirst("text: ".count)) }?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                DispatchQueue.main.async {
+                    texto.isEmpty ? completion(.failure(ScribeError.sinTexto))
+                                  : completion(.success(texto))
+                }
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+}

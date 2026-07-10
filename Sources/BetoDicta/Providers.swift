@@ -35,6 +35,8 @@ enum Providers {
     static let nuevos: [Provider] = [
         Provider(id: "voxtral_local", nombre: "Voxtral local", tipo: "local", activo: false,
                  orden: 99, modelo: "Voxtral-Mini-3B-2507-Q4_K_M.gguf"),
+        Provider(id: "tcpp_local", nombre: "Nemotron/Canary local", tipo: "local", activo: false,
+                 orden: 100, modelo: "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"),
     ]
 
     static func load() -> [Provider] {

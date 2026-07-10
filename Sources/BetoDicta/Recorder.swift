@@ -14,6 +14,9 @@ final class Recorder {
     var onLevel: ((Float) -> Void)?
     private(set) var isRecording = false
 
+    /// PCM crudo acumulado hasta ahora (para transcripción parcial en vivo).
+    var pcmAcumulado: Data { samples }
+
     func start() throws {
         samples = Data()
         let input = engine.inputNode

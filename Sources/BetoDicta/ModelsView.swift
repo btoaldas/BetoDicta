@@ -89,6 +89,28 @@ final class ProvidersModel: ObservableObject {
         recargar()
     }
 
+    // ---- Motor transcribe.cpp (Nemotron/Canary) ----
+
+    func descargarTcpp(_ m: TcppModelo) {
+        try? FileManager.default.createDirectory(at: TranscribeCpp.modelsDir, withIntermediateDirectories: true)
+        guard descargas[m.archivo] == nil, !m.descargado else { return }
+        bajarArchivo(url: m.url, destino: m.localURL, clave: m.archivo, nombre: m.archivo)
+    }
+    func borrarTcpp(_ m: TcppModelo) {
+        try? FileManager.default.removeItem(at: m.localURL)
+        Log.log(.ia, "modelo \(m.nombre) borrado")
+        objectWillChange.send()
+    }
+    func usarTcpp(_ m: TcppModelo) {
+        var lista = Providers.load()
+        if let i = lista.firstIndex(where: { $0.id == "tcpp_local" }) {
+            lista[i].modelo = m.archivo
+            lista[i].activo = true
+            Providers.save(lista)
+        }
+        recargar()
+    }
+
     /// Descarga genérica con progreso agregado por clave (un modelo puede
     /// tener varios archivos: el progreso mostrado es el del archivo en curso).
     private func bajarArchivo(url: URL, destino: URL, clave: String, nombre: String) {
@@ -232,6 +254,55 @@ struct ModelsView: View {
                             }.buttonStyle(.plain)
                         } else {
                             Button { m.descargarExotico(modelo) } label: {
+                                Image(systemName: "arrow.down.circle").foregroundStyle(acentoM)
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    .padding(10).background(Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+
+            // ── Motor transcribe.cpp (Nemotron/Canary — el motor de Handy) ──
+            seccion("Modelos locales (Nemotron/Canary)", "bolt.badge.clock") {
+                if TranscribeCpp.cliURL == nil {
+                    Label("Falta el motor transcribe.cpp (compilar en ~/transcribe.cpp)",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                } else {
+                    Text("Motor transcribe.cpp listo (el mismo de Handy). Livianos y muy rápidos; sin glosario nativo — los reemplazos corrigen después.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(ModelCatalog.transcribeCpp) { modelo in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(modelo.nombre).font(.subheadline).bold()
+                                if Providers.modelo(de: "tcpp_local") == modelo.archivo,
+                                   Providers.cadena().contains(where: { $0.id == "tcpp_local" }) {
+                                    Text("EN USO").font(.system(size: 8, weight: .bold))
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(acentoM).foregroundStyle(.white)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            Text("\(modelo.tamañoMB) MB · \(modelo.nota)")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let prog = m.descargas[modelo.archivo] {
+                            VStack(spacing: 2) {
+                                ProgressView(value: prog).frame(width: 60).tint(acentoM)
+                                Text("\(Int(prog * 100))%").font(.system(size: 9))
+                            }
+                        } else if modelo.descargado {
+                            Button("Usar") { m.usarTcpp(modelo) }
+                                .disabled(TranscribeCpp.cliURL == nil)
+                            Button { m.borrarTcpp(modelo) } label: {
+                                Image(systemName: "trash").foregroundStyle(.red)
+                            }.buttonStyle(.plain)
+                        } else {
+                            Button { m.descargarTcpp(modelo) } label: {
                                 Image(systemName: "arrow.down.circle").foregroundStyle(acentoM)
                             }.buttonStyle(.plain)
                         }

@@ -163,6 +163,8 @@ enum Failover {
             } else {
                 siguiente(.failure(ScribeError.ws(VoxtralServer.diagnostico ?? "voxtral no disponible")))
             }
+        case "tcpp_local":
+            TranscribeCpp.run(wav: wav, modelo: p.modelo ?? "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf") { siguiente($0) }
         default: siguiente(.failure(ScribeError.sinTexto))
         }
     }

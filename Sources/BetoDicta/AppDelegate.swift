@@ -92,6 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         media.dictationEnded()
         silenceTimer?.invalidate()
         silenceTimer = nil
+        liveTimer?.invalidate()
+        liveTimer = nil
         _ = recorder.stop()
         stream?.disconnect()
         stream = nil
@@ -691,9 +693,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 media.dictationStarted()
                 playSound("Tink")
                 panel.show("Escuchando… (\(tecla) para terminar)")
+                startLiveLocal(history: history)
             } catch {
                 panel.show("⚠️ Micrófono: \(error.localizedDescription)")
                 panel.hide(after: 3)
+            }
+        }
+    }
+
+    // MARK: Texto en vivo LOCAL (pseudo-streaming con whisper-server caliente)
+    //
+    // Cada ~1.6 s re-transcribe el audio acumulado contra el server residente
+    // y actualiza el panel — el efecto ElevenLabs, 100% offline. Solo corre
+    // cuando el primer proveedor local de la cadena es Whisper y el panel
+    // está visible; el resultado FINAL sigue saliendo del failover normal.
+    private var liveTimer: Timer?
+    private var liveEnVuelo = false
+
+    private func startLiveLocal(history: HistoryWriter) {
+        guard Config.panelVisible(),
+              Providers.cadena().first(where: { $0.tipo == "local" })?.id == "whisper_local" else { return }
+        liveTimer?.invalidate()
+        liveTimer = Timer.scheduledTimer(withTimeInterval: 1.6, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            guard self.recorder.isRecording else { timer.invalidate(); return }
+            guard WhisperServer.corriendo, !self.liveEnVuelo else { return }
+            let pcm = self.recorder.pcmAcumulado
+            guard pcm.count > 16000 else { return }   // >0.5 s de audio
+            self.liveEnVuelo = true
+            WhisperServer.transcribe(wav: HistoryWriter.wavData(pcm: pcm)) { [weak self] r in
+                guard let self else { return }
+                self.liveEnVuelo = false
+                // Solo pintar si seguimos grabando (evita pisar el resultado final)
+                if case .success(let texto) = r, self.recorder.isRecording, !texto.isEmpty {
+                    self.lastPartial = texto
+                    self.panel.update(texto)
+                    self.history?.savePartial(texto)
+                }
             }
         }
     }
@@ -703,6 +739,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         media.dictationEnded()
         silenceTimer?.invalidate()
         silenceTimer = nil
+        liveTimer?.invalidate()
+        liveTimer = nil
         let wav = recorder.stop()
         let seconds = Double(wav.count - 44) / 32000.0
 

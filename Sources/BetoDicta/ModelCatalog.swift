@@ -47,7 +47,36 @@ struct ExoticoModelo: Identifiable {
     }
 }
 
+// MARK: - Modelos del motor transcribe.cpp (el de Handy: Nemotron/Parakeet/Canary)
+
+struct TcppModelo: Identifiable {
+    var id: String { archivo }
+    let nombre: String
+    let repo: String
+    let archivo: String
+    let tamañoMB: Int
+    let nota: String
+
+    var url: URL { URL(string: "https://huggingface.co/\(repo)/resolve/main/\(archivo)")! }
+    var localURL: URL { TranscribeCpp.modelsDir.appendingPathComponent(archivo) }
+    var descargado: Bool { ExoticoModelo.esGGUFValido(localURL, esperadoMB: tamañoMB) }
+}
+
 enum ModelCatalog {
+    /// Modelos del motor transcribe.cpp (GGUF de handy-computer, verificados).
+    static let transcribeCpp: [TcppModelo] = [
+        TcppModelo(nombre: "Nemotron 3.5 Streaming",
+                   repo: "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf",
+                   archivo: "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
+                   tamañoMB: 751,
+                   nota: "NVIDIA · 40 idiomas · rapidísimo (32x) · puntuación nativa"),
+        TcppModelo(nombre: "Canary 1B Flash",
+                   repo: "handy-computer/canary-1b-flash-gguf",
+                   archivo: "canary-1b-flash-Q8_0.gguf",
+                   tamañoMB: 1048,
+                   nota: "NVIDIA · en/es/de/fr · calidad alta"),
+    ]
+
     /// Modelos que corren con llama.cpp (audio multimodal). Verificados en HF.
     static let exoticos: [ExoticoModelo] = [
         ExoticoModelo(nombre: "Voxtral Mini 3B",
