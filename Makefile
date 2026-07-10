@@ -20,6 +20,8 @@ bundle: build/release/$(APP)
 	@if [ -x native/beto-stream ]; then cp native/beto-stream $(BUNDLE)/Contents/Resources/bin/; fi
 	@if [ -x $(HOME)/transcribe.cpp/build/bin/transcribe-cli ]; then \
 		cp $(HOME)/transcribe.cpp/build/bin/transcribe-cli $(BUNDLE)/Contents/Resources/bin/; fi
+	@if [ -x $(HOME)/llama.cpp-static/build/bin/llama-server ]; then \
+		cp $(HOME)/llama.cpp-static/build/bin/llama-server $(BUNDLE)/Contents/Resources/bin/; fi
 	@if [ -x $(HOME)/whisper.cpp/build/bin/whisper-cli ]; then \
 		cp $(HOME)/whisper.cpp/build/bin/whisper-cli $(BUNDLE)/Contents/Resources/bin/; \
 		cp $(HOME)/whisper.cpp/build/bin/whisper-server $(BUNDLE)/Contents/Resources/bin/; \

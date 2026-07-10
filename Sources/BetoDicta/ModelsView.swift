@@ -233,7 +233,7 @@ struct ModelsView: View {
                 Text("Mistral · entienden contexto y respetan mejor las siglas. El Realtime dicta EN VIVO.")
                     .font(.caption).foregroundStyle(.secondary)
                 if VoxtralServer.serverBinURL == nil {
-                    Label("El Mini 3B requiere llama.cpp: brew install llama.cpp",
+                    Label("Falta el motor llama.cpp (viene incluido en la app instalada)",
                           systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
                 }

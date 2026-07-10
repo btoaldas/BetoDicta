@@ -29,7 +29,9 @@ enum VoxtralServer {
 
     static var serverBinURL: URL? {
         if let p = Bundle.main.path(forResource: "llama-server", ofType: nil, inDirectory: "bin") { return URL(fileURLWithPath: p) }
-        for ruta in ["/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]
+        let dev = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("llama.cpp-static/build/bin/llama-server")
+        for ruta in [dev.path, "/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]
         where FileManager.default.isExecutableFile(atPath: ruta) {
             return URL(fileURLWithPath: ruta)
         }
@@ -38,7 +40,7 @@ enum VoxtralServer {
 
     /// Estado para la UI: qué le falta a este motor para funcionar.
     static var diagnostico: String? {
-        if serverBinURL == nil { return "falta llama.cpp (brew install llama.cpp)" }
+        if serverBinURL == nil { return "falta el motor llama.cpp" }
         guard let m = Providers.modelo(de: "voxtral_local"),
               let cat = ModelCatalog.exoticos.first(where: { $0.archivos.first == m }) else {
             return "modelo no reconocido"
