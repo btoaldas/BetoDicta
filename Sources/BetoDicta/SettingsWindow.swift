@@ -436,6 +436,7 @@ struct SettingsView: View {
                 }
                 Text("Dictado por voz para macOS, hecho en Ecuador 🇪🇨 para el español latino.")
                     .font(.subheadline)
+                link("Página oficial — betodicta.eztic.ec", "https://betodicta.eztic.ec/")
                 link("Repositorio en GitHub", "https://github.com/btoaldas/BetoDicta")
                 Text("Licencia GPL-3.0 · libre para siempre").font(.caption).foregroundStyle(.secondary)
             }
