@@ -16,6 +16,9 @@ struct Config {
     static func hotkey() -> String { (json()["tecla"] as? String) ?? "fn" }
     static func maxSilence() -> TimeInterval { (json()["silencio_max_seg"] as? Double) ?? 120 }
     static func sounds() -> Bool { (json()["sonidos"] as? Bool) ?? true }
+    static func escCancels() -> Bool { (json()["esc_cancela"] as? Bool) ?? true }
+    static func duckMedia() -> Bool { (json()["atenuar_multimedia"] as? Bool) ?? true }
+    static func duckVolume() -> Int { (json()["volumen_dictado"] as? Int) ?? 1 }
     static func model() -> String { (json()["modelo"] as? String) ?? "scribe_v2_realtime" }
 
     /// Busca la API key en orden: variable de entorno → ~/.betodicta/.env → ~/.hermes/.env

@@ -3,7 +3,9 @@ BUNDLE = build/$(APP).app
 
 all: bundle
 
-build/release/$(APP): Sources/BetoDicta/main.swift Package.swift
+SOURCES := $(wildcard Sources/BetoDicta/*.swift)
+
+build/release/$(APP): $(SOURCES) Package.swift
 	swift build -c release --build-path build
 
 bundle: build/release/$(APP)

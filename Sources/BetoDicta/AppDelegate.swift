@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let panel = DictationPanel()
     private var stream: StreamClient?
     private var history: HistoryWriter?
+    private let media = MediaControl()
     private var hotKeyRef: EventHotKeyRef?
     private var lastVoice = Date()
     private var silenceTimer: Timer?
@@ -43,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Esc durante un dictado: cancela todo — no transcribe, no pega.
     private func cancelDictation() {
         guard recorder.isRecording else { return }
+        disarmEsc()
+        media.dictationEnded()
         silenceTimer?.invalidate()
         silenceTimer = nil
         _ = recorder.stop()
@@ -62,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.title = "🎙"
         let menu = NSMenu()
-        menu.addItem(withTitle: "BetoDicta v0.2 — \(tecla) para dictar (\(Config.model()))", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "BetoDicta v0.4 — \(tecla) para dictar (\(Config.model()))", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Editar configuración", action: #selector(openConfig), keyEquivalent: "")
         menu.addItem(withTitle: "Editar keyterms", action: #selector(openKeyterms), keyEquivalent: "")
@@ -80,13 +83,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
         registerHotKey()
 
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { DispatchQueue.main.async { self?.cancelDictation() } }
-        }
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { DispatchQueue.main.async { self?.cancelDictation() } }
-            return event
-        }
 
         recorder.onLevel = { [weak self] level in
             DispatchQueue.main.async {
@@ -153,10 +149,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Tecla
 
     private func registerHotKey() {
+        installCarbonHandler()
         if tecla.lowercased() == "fn" {
             registerFnKey()
         } else {
             registerFKey(named: tecla.lowercased())
+        }
+    }
+
+    /// Handler Carbon único: id 1 = tecla de dictado, id 2 = Esc (cancelar).
+    private func installCarbonHandler() {
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
+            var hotKeyID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                              EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            let delegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
+            DispatchQueue.main.async {
+                if hotKeyID.id == 1 { delegate.toggle() }
+                if hotKeyID.id == 2 { delegate.cancelDictation() }
+            }
+            return noErr
+        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
+    }
+
+    private var escHotKeyRef: EventHotKeyRef?
+
+    /// Esc se apropia SOLO durante el dictado — sin permisos extra.
+    private func armEsc() {
+        guard Config.escCancels(), escHotKeyRef == nil else { return }
+        let id = EventHotKeyID(signature: OSType(0x42544443), id: 2)
+        RegisterEventHotKey(UInt32(kVK_Escape), 0, id, GetApplicationEventTarget(), 0, &escHotKeyRef)
+    }
+
+    private func disarmEsc() {
+        if let ref = escHotKeyRef {
+            UnregisterEventHotKey(ref)
+            escHotKeyRef = nil
         }
     }
 
@@ -201,13 +231,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "f9": kVK_F9, "f10": kVK_F10, "f11": kVK_F11, "f12": kVK_F12,
         ]
         let keyCode = fKeys[name] ?? kVK_F6
-
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData in
-            let delegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
-            DispatchQueue.main.async { delegate.toggle() }
-            return noErr
-        }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
 
         let hotKeyID = EventHotKeyID(signature: OSType(0x42544443), id: 1) // "BTDC"
         RegisterEventHotKey(UInt32(keyCode), 0, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
@@ -276,7 +299,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }
                     do {
                         try self.recorder.start()
-                        self.playSound("Pop")
+                        self.armEsc()
+                        self.media.dictationStarted()
+                        self.playSound("Tink")
                         self.panel.update("Escuchando… (\(self.tecla) para terminar)")
                     } catch {
                         self.panel.update("⚠️ Micrófono: \(error.localizedDescription)")
@@ -290,7 +315,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             do {
                 try recorder.start()
-                playSound("Pop")
+                armEsc()
+                media.dictationStarted()
+                playSound("Tink")
                 panel.show("Escuchando… (\(tecla) para terminar)")
             } catch {
                 panel.show("⚠️ Micrófono: \(error.localizedDescription)")
@@ -300,6 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func stopAndTranscribe() {
+        disarmEsc()
+        media.dictationEnded()
         silenceTimer?.invalidate()
         silenceTimer = nil
         let wav = recorder.stop()
