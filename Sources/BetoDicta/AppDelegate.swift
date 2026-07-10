@@ -770,13 +770,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// toma el mando como si siempre hubiera sido el #1. Si no hay ninguno,
     /// se sigue grabando y la cascada batch resuelve al soltar.
     private func planBVivo(history: HistoryWriter) {
-        if let id = Providers.cadena().first(where: {
-            ["nemotron_local", "voxtral_local", "canary_local"].contains($0.id)
-                && TcppStreamClient.disponible(proveedor: $0.id)
-        })?.id {
-            arrancarTcppVivo(proveedor: id, history: history)
+        // EL ORDEN DE LA CASCADA MANDA, siempre: el plan B es el primer
+        // proveedor LOCAL de la cadena — no el primer streaming que haya.
+        let primerLocal = Providers.cadena().first(where: { $0.tipo == "local" })
+        if let p = primerLocal,
+           ["nemotron_local", "voxtral_local", "canary_local"].contains(p.id),
+           TcppStreamClient.disponible(proveedor: p.id) {
+            arrancarTcppVivo(proveedor: p.id, history: history)
         } else {
-            let respaldo = Providers.cadena().first(where: { $0.id != "elevenlabs" })
+            // Whisper (u otro): pseudo-vivo si se puede; el final lo pone
+            // la cascada normal respetando el orden.
+            let respaldo = primerLocal ?? Providers.cadena().first(where: { $0.id != "elevenlabs" })
             panel.setMotor(Self.nombreMotor(respaldo), enVivo: false)
             startLiveLocal(history: history)
         }
@@ -973,7 +977,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.write("  2·reglas:     \(trasReglas)")
         }
 
-        guard !trasReglas.isEmpty else {
+        // Sin contenido real (vacío o puros signos tipo "- -") = silencio:
+        // no se pega nada y el audio queda guardado por si acaso.
+        let tieneContenido = trasReglas.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+        guard tieneContenido else {
             history?.finish(wav: wav, finalText: "")
             avisarSiLibre("(silencio)")
             return

@@ -13,6 +13,14 @@ enum LLMPostProcess {
             completion(text)
             return
         }
+        // Sin contenido real no hay nada que pulir: mandar "- -" al LLM
+        // hace que responda meta-frases ("No hay transcripción…") que se
+        // pegarían como si fueran el dictado.
+        guard text.unicodeScalars.filter({ CharacterSet.alphanumerics.contains($0) }).count >= 4 else {
+            Log.write("pulido: texto sin contenido — se entrega tal cual")
+            completion(text)
+            return
+        }
         let inicio = Date()
 
         let glosario = Config.keyterms().prefix(80).joined(separator: ", ")
