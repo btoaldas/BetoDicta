@@ -6,11 +6,14 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.16.5"
+    static let numero = "0.16.6"
     static let fecha = "2026-07-10"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.16.6", "2026-07-10", [
+            "Blindaje final contra el cierre inesperado al dictar con red lenta (doble arranque del grabador)",
+        ]),
         ("0.16.5", "2026-07-10", [
             "El notch te dice con qué motor dictas: letrero encima del fn (verde = en vivo, gris = al soltar) que rota cuando el failover conmuta",
         ]),
