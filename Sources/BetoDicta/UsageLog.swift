@@ -25,6 +25,47 @@ struct UsageLog {
         }
     }
 
+    struct Totales {
+        var hoyMin = 0.0, semanaMin = 0.0, mesMin = 0.0, añoMin = 0.0
+        var mesCosto = 0.0
+        var dictadosHoy = 0
+        var porDiaSemana: [Double] = Array(repeating: 0, count: 7)  // últimos 7 días, en minutos
+    }
+
+    /// Datos numéricos para las gráficas del panel de estadísticas.
+    static func totales() -> Totales {
+        var t = Totales()
+        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return t }
+        let iso = ISO8601DateFormatter()
+        let cal = Calendar.current
+        let now = Date()
+        let día = cal.startOfDay(for: now)
+        let semana = cal.dateInterval(of: .weekOfYear, for: now)?.start ?? día
+        let mes = cal.dateInterval(of: .month, for: now)?.start ?? día
+        let año = cal.dateInterval(of: .year, for: now)?.start ?? día
+
+        for line in text.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let fechaStr = json["fecha"] as? String,
+                  let fecha = iso.date(from: fechaStr),
+                  let seg = json["segundos"] as? Double else { continue }
+            let prov = json["proveedor"] as? String ?? ""
+            let min = seg / 60
+            if fecha >= año { t.añoMin += min }
+            if fecha >= mes {
+                t.mesMin += min
+                t.mesCosto += (tarifasPorHora[prov] ?? 0) * seg / 3600
+            }
+            if fecha >= semana { t.semanaMin += min }
+            if fecha >= día { t.hoyMin += min; t.dictadosHoy += 1 }
+            // últimos 7 días
+            let diasAtras = cal.dateComponents([.day], from: cal.startOfDay(for: fecha), to: día).day ?? 99
+            if diasAtras >= 0 && diasAtras < 7 { t.porDiaSemana[6 - diasAtras] += min }
+        }
+        return t
+    }
+
     /// Minutos por proveedor en [hoy, semana, mes, año] + costo estimado del mes.
     static func resumen() -> [String] {
         guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else {

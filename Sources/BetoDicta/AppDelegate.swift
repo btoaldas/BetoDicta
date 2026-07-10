@@ -198,7 +198,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return image
     }
 
-    @objc private func openSettings() { SettingsWindowController.shared.show() }
+    // Puentes públicos para la GUI
+    func copyLastDictationPublic() { copyLastDictation() }
+    func exportTodayPublic() { exportToday() }
+    func openHistoryPublic() { openHistory() }
+    func openLogPublic() { openLog() }
+
+    @objc private func openSettings() { Log.log(.ui, "abrir configuración"); SettingsWindowController.shared.show() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("config.json")) }
     @objc private func openKeyterms() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("keyterms.txt")) }
     @objc private func openReplacements() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("reemplazos.json")) }
@@ -224,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func togglePostProcess(_ sender: NSMenuItem) {
+        Log.log(.ui, "toggle post-proceso")
         Config.set("post_proceso", to: !Config.postProcess())
     }
 
@@ -283,6 +290,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openLog() {
+        Log.log(.ui, "abrir registro")
         let log = Config.dir.appendingPathComponent("betodicta.log")
         if !FileManager.default.fileExists(atPath: log.path) {
             try? "".write(to: log, atomically: true, encoding: .utf8)
@@ -291,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleDock(_ sender: NSMenuItem) {
+        Log.log(.ui, "toggle Dock")
         let show = !Config.showInDock()
         Config.set("mostrar_en_dock", to: show)
         NSApp.setActivationPolicy(show ? .regular : .accessory)
@@ -301,19 +310,135 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openHistory() {
+        Log.log(.ui, "abrir historial")
         try? FileManager.default.createDirectory(at: HistoryWriter.historyDir, withIntermediateDirectories: true)
         NSWorkspace.shared.open(HistoryWriter.historyDir)
     }
 
     // MARK: Tecla
 
+    private var fnMonitorsInstalled = false
+
     private func registerHotKey() {
         installCarbonHandler()
-        if tecla.lowercased() == "fn" {
-            registerFnKey()
-        } else {
-            registerFKey(named: tecla.lowercased())
+        applyBinding()
+        // Re-registrar en vivo cuando la GUI cambie la tecla
+        NotificationCenter.default.addObserver(
+            forName: .betoHotkeyChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.applyBinding()
         }
+    }
+
+    /// El binding actual, separado en (modificadores, tecla-opcional).
+    /// "fn" → (["fn"], nil) · "ctrl+opt" → (["ctrl","opt"], nil) ·
+    /// "cmd+shift+d" → (["cmd","shift"], "d")
+    private var comboMods: Set<String> = []
+
+    /// Aplica (o re-aplica) la tecla de dictado leyendo la config actual.
+    private func applyBinding() {
+        if let ref = hotKeyRef { UnregisterEventHotKey(ref); hotKeyRef = nil }
+        let parts = tecla.lowercased().split(separator: "+").map(String.init)
+        let modNames = ["fn", "cmd", "command", "ctrl", "control", "opt", "alt", "option", "shift"]
+        let keyPart = parts.last.flatMap { modNames.contains($0) ? nil : $0 }
+
+        if let key = keyPart, let code = Self.keyCode(for: key) {
+            // Tecla real + modificadores → hotkey de Carbon
+            var mods = 0
+            for p in parts.dropLast() {
+                switch p {
+                case "cmd", "command": mods |= cmdKey
+                case "ctrl", "control": mods |= controlKey
+                case "opt", "alt", "option": mods |= optionKey
+                case "shift": mods |= shiftKey
+                default: break
+                }
+            }
+            let id = EventHotKeyID(signature: OSType(0x42544443), id: 1)
+            let status = RegisterEventHotKey(UInt32(code), UInt32(mods), id, GetApplicationEventTarget(), 0, &hotKeyRef)
+            comboMods = []
+            if status != noErr {                    // atajo inválido/ocupado → fn
+                Log.write("hotkey: '\(tecla)' falló (status \(status)), vuelvo a fn")
+                fallbackAFn()
+            }
+        } else {
+            // Solo modificadores (fn, ctrl+opt, cmd+shift…) → monitor de flags
+            let m = Set(parts.map { p -> String in
+                switch p {
+                case "command": return "cmd"
+                case "control": return "ctrl"
+                case "alt", "option": return "opt"
+                default: return p
+                }
+            })
+            let validos: Set<String> = ["fn", "cmd", "ctrl", "opt", "shift"]
+            if m.isEmpty || !m.isSubset(of: validos) {
+                Log.write("hotkey: '\(tecla)' inválido, vuelvo a fn")
+                fallbackAFn()
+            } else {
+                comboMods = m
+                installFlagsMonitor()
+            }
+        }
+    }
+
+    private func fallbackAFn() {
+        comboMods = ["fn"]
+        Config.set("tecla", to: "fn")
+        installFlagsMonitor()
+    }
+
+    /// Convierte "cmd+shift+d" o "f6" en (keyCode, modificadores Carbon).
+    static func parseBinding(_ s: String) -> (Int, Int)? {
+        let parts = s.lowercased().split(separator: "+").map { String($0) }
+        guard let keyName = parts.last else { return nil }
+        var mods = 0
+        for p in parts.dropLast() {
+            switch p {
+            case "cmd", "command": mods |= cmdKey
+            case "ctrl", "control": mods |= controlKey
+            case "opt", "alt", "option": mods |= optionKey
+            case "shift": mods |= shiftKey
+            default: break
+            }
+        }
+        guard let code = keyCode(for: keyName) else { return nil }
+        return (code, mods)
+    }
+
+    /// Nombre de tecla desde un keyCode (para el grabador de atajos).
+    static func keyName(for code: Int) -> String? {
+        let map: [Int: String] = [
+            kVK_F1: "f1", kVK_F2: "f2", kVK_F3: "f3", kVK_F4: "f4", kVK_F5: "f5",
+            kVK_F6: "f6", kVK_F7: "f7", kVK_F8: "f8", kVK_F9: "f9",
+            kVK_F10: "f10", kVK_F11: "f11", kVK_F12: "f12", kVK_Space: "space",
+            kVK_ANSI_A: "a", kVK_ANSI_B: "b", kVK_ANSI_C: "c", kVK_ANSI_D: "d",
+            kVK_ANSI_E: "e", kVK_ANSI_F: "f", kVK_ANSI_G: "g", kVK_ANSI_H: "h",
+            kVK_ANSI_I: "i", kVK_ANSI_J: "j", kVK_ANSI_K: "k", kVK_ANSI_L: "l",
+            kVK_ANSI_M: "m", kVK_ANSI_N: "n", kVK_ANSI_O: "o", kVK_ANSI_P: "p",
+            kVK_ANSI_Q: "q", kVK_ANSI_R: "r", kVK_ANSI_S: "s", kVK_ANSI_T: "t",
+            kVK_ANSI_U: "u", kVK_ANSI_V: "v", kVK_ANSI_W: "w", kVK_ANSI_X: "x",
+            kVK_ANSI_Y: "y", kVK_ANSI_Z: "z",
+        ]
+        return map[code]
+    }
+
+    static func keyCode(for name: String) -> Int? {
+        let fKeys: [String: Int] = [
+            "f1": kVK_F1, "f2": kVK_F2, "f3": kVK_F3, "f4": kVK_F4, "f5": kVK_F5,
+            "f6": kVK_F6, "f7": kVK_F7, "f8": kVK_F8, "f9": kVK_F9,
+            "f10": kVK_F10, "f11": kVK_F11, "f12": kVK_F12,
+        ]
+        if let f = fKeys[name] { return f }
+        let letters: [String: Int] = [
+            "a": kVK_ANSI_A, "b": kVK_ANSI_B, "c": kVK_ANSI_C, "d": kVK_ANSI_D,
+            "e": kVK_ANSI_E, "f": kVK_ANSI_F, "g": kVK_ANSI_G, "h": kVK_ANSI_H,
+            "i": kVK_ANSI_I, "j": kVK_ANSI_J, "k": kVK_ANSI_K, "l": kVK_ANSI_L,
+            "m": kVK_ANSI_M, "n": kVK_ANSI_N, "o": kVK_ANSI_O, "p": kVK_ANSI_P,
+            "q": kVK_ANSI_Q, "r": kVK_ANSI_R, "s": kVK_ANSI_S, "t": kVK_ANSI_T,
+            "u": kVK_ANSI_U, "v": kVK_ANSI_V, "w": kVK_ANSI_W, "x": kVK_ANSI_X,
+            "y": kVK_ANSI_Y, "z": kVK_ANSI_Z, "space": kVK_Space,
+        ]
+        return letters[name]
     }
 
     /// Handler Carbon único: id 1 = tecla de dictado, id 2 = Esc (cancelar).
@@ -349,50 +474,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private var fnDown = false
-    private var fnUsedInCombo = false
+    private var comboArmed = false
+    private var comboUsedWithKey = false
 
-    private func registerFnKey() {
+    /// Convierte los flags actuales al conjunto de nombres ("fn","ctrl"…).
+    private func activeMods(_ f: NSEvent.ModifierFlags) -> Set<String> {
+        var s = Set<String>()
+        if f.contains(.function) { s.insert("fn") }
+        if f.contains(.command) { s.insert("cmd") }
+        if f.contains(.control) { s.insert("ctrl") }
+        if f.contains(.option) { s.insert("opt") }
+        if f.contains(.shift) { s.insert("shift") }
+        return s
+    }
+
+    /// Monitor de flags para atajos de puros modificadores (fn, ctrl+opt…).
+    /// Se dispara al SOLTAR el combo exacto, si no se usó junto a otra tecla.
+    private func installFlagsMonitor() {
+        guard !fnMonitorsInstalled else { return }
+        fnMonitorsInstalled = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
 
         let flagsHandler: (NSEvent) -> Void = { [weak self] event in
-            guard let self, event.keyCode == 63 else { return }
-            if event.modifierFlags.contains(.function) {
-                self.fnDown = true
-                self.fnUsedInCombo = false
-            } else if self.fnDown {
-                self.fnDown = false
-                if !self.fnUsedInCombo {
+            guard let self, !self.comboMods.isEmpty else { return }
+            let active = self.activeMods(event.modifierFlags)
+            if active == self.comboMods {
+                self.comboArmed = true          // combo exacto presionado
+                self.comboUsedWithKey = false
+            } else if self.comboArmed, active.isEmpty || !self.comboMods.isSubset(of: active) {
+                self.comboArmed = false
+                if !self.comboUsedWithKey {
                     DispatchQueue.main.async { self.toggle() }
                 }
             }
         }
-        let comboHandler: (NSEvent) -> Void = { [weak self] _ in
+        let keyHandler: (NSEvent) -> Void = { [weak self] _ in
             guard let self else { return }
-            if self.fnDown { self.fnUsedInCombo = true }
+            if self.comboArmed { self.comboUsedWithKey = true }
         }
 
         NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: flagsHandler)
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: comboHandler)
+        NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: keyHandler)
         NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
             flagsHandler(event); return event
         }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            comboHandler(event); return event
+            keyHandler(event); return event
         }
-    }
-
-    private func registerFKey(named name: String) {
-        let fKeys: [String: Int] = [
-            "f1": kVK_F1, "f2": kVK_F2, "f3": kVK_F3, "f4": kVK_F4,
-            "f5": kVK_F5, "f6": kVK_F6, "f7": kVK_F7, "f8": kVK_F8,
-            "f9": kVK_F9, "f10": kVK_F10, "f11": kVK_F11, "f12": kVK_F12,
-        ]
-        let keyCode = fKeys[name] ?? kVK_F6
-
-        let hotKeyID = EventHotKeyID(signature: OSType(0x42544443), id: 1) // "BTDC"
-        RegisterEventHotKey(UInt32(keyCode), 0, hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
     }
 
     // MARK: Flujo de dictado

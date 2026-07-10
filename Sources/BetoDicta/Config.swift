@@ -51,6 +51,7 @@ struct Config {
     static func set(_ key: String, to value: Any) {
         var obj = json()
         obj[key] = value
+        Log.log(.config, "cambio: \(key) = \(value)")
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: dir.appendingPathComponent("config.json"))
         }
@@ -85,12 +86,14 @@ struct Config {
         let original: String
         let replacement: String
         let isRegex: Bool?
+        let activo: Bool?
     }
 
+    /// Solo las reglas activas (las desactivadas se conservan pero no se aplican).
     static func replacements() -> [Replacement] {
         guard let data = try? Data(contentsOf: dir.appendingPathComponent("reemplazos.json")),
               let rules = try? JSONDecoder().decode([Replacement].self, from: data) else { return [] }
-        return rules
+        return rules.filter { $0.activo ?? true }
     }
 }
 
