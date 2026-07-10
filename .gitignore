@@ -1,0 +1,5 @@
+build/
+.DS_Store
+*.pcm
+.env
+config.local.json

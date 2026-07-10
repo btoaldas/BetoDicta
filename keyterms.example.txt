@@ -1,0 +1,6 @@
+# Una palabra o frase corta por línea (el streaming usa las primeras 50)
+Quipux
+DGTIC
+SENESCYT
+MikroTik
+WireGuard
