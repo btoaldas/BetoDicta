@@ -266,14 +266,7 @@ struct SettingsView: View {
                     Slider(value: $m.silencioMax, in: 15...300, step: 15).tint(acento)
                 }
             }
-            tarjeta("Modelo e IA", "waveform") {
-                fila("Modelo") {
-                    Picker("", selection: $m.modelo) {
-                        Text("Scribe v2 · en vivo").tag("scribe_v2_realtime")
-                        Text("Scribe v2 · lotes").tag("scribe_v2")
-                        Text("Scribe v1 · barato").tag("scribe_v1")
-                    }.labelsHidden().frame(width: 150)
-                }
+            tarjeta("Pulido con IA", "waveform") {
                 Toggle("Pulir el texto con IA (Groq)", isOn: $m.postProceso)
                 if m.postProceso {
                     VStack(alignment: .leading, spacing: 4) {
@@ -282,6 +275,8 @@ struct SettingsView: View {
                             .lineLimit(2...4).textFieldStyle(.roundedBorder)
                     }
                 }
+                Text("Los modelos y proveedores se configuran en la pestaña Modelos.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Multimedia", "speaker.wave.2") {
                 Toggle("Pausar música y videos al dictar", isOn: $m.pausarMultimedia)

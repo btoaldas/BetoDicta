@@ -72,6 +72,8 @@ struct Config {
         }
     }
     static func model() -> String { (json()["modelo"] as? String) ?? "scribe_v2_realtime" }
+    /// Segundos que el whisper-server local vive tras el último uso (mín. 10).
+    static func whisperKeepAlive() -> TimeInterval { max(10, (json()["whisper_keepalive"] as? Double) ?? 120) }
 
     /// Busca la API key en orden: variable de entorno → ~/.betodicta/.env → ~/.hermes/.env
     static func apiKey() -> String? {
@@ -95,6 +97,17 @@ struct Config {
         return text.split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+    }
+
+    /// Glosario como "initial prompt" para motores familia Whisper (Groq,
+    /// whisper-cli, whisper-server, y futuros OpenAI/Mistral). Una frase en
+    /// español sesga mejor que una lista pelada. Vacío si no hay términos.
+    /// Tope 80 términos: el initial prompt de Whisper admite ~224 tokens y
+    /// trunca por el INICIO, así que pasarse silenciosamente pierde términos.
+    static func glosarioPrompt() -> String {
+        let terms = keyterms().prefix(80)
+        guard !terms.isEmpty else { return "" }
+        return "Glosario: \(terms.joined(separator: ", "))."
     }
 
     struct Replacement: Decodable {

@@ -4,16 +4,19 @@ import Foundation
 
 /// Transcribe con Groq (whisper-large-v3, nube). API compatible OpenAI.
 enum GroqTranscribe {
-    static func run(wav: Data, completion: @escaping (Result<String, Error>) -> Void) {
+    static func run(wav: Data, model: String = "whisper-large-v3", completion: @escaping (Result<String, Error>) -> Void) {
         guard let key = Config.groqKey() else { completion(.failure(ScribeError.sinApiKey)); return }
         let boundary = "BetoDicta-\(UUID().uuidString)"
         var body = Data()
         func field(_ n: String, _ v: String) {
             body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(n)\"\r\n\r\n\(v)\r\n".data(using: .utf8)!)
         }
-        field("model", "whisper-large-v3")
+        field("model", model)
         field("language", "es")
         field("response_format", "json")
+        // Glosario: Whisper acepta un "prompt" que sesga el vocabulario (igual que keyterms en ElevenLabs)
+        let glosario = Config.glosarioPrompt()
+        if !glosario.isEmpty { field("prompt", glosario) }
         body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(wav)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
@@ -43,7 +46,17 @@ enum GroqTranscribe {
 /// Transcribe con Whisper LOCAL (whisper-cli + modelo ggml). 100% offline.
 enum WhisperLocal {
     static var modelsDir: URL { Config.dir.appendingPathComponent("models") }
-    static var modelURL: URL { modelsDir.appendingPathComponent("ggml-large-v3-turbo.bin") }
+    /// Archivo del modelo activo (lo fija la pestaña Modelos).
+    static var modeloArchivo: String {
+        get { Providers.modelo(de: "whisper_local") ?? "ggml-large-v3-turbo.bin" }
+        set {
+            var lista = Providers.load()
+            if let i = lista.firstIndex(where: { $0.id == "whisper_local" }) {
+                lista[i].modelo = newValue; Providers.save(lista)
+            }
+        }
+    }
+    static var modelURL: URL { modelsDir.appendingPathComponent(modeloArchivo) }
     static var cliURL: URL? {
         // 1) binario bundleado en la app  2) build local de whisper.cpp
         if let p = Bundle.main.path(forResource: "whisper-cli", ofType: nil) { return URL(fileURLWithPath: p) }
@@ -57,6 +70,23 @@ enum WhisperLocal {
     }
 
     static func run(wav: Data, completion: @escaping (Result<String, Error>) -> Void) {
+        // Vía rápida: server residente ya precalentado (modelo en memoria).
+        if WhisperServer.corriendo {
+            WhisperServer.transcribe(wav: wav) { r in
+                switch r {
+                case .success(let texto): completion(.success(texto))
+                case .failure:
+                    Log.log(.ia, "server local falló → whisper-cli de respaldo")
+                    runCLI(wav: wav, completion: completion)
+                }
+            }
+            return
+        }
+        runCLI(wav: wav, completion: completion)
+    }
+
+    /// Vía clásica: proceso whisper-cli efímero (carga modelo, transcribe, muere).
+    private static func runCLI(wav: Data, completion: @escaping (Result<String, Error>) -> Void) {
         guard let cli = cliURL else { completion(.failure(ScribeError.ws("whisper-cli no encontrado"))); return }
         guard FileManager.default.fileExists(atPath: modelURL.path) else {
             completion(.failure(ScribeError.ws("Falta el modelo local — descárgalo en Modelos"))); return
@@ -68,8 +98,12 @@ enum WhisperLocal {
 
             let task = Process()
             task.executableURL = cli
-            task.arguments = ["-m", modelURL.path, "-l", "es", "-nt", "-otxt", "-f", tmp.path,
-                              "-of", tmp.deletingPathExtension().path]
+            var args = ["-m", modelURL.path, "-l", "es", "-nt", "-otxt", "-f", tmp.path,
+                        "-of", tmp.deletingPathExtension().path]
+            // Glosario: whisper.cpp acepta --prompt para sesgar el vocabulario
+            let glosario = Config.glosarioPrompt()
+            if !glosario.isEmpty { args += ["--prompt", glosario] }
+            task.arguments = args
             let pipe = Pipe(); task.standardError = pipe; task.standardOutput = Pipe()
             do {
                 try task.run(); task.waitUntilExit()
@@ -116,14 +150,15 @@ enum Failover {
             }
         }
         switch p.id {
-        case "elevenlabs": transcribeBatch(wav: wav, model: elevenModel()) { siguiente($0) }
-        case "groq": GroqTranscribe.run(wav: wav) { siguiente($0) }
+        case "elevenlabs": transcribeBatch(wav: wav, model: elevenModel(p)) { siguiente($0) }
+        case "groq": GroqTranscribe.run(wav: wav, model: p.modelo ?? "whisper-large-v3") { siguiente($0) }
         case "whisper_local": WhisperLocal.run(wav: wav) { siguiente($0) }
         default: siguiente(.failure(ScribeError.sinTexto))
         }
     }
 
-    private static func elevenModel() -> String {
-        Config.model() == "scribe_v2_realtime" ? "scribe_v2" : Config.model()
+    private static func elevenModel(_ p: Provider) -> String {
+        let m = p.modelo ?? "scribe_v2"
+        return m == "scribe_v2_realtime" ? "scribe_v2" : m
     }
 }

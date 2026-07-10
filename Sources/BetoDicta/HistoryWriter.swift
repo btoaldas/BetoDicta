@@ -47,15 +47,20 @@ final class HistoryWriter {
         try? text.write(to: txtURL, atomically: true, encoding: .utf8)
     }
 
-    /// Cierre normal: WAV con cabecera + texto final; borra el crudo temporal.
+    /// Cierre normal: WAV con cabecera + texto final; borra el crudo temporal
+    /// SOLO si el .wav quedó bien escrito (disco lleno no debe perder el audio).
     func finish(wav: Data, finalText: String) {
         try? pcmHandle?.close()
         pcmHandle = nil
-        try? wav.write(to: wavURL)
         if !finalText.isEmpty {
             try? finalText.write(to: txtURL, atomically: true, encoding: .utf8)
         }
-        try? FileManager.default.removeItem(at: pcmURL)
+        do {
+            try wav.write(to: wavURL)
+            try? FileManager.default.removeItem(at: pcmURL)
+        } catch {
+            Log.log(.sistema, "historial: no pude escribir el .wav (\(error.localizedDescription)) — conservo el .pcm crudo")
+        }
     }
 
     /// Cierre sin dictado útil: borra los restos vacíos.
@@ -64,6 +69,50 @@ final class HistoryWriter {
         pcmHandle = nil
         try? FileManager.default.removeItem(at: pcmURL)
         try? FileManager.default.removeItem(at: txtURL)
+    }
+
+    /// Rescata dictados de sesiones que murieron a medias: cada .pcm huérfano
+    /// se convierte en .wav reproducible. Se llama al arrancar la app.
+    static func rescatarHuerfanos() {
+        guard let files = FileManager.default.enumerator(at: historyDir, includingPropertiesForKeys: nil) else { return }
+        var rescatados = 0
+        for case let url as URL in files where url.pathExtension == "pcm" {
+            guard let pcm = try? Data(contentsOf: url) else { continue }
+            let wavURL = url.deletingPathExtension().appendingPathExtension("wav")
+            // Menos de medio segundo de audio o ya rescatado: solo limpiar.
+            if pcm.count > 16000 && !FileManager.default.fileExists(atPath: wavURL.path) {
+                // Si el .wav no se puede escribir (disco lleno), conservar el
+                // .pcm para intentarlo en el próximo arranque.
+                guard (try? wavData(pcm: pcm).write(to: wavURL)) != nil else { continue }
+                rescatados += 1
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
+        if rescatados > 0 {
+            Log.log(.sistema, "historial: \(rescatados) dictado(s) rescatado(s) de cierres a medias")
+        }
+    }
+
+    /// PCM16 16 kHz mono → WAV con cabecera.
+    static func wavData(pcm: Data) -> Data {
+        var wav = Data()
+        let sampleRate: UInt32 = 16000
+        func append<T>(_ value: T) { withUnsafeBytes(of: value) { wav.append(contentsOf: $0) } }
+        wav.append("RIFF".data(using: .ascii)!)
+        append(UInt32(36 + pcm.count).littleEndian)
+        wav.append("WAVE".data(using: .ascii)!)
+        wav.append("fmt ".data(using: .ascii)!)
+        append(UInt32(16).littleEndian)
+        append(UInt16(1).littleEndian)
+        append(UInt16(1).littleEndian)
+        append(sampleRate.littleEndian)
+        append(UInt32(sampleRate * 2).littleEndian)
+        append(UInt16(2).littleEndian)
+        append(UInt16(16).littleEndian)
+        wav.append("data".data(using: .ascii)!)
+        append(UInt32(pcm.count).littleEndian)
+        wav.append(pcm)
+        return wav
     }
 }
 

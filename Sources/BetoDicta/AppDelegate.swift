@@ -108,8 +108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// se graba plano y se transcribe con la cadena de failover al terminar —
     /// así el ORDEN de la pestaña Modelos manda de verdad.
     private var isStreamingModel: Bool {
-        guard Config.model() == "scribe_v2_realtime" else { return false }
-        return Providers.cadena().first?.id == "elevenlabs"
+        guard let primero = Providers.cadena().first, primero.id == "elevenlabs" else { return false }
+        return (primero.modelo ?? "scribe_v2") == "scribe_v2_realtime"
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        WhisperServer.apagar(motivo: "salida de la app")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -167,6 +171,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
         registerHotKey()
+
+        // Caja negra: rescatar dictados de sesiones que murieron a medias,
+        // y matar whisper-servers huérfanos de crashes anteriores.
+        DispatchQueue.global(qos: .utility).async {
+            HistoryWriter.rescatarHuerfanos()
+            WhisperServer.limpiarHuerfanos()
+        }
 
 
         recorder.onLevel = { [weak self] level in
@@ -575,10 +586,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startDictation() {
         lastPartial = ""
         lastVoice = Date()
+        // Whisper local bajo demanda: el modelo carga en paralelo mientras hablas.
+        DispatchQueue.global(qos: .userInitiated).async { WhisperServer.precalentar() }
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
             guard self.recorder.isRecording else { timer.invalidate(); return }
+            // Mientras grabas, el server local no debe apagarse (dictados largos).
+            if WhisperServer.corriendo { WhisperServer.tocar() }
             let quiet = Date().timeIntervalSince(self.lastVoice)
             let limit = Config.maxSilence()
             if quiet >= limit {
@@ -691,7 +706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 finished = true
                 stream.disconnect()
                 self.stream = nil
-                self.deliver(raw: raw, wav: wav)
+                self.deliver(raw: raw, wav: wav, via: "ElevenLabs (en vivo)")
             }
             stream.onCommitted = { full in finish(full) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
@@ -713,7 +728,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 switch result {
                 case .success(let (raw, proveedor)):
                     if proveedor != "ElevenLabs Scribe" { self?.panel.update("vía \(proveedor)") }
-                    self?.deliver(raw: raw, wav: wav)
+                    self?.deliver(raw: raw, wav: wav, via: proveedor)
                 case .failure(let error):
                     self?.history?.finish(wav: wav, finalText: "")
                     self?.history = nil
@@ -725,15 +740,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func deliver(raw: String, wav: Data) {
+    private func deliver(raw: String, wav: Data, via proveedor: String) {
         let segundos = Double(wav.count - 44) / 32000.0
-        UsageLog.record(provider: Config.model(), seconds: segundos)
+        UsageLog.record(provider: proveedor, seconds: segundos)
 
         let crudo = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let trasReglas = applyReplacements(crudo)
 
         // Pipeline de auditoría — cada paso queda registrado
-        Log.write("──── dictado \(String(format: "%.1f", segundos))s · \(Config.model()) ────")
+        Log.write("──── dictado \(String(format: "%.1f", segundos))s · \(proveedor) ────")
         Log.write("  1·crudo:      \(crudo)")
         if trasReglas != crudo {
             Log.write("  2·reglas:     \(trasReglas)")
