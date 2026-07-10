@@ -153,6 +153,16 @@ enum Failover {
         case "elevenlabs": transcribeBatch(wav: wav, model: elevenModel(p)) { siguiente($0) }
         case "groq": GroqTranscribe.run(wav: wav, model: p.modelo ?? "whisper-large-v3") { siguiente($0) }
         case "whisper_local": WhisperLocal.run(wav: wav) { siguiente($0) }
+        case "voxtral_local":
+            if VoxtralServer.corriendo {
+                VoxtralServer.transcribe(wav: wav) { siguiente($0) }
+            } else if VoxtralServer.diagnostico == nil {
+                // No precalentó (p.ej. se activó recién): arrancar y transcribir.
+                VoxtralServer.precalentar()
+                VoxtralServer.transcribe(wav: wav) { siguiente($0) }
+            } else {
+                siguiente(.failure(ScribeError.ws(VoxtralServer.diagnostico ?? "voxtral no disponible")))
+            }
         default: siguiente(.failure(ScribeError.sinTexto))
         }
     }

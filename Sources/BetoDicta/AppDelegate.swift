@@ -114,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         WhisperServer.apagar(motivo: "salida de la app")
+        VoxtralServer.apagar(motivo: "salida de la app")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -177,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.global(qos: .utility).async {
             HistoryWriter.rescatarHuerfanos()
             WhisperServer.limpiarHuerfanos()
+            VoxtralServer.limpiarHuerfanos()
         }
 
 
@@ -191,6 +193,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // con texto y latido simulado, sin grabar. Solo para el README.
         if ProcessInfo.processInfo.environment["BETODICTA_DEMO"] == "1" {
             startDemo()
+        }
+        // Abrir Configuración directo (pruebas de UI sin tocar el menú)
+        if ProcessInfo.processInfo.environment["BETODICTA_SETTINGS"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                SettingsWindowController.shared.show()
+            }
         }
     }
 
@@ -586,14 +594,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startDictation() {
         lastPartial = ""
         lastVoice = Date()
-        // Whisper local bajo demanda: el modelo carga en paralelo mientras hablas.
-        DispatchQueue.global(qos: .userInitiated).async { WhisperServer.precalentar() }
+        // Motor local bajo demanda: carga en paralelo mientras hablas.
+        // Solo el PRIMER local de la cadena — los de más atrás (failover
+        // profundo) arrancan en frío solo si de verdad les toca, para no
+        // pagar 2 modelos en RAM por cada dictado.
+        let primerLocal = Providers.cadena().first(where: { $0.tipo == "local" })?.id
+        DispatchQueue.global(qos: .userInitiated).async {
+            switch primerLocal {
+            case "whisper_local": WhisperServer.precalentar()
+            case "voxtral_local": VoxtralServer.precalentar()
+            default: break
+            }
+        }
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
             guard self.recorder.isRecording else { timer.invalidate(); return }
-            // Mientras grabas, el server local no debe apagarse (dictados largos).
+            // Mientras grabas, los servers locales no deben apagarse (dictados largos).
             if WhisperServer.corriendo { WhisperServer.tocar() }
+            if VoxtralServer.corriendo { VoxtralServer.tocar() }
             let quiet = Date().timeIntervalSince(self.lastVoice)
             let limit = Config.maxSilence()
             if quiet >= limit {

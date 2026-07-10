@@ -107,7 +107,7 @@ enum WhisperServer {
 
         let pg = Process()
         pg.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        pg.arguments = ["-f", "whisper-server.*--port \(port)"]
+        pg.arguments = ["-f", "whisper-server.*--port \(port)( |$)"]
         let pipe = Pipe()
         pg.standardOutput = pipe
         guard (try? pg.run()) != nil else { return }

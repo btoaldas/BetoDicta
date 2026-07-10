@@ -30,11 +30,26 @@ enum Providers {
         ("mistral", "Mistral (Voxtral)", ["voxtral-mini-latest", "voxtral-small-latest"], "MISTRAL_API_KEY"),
     ]
 
+    /// Proveedores que se agregan a configs existentes cuando salen en una
+    /// versión nueva (apagados, al final — el usuario decide activarlos).
+    static let nuevos: [Provider] = [
+        Provider(id: "voxtral_local", nombre: "Voxtral local", tipo: "local", activo: false,
+                 orden: 99, modelo: "Voxtral-Mini-3B-2507-Q4_K_M.gguf"),
+    ]
+
     static func load() -> [Provider] {
         guard let data = try? Data(contentsOf: url),
-              let list = try? JSONDecoder().decode([Provider].self, from: data), !list.isEmpty else {
-            save(porDefecto)
-            return porDefecto
+              var list = try? JSONDecoder().decode([Provider].self, from: data), !list.isEmpty else {
+            save(porDefecto + nuevos)
+            return porDefecto + nuevos
+        }
+        // Migración: sumar proveedores nuevos que el JSON viejo no conoce.
+        // Sin recursión: si save() fallara (disco lleno), igual devolvemos
+        // la lista migrada en memoria y la app sigue funcionando.
+        let faltantes = nuevos.filter { n in !list.contains { $0.id == n.id } }
+        if !faltantes.isEmpty {
+            list.append(contentsOf: faltantes)
+            save(list)
         }
         return list.sorted { $0.orden < $1.orden }
     }

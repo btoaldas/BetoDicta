@@ -35,30 +35,82 @@ final class ProvidersModel: ObservableObject {
 
     func descargar(_ m: WhisperModelo) {
         try? FileManager.default.createDirectory(at: WhisperLocal.modelsDir, withIntermediateDirectories: true)
-        descargas[m.archivo] = 0.0001
-        Log.log(.ia, "descargando modelo \(m.nombre)")
-        let task = URLSession.shared.downloadTask(with: m.url) { [weak self] tmp, _, err in
-            DispatchQueue.main.async {
-                self?.descargas[m.archivo] = nil
-                if let tmp, err == nil {
-                    try? FileManager.default.removeItem(at: m.localURL)
-                    try? FileManager.default.moveItem(at: tmp, to: m.localURL)
-                    Log.log(.ia, "modelo \(m.nombre) descargado")
-                } else {
-                    Log.log(.ia, "descarga \(m.nombre) falló")
-                }
-                self?.objectWillChange.send()
-            }
-        }
-        obs[m.archivo] = task.progress.observe(\.fractionCompleted) { [weak self] p, _ in
-            DispatchQueue.main.async { self?.descargas[m.archivo] = p.fractionCompleted }
-        }
-        task.resume()
+        bajarArchivo(url: m.url, destino: m.localURL, clave: m.archivo, nombre: m.nombre)
     }
     func borrar(_ m: WhisperModelo) {
         try? FileManager.default.removeItem(at: m.localURL)
         Log.log(.ia, "modelo \(m.nombre) borrado")
         objectWillChange.send()
+    }
+
+    // ---- Exóticos (llama.cpp): varios archivos por modelo ----
+
+    /// Progreso agregado del modelo (ponderado por tamaño de cada archivo).
+    /// nil si ningún archivo del modelo está bajando.
+    func progresoExotico(_ m: ExoticoModelo) -> Double? {
+        var haypendiente = false
+        var acumulado = 0.0
+        let total = Double(m.tamañoMB)
+        for (archivo, mb) in zip(m.archivos, m.tamañosMB) {
+            if let p = descargas[archivo] {
+                haypendiente = true
+                acumulado += p * Double(mb)
+            } else if ModelCatalog.exoticos.first(where: { $0.nombre == m.nombre }) != nil,
+                      ExoticoModelo.esGGUFValido(VoxtralServer.modelsDir.appendingPathComponent(archivo), esperadoMB: mb) {
+                acumulado += Double(mb)   // ya completo
+            }
+        }
+        return haypendiente ? acumulado / total : nil
+    }
+
+    func descargarExotico(_ m: ExoticoModelo) {
+        try? FileManager.default.createDirectory(at: VoxtralServer.modelsDir, withIntermediateDirectories: true)
+        for ((url, destino), mb) in zip(zip(m.urls, m.localURLs), m.tamañosMB)
+        where descargas[destino.lastPathComponent] == nil
+            && !ExoticoModelo.esGGUFValido(destino, esperadoMB: mb) {
+            // Clave POR ARCHIVO: progresos independientes, sin pisar observers.
+            bajarArchivo(url: url, destino: destino,
+                         clave: destino.lastPathComponent, nombre: destino.lastPathComponent)
+        }
+    }
+    func borrarExotico(_ m: ExoticoModelo) {
+        for u in m.localURLs { try? FileManager.default.removeItem(at: u) }
+        Log.log(.ia, "modelo \(m.nombre) borrado")
+        objectWillChange.send()
+    }
+    func usarExotico(_ m: ExoticoModelo) {
+        var lista = Providers.load()
+        if let i = lista.firstIndex(where: { $0.id == "voxtral_local" }) {
+            lista[i].modelo = m.archivos[0]
+            lista[i].activo = true
+            Providers.save(lista)
+        }
+        VoxtralServer.apagar(motivo: "cambio de modelo")
+        recargar()
+    }
+
+    /// Descarga genérica con progreso agregado por clave (un modelo puede
+    /// tener varios archivos: el progreso mostrado es el del archivo en curso).
+    private func bajarArchivo(url: URL, destino: URL, clave: String, nombre: String) {
+        descargas[clave] = 0.0001
+        Log.log(.ia, "descargando \(nombre)")
+        let task = URLSession.shared.downloadTask(with: url) { [weak self] tmp, _, err in
+            DispatchQueue.main.async {
+                self?.descargas[clave] = nil
+                if let tmp, err == nil {
+                    try? FileManager.default.removeItem(at: destino)
+                    try? FileManager.default.moveItem(at: tmp, to: destino)
+                    Log.log(.ia, "\(nombre) descargado")
+                } else {
+                    Log.log(.ia, "descarga \(nombre) falló")
+                }
+                self?.objectWillChange.send()
+            }
+        }
+        obs[clave] = task.progress.observe(\.fractionCompleted) { [weak self] p, _ in
+            DispatchQueue.main.async { self?.descargas[clave] = p.fractionCompleted }
+        }
+        task.resume()
     }
 }
 
@@ -76,10 +128,10 @@ struct ModelsView: View {
                         Text("\(i + 1)").font(.system(.body, design: .rounded)).bold()
                             .frame(width: 20).foregroundStyle(p.activo ? acentoM : .secondary)
                         Toggle("", isOn: Binding(get: { p.activo }, set: { _ in m.toggle(p.id) }))
-                            .toggleStyle(.switch).labelsHidden()
+                            .toggleStyle(.switch).labelsHidden().tint(acentoM)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(p.nombre).font(.subheadline).bold()
-                            Text("\(p.tipo == "nube" ? "☁︎ nube" : "􀙊 local") · \(p.modelo ?? "")")
+                            Text("\(p.tipo == "nube" ? "☁️ nube" : "💾 local") · \(p.modelo ?? "")")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -127,6 +179,59 @@ struct ModelsView: View {
                                 .buttonStyle(.plain)
                         } else {
                             Button { m.descargar(modelo) } label: {
+                                Image(systemName: "arrow.down.circle").foregroundStyle(acentoM)
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    .padding(10).background(Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+
+            // ── Modelos exóticos (motor llama.cpp) ──
+            seccion("Modelos locales (Voxtral)", "brain") {
+                if let falta = VoxtralServer.serverBinURL == nil
+                    ? "Requiere llama.cpp: instala con `brew install llama.cpp`" : nil {
+                    Label(falta, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                } else {
+                    Text("Motor llama.cpp listo. Entienden contexto y varios idiomas; sin streaming en vivo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(ModelCatalog.exoticos) { modelo in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 6) {
+                                Text(modelo.nombre).font(.subheadline).bold()
+                                if Providers.modelo(de: "voxtral_local") == modelo.archivos[0],
+                                   Providers.cadena().contains(where: { $0.id == "voxtral_local" }) {
+                                    Text("EN USO").font(.system(size: 8, weight: .bold))
+                                        .padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(acentoM).foregroundStyle(.white)
+                                        .clipShape(Capsule())
+                                }
+                                if VoxtralServer.corriendo {
+                                    Text("● residente").font(.system(size: 9))
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                            Text("\(modelo.tamañoMB) MB · \(modelo.nota)")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if let prog = m.progresoExotico(modelo) {
+                            VStack(spacing: 2) {
+                                ProgressView(value: prog).frame(width: 60).tint(acentoM)
+                                Text("\(Int(prog * 100))%").font(.system(size: 9))
+                            }
+                        } else if modelo.descargado {
+                            Button("Usar") { m.usarExotico(modelo) }
+                                .disabled(VoxtralServer.serverBinURL == nil)
+                            Button { m.borrarExotico(modelo) } label: {
+                                Image(systemName: "trash").foregroundStyle(.red)
+                            }.buttonStyle(.plain)
+                        } else {
+                            Button { m.descargarExotico(modelo) } label: {
                                 Image(systemName: "arrow.down.circle").foregroundStyle(acentoM)
                             }.buttonStyle(.plain)
                         }

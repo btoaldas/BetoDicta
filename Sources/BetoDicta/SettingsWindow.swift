@@ -196,57 +196,118 @@ struct HotkeyRecorder: NSViewRepresentable {
     }
 }
 
-// MARK: - Vista principal
+// MARK: - Vista principal (sidebar + detalle, escala a más secciones)
+
+/// Secciones de la ventana. Para sumar una nueva: agregar el caso aquí y su
+/// vista en `detalle` — el sidebar crece solo, sin apretar nada.
+private enum Seccion: String, CaseIterable, Identifiable {
+    case ajustes = "Ajustes"
+    case modelos = "Modelos"
+    case acciones = "Acciones"
+    case transcribir = "Transcribir"
+    case estadisticas = "Estadísticas"
+    case creditos = "Créditos"
+
+    var id: String { rawValue }
+    var icono: String {
+        switch self {
+        case .ajustes: return "gearshape.fill"
+        case .modelos: return "cpu.fill"
+        case .acciones: return "bolt.fill"
+        case .transcribir: return "waveform.badge.mic"
+        case .estadisticas: return "chart.bar.fill"
+        case .creditos: return "heart.fill"
+        }
+    }
+}
 
 struct SettingsView: View {
     @StateObject private var m = SettingsModel()
-    @State private var seccion = "Ajustes"
+    @State private var seccion: Seccion
+
+    init() {
+        // Pruebas de UI: BETODICTA_SECCION=Modelos abre esa sección directo.
+        let pedida = ProcessInfo.processInfo.environment["BETODICTA_SECCION"] ?? ""
+        _seccion = State(initialValue: Seccion(rawValue: pedida) ?? .ajustes)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            encabezado
-            Picker("", selection: $seccion) {
-                Text("Ajustes").tag("Ajustes")
-                Text("Modelos").tag("Modelos")
-                Text("Acciones").tag("Acciones")
-                Text("Transcribir").tag("Transcribir")
-                Text("Estadísticas").tag("Estadísticas")
-                Text("Créditos").tag("Créditos")
-            }
-            .pickerStyle(.segmented).labelsHidden().padding(.horizontal, 20).padding(.bottom, 8)
-
+        HStack(spacing: 0) {
+            sidebar
+            Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    switch seccion {
-                    case "Modelos": ModelsView()
-                    case "Acciones": acciones
-                    case "Transcribir": TranscribeView()
-                    case "Estadísticas": StatsView()
-                    case "Créditos": creditos
-                    default: ajustes
-                    }
+                    detalle
                 }
-                .padding(20)
+                .padding(22)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(width: 400, height: 660)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(minWidth: 720, idealWidth: 760, maxWidth: .infinity,
+               minHeight: 560, idealHeight: 640, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var detalle: some View {
+        switch seccion {
+        case .modelos: ModelsView()
+        case .acciones: acciones
+        case .transcribir: TranscribeView()
+        case .estadisticas: StatsView()
+        case .creditos: creditos
+        case .ajustes: ajustes
+        }
+    }
+
+    // ---- Sidebar ----
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            encabezado
+            ForEach(Seccion.allCases) { s in
+                Button { seccion = s } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: s.icono)
+                            .font(.system(size: 13))
+                            .frame(width: 22)
+                            .foregroundStyle(seccion == s ? .white : acento)
+                        Text(s.rawValue)
+                            .font(.system(size: 13, weight: seccion == s ? .semibold : .regular))
+                            .foregroundStyle(seccion == s ? .white : .primary)
+                        Spacer()
+                    }
+                    .padding(.vertical, 7).padding(.horizontal, 10)
+                    .background(seccion == s ? acento : .clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 2)
+            }
+            Spacer()
+            Text("v0.13")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .padding(.horizontal, 20).padding(.bottom, 12)
+        }
+        .frame(width: 190)
+        .background(Color(nsColor: .underPageBackgroundColor))
     }
 
     private var encabezado: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if let logo = NSImage(contentsOfFile:
                 Bundle.main.path(forResource: "logo-original", ofType: "png") ?? "") {
-                Image(nsImage: logo).resizable().frame(width: 42, height: 42)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                Image(nsImage: logo).resizable().frame(width: 38, height: 38)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text("BetoDicta").font(.title2).bold()
-                Text("Dictado por voz").font(.caption).foregroundStyle(.secondary)
+                Text("BetoDicta").font(.headline).bold()
+                Text("Dictado por voz").font(.caption2).foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 12)
+        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 14)
     }
 
     // ---- Ajustes ----
@@ -458,7 +519,9 @@ final class SettingsWindowController {
             let hosting = NSHostingController(rootView: SettingsView())
             let w = NSWindow(contentViewController: hosting)
             w.title = "BetoDicta"
-            w.styleMask = [.titled, .closable, .miniaturizable]
+            w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            w.setContentSize(NSSize(width: 760, height: 640))
+            w.minSize = NSSize(width: 720, height: 560)
             w.isReleasedWhenClosed = false
             window = w
         }
