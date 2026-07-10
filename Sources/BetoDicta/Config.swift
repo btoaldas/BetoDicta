@@ -74,6 +74,9 @@ struct Config {
     static func model() -> String { (json()["modelo"] as? String) ?? "scribe_v2_realtime" }
     /// Segundos que el whisper-server local vive tras el último uso (mín. 10).
     static func whisperKeepAlive() -> TimeInterval { max(10, (json()["whisper_keepalive"] as? Double) ?? 120) }
+    /// Micrófono: "" = integrado del Mac (default anti-iPhone) · "auto" =
+    /// el del sistema · UID = dispositivo específico.
+    static func microfono() -> String { (json()["microfono"] as? String) ?? "" }
 
     /// Busca la API key en orden: variable de entorno → ~/.betodicta/.env → ~/.hermes/.env
     static func apiKey() -> String? {

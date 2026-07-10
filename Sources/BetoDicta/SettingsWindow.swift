@@ -19,6 +19,7 @@ final class SettingsModel: ObservableObject {
         }
     }
     @Published var modelo: String { didSet { Config.set("modelo", to: modelo) } }
+    @Published var microfono: String { didSet { Config.set("microfono", to: microfono) } }
     @Published var silencioMax: Double { didSet { Config.set("silencio_max_seg", to: silencioMax) } }
     @Published var sonidos: Bool { didSet { Config.set("sonidos", to: sonidos) } }
     @Published var escCancela: Bool { didSet { Config.set("esc_cancela", to: escCancela) } }
@@ -44,6 +45,7 @@ final class SettingsModel: ObservableObject {
     init() {
         tecla = Config.hotkey()
         modelo = Config.model()
+        microfono = Config.microfono()
         silencioMax = Config.maxSilence()
         sonidos = Config.sounds()
         escCancela = Config.escCancels()
@@ -361,6 +363,17 @@ struct SettingsView: View {
                 fila("Tecla de dictado") {
                     HotkeyRecorder(value: $m.tecla).frame(width: 120, height: 24)
                 }
+                fila("Micrófono") {
+                    Picker("", selection: $m.microfono) {
+                        Text("Integrado del Mac (recomendado)").tag("")
+                        Text("Automático (el del sistema)").tag("auto")
+                        ForEach(Microfono.disponibles().filter { !$0.integrado }) { d in
+                            Text(d.nombre).tag(d.uid)
+                        }
+                    }.labelsHidden().frame(width: 230)
+                }
+                Text("Fijo al integrado, el iPhone cercano ya no roba el micrófono a media grabación.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Sonidos de inicio y fin", isOn: $m.sonidos)
                 Toggle("Cancelar con Esc", isOn: $m.escCancela)
                 Toggle("Mostrar el panel al dictar", isOn: $m.panelVisible)

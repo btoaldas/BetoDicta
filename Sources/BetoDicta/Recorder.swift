@@ -20,6 +20,14 @@ final class Recorder {
     func start() throws {
         samples = Data()
         let input = engine.inputNode
+        // Fijar el micrófono ANTES de leer el formato: sin esto macOS puede
+        // enchufarnos el mic del iPhone (Continuity) y grabar silencio.
+        if let dev = Microfono.elegido(), let au = input.audioUnit {
+            var id = dev
+            AudioUnitSetProperty(au, kAudioOutputUnitProperty_CurrentDevice,
+                                 kAudioUnitScope_Global, 0, &id,
+                                 UInt32(MemoryLayout<AudioDeviceID>.size))
+        }
         let inFormat = input.outputFormat(forBus: 0)
         converter = AVAudioConverter(from: inFormat, to: outFormat)
 
