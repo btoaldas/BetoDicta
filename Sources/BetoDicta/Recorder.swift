@@ -24,8 +24,12 @@ final class Recorder {
     }
 
     func start() throws {
+        // Blindaje contra doble arranque: un segundo installTap en el mismo
+        // bus lanza NSException y tumba la app (crash real del 2026-07-10).
+        guard !isRecording else { return }
         samples = Data()
         let input = engine.inputNode
+        input.removeTap(onBus: 0)   // por si quedó un tap de un intento fallido
         // Fijar el micrófono ANTES de leer el formato: sin esto macOS puede
         // enchufarnos el mic del iPhone (Continuity) y grabar silencio.
         if let dev = Microfono.elegido(), let au = input.audioUnit {
