@@ -6,6 +6,10 @@ Dictado por voz para macOS que **abraza el notch**: pulsa una tecla, habla, y el
 
 **[betodicta.eztic.ec](https://betodicta.eztic.ec/)** — todo sobre la app, motores y guía de instalación.
 
+## 📖 Manual de usuario
+
+**[Manual completo](docs/MANUAL.md)** — instalación, cada pestaña, cada motor, cada ajuste, con capturas.
+
 ## ⬇️ Descarga
 
 **[Descargar BetoDicta (DMG) — última versión](https://github.com/btoaldas/BetoDicta/releases/latest)**

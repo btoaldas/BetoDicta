@@ -443,6 +443,14 @@ struct SettingsView: View {
                 link("Repositorio en GitHub", "https://github.com/btoaldas/BetoDicta")
                 Text("Licencia GPL-3.0 · libre para siempre").font(.caption).foregroundStyle(.secondary)
             }
+            tarjeta("Ayuda", "questionmark.circle") {
+                link("Manual de usuario completo", "https://github.com/btoaldas/BetoDicta/blob/main/docs/MANUAL.md")
+                Text("Instalación, cada pestaña, cada motor, cada ajuste — todo explicado con capturas.")
+                    .font(.caption).foregroundStyle(.secondary)
+                link("Reportar un problema", "https://github.com/btoaldas/BetoDicta/issues/new")
+                Text("Se abre el formulario en GitHub: cuenta qué hiciste, qué esperabas y qué pasó.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             tarjeta("Historial de versiones", "clock.arrow.circlepath") {
                 ForEach(Version.historial, id: \.version) { v in
                     VStack(alignment: .leading, spacing: 3) {
