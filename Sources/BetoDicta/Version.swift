@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.16.7"
+    static let numero = "0.17.0"
     static let fecha = "2026-07-10"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.17.0", "2026-07-10", [
+            "Conmutación de motor EN CALIENTE: cambia de IA a mitad del dictado y el motor nuevo retoma todo lo dicho — sin perder una palabra",
+            "Selector rápido de proveedor: desde el menú de la barra o con un clic sobre el letrero del notch",
+            "El log y las estadísticas nombran el motor exacto (Voxtral/Nemotron en vivo)",
+            "betodicta.eztic.ec es la página oficial (en Créditos y README)",
+        ]),
         ("0.16.7", "2026-07-10", [
             "Dictados seguidos con ElevenLabs ya no caen a Whisper: el cierre normal de un dictado exitoso contaba como fallo de red (falsa cuarentena)",
             "El plan B en vivo respeta TU orden de la cascada (Whisper #2 antes que Nemotron #3)",
