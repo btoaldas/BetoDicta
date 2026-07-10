@@ -205,6 +205,7 @@ struct HotkeyRecorder: NSViewRepresentable {
 private enum Seccion: String, CaseIterable, Identifiable {
     case ajustes = "Ajustes"
     case modelos = "Modelos"
+    case historial = "Historial"
     case acciones = "Acciones"
     case transcribir = "Transcribir"
     case estadisticas = "Estadísticas"
@@ -215,6 +216,7 @@ private enum Seccion: String, CaseIterable, Identifiable {
         switch self {
         case .ajustes: return "gearshape.fill"
         case .modelos: return "cpu.fill"
+        case .historial: return "clock.arrow.circlepath"
         case .acciones: return "bolt.fill"
         case .transcribir: return "waveform.badge.mic"
         case .estadisticas: return "chart.bar.fill"
@@ -254,6 +256,7 @@ struct SettingsView: View {
     private var detalle: some View {
         switch seccion {
         case .modelos: ModelsView()
+        case .historial: HistorialView()
         case .acciones: acciones
         case .transcribir: TranscribeView()
         case .estadisticas: StatsView()

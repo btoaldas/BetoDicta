@@ -759,6 +759,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "voxtral_local": return "Voxtral"
         case "nemotron_local": return "Nemotron"
         case "canary_local": return "Canary"
+        case "openai": return "OpenAI"
+        case "mistral": return "Mistral"
         default: return respaldo
         }
     }

@@ -39,6 +39,10 @@ enum Providers {
                  orden: 100, modelo: "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"),
         Provider(id: "canary_local", nombre: "Canary local", tipo: "local", activo: false,
                  orden: 101, modelo: "canary-1b-flash-Q8_0.gguf"),
+        Provider(id: "openai", nombre: "OpenAI", tipo: "nube", activo: false,
+                 orden: 102, modelo: "gpt-4o-mini-transcribe"),
+        Provider(id: "mistral", nombre: "Mistral (Voxtral nube)", tipo: "nube", activo: false,
+                 orden: 103, modelo: "voxtral-mini-latest"),
     ]
 
     static func load() -> [Provider] {

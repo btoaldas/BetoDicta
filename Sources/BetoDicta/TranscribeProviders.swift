@@ -2,6 +2,82 @@ import Foundation
 
 // MARK: - Clientes de transcripción por proveedor + failover
 
+/// Transcripción vía cualquier API compatible con OpenAI (multipart + JSON).
+/// La usan Groq, OpenAI y Mistral — solo cambian endpoint, key y modelo.
+enum OpenAICompatible {
+    static func transcribir(endpoint: String, key: String, model: String, wav: Data,
+                            conPrompt: Bool = true,
+                            completion: @escaping (Result<String, Error>) -> Void) {
+        let boundary = "BetoDicta-\(UUID().uuidString)"
+        var body = Data()
+        func field(_ n: String, _ v: String) {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(n)\"\r\n\r\n\(v)\r\n".data(using: .utf8)!)
+        }
+        field("model", model)
+        field("language", "es")
+        field("response_format", "json")
+        if conPrompt {
+            let glosario = Config.glosarioPrompt()
+            if !glosario.isEmpty { field("prompt", glosario) }
+        }
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        var req = URLRequest(url: URL(string: endpoint)!)
+        req.httpMethod = "POST"
+        // Corto a propósito: mejor saltar al siguiente de la cascada que colgar.
+        req.timeoutInterval = 15
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+
+        URLSession.shared.uploadTask(with: req, from: body) { data, resp, err in
+            DispatchQueue.main.async {
+                if let err { completion(.failure(err)); return }
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data, (200..<300).contains(code) else {
+                    completion(.failure(ScribeError.http(code,
+                        data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                    return
+                }
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let text = json["text"] as? String else {
+                    completion(.failure(ScribeError.sinTexto)); return
+                }
+                completion(.success(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+        }.resume()
+    }
+}
+
+/// Transcribe con OpenAI (whisper-1, gpt-4o-transcribe…).
+enum OpenAITranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("OPENAI_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de OpenAI — ponla en Configuración → Modelos")))
+            return
+        }
+        OpenAICompatible.transcribir(endpoint: "https://api.openai.com/v1/audio/transcriptions",
+                                     key: key, model: model, wav: wav, completion: completion)
+    }
+}
+
+/// Transcribe con Mistral (Voxtral en la nube).
+enum MistralTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("MISTRAL_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de Mistral — ponla en Configuración → Modelos")))
+            return
+        }
+        // La API de audio de Mistral no acepta el campo "prompt".
+        OpenAICompatible.transcribir(endpoint: "https://api.mistral.ai/v1/audio/transcriptions",
+                                     key: key, model: model, wav: wav, conPrompt: false,
+                                     completion: completion)
+    }
+}
+
 /// Transcribe con Groq (whisper-large-v3, nube). API compatible OpenAI.
 enum GroqTranscribe {
     static func run(wav: Data, model: String = "whisper-large-v3", completion: @escaping (Result<String, Error>) -> Void) {
@@ -176,6 +252,10 @@ enum Failover {
             }
         case "nemotron_local", "canary_local":
             TranscribeCpp.run(wav: wav, modelo: p.modelo ?? "") { siguiente($0) }
+        case "openai":
+            OpenAITranscribe.run(wav: wav, model: p.modelo ?? "gpt-4o-mini-transcribe") { siguiente($0) }
+        case "mistral":
+            MistralTranscribe.run(wav: wav, model: p.modelo ?? "voxtral-mini-latest") { siguiente($0) }
         default: siguiente(.failure(ScribeError.sinTexto))
         }
     }

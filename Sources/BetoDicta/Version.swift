@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.17.2"
+    static let numero = "0.18.0"
     static let fecha = "2026-07-10"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.18.0", "2026-07-10", [
+            "Pestaña Historial: todos tus dictados con buscador (sin distinguir tildes), escuchar el audio, copiar y abrir en Finder",
+            "OpenAI y Mistral (Voxtral nube) ya funcionan de verdad: pon tu key en Modelos y actívalos en la cascada",
+            "Descargas de modelos en segundo plano + botón ✕ para cancelarlas",
+            "'Guardado ✓' al guardar la API key y ⌘V/⌘C funcionan en todos los campos",
+        ]),
         ("0.17.2", "2026-07-10", [
             "Las API keys viven solo en la configuración de la app (adiós rutas de la máquina del desarrollador)",
             "Mensaje claro cuando falta la key: 'ponla en Configuración → Modelos'",
