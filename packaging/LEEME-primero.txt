@@ -3,8 +3,11 @@ BetoDicta — Dictado por voz para macOS
 
 INSTALAR
   1. Arrastra BetoDicta.app a la carpeta Aplicaciones.
-  2. PRIMERA VEZ: haz clic DERECHO sobre BetoDicta.app → "Abrir" → "Abrir".
-     (macOS pide esto una sola vez porque la app no viene de la App Store.)
+  2. PRIMERA VEZ: al abrirla, macOS dirá "Apple no pudo verificar…".
+     Pulsa "Listo" (¡NO "Mover al basurero"!) y luego:
+     Ajustes del Sistema → Privacidad y seguridad → baja hasta
+     "Seguridad" → botón "Abrir de todos modos" → tu contraseña.
+     Es UNA sola vez (la app es open source, no viene de la App Store).
   3. Concede los permisos que pida: Micrófono y Accesibilidad.
 
 USAR

@@ -10,7 +10,9 @@ Dictado por voz para macOS que **abraza el notch**: pulsa una tecla, habla, y el
 
 **[Descargar BetoDicta (DMG) — última versión](https://github.com/btoaldas/BetoDicta/releases/latest)**
 
-Arrastra a Aplicaciones. Primera vez: clic derecho → **Abrir** (la app no viene de la App Store). Requiere macOS 14+ y Apple Silicon.
+Arrastra a Aplicaciones. Requiere macOS 14+ y Apple Silicon.
+
+**Primera apertura** (macOS dirá "Apple no pudo verificar…" porque la app es open source y no viene de la App Store): pulsa "Listo" → **Ajustes del Sistema → Privacidad y seguridad** → baja hasta "Seguridad" → **"Abrir de todos modos"**. Es una sola vez.
 
 ![BetoDicta en acción — panel junto al notch con latido de voz, tecla fn y texto en vivo](docs/screenshot.png)
 
