@@ -4,12 +4,24 @@ import Carbon.HIToolbox
 
 // MARK: - Panel flotante en el notch (no roba el foco)
 
+/// Label que acepta clic (izquierdo o derecho) para abrir el selector de motor.
+final class MotorLabel: NSTextField {
+    var onClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) { onClick?() }
+    override func rightMouseDown(with event: NSEvent) { onClick?() }
+}
+
 final class DictationPanel {
     private let panel: NSPanel
     private let label = NSTextField(labelWithString: "")
     let meter: LevelMeterView
     private let keycap = NSTextField(labelWithString: "fn")
-    private let motorLabel = NSTextField(labelWithString: "")
+    private let motorLabel = MotorLabel(labelWithString: "")
+
+    /// Clic sobre el letrero del motor (o el fn): abrir el selector rápido.
+    var onMotorClick: (() -> Void)? {
+        didSet { motorLabel.onClick = onMotorClick }
+    }
 
     private let wing: CGFloat = 48      // alas a los lados del notch
     private let strip: CGFloat = 24     // línea de texto bajo el notch
@@ -117,12 +129,19 @@ final class DictationPanel {
     }
 
     /// Letrero del motor activo, encima del fn. Verde = texto en vivo;
-    /// gris = se transcribe al soltar la tecla.
+    /// gris = se transcribe al soltar la tecla. Clic = selector rápido.
     func setMotor(_ nombre: String, enVivo: Bool) {
         motorLabel.stringValue = nombre.uppercased()
         motorLabel.textColor = enVivo
             ? NSColor(calibratedRed: 0.35, green: 0.85, blue: 0.45, alpha: 1)
             : NSColor(calibratedWhite: 0.55, alpha: 1)
+    }
+
+    /// Menú emergente anclado al letrero del motor (para el selector rápido).
+    func popUpMotorMenu(_ menu: NSMenu) {
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: motorLabel.frame.minX, y: motorLabel.frame.minY - 4),
+                   in: panel.contentView)
     }
 
     func hide(after seconds: TimeInterval = 0) {

@@ -36,6 +36,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.items.first(where: { $0.tag == 82 })?.title =
                 activo ? "Traducir al dictar: \(idioma)" : "Traducir al dictar"
         }
+        if let provMenu = menu.items.first(where: { $0.tag == 83 })?.submenu {
+            provMenu.removeAllItems()
+            let cadena = Providers.cadena()
+            for (i, p) in cadena.enumerated() {
+                let item = NSMenuItem(title: p.nombre, action: #selector(elegirProveedor(_:)), keyEquivalent: "")
+                item.representedObject = p.id
+                item.target = self
+                item.state = i == 0 ? .on : .off
+                provMenu.addItem(item)
+            }
+            menu.items.first(where: { $0.tag == 83 })?.title =
+                "Proveedor principal: \(Self.nombreMotor(cadena.first))"
+        }
         if let recientes = menu.items.first(where: { $0.tag == 80 })?.submenu {
             recientes.removeAllItems()
             let fmt = DateFormatter()
@@ -134,6 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "BetoDicta v\(Version.numero) — \(tecla) para dictar", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Configuración…", action: #selector(openSettings), keyEquivalent: ",")
+        let prov = NSMenuItem(title: "Proveedor principal", action: nil, keyEquivalent: "")
+        prov.tag = 83
+        prov.submenu = NSMenu()
+        menu.addItem(prov)
         menu.addItem(withTitle: "Editar keyterms", action: #selector(openKeyterms), keyEquivalent: "")
         menu.addItem(withTitle: "Editar reemplazos", action: #selector(openReplacements), keyEquivalent: "")
         menu.addItem(withTitle: "Copiar último dictado", action: #selector(copyLastDictation), keyEquivalent: "c")
@@ -178,6 +195,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
         registerHotKey()
+
+        // Clic en el letrero del motor (notch) → selector rápido de proveedor.
+        panel.onMotorClick = { [weak self] in
+            guard let self else { return }
+            let menu = NSMenu()
+            let titulo = NSMenuItem(title: "Proveedor principal", action: nil, keyEquivalent: "")
+            titulo.isEnabled = false
+            menu.addItem(titulo)
+            for (i, p) in Providers.cadena().enumerated() {
+                let item = NSMenuItem(title: Self.nombreMotor(p), action: #selector(self.elegirProveedor(_:)), keyEquivalent: "")
+                item.representedObject = p.id
+                item.target = self
+                item.state = i == 0 ? .on : .off
+                menu.addItem(item)
+            }
+            if self.recorder.isRecording {
+                menu.addItem(NSMenuItem.separator())
+                let nota = NSMenuItem(title: "Aplica desde el próximo dictado", action: nil, keyEquivalent: "")
+                nota.isEnabled = false
+                menu.addItem(nota)
+            }
+            self.panel.popUpMotorMenu(menu)
+        }
 
         // Caja negra: rescatar dictados de sesiones que murieron a medias,
         // y matar whisper-servers huérfanos de crashes anteriores.
@@ -263,6 +303,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openSettings() { Log.log(.ui, "abrir configuración"); SettingsWindowController.shared.show() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("config.json")) }
+    /// Selector rápido: el proveedor elegido pasa a #1 de la cascada.
+    /// Aplica desde el PRÓXIMO dictado (uno en curso no se interrumpe).
+    @objc func elegirProveedor(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        Providers.moverAlFrente(id)
+        if !recorder.isRecording {
+            let p = Providers.cadena().first
+            let esVivo = TcppStreamClient.esModeloStreaming(p?.modelo ?? "")
+                || (p?.id == "elevenlabs" && (p?.modelo ?? "") == "scribe_v2_realtime")
+            panel.setMotor(Self.nombreMotor(p), enVivo: esVivo)
+        }
+    }
+
     @objc private func openKeyterms() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("keyterms.txt")) }
     @objc private func openReplacements() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("reemplazos.json")) }
     @objc private func copyLastDictation() {

@@ -90,6 +90,17 @@ enum Providers {
 
     static func cadena() -> [Provider] { load().filter { $0.activo } }
 
+    /// Pone el proveedor elegido de PRIMERO en la cascada (el resto conserva
+    /// su orden relativo). Para el selector rápido del menú y del notch.
+    static func moverAlFrente(_ id: String) {
+        var lista = load()
+        guard let i = lista.firstIndex(where: { $0.id == id }) else { return }
+        let elegido = lista.remove(at: i)
+        lista.insert(elegido, at: 0)
+        save(lista)
+        Log.log(.config, "proveedor principal → \(elegido.nombre)")
+    }
+
     static func modelo(de id: String) -> String? {
         load().first { $0.id == id }?.modelo
     }
