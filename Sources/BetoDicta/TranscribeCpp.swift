@@ -41,10 +41,17 @@ enum TranscribeCpp {
 
             let task = Process()
             task.executableURL = cli
-            // Cada familia pide su código: Nemotron usa locale (es-US),
-            // Canary y demás usan el corto (es).
-            let idioma = archivo.lowercased().contains("nemotron") ? "es-US" : "es"
-            task.arguments = ["-m", modelURL.path, "--language", idioma, tmp.path]
+            // Cada familia pide su código: Nemotron usa locale (es-US), Canary
+            // el corto (es), y los realtime solo auto-detectan (sin flag).
+            let bajo = archivo.lowercased()
+            var args = ["-m", modelURL.path]
+            if bajo.contains("nemotron") {
+                args += ["--language", "es-US"]
+            } else if !bajo.contains("realtime") {
+                args += ["--language", "es"]
+            }
+            args.append(tmp.path)
+            task.arguments = args
             let out = Pipe()
             task.standardOutput = out
             task.standardError = Pipe()

@@ -40,16 +40,20 @@ final class TcppStreamClient {
         archivo.lowercased().contains("realtime") ? "auto" : "es-US"
     }
 
-    /// ¿Está todo listo para dictar en vivo con el motor local?
-    static var disponible: Bool {
+    /// ¿Este proveedor puede dictar en vivo con el motor local?
+    /// (binario presente + su modelo es streaming + está descargado)
+    static func disponible(proveedor id: String) -> Bool {
         guard binURL != nil,
-              let m = Providers.modelo(de: "tcpp_local"), esModeloStreaming(m) else { return false }
+              let m = Providers.modelo(de: id), esModeloStreaming(m) else { return false }
         return FileManager.default.fileExists(
             atPath: TranscribeCpp.modelsDir.appendingPathComponent(m).path)
     }
 
+    private let proveedorId: String
+    init(proveedor id: String) { proveedorId = id }
+
     func start() throws {
-        guard let bin = Self.binURL, let modelo = Providers.modelo(de: "tcpp_local") else {
+        guard let bin = Self.binURL, let modelo = Providers.modelo(de: proveedorId) else {
             throw ScribeError.ws("beto-stream no disponible")
         }
         // Un pipe roto no debe tumbar la app (el proceso puede morir a mitad).

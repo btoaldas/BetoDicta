@@ -628,10 +628,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let history = HistoryWriter()
         self.history = history
 
-        // Streaming local NATIVO: proveedor #1 = Nemotron/Canary con modelo
-        // streaming → texto en vivo 100% offline (beto-stream).
-        if Providers.cadena().first?.id == "tcpp_local", TcppStreamClient.disponible {
-            let client = TcppStreamClient()
+        // Streaming local NATIVO: proveedor #1 local con modelo streaming
+        // (Nemotron 3.5, Voxtral Realtime) → texto en vivo 100% offline.
+        if let primero = Providers.cadena().first,
+           ["nemotron_local", "voxtral_local", "canary_local"].contains(primero.id),
+           TcppStreamClient.disponible(proveedor: primero.id) {
+            let client = TcppStreamClient(proveedor: primero.id)
             self.tcppStream = client
             client.onPartial = { [weak self] texto in
                 guard let self, self.recorder.isRecording else { return }

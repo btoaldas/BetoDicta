@@ -154,7 +154,11 @@ enum Failover {
         case "groq": GroqTranscribe.run(wav: wav, model: p.modelo ?? "whisper-large-v3") { siguiente($0) }
         case "whisper_local": WhisperLocal.run(wav: wav) { siguiente($0) }
         case "voxtral_local":
-            if VoxtralServer.corriendo {
+            // La familia Voxtral tiene dos motores: el Mini 3B corre en
+            // llama.cpp (server residente); el Realtime 4B en transcribe.cpp.
+            if TcppStreamClient.esModeloStreaming(p.modelo ?? "") {
+                TranscribeCpp.run(wav: wav, modelo: p.modelo ?? "") { siguiente($0) }
+            } else if VoxtralServer.corriendo {
                 VoxtralServer.transcribe(wav: wav) { siguiente($0) }
             } else if VoxtralServer.diagnostico == nil {
                 // No precalentó (p.ej. se activó recién): arrancar y transcribir.
@@ -163,8 +167,8 @@ enum Failover {
             } else {
                 siguiente(.failure(ScribeError.ws(VoxtralServer.diagnostico ?? "voxtral no disponible")))
             }
-        case "tcpp_local":
-            TranscribeCpp.run(wav: wav, modelo: p.modelo ?? "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf") { siguiente($0) }
+        case "nemotron_local", "canary_local":
+            TranscribeCpp.run(wav: wav, modelo: p.modelo ?? "") { siguiente($0) }
         default: siguiente(.failure(ScribeError.sinTexto))
         }
     }

@@ -53,8 +53,10 @@ enum VoxtralServer {
     }
 
     /// Lanza el server si el proveedor está activo en la cadena y no corre.
+    /// Solo aplica al Voxtral 3B (llama.cpp); el Realtime 4B usa beto-stream.
     static func precalentar() {
-        guard Providers.cadena().contains(where: { $0.id == "voxtral_local" }) else { return }
+        guard let prov = Providers.cadena().first(where: { $0.id == "voxtral_local" }),
+              !TcppStreamClient.esModeloStreaming(prov.modelo ?? "") else { return }
         guard let bin = serverBinURL, let pesos = pesosURL, let mm = mmprojURL,
               diagnostico == nil else { return }
         let modelo = pesos.lastPathComponent

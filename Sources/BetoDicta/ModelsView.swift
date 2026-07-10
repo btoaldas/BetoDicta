@@ -19,6 +19,7 @@ final class ProvidersModel: ObservableObject {
     }
     func subir(_ i: Int) { guard i > 0 else { return }; lista.swapAt(i, i - 1); guardar() }
     func bajar(_ i: Int) { guard i < lista.count - 1 else { return }; lista.swapAt(i, i + 1); guardar() }
+    func mover(from: IndexSet, to: Int) { lista.move(fromOffsets: from, toOffset: to); guardar() }
 
     /// Cambia el modelo/archivo del proveedor local Whisper.
     func usarModeloLocal(_ archivo: String) {
@@ -101,12 +102,16 @@ final class ProvidersModel: ObservableObject {
         Log.log(.ia, "modelo \(m.nombre) borrado")
         objectWillChange.send()
     }
-    func usarTcpp(_ m: TcppModelo) {
+    func usarTcpp(_ m: TcppModelo, proveedor: String) {
         var lista = Providers.load()
-        if let i = lista.firstIndex(where: { $0.id == "tcpp_local" }) {
+        if let i = lista.firstIndex(where: { $0.id == proveedor }) {
             lista[i].modelo = m.archivo
             lista[i].activo = true
             Providers.save(lista)
+        }
+        if proveedor == "voxtral_local" {
+            // Si el proveedor pasa al modelo Realtime, el server 3B sobra.
+            VoxtralServer.apagar(motivo: "cambio a modelo realtime")
         }
         recargar()
     }
@@ -143,30 +148,43 @@ struct ModelsView: View {
         VStack(alignment: .leading, spacing: 18) {
             // ── Cascada de failover ──
             seccion("Cascada de failover", "arrow.triangle.branch") {
-                Text("Se usa el activo #1; si falla, salta al #2, luego al #3. Ordénalos con las flechas.")
+                Text("Se usa el activo #1; si falla, salta al #2, luego al #3. Arrastra las filas para ordenarlas.")
                     .font(.caption).foregroundStyle(.secondary)
-                ForEach(Array(m.lista.enumerated()), id: \.element.id) { i, p in
-                    HStack(spacing: 10) {
-                        Text("\(i + 1)").font(.system(.body, design: .rounded)).bold()
-                            .frame(width: 20).foregroundStyle(p.activo ? acentoM : .secondary)
-                        Toggle("", isOn: Binding(get: { p.activo }, set: { _ in m.toggle(p.id) }))
-                            .toggleStyle(.switch).labelsHidden().tint(acentoM)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(p.nombre).font(.subheadline).bold()
-                            Text("\(p.tipo == "nube" ? "☁️ nube" : "💾 local") · \(p.modelo ?? "")")
-                                .font(.caption2).foregroundStyle(.secondary)
+                List {
+                    ForEach(Array(m.lista.enumerated()), id: \.element.id) { i, p in
+                        HStack(spacing: 10) {
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                            Text("\(i + 1)").font(.system(.body, design: .rounded)).bold()
+                                .frame(width: 20).foregroundStyle(p.activo ? acentoM : .secondary)
+                            Toggle("", isOn: Binding(get: { p.activo }, set: { _ in m.toggle(p.id) }))
+                                .toggleStyle(.switch).labelsHidden().tint(acentoM)
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 6) {
+                                    Text(p.nombre).font(.subheadline).bold()
+                                    if TcppStreamClient.esModeloStreaming(p.modelo ?? "")
+                                        || (p.id == "elevenlabs" && (p.modelo ?? "") == "scribe_v2_realtime") {
+                                        Text("EN VIVO").font(.system(size: 8, weight: .bold))
+                                            .padding(.horizontal, 5).padding(.vertical, 1)
+                                            .background(.green.opacity(0.85)).foregroundStyle(.white)
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                                Text("\(p.tipo == "nube" ? "☁️ nube" : "💾 local") · \(p.modelo ?? "")")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
                         }
-                        Spacer()
-                        VStack(spacing: 1) {
-                            Button { m.subir(i) } label: { Image(systemName: "chevron.up") }
-                                .buttonStyle(.plain).disabled(i == 0)
-                            Button { m.bajar(i) } label: { Image(systemName: "chevron.down") }
-                                .buttonStyle(.plain).disabled(i == m.lista.count - 1)
-                        }
+                        .padding(.vertical, 4)
+                        .listRowBackground(Color(nsColor: .controlBackgroundColor))
+                        .listRowSeparator(.hidden)
                     }
-                    .padding(10).background(Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .onMove { from, to in m.mover(from: from, to: to) }
                 }
+                .listStyle(.plain)
+                .scrollDisabled(true)
+                .frame(height: CGFloat(m.lista.count) * 46 + 8)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
 
             // ── Modelos locales (catálogo descargable) ──
@@ -210,31 +228,24 @@ struct ModelsView: View {
                 }
             }
 
-            // ── Modelos exóticos (motor llama.cpp) ──
+            // ── Voxtral: dos modelos, dos motores, un proveedor ──
             seccion("Modelos locales (Voxtral)", "brain") {
-                if let falta = VoxtralServer.serverBinURL == nil
-                    ? "Requiere llama.cpp: instala con `brew install llama.cpp`" : nil {
-                    Label(falta, systemImage: "exclamationmark.triangle")
+                Text("Mistral · entienden contexto y respetan mejor las siglas. El Realtime dicta EN VIVO.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if VoxtralServer.serverBinURL == nil {
+                    Label("El Mini 3B requiere llama.cpp: brew install llama.cpp",
+                          systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.orange)
-                } else {
-                    Text("Motor llama.cpp listo. Entienden contexto y varios idiomas; sin streaming en vivo.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
+                // Mini 3B (motor llama.cpp, por lotes)
                 ForEach(ModelCatalog.exoticos) { modelo in
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 6) {
                                 Text(modelo.nombre).font(.subheadline).bold()
-                                if Providers.modelo(de: "voxtral_local") == modelo.archivos[0],
-                                   Providers.cadena().contains(where: { $0.id == "voxtral_local" }) {
-                                    Text("EN USO").font(.system(size: 8, weight: .bold))
-                                        .padding(.horizontal, 5).padding(.vertical, 1)
-                                        .background(acentoM).foregroundStyle(.white)
-                                        .clipShape(Capsule())
-                                }
+                                badgeEnUso(proveedor: "voxtral_local", archivo: modelo.archivos[0])
                                 if VoxtralServer.corriendo {
-                                    Text("● residente").font(.system(size: 9))
-                                        .foregroundStyle(.green)
+                                    Text("● residente").font(.system(size: 9)).foregroundStyle(.green)
                                 }
                             }
                             Text("\(modelo.tamañoMB) MB · \(modelo.nota)")
@@ -242,73 +253,41 @@ struct ModelsView: View {
                         }
                         Spacer()
                         if let prog = m.progresoExotico(modelo) {
-                            VStack(spacing: 2) {
-                                ProgressView(value: prog).frame(width: 60).tint(acentoM)
-                                Text("\(Int(prog * 100))%").font(.system(size: 9))
-                            }
+                            progreso(prog)
                         } else if modelo.descargado {
                             Button("Usar") { m.usarExotico(modelo) }
                                 .disabled(VoxtralServer.serverBinURL == nil)
-                            Button { m.borrarExotico(modelo) } label: {
-                                Image(systemName: "trash").foregroundStyle(.red)
-                            }.buttonStyle(.plain)
+                            botonBorrar { m.borrarExotico(modelo) }
                         } else {
-                            Button { m.descargarExotico(modelo) } label: {
-                                Image(systemName: "arrow.down.circle").foregroundStyle(acentoM)
-                            }.buttonStyle(.plain)
+                            botonDescargar { m.descargarExotico(modelo) }
                         }
                     }
                     .padding(10).background(Color(nsColor: .controlBackgroundColor))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                // Realtime 4B (motor transcribe.cpp, en vivo)
+                ForEach(ModelCatalog.voxtralRealtime) { modelo in
+                    filaTcpp(modelo, proveedor: "voxtral_local")
                 }
             }
 
-            // ── Motor transcribe.cpp (Nemotron/Canary — el motor de Handy) ──
-            seccion("Modelos locales (Nemotron/Canary)", "bolt.badge.clock") {
-                if TranscribeCpp.cliURL == nil {
-                    Label("Falta el motor transcribe.cpp (compilar en ~/transcribe.cpp)",
-                          systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
-                } else {
-                    Text("Motor transcribe.cpp listo (el mismo de Handy). Livianos y muy rápidos; sin glosario nativo — los reemplazos corrigen después.")
-                        .font(.caption).foregroundStyle(.secondary)
+            // ── Nemotron (motor transcribe.cpp, en vivo) ──
+            seccion("Modelos locales (Nemotron)", "bolt.badge.clock") {
+                Text("NVIDIA · streaming EN VIVO cache-aware, liviano. Sin glosario nativo — los reemplazos corrigen después.")
+                    .font(.caption).foregroundStyle(.secondary)
+                avisoMotorTcpp
+                ForEach(ModelCatalog.nemotron) { modelo in
+                    filaTcpp(modelo, proveedor: "nemotron_local")
                 }
-                ForEach(ModelCatalog.transcribeCpp) { modelo in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 6) {
-                                Text(modelo.nombre).font(.subheadline).bold()
-                                if Providers.modelo(de: "tcpp_local") == modelo.archivo,
-                                   Providers.cadena().contains(where: { $0.id == "tcpp_local" }) {
-                                    Text("EN USO").font(.system(size: 8, weight: .bold))
-                                        .padding(.horizontal, 5).padding(.vertical, 1)
-                                        .background(acentoM).foregroundStyle(.white)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                            Text("\(modelo.tamañoMB) MB · \(modelo.nota)")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if let prog = m.descargas[modelo.archivo] {
-                            VStack(spacing: 2) {
-                                ProgressView(value: prog).frame(width: 60).tint(acentoM)
-                                Text("\(Int(prog * 100))%").font(.system(size: 9))
-                            }
-                        } else if modelo.descargado {
-                            Button("Usar") { m.usarTcpp(modelo) }
-                                .disabled(TranscribeCpp.cliURL == nil)
-                            Button { m.borrarTcpp(modelo) } label: {
-                                Image(systemName: "trash").foregroundStyle(.red)
-                            }.buttonStyle(.plain)
-                        } else {
-                            Button { m.descargarTcpp(modelo) } label: {
-                                Image(systemName: "arrow.down.circle").foregroundStyle(acentoM)
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                    .padding(10).background(Color(nsColor: .controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+
+            // ── Canary (motor transcribe.cpp, por lotes) ──
+            seccion("Modelos locales (Canary)", "hare") {
+                Text("NVIDIA · el más veloz por lotes (93x). NO tiene modo en vivo: el texto aparece al soltar la tecla.")
+                    .font(.caption).foregroundStyle(.secondary)
+                avisoMotorTcpp
+                ForEach(ModelCatalog.canary) { modelo in
+                    filaTcpp(modelo, proveedor: "canary_local")
                 }
             }
 
@@ -329,6 +308,75 @@ struct ModelsView: View {
             Label(titulo, systemImage: icono).font(.headline).foregroundStyle(acentoM)
             content()
         }
+    }
+
+    // ---- piezas compartidas de las filas de modelos ----
+
+    @ViewBuilder
+    private var avisoMotorTcpp: some View {
+        if TranscribeCpp.cliURL == nil {
+            Label("Falta el motor transcribe.cpp (compilar en ~/transcribe.cpp)",
+                  systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private func badgeEnUso(proveedor: String, archivo: String) -> some View {
+        if Providers.modelo(de: proveedor) == archivo,
+           Providers.cadena().contains(where: { $0.id == proveedor }) {
+            Text("EN USO").font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(acentoM).foregroundStyle(.white)
+                .clipShape(Capsule())
+        }
+    }
+
+    private func progreso(_ p: Double) -> some View {
+        VStack(spacing: 2) {
+            ProgressView(value: p).frame(width: 60).tint(acentoM)
+            Text("\(Int(p * 100))%").font(.system(size: 9))
+        }
+    }
+    private func botonBorrar(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "trash").foregroundStyle(.red) }
+            .buttonStyle(.plain)
+    }
+    private func botonDescargar(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "arrow.down.circle").foregroundStyle(acentoM) }
+            .buttonStyle(.plain)
+    }
+
+    /// Fila estándar de un modelo del motor transcribe.cpp.
+    private func filaTcpp(_ modelo: TcppModelo, proveedor: String) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(modelo.nombre).font(.subheadline).bold()
+                    badgeEnUso(proveedor: proveedor, archivo: modelo.archivo)
+                    if TcppStreamClient.esModeloStreaming(modelo.archivo) {
+                        Text("EN VIVO").font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(.green.opacity(0.85)).foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+                }
+                Text("\(modelo.tamañoMB) MB · \(modelo.nota)")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let prog = m.descargas[modelo.archivo] {
+                progreso(prog)
+            } else if modelo.descargado {
+                Button("Usar") { m.usarTcpp(modelo, proveedor: proveedor) }
+                    .disabled(TranscribeCpp.cliURL == nil)
+                botonBorrar { m.borrarTcpp(modelo) }
+            } else {
+                botonDescargar { m.descargarTcpp(modelo) }
+            }
+        }
+        .padding(10).background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 

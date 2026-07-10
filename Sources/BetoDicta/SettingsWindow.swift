@@ -286,7 +286,7 @@ struct SettingsView: View {
                 .padding(.vertical, 2)
             }
             Spacer()
-            Text("v0.13")
+            Text("v0.15")
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.horizontal, 20).padding(.bottom, 12)
         }

@@ -34,9 +34,11 @@ enum Providers {
     /// versión nueva (apagados, al final — el usuario decide activarlos).
     static let nuevos: [Provider] = [
         Provider(id: "voxtral_local", nombre: "Voxtral local", tipo: "local", activo: false,
-                 orden: 99, modelo: "Voxtral-Mini-3B-2507-Q4_K_M.gguf"),
-        Provider(id: "tcpp_local", nombre: "Nemotron/Canary local", tipo: "local", activo: false,
+                 orden: 99, modelo: "Voxtral-Mini-4B-Realtime-2602-Q4_K_M.gguf"),
+        Provider(id: "nemotron_local", nombre: "Nemotron local", tipo: "local", activo: false,
                  orden: 100, modelo: "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"),
+        Provider(id: "canary_local", nombre: "Canary local", tipo: "local", activo: false,
+                 orden: 101, modelo: "canary-1b-flash-Q8_0.gguf"),
     ]
 
     static func load() -> [Provider] {
@@ -45,12 +47,34 @@ enum Providers {
             save(porDefecto + nuevos)
             return porDefecto + nuevos
         }
-        // Migración: sumar proveedores nuevos que el JSON viejo no conoce.
+        // Migración 1: el viejo "tcpp_local" (mezclaba Nemotron/Canary/Voxtral)
+        // se reparte a su proveedor de familia, conservando orden y estado.
+        var migrado = false
+        if let i = list.firstIndex(where: { $0.id == "tcpp_local" }) {
+            let viejo = list.remove(at: i)
+            let m = (viejo.modelo ?? "").lowercased()
+            let destino = m.contains("canary") ? "canary_local"
+                        : m.contains("nemotron") ? "nemotron_local" : "voxtral_local"
+            if let j = list.firstIndex(where: { $0.id == destino }) {
+                list[j].modelo = viejo.modelo
+                list[j].activo = viejo.activo
+                list[j].orden = viejo.orden
+            } else {
+                list.append(Provider(id: destino, nombre: destino == "canary_local" ? "Canary local"
+                                        : destino == "nemotron_local" ? "Nemotron local" : "Voxtral local",
+                                     tipo: "local", activo: viejo.activo, orden: viejo.orden, modelo: viejo.modelo))
+            }
+            migrado = true
+        }
+        // Migración 2: sumar proveedores nuevos que el JSON viejo no conoce.
         // Sin recursión: si save() fallara (disco lleno), igual devolvemos
         // la lista migrada en memoria y la app sigue funcionando.
         let faltantes = nuevos.filter { n in !list.contains { $0.id == n.id } }
         if !faltantes.isEmpty {
             list.append(contentsOf: faltantes)
+        }
+        if migrado || !faltantes.isEmpty {
+            list.sort { $0.orden < $1.orden }
             save(list)
         }
         return list.sorted { $0.orden < $1.orden }

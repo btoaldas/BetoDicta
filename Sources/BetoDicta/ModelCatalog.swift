@@ -63,23 +63,31 @@ struct TcppModelo: Identifiable {
 }
 
 enum ModelCatalog {
-    /// Modelos del motor transcribe.cpp (GGUF de handy-computer, verificados).
-    static let transcribeCpp: [TcppModelo] = [
-        TcppModelo(nombre: "Nemotron 3.5 Streaming",
+    // Familias del motor transcribe.cpp (GGUF de handy-computer, verificados).
+    // Cada familia tiene su propio proveedor en la cascada.
+
+    static let nemotron: [TcppModelo] = [
+        TcppModelo(nombre: "Nemotron 3.5 Streaming 0.6B",
                    repo: "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf",
                    archivo: "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
                    tamañoMB: 751,
-                   nota: "NVIDIA · 40 idiomas · rapidísimo (32x) · puntuación nativa"),
+                   nota: "NVIDIA · 40 idiomas · liviano y muy rápido (32x)"),
+    ]
+
+    static let canary: [TcppModelo] = [
         TcppModelo(nombre: "Canary 1B Flash",
                    repo: "handy-computer/canary-1b-flash-gguf",
                    archivo: "canary-1b-flash-Q8_0.gguf",
                    tamañoMB: 1048,
-                   nota: "NVIDIA · en/es/de/fr · calidad alta · por lotes (sin vivo)"),
+                   nota: "NVIDIA · en/es/de/fr · el más veloz (93x) · solo por lotes"),
+    ]
+
+    static let voxtralRealtime: [TcppModelo] = [
         TcppModelo(nombre: "Voxtral Realtime 4B",
                    repo: "handy-computer/Voxtral-Mini-4B-Realtime-2602-gguf",
                    archivo: "Voxtral-Mini-4B-Realtime-2602-Q4_K_M.gguf",
                    tamañoMB: 2830,
-                   nota: "Mistral · streaming EN VIVO · detección automática de idioma"),
+                   nota: "Mistral · idioma automático · el mejor con siglas"),
     ]
 
     /// Modelos que corren con llama.cpp (audio multimodal). Verificados en HF.
