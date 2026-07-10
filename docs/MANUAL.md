@@ -88,6 +88,8 @@ Trucos:
 
 ## 6. El menú de la barra (y el Dock)
 
+![Menú de la barra](img/menu-barra.png)
+
 **Clic en el micrófono de la barra de menú** (arriba a la derecha) — es tu centro de accesos directos:
 
 | Opción | Qué hace |
