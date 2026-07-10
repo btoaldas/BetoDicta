@@ -24,7 +24,9 @@ func transcribeBatch(wav: Data, model: String, completion: @escaping (Result<Str
 
     var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
     request.httpMethod = "POST"
-    request.timeoutInterval = 60
+    // Corto a propósito: con red mala es mejor saltar rápido al siguiente
+    // proveedor de la cascada (Whisper local responde en <1 s) que esperar.
+    request.timeoutInterval = 15
     request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
     request.setValue(key, forHTTPHeaderField: "xi-api-key")
 

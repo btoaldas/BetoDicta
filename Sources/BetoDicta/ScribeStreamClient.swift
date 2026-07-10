@@ -13,6 +13,16 @@ final class StreamClient: NSObject {
     var onCommitted: ((String) -> Void)?
     var onError: ((String) -> Void)?
 
+    /// Circuit breaker: si el WS acaba de fallar (red caída), los próximos
+    /// dictados van DIRECTO a grabar sin esperar otro timeout de conexión.
+    private static var ultimoFallo: Date?
+    static var enCuarentena: Bool {
+        guard let f = ultimoFallo else { return false }
+        return Date().timeIntervalSince(f) < 60
+    }
+    static func registrarFallo() { ultimoFallo = Date() }
+    static func registrarExito() { ultimoFallo = nil }
+
     func connect(completion: @escaping (Result<Void, Error>) -> Void) {
         guard let key = Config.apiKey() else {
             completion(.failure(ScribeError.sinApiKey))

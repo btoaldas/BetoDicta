@@ -662,6 +662,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         if isStreamingModel {
+            // Circuit breaker: si el WS acaba de fallar (red caída), no
+            // volver a esperar el timeout — grabar directo y failover al final.
+            if StreamClient.enCuarentena {
+                recorder.onChunk = { chunk in history.append(chunk: chunk) }
+                do {
+                    try recorder.start()
+                    armEsc()
+                    media.dictationStarted()
+                    playSound("Tink")
+                    panel.show("Escuchando (red caída — se transcribe al soltar)…")
+                } catch {
+                    panel.show("⚠️ Micrófono: \(error.localizedDescription)")
+                    panel.hide(after: 3)
+                    history.discard(); self.history = nil
+                }
+                return
+            }
             panel.show("Conectando con Scribe…")
             let stream = StreamClient()
             self.stream = stream
@@ -688,6 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     // Sin streaming (sin red/saldo): grabar igual y usar el
                     // failover al terminar. El dictado no se pierde.
                     Log.log(.ia, "streaming no conectó (\(error.localizedDescription)) → grabando para failover")
+                    StreamClient.registrarFallo()
                     self.stream = nil
                     self.recorder.onChunk = { chunk in history.append(chunk: chunk) }
                     do {
@@ -702,6 +720,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         history.discard(); self.history = nil
                     }
                 case .success:
+                    StreamClient.registrarExito()
                     self.recorder.onChunk = { [weak stream] chunk in
                         history.append(chunk: chunk)
                         stream?.send(chunk: chunk)

@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.16.2"
+    static let numero = "0.16.3"
     static let fecha = "2026-07-10"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.16.3", "2026-07-10", [
+            "Red caída sin drama: si el streaming falla, el próximo dictado graba directo (sin esperar 'Conectando…')",
+            "La nube lenta ya no te frena: a los 15s salta al motor local automáticamente",
+        ]),
         ("0.16.2", "2026-07-10", [
             "Micrófono fijado al integrado del Mac: el iPhone cercano (Continuity) ya no roba el micrófono y deja el dictado mudo",
             "Selector de micrófono en Ajustes (integrado / automático / cualquiera conectado)",
