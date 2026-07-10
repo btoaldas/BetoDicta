@@ -14,7 +14,9 @@ final class MediaControl {
         let algoSuena = Self.isAudioPlaying()
         previousVolume = readVolume()
         setVolume(Config.duckVolume())
-        if algoSuena {
+        // Ojo: un video EN PAUSA puede mantener el audio "abierto" y disparar
+        // un play fantasma (se auto-corrige al terminar). Interruptor propio:
+        if Config.pausePlayback(), algoSuena {
             Self.sendPlayPauseKey()
             pausedMedia = true
         }

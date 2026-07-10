@@ -9,6 +9,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         menu.items.first(where: { $0.tag == 77 })?.state =
             SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.items.first(where: { $0.tag == 78 })?.state = Config.postProcess() ? .on : .off
+        if let recientes = menu.items.first(where: { $0.tag == 80 })?.submenu {
+            recientes.removeAllItems()
+            let fmt = DateFormatter()
+            fmt.dateFormat = "HH:mm"
+            for entrada in latestTexts(5) {
+                guard let texto = try? String(contentsOf: entrada.url, encoding: .utf8), !texto.isEmpty else { continue }
+                let resumen = texto.count > 44 ? String(texto.prefix(44)) + "…" : texto
+                let item = NSMenuItem(title: "\(fmt.string(from: entrada.date))  \(resumen)",
+                                      action: #selector(copyRecent(_:)), keyEquivalent: "")
+                item.representedObject = texto
+                item.target = self
+                recientes.addItem(item)
+            }
+            if recientes.items.isEmpty {
+                recientes.addItem(NSMenuItem(title: "(vacío)", action: nil, keyEquivalent: ""))
+            }
+        }
         while let viejo = menu.items.first(where: { $0.tag == 99 }) {
             menu.removeItem(viejo)
         }
@@ -71,10 +89,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Editar keyterms", action: #selector(openKeyterms), keyEquivalent: "")
         menu.addItem(withTitle: "Editar reemplazos", action: #selector(openReplacements), keyEquivalent: "")
         menu.addItem(withTitle: "Copiar último dictado", action: #selector(copyLastDictation), keyEquivalent: "c")
+        let recientes = NSMenuItem(title: "Últimos dictados", action: nil, keyEquivalent: "")
+        recientes.tag = 80
+        recientes.submenu = NSMenu()
+        menu.addItem(recientes)
+        menu.addItem(withTitle: "Exportar dictados de hoy", action: #selector(exportToday), keyEquivalent: "e")
         menu.addItem(withTitle: "Abrir historial", action: #selector(openHistory), keyEquivalent: "")
         let auto = NSMenuItem(title: "Arrancar al iniciar sesión", action: #selector(toggleAutostart(_:)), keyEquivalent: "")
         auto.tag = 77
         menu.addItem(auto)
+        let post = NSMenuItem(title: "Post-proceso con IA (Groq)", action: #selector(togglePostProcess(_:)), keyEquivalent: "")
+        post.tag = 78
+        menu.addItem(post)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.delegate = self
@@ -132,6 +158,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.hide(after: 2)
     }
 
+    @objc private func togglePostProcess(_ sender: NSMenuItem) {
+        Config.set("post_proceso", to: !Config.postProcess())
+    }
+
     @objc private func toggleAutostart(_ sender: NSMenuItem) {
         let service = SMAppService.mainApp
         if service.status == .enabled {
@@ -139,6 +169,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             try? service.register()
         }
+    }
+
+    /// Los .txt más recientes del historial, ordenados del más nuevo al más viejo.
+    private func latestTexts(_ count: Int) -> [(date: Date, url: URL)] {
+        let fm = FileManager.default
+        var found: [(Date, URL)] = []
+        if let walker = fm.enumerator(at: HistoryWriter.historyDir, includingPropertiesForKeys: [.contentModificationDateKey]) {
+            for case let url as URL in walker where url.pathExtension == "txt" {
+                let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                found.append((date, url))
+            }
+        }
+        return found.sorted { $0.0 > $1.0 }.prefix(count).map { (date: $0.0, url: $0.1) }
+    }
+
+    @objc private func copyRecent(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        playSound("Glass")
+    }
+
+    @objc private func exportToday() {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy/MM/dd"
+        let hoy = HistoryWriter.historyDir.appendingPathComponent(fmt.string(from: Date()))
+        fmt.dateFormat = "yyyy-MM-dd"
+        let día = fmt.string(from: Date())
+        var nota = "# Dictados del \(día)\n\n"
+        let archivos = ((try? FileManager.default.contentsOfDirectory(at: hoy, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension == "txt" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !archivos.isEmpty else {
+            panel.show("Hoy no hay dictados que exportar")
+            panel.hide(after: 1.5)
+            return
+        }
+        for archivo in archivos {
+            let hora = archivo.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "-", with: ":")
+            let texto = (try? String(contentsOf: archivo, encoding: .utf8)) ?? ""
+            nota += "## \(hora)\n\n\(texto)\n\n"
+        }
+        let destino = Config.exportFolder().appendingPathComponent("Dictados-\(día).md")
+        try? nota.write(to: destino, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.open(destino)
     }
 
     @objc private func openHistory() {
@@ -281,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 history.savePartial(full, force: true)
             }
             stream.onError = { [weak self] message in
+                Log.write("stream: ERROR \(message)")
                 self?.panel.update("⚠️ \(message)")
             }
             stream.connect { [weak self] result in
@@ -387,16 +464,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func deliver(raw: String, wav: Data) {
         UsageLog.record(provider: Config.model(), seconds: Double(wav.count - 44) / 32000.0)
+        Log.write("dictado: \(String(format: "%.1f", Double(wav.count - 44) / 32000.0))s con \(Config.model()), pulido=\(Config.postProcess())")
         let text = applyReplacements(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard !text.isEmpty else {
+            history?.finish(wav: wav, finalText: "")
+            history = nil
+            panel.update("(silencio)")
+            panel.hide(after: 1.8)
+            return
+        }
+        if Config.postProcess(), Config.groqKey() != nil {
+            panel.update("🤖 Puliendo…")
+            LLMPostProcess.enhance(text) { [weak self] pulido in
+                self?.finishDelivery(pulido, wav: wav)
+            }
+        } else {
+            finishDelivery(text, wav: wav)
+        }
+    }
+
+    private func finishDelivery(_ text: String, wav: Data) {
         history?.finish(wav: wav, finalText: text)
         history = nil
-        if text.isEmpty {
-            panel.update("(silencio)")
-        } else {
-            pasteText(text)
-            playSound("Glass")
-            panel.update("✓ " + text)
-        }
+        pasteText(text)
+        playSound("Glass")
+        panel.update("✓ " + text)
         panel.hide(after: 1.8)
     }
 }

@@ -19,6 +19,39 @@ struct Config {
     static func escCancels() -> Bool { (json()["esc_cancela"] as? Bool) ?? true }
     static func duckMedia() -> Bool { (json()["atenuar_multimedia"] as? Bool) ?? true }
     static func duckVolume() -> Int { (json()["volumen_dictado"] as? Int) ?? 1 }
+    static func postProcess() -> Bool { (json()["post_proceso"] as? Bool) ?? false }
+    static func customPrompt() -> String? {
+        guard let s = json()["prompt_pulido"] as? String, !s.isEmpty else { return nil }
+        return s
+    }
+    static func pausePlayback() -> Bool { (json()["pausar_multimedia"] as? Bool) ?? true }
+    static func panelVisible() -> Bool { (json()["panel_visible"] as? Bool) ?? true }
+    static func exportFolder() -> URL {
+        if let s = json()["carpeta_exportar"] as? String, !s.isEmpty {
+            return URL(fileURLWithPath: (s as NSString).expandingTildeInPath)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
+    }
+
+    static func groqKey() -> String? {
+        if let env = ProcessInfo.processInfo.environment["GROQ_API_KEY"], !env.isEmpty { return env }
+        let envFile = dir.appendingPathComponent(".env")
+        guard let text = try? String(contentsOf: envFile, encoding: .utf8) else { return nil }
+        for line in text.split(separator: "\n") where line.hasPrefix("GROQ_API_KEY=") {
+            let key = String(line.dropFirst("GROQ_API_KEY=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !key.isEmpty { return key }
+        }
+        return nil
+    }
+
+    /// Escribe un valor en config.json (para los interruptores del menú).
+    static func set(_ key: String, to value: Any) {
+        var obj = json()
+        obj[key] = value
+        if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: dir.appendingPathComponent("config.json"))
+        }
+    }
     static func model() -> String { (json()["modelo"] as? String) ?? "scribe_v2_realtime" }
 
     /// Busca la API key en orden: variable de entorno → ~/.betodicta/.env → ~/.hermes/.env
@@ -48,6 +81,7 @@ struct Config {
     struct Replacement: Decodable {
         let original: String
         let replacement: String
+        let isRegex: Bool?
     }
 
     static func replacements() -> [Replacement] {

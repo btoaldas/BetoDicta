@@ -84,6 +84,7 @@ final class DictationPanel {
     }
 
     func show(_ text: String) {
+        guard Config.panelVisible() else { return }
         update(text)
         panel.orderFrontRegardless()
     }
