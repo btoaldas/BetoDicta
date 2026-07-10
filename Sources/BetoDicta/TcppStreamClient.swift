@@ -30,7 +30,14 @@ final class TcppStreamClient {
 
     /// ¿Este archivo de modelo soporta streaming cache-aware?
     static func esModeloStreaming(_ archivo: String) -> Bool {
-        archivo.contains("streaming") || archivo.contains("realtime")
+        let a = archivo.lowercased()
+        return a.contains("streaming") || a.contains("realtime")
+    }
+
+    /// Idioma que se le pasa al motor: Nemotron exige uno explícito,
+    /// Voxtral Realtime solo auto-detecta.
+    static func idioma(para archivo: String) -> String {
+        archivo.lowercased().contains("realtime") ? "auto" : "es-US"
     }
 
     /// ¿Está todo listo para dictar en vivo con el motor local?
@@ -49,7 +56,8 @@ final class TcppStreamClient {
         signal(SIGPIPE, SIG_IGN)
 
         process.executableURL = bin
-        process.arguments = [TranscribeCpp.modelsDir.appendingPathComponent(modelo).path, "es-US", "400"]
+        process.arguments = [TranscribeCpp.modelsDir.appendingPathComponent(modelo).path,
+                             Self.idioma(para: modelo), "400"]
         process.standardInput = entrada
         process.standardOutput = salida
         process.standardError = FileHandle.nullDevice

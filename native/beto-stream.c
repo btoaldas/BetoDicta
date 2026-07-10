@@ -87,7 +87,11 @@ int main(int argc, char ** argv) {
 
     struct transcribe_run_params run;
     transcribe_run_params_init(&run);
-    run.language = language;
+    // "auto" = dejar que el modelo detecte (Voxtral Realtime solo soporta
+    // auto-detección; Nemotron exige idioma explícito tipo es-US).
+    if (strcmp(language, "auto") != 0) {
+        run.language = language;
+    }
 
     st = transcribe_stream_begin(session, &run, NULL);
     if (st != TRANSCRIBE_OK) {

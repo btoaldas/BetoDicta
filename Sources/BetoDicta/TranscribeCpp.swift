@@ -41,7 +41,10 @@ enum TranscribeCpp {
 
             let task = Process()
             task.executableURL = cli
-            task.arguments = ["-m", modelURL.path, "--language", "es-US", tmp.path]
+            // Cada familia pide su código: Nemotron usa locale (es-US),
+            // Canary y demás usan el corto (es).
+            let idioma = archivo.lowercased().contains("nemotron") ? "es-US" : "es"
+            task.arguments = ["-m", modelURL.path, "--language", idioma, tmp.path]
             let out = Pipe()
             task.standardOutput = out
             task.standardError = Pipe()
