@@ -732,6 +732,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if level > 0.15 { self?.lastVoice = Date() }
             }
         }
+
+        // Modo demo para captura de pantalla: BETODICTA_DEMO=1 abre el panel
+        // con texto y latido simulado, sin grabar. Solo para el README.
+        if ProcessInfo.processInfo.environment["BETODICTA_DEMO"] == "1" {
+            startDemo()
+        }
+    }
+
+    private func startDemo() {
+        panel.show("revisé el Quipux del GAD y configuré el MikroTik")
+        var phase: Double = 0
+        Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
+            phase += 0.35
+            let level = Float(0.4 + 0.5 * abs(sin(phase)) * abs(sin(phase * 0.6)))
+            self?.panel.meter.push(level)
+        }
     }
 
     @objc private func openConfig() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("config.json")) }
