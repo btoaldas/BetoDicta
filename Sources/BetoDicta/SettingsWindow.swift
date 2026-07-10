@@ -207,7 +207,9 @@ struct SettingsView: View {
             encabezado
             Picker("", selection: $seccion) {
                 Text("Ajustes").tag("Ajustes")
+                Text("Modelos").tag("Modelos")
                 Text("Acciones").tag("Acciones")
+                Text("Transcribir").tag("Transcribir")
                 Text("Estadísticas").tag("Estadísticas")
                 Text("Créditos").tag("Créditos")
             }
@@ -216,7 +218,9 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     switch seccion {
+                    case "Modelos": ModelsView()
                     case "Acciones": acciones
+                    case "Transcribir": TranscribeView()
                     case "Estadísticas": StatsView()
                     case "Créditos": creditos
                     default: ajustes

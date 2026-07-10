@@ -26,6 +26,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.items.first(where: { $0.tag == 78 })?.state = Config.postProcess() ? .on : .off
         menu.items.first(where: { $0.tag == 79 })?.state = Config.devMode() ? .on : .off
         menu.items.first(where: { $0.tag == 81 })?.state = Config.showInDock() ? .on : .off
+        if let tradMenu = menu.items.first(where: { $0.tag == 82 })?.submenu {
+            let activo = Config.translate()
+            let idioma = Config.translateTo()
+            for it in tradMenu.items {
+                guard let obj = it.representedObject as? String else { continue }
+                it.state = (obj.isEmpty && !activo) || (activo && obj == idioma) ? .on : .off
+            }
+            menu.items.first(where: { $0.tag == 82 })?.title =
+                activo ? "Traducir al dictar: \(idioma)" : "Traducir al dictar"
+        }
         if let recientes = menu.items.first(where: { $0.tag == 80 })?.submenu {
             recientes.removeAllItems()
             let fmt = DateFormatter()
@@ -128,6 +138,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let post = NSMenuItem(title: "Post-proceso con IA (Groq)", action: #selector(togglePostProcess(_:)), keyEquivalent: "")
         post.tag = 78
         menu.addItem(post)
+        // Traducir al dictar (submenú con idiomas)
+        let trad = NSMenuItem(title: "Traducir al dictar", action: nil, keyEquivalent: "")
+        trad.tag = 82
+        let tradMenu = NSMenu()
+        let apagar = NSMenuItem(title: "Desactivado", action: #selector(setTranslate(_:)), keyEquivalent: "")
+        apagar.representedObject = ""; tradMenu.addItem(apagar)
+        tradMenu.addItem(NSMenuItem.separator())
+        for idioma in ["inglés", "portugués", "francés", "italiano", "alemán", "chino"] {
+            let it = NSMenuItem(title: idioma.capitalized, action: #selector(setTranslate(_:)), keyEquivalent: "")
+            it.representedObject = idioma
+            tradMenu.addItem(it)
+        }
+        trad.submenu = tradMenu
+        menu.addItem(trad)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.delegate = self
@@ -232,6 +256,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func togglePostProcess(_ sender: NSMenuItem) {
         Log.log(.ui, "toggle post-proceso")
         Config.set("post_proceso", to: !Config.postProcess())
+    }
+
+    @objc private func setTranslate(_ sender: NSMenuItem) {
+        let idioma = sender.representedObject as? String ?? ""
+        Config.set("traducir", to: !idioma.isEmpty)
+        if !idioma.isEmpty { Config.set("traducir_idioma", to: idioma) }
+        Log.log(.ui, "traducir → \(idioma.isEmpty ? "desactivado" : idioma)")
     }
 
     @objc private func toggleAutostart(_ sender: NSMenuItem) {
@@ -576,11 +607,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self else { return }
                 switch result {
                 case .failure(let error):
-                    self.panel.update("⚠️ \(error.localizedDescription)")
-                    self.panel.hide(after: 3)
+                    // Sin streaming (sin red/saldo): grabar igual y usar el
+                    // failover al terminar. El dictado no se pierde.
+                    Log.log(.ia, "streaming no conectó (\(error.localizedDescription)) → grabando para failover")
                     self.stream = nil
-                    history.discard()
-                    self.history = nil
+                    self.recorder.onChunk = { chunk in history.append(chunk: chunk) }
+                    do {
+                        try self.recorder.start()
+                        self.armEsc()
+                        self.media.dictationStarted()
+                        self.playSound("Tink")
+                        self.panel.update("Escuchando (sin conexión)… (\(self.tecla) termina)")
+                    } catch {
+                        self.panel.update("⚠️ Micrófono: \(error.localizedDescription)")
+                        self.panel.hide(after: 3)
+                        history.discard(); self.history = nil
+                    }
                 case .success:
                     self.recorder.onChunk = { [weak stream] chunk in
                         history.append(chunk: chunk)
@@ -658,16 +700,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 panel.hide(after: 1.2)
                 return
             }
-            panel.update("⏳ Transcribiendo \(String(format: "%.1f", seconds))s…")
-            transcribeBatch(wav: wav, model: Config.model()) { [weak self] result in
+            panel.update("⏳ Transcribiendo…")
+            // Failover: recorre los proveedores activos en orden.
+            Failover.transcribe(wav: wav) { [weak self] result in
                 switch result {
-                case .success(let raw):
+                case .success(let (raw, proveedor)):
+                    if proveedor != "ElevenLabs Scribe" { self?.panel.update("vía \(proveedor)") }
                     self?.deliver(raw: raw, wav: wav)
                 case .failure(let error):
-                    // Falló la nube, pero tu voz queda a salvo en el historial
                     self?.history?.finish(wav: wav, finalText: "")
                     self?.history = nil
-                    self?.panel.update("⚠️ \(error.localizedDescription) — audio guardado en historial")
+                    self?.panel.update("⚠️ Todos los proveedores fallaron — audio guardado")
+                    Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     self?.panel.hide(after: 4)
                 }
             }
@@ -695,16 +739,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.hide(after: 1.8)
             return
         }
+        // Paso opcional: pulir con IA → luego traducir (si están activos)
+        let seguir: (String) -> Void = { [weak self] texto in
+            self?.talVezTraducir(texto, rawText: crudo, wav: wav)
+        }
         if Config.postProcess(), Config.groqKey() != nil {
             panel.update("🤖 Puliendo…")
-            LLMPostProcess.enhance(trasReglas) { [weak self] pulido in
+            LLMPostProcess.enhance(trasReglas) { pulido in
                 if pulido != trasReglas { Log.write("  3·IA:         \(pulido)") }
-                Log.write("  ✓ entregado:  \(pulido)")
-                self?.finishDelivery(pulido, rawText: crudo, wav: wav)
+                seguir(pulido)
             }
         } else {
-            Log.write("  ✓ entregado:  \(trasReglas)")
-            finishDelivery(trasReglas, rawText: crudo, wav: wav)
+            seguir(trasReglas)
+        }
+    }
+
+    /// Si "traducir" está activo, traduce antes de entregar; si no, entrega directo.
+    private func talVezTraducir(_ text: String, rawText: String, wav: Data) {
+        if Config.translate(), Config.groqKey() != nil {
+            let idioma = Config.translateTo()
+            panel.update("🌐 Traduciendo a \(idioma)…")
+            Translate.to(idioma, text: text) { [weak self] traducido in
+                Log.write("  4·traducido:  \(traducido)")
+                Log.write("  ✓ entregado:  \(traducido)")
+                self?.finishDelivery(traducido, rawText: rawText, wav: wav)
+            }
+        } else {
+            Log.write("  ✓ entregado:  \(text)")
+            finishDelivery(text, rawText: rawText, wav: wav)
         }
     }
 

@@ -7,9 +7,15 @@ import Carbon.HIToolbox
 struct Config {
     static let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".betodicta")
 
+    private static let lock = NSLock()
+    private static var cache: [String: Any]?
+
     private static func json() -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        if let c = cache { return c }
         guard let data = try? Data(contentsOf: dir.appendingPathComponent("config.json")),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return cache ?? [:] }
+        cache = obj
         return obj
     }
 
@@ -28,6 +34,8 @@ struct Config {
     static func devMode() -> Bool { (json()["modo_desarrollo"] as? Bool) ?? false }
     static func showInDock() -> Bool { (json()["mostrar_en_dock"] as? Bool) ?? false }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
+    static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
+    static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }
     static func panelVisible() -> Bool { (json()["panel_visible"] as? Bool) ?? true }
     static func exportFolder() -> URL {
         if let s = json()["carpeta_exportar"] as? String, !s.isEmpty {
@@ -47,13 +55,20 @@ struct Config {
         return nil
     }
 
-    /// Escribe un valor en config.json (para los interruptores del menú).
+    /// Escribe un valor en config.json de forma ATÓMICA y serializada, para
+    /// que la GUI y el dictado no corrompan el archivo al leer/escribir a la vez.
     static func set(_ key: String, to value: Any) {
-        var obj = json()
+        lock.lock()
+        var obj = cache ?? {
+            (try? Data(contentsOf: dir.appendingPathComponent("config.json")))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        }()
         obj[key] = value
+        cache = obj
+        lock.unlock()
         Log.log(.config, "cambio: \(key) = \(value)")
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
-            try? data.write(to: dir.appendingPathComponent("config.json"))
+            try? data.write(to: dir.appendingPathComponent("config.json"), options: .atomic)
         }
     }
     static func model() -> String { (json()["modelo"] as? String) ?? "scribe_v2_realtime" }
