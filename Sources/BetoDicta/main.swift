@@ -7,7 +7,7 @@
 //   modelo: scribe_v2_realtime (texto en vivo) | scribe_v2 | scribe_v1 (batch)
 // ~/.betodicta/keyterms.txt — una palabra por línea (streaming usa las primeras 50)
 // ~/.betodicta/reemplazos.json — [{"original":"a, b","replacement":"X"}]
-// API key: ELEVENLABS_API_KEY en ~/.hermes/.env
+// API keys: en ~/.betodicta/.env — se ponen desde Configuración → Modelos
 
 import AppKit
 

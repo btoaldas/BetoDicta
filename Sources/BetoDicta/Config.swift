@@ -78,21 +78,14 @@ struct Config {
     /// el del sistema · UID = dispositivo específico.
     static func microfono() -> String { (json()["microfono"] as? String) ?? "" }
 
-    /// Busca la API key en orden: variable de entorno → ~/.betodicta/.env → ~/.hermes/.env
+    /// API key de ElevenLabs: variable de entorno → ~/.betodicta/.env
+    /// (la pone la pestaña Modelos; nada de rutas de otras apps).
     static func apiKey() -> String? {
         if let env = ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"], !env.isEmpty {
             return env
         }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        for envFile in [dir.appendingPathComponent(".env"), home.appendingPathComponent(".hermes/.env")] {
-            guard let text = try? String(contentsOf: envFile, encoding: .utf8) else { continue }
-            for line in text.split(separator: "\n") where line.hasPrefix("ELEVENLABS_API_KEY=") {
-                let key = String(line.dropFirst("ELEVENLABS_API_KEY=".count))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !key.isEmpty { return key }
-            }
-        }
-        return nil
+        let key = ApiKeys.get("ELEVENLABS_API_KEY")
+        return key.isEmpty ? nil : key
     }
 
     static func keyterms() -> [String] {
