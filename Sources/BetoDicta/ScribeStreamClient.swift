@@ -129,7 +129,12 @@ final class StreamClient: NSObject {
         committedPieces.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// true cuando NOSOTROS cerramos: el error de cancelación que dispara el
+    /// receive pendiente no es un fallo de red y no debe activar cuarentena.
+    private var cerrando = false
+
     func disconnect() {
+        cerrando = true
         task?.cancel(with: .normalClosure, reason: nil)
         task = nil
         session?.invalidateAndCancel()
@@ -154,7 +159,11 @@ final class StreamClient: NSObject {
             case .failure:
                 // Conexión muerta a mitad del dictado: marcarlo para que el
                 // cierre tome la ruta de rescate (cascada con el wav completo).
+                // OJO: si NOSOTROS desconectamos (cierre normal tras un dictado
+                // exitoso), este .failure es la cancelación esperada — contarlo
+                // como red caída mandaba a cuarentena tras CADA dictado bueno.
                 DispatchQueue.main.async {
+                    guard !self.cerrando else { return }
                     self.conectado = false
                     StreamClient.registrarFallo()
                 }
