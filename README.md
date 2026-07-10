@@ -58,6 +58,21 @@ Todo vive en `~/.betodicta/` (editable desde el menú 🎙):
 
 Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por lotes, más barato).
 
+## Entorno de desarrollo
+
+- **macOS 14+** en Apple Silicon · **Xcode 26+** (Swift 6) · sin dependencias externas: Swift puro + AppKit/AVFoundation
+- `make install` compila (Swift Package Manager) y arma el bundle firmado ad-hoc en /Applications
+- Un solo archivo fuente: `Sources/BetoDicta/main.swift` — léelo entero en 10 minutos
+- Copia `.env.example`, `config.example.json`, `keyterms.example.txt` y `reemplazos.example.json` a `~/.betodicta/` como punto de partida
+- Este entorno se actualiza con el proyecto: si algo no compila en una versión nueva de Xcode, abre un issue
+
+## Privacidad y seguridad de datos
+
+- **Tu voz solo viaja a ElevenLabs** (cifrada: HTTPS/WSS a `api.elevenlabs.io`) — no hay analítica, ni telemetría, ni terceros
+- **Tu API key jamás se escribe en logs** ni en el código — vive en tu `~/.betodicta/.env` (bloqueado por `.gitignore`)
+- **Tus dictados nunca salen de tu Mac**: `historial/` y `uso.jsonl` son archivos locales tuyos; la carpeta `~/.betodicta` se recomienda con permisos `700` (`chmod 700 ~/.betodicta`)
+- El portapapeles se restaura tras cada pegado — lo que tenías copiado no se pierde
+
 ## Hoja de ruta
 
 - [ ] Failover multi-proveedor: ElevenLabs → Groq → Whisper local (¡gratis y sin internet!)
