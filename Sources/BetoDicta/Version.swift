@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.16.6"
+    static let numero = "0.16.7"
     static let fecha = "2026-07-10"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.16.7", "2026-07-10", [
+            "Dictados seguidos con ElevenLabs ya no caen a Whisper: el cierre normal de un dictado exitoso contaba como fallo de red (falsa cuarentena)",
+            "El plan B en vivo respeta TU orden de la cascada (Whisper #2 antes que Nemotron #3)",
+            "Un dictado vacío ya no pega frases raras del pulido ('No hay transcripción para limpiar')",
+        ]),
         ("0.16.6", "2026-07-10", [
             "Blindaje final contra el cierre inesperado al dictar con red lenta (doble arranque del grabador)",
         ]),
