@@ -2,13 +2,22 @@
 
 Dictado por voz para macOS que **abraza el notch**: pulsa una tecla, habla, y el texto aparece EN VIVO junto al notch de tu Mac mientras las barras laten con tu voz. Pulsa de nuevo y el texto se pega donde estaba tu cursor.
 
+## ⬇️ Descarga
+
+**[Descargar BetoDicta (DMG) — última versión](https://github.com/btoaldas/BetoDicta/releases/latest)**
+
+Arrastra a Aplicaciones. Primera vez: clic derecho → **Abrir** (la app no viene de la App Store). Requiere macOS 14+ y Apple Silicon.
+
 ![BetoDicta en acción — panel junto al notch con latido de voz, tecla fn y texto en vivo](docs/screenshot.png)
 
 Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados comerciales no entendían palabras como *Quipux*, *DGTIC* o *SENESCYT*.
 
 ## Características
 
-- **Texto en vivo**: streaming con ElevenLabs Scribe v2 Realtime — ves lo que dices mientras lo dices
+- **Texto en vivo 100% LOCAL**: Voxtral Realtime 4B o Nemotron 3.5 Streaming (motor [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)) — ves lo que dices mientras lo dices, sin internet
+- **Texto en vivo en la nube**: streaming con ElevenLabs Scribe v2 Realtime
+- **Failover multi-motor**: cascada arrastrable ElevenLabs → Voxtral → Whisper → Groq → Nemotron → Canary; si uno falla, salta al siguiente solo
+- **Modelos locales descargables desde la app**: Whisper (tiny→large-v3), Voxtral Mini 3B y Realtime 4B, Nemotron 3.5, Canary 1B Flash
 - **Panel abraza-notch**: latido de voz a la izquierda del notch, tecla a la derecha, teleprompter de una línea debajo — negro puro, como si fuera parte del hardware
 - **Tecla `fn`** (o F1–F12, configurable) — toque limpio para empezar/terminar, las combinaciones fn+otra-tecla no lo disparan
 - **Keyterms**: tu vocabulario personal viaja al modelo — nombres propios y términos técnicos salen bien a la primera
