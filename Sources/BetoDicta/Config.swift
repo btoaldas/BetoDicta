@@ -26,6 +26,7 @@ struct Config {
     }
     static func pausePlayback() -> Bool { (json()["pausar_multimedia"] as? Bool) ?? true }
     static func devMode() -> Bool { (json()["modo_desarrollo"] as? Bool) ?? false }
+    static func showInDock() -> Bool { (json()["mostrar_en_dock"] as? Bool) ?? false }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func panelVisible() -> Bool { (json()["panel_visible"] as? Bool) ?? true }
     static func exportFolder() -> URL {

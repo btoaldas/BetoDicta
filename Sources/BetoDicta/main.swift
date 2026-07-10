@@ -12,7 +12,7 @@
 import AppKit
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(Config.showInDock() ? .regular : .accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()

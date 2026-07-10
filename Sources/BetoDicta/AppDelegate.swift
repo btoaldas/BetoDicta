@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             SMAppService.mainApp.status == .enabled ? .on : .off
         menu.items.first(where: { $0.tag == 78 })?.state = Config.postProcess() ? .on : .off
         menu.items.first(where: { $0.tag == 79 })?.state = Config.devMode() ? .on : .off
+        menu.items.first(where: { $0.tag == 81 })?.state = Config.showInDock() ? .on : .off
         if let recientes = menu.items.first(where: { $0.tag == 80 })?.submenu {
             recientes.removeAllItems()
             let fmt = DateFormatter()
@@ -100,6 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let dev = NSMenuItem(title: "Modo desarrollo", action: #selector(toggleDevMode(_:)), keyEquivalent: "")
         dev.tag = 79
         menu.addItem(dev)
+        let dock = NSMenuItem(title: "Mostrar en el Dock", action: #selector(toggleDock(_:)), keyEquivalent: "")
+        dock.tag = 81
+        menu.addItem(dock)
         let auto = NSMenuItem(title: "Arrancar al iniciar sesión", action: #selector(toggleAutostart(_:)), keyEquivalent: "")
         auto.tag = 77
         menu.addItem(auto)
@@ -228,6 +232,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try? "".write(to: log, atomically: true, encoding: .utf8)
         }
         NSWorkspace.shared.open(log)
+    }
+
+    @objc private func toggleDock(_ sender: NSMenuItem) {
+        let show = !Config.showInDock()
+        Config.set("mostrar_en_dock", to: show)
+        NSApp.setActivationPolicy(show ? .regular : .accessory)
     }
 
     @objc private func toggleDevMode(_ sender: NSMenuItem) {
