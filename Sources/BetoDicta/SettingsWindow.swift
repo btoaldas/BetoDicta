@@ -286,7 +286,7 @@ struct SettingsView: View {
                 .padding(.vertical, 2)
             }
             Spacer()
-            Text("v0.15")
+            Text("v\(Version.numero)")
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.horizontal, 20).padding(.bottom, 12)
         }
@@ -373,15 +373,34 @@ struct SettingsView: View {
     private var creditos: some View {
         VStack(alignment: .leading, spacing: 16) {
             tarjeta("BetoDicta", "mic") {
+                HStack(spacing: 8) {
+                    Text("Versión \(Version.numero)").font(.subheadline).bold()
+                    Text(Version.fecha).font(.caption).foregroundStyle(.secondary)
+                }
                 Text("Dictado por voz para macOS, hecho en Ecuador 🇪🇨 para el español latino.")
                     .font(.subheadline)
                 link("Repositorio en GitHub", "https://github.com/btoaldas/BetoDicta")
                 Text("Licencia GPL-3.0 · libre para siempre").font(.caption).foregroundStyle(.secondary)
             }
+            tarjeta("Historial de versiones", "clock.arrow.circlepath") {
+                ForEach(Version.historial, id: \.version) { v in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 8) {
+                            Text("v\(v.version)").font(.caption).bold().foregroundStyle(acento)
+                            Text(v.fecha).font(.caption2).foregroundStyle(.secondary)
+                        }
+                        ForEach(v.cambios, id: \.self) { c in
+                            Text("· \(c)").font(.caption).foregroundStyle(.primary.opacity(0.85))
+                        }
+                    }
+                    .padding(.bottom, 4)
+                }
+            }
             tarjeta("Créditos", "heart") {
                 Text("Creado por Alberto Aldás en compañía de Claude (Anthropic), programado a pura voz.")
                     .font(.subheadline)
                 link("Handy — inspiración open source", "https://github.com/cjpais/Handy")
+                link("transcribe.cpp — motor de modelos streaming", "https://github.com/handy-computer/transcribe.cpp")
                 link("mediaremote-adapter — pausa de multimedia", "https://github.com/ungive/mediaremote-adapter")
                 link("ElevenLabs Scribe — transcripción", "https://elevenlabs.io")
             }

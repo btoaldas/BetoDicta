@@ -59,7 +59,7 @@ enum WhisperLocal {
     static var modelURL: URL { modelsDir.appendingPathComponent(modeloArchivo) }
     static var cliURL: URL? {
         // 1) binario bundleado en la app  2) build local de whisper.cpp
-        if let p = Bundle.main.path(forResource: "whisper-cli", ofType: nil) { return URL(fileURLWithPath: p) }
+        if let p = Bundle.main.path(forResource: "whisper-cli", ofType: nil, inDirectory: "bin") { return URL(fileURLWithPath: p) }
         let home = FileManager.default.homeDirectoryForCurrentUser
         let dev = home.appendingPathComponent("whisper.cpp/build/bin/whisper-cli")
         return FileManager.default.isExecutableFile(atPath: dev.path) ? dev : nil

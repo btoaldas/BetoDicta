@@ -11,7 +11,7 @@ enum TranscribeCpp {
     static var modelsDir: URL { Config.dir.appendingPathComponent("models") }
 
     static var cliURL: URL? {
-        if let p = Bundle.main.path(forResource: "transcribe-cli", ofType: nil) { return URL(fileURLWithPath: p) }
+        if let p = Bundle.main.path(forResource: "transcribe-cli", ofType: nil, inDirectory: "bin") { return URL(fileURLWithPath: p) }
         let dev = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("transcribe.cpp/build/bin/transcribe-cli")
         return FileManager.default.isExecutableFile(atPath: dev.path) ? dev : nil

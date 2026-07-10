@@ -22,7 +22,7 @@ final class TcppStreamClient {
     private var terminado = false
 
     static var binURL: URL? {
-        if let p = Bundle.main.path(forResource: "beto-stream", ofType: nil) { return URL(fileURLWithPath: p) }
+        if let p = Bundle.main.path(forResource: "beto-stream", ofType: nil, inDirectory: "bin") { return URL(fileURLWithPath: p) }
         let dev = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Developer/BetoDicta/native/beto-stream")
         return FileManager.default.isExecutableFile(atPath: dev.path) ? dev : nil

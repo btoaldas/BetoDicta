@@ -1,0 +1,22 @@
+BetoDicta — Dictado por voz para macOS
+=======================================
+
+INSTALAR
+  1. Arrastra BetoDicta.app a la carpeta Aplicaciones.
+  2. PRIMERA VEZ: haz clic DERECHO sobre BetoDicta.app → "Abrir" → "Abrir".
+     (macOS pide esto una sola vez porque la app no viene de la App Store.)
+  3. Concede los permisos que pida: Micrófono y Accesibilidad.
+
+USAR
+  - Pulsa fn, habla, y vuelve a pulsar fn: el texto se escribe donde
+    tengas el cursor.
+  - Configuración: clic en el micrófono de la barra de menú.
+
+REQUISITOS
+  - macOS 14 o superior, Apple Silicon (M1 en adelante).
+  - Para dictar EN VIVO 100% local: descarga un modelo streaming
+    (Voxtral Realtime o Nemotron) desde Configuración → Modelos.
+  - Para la nube (ElevenLabs/Groq): pon tu API key en Modelos.
+
+Código abierto (GPL-3.0): https://github.com/btoaldas/BetoDicta
+Hecho en Ecuador 🇪🇨

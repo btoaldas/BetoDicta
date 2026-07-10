@@ -19,7 +19,7 @@ enum WhisperServer {
 
     static var serverURL: URL? {
         // 1) binario bundleado en la app  2) build local de whisper.cpp
-        if let p = Bundle.main.path(forResource: "whisper-server", ofType: nil) { return URL(fileURLWithPath: p) }
+        if let p = Bundle.main.path(forResource: "whisper-server", ofType: nil, inDirectory: "bin") { return URL(fileURLWithPath: p) }
         let dev = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("whisper.cpp/build/bin/whisper-server")
         return FileManager.default.isExecutableFile(atPath: dev.path) ? dev : nil

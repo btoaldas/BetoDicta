@@ -28,7 +28,7 @@ enum VoxtralServer {
     }
 
     static var serverBinURL: URL? {
-        if let p = Bundle.main.path(forResource: "llama-server", ofType: nil) { return URL(fileURLWithPath: p) }
+        if let p = Bundle.main.path(forResource: "llama-server", ofType: nil, inDirectory: "bin") { return URL(fileURLWithPath: p) }
         for ruta in ["/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"]
         where FileManager.default.isExecutableFile(atPath: ruta) {
             return URL(fileURLWithPath: ruta)

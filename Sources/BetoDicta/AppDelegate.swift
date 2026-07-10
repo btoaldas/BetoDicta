@@ -129,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem.button?.title = "🎙"      // respaldo
         }
         let menu = NSMenu()
-        menu.addItem(withTitle: "BetoDicta v0.4 — \(tecla) para dictar (\(Config.model()))", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "BetoDicta v\(Version.numero) — \(tecla) para dictar", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Configuración…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "Editar keyterms", action: #selector(openKeyterms), keyEquivalent: "")
