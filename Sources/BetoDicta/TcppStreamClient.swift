@@ -1,0 +1,121 @@
+import Foundation
+
+// MARK: - Streaming local NATIVO (beto-stream + transcribe.cpp)
+//
+// Un proceso beto-stream por dictado: recibe PCM int16 por stdin y emite
+// parciales JSON por stdout mientras hablas — texto en vivo 100% offline
+// con modelos streaming cache-aware (Nemotron 3.5, multilingüe).
+//
+// El modelo tarda ~7 s en cargar; mientras tanto los chunks se acumulan
+// en el pipe y el motor los alcanza a 32x — para el usuario el texto
+// simplemente empieza a fluir a los pocos segundos de hablar.
+
+final class TcppStreamClient {
+    var onPartial: ((String) -> Void)?   // committed + tentative acumulado
+    var onFinal: ((String) -> Void)?
+
+    private let process = Process()
+    private let entrada = Pipe()
+    private let salida = Pipe()
+    private let colaEscritura = DispatchQueue(label: "beto.tcpp.stream.write")
+    private var bufferLineas = Data()
+    private var terminado = false
+
+    static var binURL: URL? {
+        if let p = Bundle.main.path(forResource: "beto-stream", ofType: nil) { return URL(fileURLWithPath: p) }
+        let dev = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Developer/BetoDicta/native/beto-stream")
+        return FileManager.default.isExecutableFile(atPath: dev.path) ? dev : nil
+    }
+
+    /// ¿Este archivo de modelo soporta streaming cache-aware?
+    static func esModeloStreaming(_ archivo: String) -> Bool {
+        archivo.contains("streaming") || archivo.contains("realtime")
+    }
+
+    /// ¿Está todo listo para dictar en vivo con el motor local?
+    static var disponible: Bool {
+        guard binURL != nil,
+              let m = Providers.modelo(de: "tcpp_local"), esModeloStreaming(m) else { return false }
+        return FileManager.default.fileExists(
+            atPath: TranscribeCpp.modelsDir.appendingPathComponent(m).path)
+    }
+
+    func start() throws {
+        guard let bin = Self.binURL, let modelo = Providers.modelo(de: "tcpp_local") else {
+            throw ScribeError.ws("beto-stream no disponible")
+        }
+        // Un pipe roto no debe tumbar la app (el proceso puede morir a mitad).
+        signal(SIGPIPE, SIG_IGN)
+
+        process.executableURL = bin
+        process.arguments = [TranscribeCpp.modelsDir.appendingPathComponent(modelo).path, "es-US", "400"]
+        process.standardInput = entrada
+        process.standardOutput = salida
+        process.standardError = FileHandle.nullDevice
+
+        salida.fileHandleForReading.readabilityHandler = { [weak self] h in
+            let data = h.availableData
+            guard !data.isEmpty else { return }
+            DispatchQueue.main.async { self?.procesar(data) }
+        }
+        try process.run()
+        Log.log(.ia, "beto-stream arrancó (pid \(process.processIdentifier)) con \(modelo)")
+    }
+
+    /// PCM int16 16 kHz mono, tal cual sale del Recorder.
+    func send(chunk: Data) {
+        let fd = entrada.fileHandleForWriting.fileDescriptor
+        colaEscritura.async {
+            chunk.withUnsafeBytes { buf in
+                var restante = buf.count
+                var p = buf.baseAddress!
+                while restante > 0 {
+                    let n = write(fd, p, restante)
+                    if n <= 0 { return }   // pipe roto: el proceso murió, el failover cubre
+                    restante -= n
+                    p += n
+                }
+            }
+        }
+    }
+
+    /// Fin del dictado: cerrar stdin → el motor hace finalize y emite {"f":…}.
+    func finish() {
+        colaEscritura.async { [entrada] in
+            try? entrada.fileHandleForWriting.close()
+        }
+    }
+
+    func cancel() {
+        terminado = true
+        salida.fileHandleForReading.readabilityHandler = nil
+        colaEscritura.async { [entrada] in try? entrada.fileHandleForWriting.close() }
+        if process.isRunning { process.terminate() }
+    }
+
+    private func procesar(_ data: Data) {
+        guard !terminado else { return }
+        bufferLineas.append(data)
+        while let nl = bufferLineas.firstIndex(of: 0x0A) {
+            let linea = bufferLineas.prefix(upTo: nl)
+            bufferLineas.removeSubrange(...nl)
+            manejar(String(data: linea, encoding: .utf8) ?? "")
+        }
+    }
+
+    private func manejar(_ linea: String) {
+        guard !linea.isEmpty, linea != "READY" else { return }
+        guard let json = try? JSONSerialization.jsonObject(with: Data(linea.utf8)) as? [String: String] else { return }
+        if let final = json["f"] {
+            terminado = true
+            salida.fileHandleForReading.readabilityHandler = nil
+            onFinal?(final.trimmingCharacters(in: .whitespaces))
+        } else {
+            let c = json["c"] ?? ""
+            let t = json["t"] ?? ""
+            let texto = (c + " " + t).trimmingCharacters(in: .whitespaces)
+            if !texto.isEmpty { onPartial?(texto) }
+        }
+    }
+}

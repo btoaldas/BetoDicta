@@ -97,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         _ = recorder.stop()
         stream?.disconnect()
         stream = nil
+        tcppStream?.cancel()
+        tcppStream = nil
         history?.discard()
         history = nil
         playSound("Basso")
@@ -626,6 +628,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let history = HistoryWriter()
         self.history = history
 
+        // Streaming local NATIVO: proveedor #1 = Nemotron/Canary con modelo
+        // streaming → texto en vivo 100% offline (beto-stream).
+        if Providers.cadena().first?.id == "tcpp_local", TcppStreamClient.disponible {
+            let client = TcppStreamClient()
+            self.tcppStream = client
+            client.onPartial = { [weak self] texto in
+                guard let self, self.recorder.isRecording else { return }
+                self.lastPartial = texto
+                self.panel.update(texto)
+                self.history?.savePartial(texto)
+            }
+            recorder.onChunk = { [weak client] chunk in
+                history.append(chunk: chunk)
+                client?.send(chunk: chunk)
+            }
+            do {
+                try client.start()
+                try recorder.start()
+                armEsc()
+                media.dictationStarted()
+                playSound("Tink")
+                panel.show("Escuchando (local en vivo)… (\(tecla) termina)")
+            } catch {
+                self.tcppStream = nil
+                panel.show("⚠️ \(error.localizedDescription)")
+                panel.hide(after: 3)
+                history.discard(); self.history = nil
+            }
+            return
+        }
+
         if isStreamingModel {
             panel.show("Conectando con Scribe…")
             let stream = StreamClient()
@@ -709,6 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // está visible; el resultado FINAL sigue saliendo del failover normal.
     private var liveTimer: Timer?
     private var liveEnVuelo = false
+    private var tcppStream: TcppStreamClient?
 
     private func startLiveLocal(history: HistoryWriter) {
         guard Config.panelVisible(),
@@ -743,6 +777,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         liveTimer = nil
         let wav = recorder.stop()
         let seconds = Double(wav.count - 44) / 32000.0
+
+        // Streaming local nativo: cerrar el audio y esperar el texto final.
+        if let tcpp = tcppStream {
+            self.tcppStream = nil
+            guard seconds > 0.4 else {
+                tcpp.cancel()
+                history?.discard(); history = nil
+                panel.update("Muy corto — nada que transcribir")
+                panel.hide(after: 1.2)
+                return
+            }
+            panel.update("⏳ Cerrando dictado…")
+            var entregado = false
+            tcpp.onFinal = { [weak self] final in
+                guard let self, !entregado else { return }
+                entregado = true
+                if final.isEmpty {
+                    // Motor cerró sin texto: que la cascada normal lo rescate.
+                    Failover.transcribe(wav: wav) { [weak self] r in
+                        if case .success(let (raw, proveedor)) = r {
+                            self?.deliver(raw: raw, wav: wav, via: proveedor)
+                        } else {
+                            self?.history?.finish(wav: wav, finalText: "")
+                            self?.history = nil
+                            self?.panel.update("⚠️ Sin texto — audio guardado")
+                            self?.panel.hide(after: 3)
+                        }
+                    }
+                } else {
+                    self.deliver(raw: final, wav: wav, via: "Nemotron (en vivo)")
+                }
+            }
+            tcpp.finish()
+            // Tope: si el motor no responde en 20 s, cascada normal.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+                guard !entregado else { return }
+                entregado = true
+                tcpp.cancel()
+                Log.log(.ia, "beto-stream no entregó el final → failover")
+                Failover.transcribe(wav: wav) { [weak self] r in
+                    if case .success(let (raw, proveedor)) = r {
+                        self?.deliver(raw: raw, wav: wav, via: proveedor)
+                    } else {
+                        self?.history?.finish(wav: wav, finalText: "")
+                        self?.history = nil
+                        self?.panel.update("⚠️ Todos fallaron — audio guardado")
+                        self?.panel.hide(after: 3)
+                    }
+                }
+            }
+            return
+        }
 
         if let stream {
             guard seconds > 0.4 else {
