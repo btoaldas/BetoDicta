@@ -5,11 +5,45 @@ private let acentoM = Color(red: 0.36, green: 0.28, blue: 0.62)
 
 // MARK: - Pestaña Modelos: activos+orden, catálogo local, config cloud
 
+/// Gestor de descargas que vive con la APP, no con la pestaña: salir de
+/// Modelos (o cerrar la ventana) ya no mata una descarga en curso — al
+/// volver, el progreso sigue ahí o el modelo aparece descargado.
+final class Descargas: ObservableObject {
+    static let shared = Descargas()
+    @Published var progreso: [String: Double] = [:]      // clave → 0..1
+    private var obs: [String: NSKeyValueObservation] = [:]
+
+    func bajar(url: URL, destino: URL, clave: String, nombre: String) {
+        guard progreso[clave] == nil else { return }     // ya está bajando
+        try? FileManager.default.createDirectory(at: destino.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        progreso[clave] = 0.0001
+        Log.log(.ia, "descargando \(nombre)")
+        let task = URLSession.shared.downloadTask(with: url) { [weak self] tmp, _, err in
+            DispatchQueue.main.async {
+                self?.obs[clave] = nil
+                self?.progreso[clave] = nil
+                if let tmp, err == nil {
+                    try? FileManager.default.removeItem(at: destino)
+                    try? FileManager.default.moveItem(at: tmp, to: destino)
+                    Log.log(.ia, "\(nombre) descargado")
+                } else {
+                    Log.log(.ia, "descarga \(nombre) falló: \(err?.localizedDescription ?? "")")
+                }
+            }
+        }
+        obs[clave] = task.progress.observe(\.fractionCompleted) { [weak self] p, _ in
+            DispatchQueue.main.async { self?.progreso[clave] = p.fractionCompleted }
+        }
+        task.resume()
+    }
+}
+
 final class ProvidersModel: ObservableObject {
     @Published var lista: [Provider] = Providers.load()
-    @Published var descargas: [String: Double] = [:]     // archivo → progreso 0..1
     @Published var estadoLocal = ""
-    private var obs: [String: NSKeyValueObservation] = [:]
+    /// Puente al gestor global (la vista observa Descargas.shared aparte).
+    var descargas: [String: Double] { Descargas.shared.progreso }
 
     func recargar() { lista = Providers.load() }
     func guardar() { Providers.save(lista) }
@@ -35,8 +69,7 @@ final class ProvidersModel: ObservableObject {
     }
 
     func descargar(_ m: WhisperModelo) {
-        try? FileManager.default.createDirectory(at: WhisperLocal.modelsDir, withIntermediateDirectories: true)
-        bajarArchivo(url: m.url, destino: m.localURL, clave: m.archivo, nombre: m.nombre)
+        Descargas.shared.bajar(url: m.url, destino: m.localURL, clave: m.archivo, nombre: m.nombre)
     }
     func borrar(_ m: WhisperModelo) {
         try? FileManager.default.removeItem(at: m.localURL)
@@ -65,13 +98,11 @@ final class ProvidersModel: ObservableObject {
     }
 
     func descargarExotico(_ m: ExoticoModelo) {
-        try? FileManager.default.createDirectory(at: VoxtralServer.modelsDir, withIntermediateDirectories: true)
         for ((url, destino), mb) in zip(zip(m.urls, m.localURLs), m.tamañosMB)
-        where descargas[destino.lastPathComponent] == nil
-            && !ExoticoModelo.esGGUFValido(destino, esperadoMB: mb) {
+        where !ExoticoModelo.esGGUFValido(destino, esperadoMB: mb) {
             // Clave POR ARCHIVO: progresos independientes, sin pisar observers.
-            bajarArchivo(url: url, destino: destino,
-                         clave: destino.lastPathComponent, nombre: destino.lastPathComponent)
+            Descargas.shared.bajar(url: url, destino: destino,
+                                   clave: destino.lastPathComponent, nombre: destino.lastPathComponent)
         }
     }
     func borrarExotico(_ m: ExoticoModelo) {
@@ -93,9 +124,8 @@ final class ProvidersModel: ObservableObject {
     // ---- Motor transcribe.cpp (Nemotron/Canary) ----
 
     func descargarTcpp(_ m: TcppModelo) {
-        try? FileManager.default.createDirectory(at: TranscribeCpp.modelsDir, withIntermediateDirectories: true)
-        guard descargas[m.archivo] == nil, !m.descargado else { return }
-        bajarArchivo(url: m.url, destino: m.localURL, clave: m.archivo, nombre: m.archivo)
+        guard !m.descargado else { return }
+        Descargas.shared.bajar(url: m.url, destino: m.localURL, clave: m.archivo, nombre: m.archivo)
     }
     func borrarTcpp(_ m: TcppModelo) {
         try? FileManager.default.removeItem(at: m.localURL)
@@ -116,33 +146,13 @@ final class ProvidersModel: ObservableObject {
         recargar()
     }
 
-    /// Descarga genérica con progreso agregado por clave (un modelo puede
-    /// tener varios archivos: el progreso mostrado es el del archivo en curso).
-    private func bajarArchivo(url: URL, destino: URL, clave: String, nombre: String) {
-        descargas[clave] = 0.0001
-        Log.log(.ia, "descargando \(nombre)")
-        let task = URLSession.shared.downloadTask(with: url) { [weak self] tmp, _, err in
-            DispatchQueue.main.async {
-                self?.descargas[clave] = nil
-                if let tmp, err == nil {
-                    try? FileManager.default.removeItem(at: destino)
-                    try? FileManager.default.moveItem(at: tmp, to: destino)
-                    Log.log(.ia, "\(nombre) descargado")
-                } else {
-                    Log.log(.ia, "descarga \(nombre) falló")
-                }
-                self?.objectWillChange.send()
-            }
-        }
-        obs[clave] = task.progress.observe(\.fractionCompleted) { [weak self] p, _ in
-            DispatchQueue.main.async { self?.descargas[clave] = p.fractionCompleted }
-        }
-        task.resume()
-    }
 }
 
 struct ModelsView: View {
     @StateObject private var m = ProvidersModel()
+    // Observa el gestor GLOBAL: el progreso se pinta aunque la pestaña se
+    // haya cerrado y reabierto a mitad de la descarga.
+    @ObservedObject private var descargas = Descargas.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
