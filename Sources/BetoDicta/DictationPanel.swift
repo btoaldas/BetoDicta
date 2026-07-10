@@ -9,6 +9,7 @@ final class DictationPanel {
     private let label = NSTextField(labelWithString: "")
     let meter: LevelMeterView
     private let keycap = NSTextField(labelWithString: "fn")
+    private let motorLabel = NSTextField(labelWithString: "")
 
     private let wing: CGFloat = 48      // alas a los lados del notch
     private let strip: CGFloat = 24     // línea de texto bajo el notch
@@ -67,11 +68,27 @@ final class DictationPanel {
         keycap.layer?.cornerRadius = 5
         keycap.layer?.borderWidth = 1
         keycap.layer?.borderColor = NSColor(calibratedWhite: 0.4, alpha: 1).cgColor
-        let capW: CGFloat = 30, capH: CGFloat = 19
+        // Keycap abajo + letrero del motor arriba, adaptado al alto del ala
+        // (36 pt con notch real, ~28 pt en pantallas externas).
+        let capW: CGFloat = 30
+        let capH: CGFloat = notchHeight >= 34 ? 18 : 14
+        keycap.font = NSFont.systemFont(ofSize: capH >= 18 ? 12 : 10, weight: .semibold)
         keycap.frame = NSRect(x: width - wing + (wing - capW) / 2,
-                              y: strip + (notchHeight - capH) / 2,
+                              y: strip + 2,
                               width: capW, height: capH)
         background.addSubview(keycap)
+
+        // Encima del fn: con qué MOTOR se está dictando ahora mismo
+        // (rota en vivo cuando el failover conmuta de proveedor).
+        motorLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+        motorLabel.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)
+        motorLabel.alignment = .center
+        motorLabel.maximumNumberOfLines = 1
+        let motorH = max(8, notchHeight - capH - 7)
+        motorLabel.frame = NSRect(x: width - wing + 1,
+                                  y: strip + capH + 4,
+                                  width: wing - 2, height: min(motorH, 10))
+        background.addSubview(motorLabel)
 
         // Tira inferior: UNA línea de texto delgadita, alineada a la DERECHA
         // (lo último dicho queda pegado al borde, a la altura del fn) y el
@@ -97,6 +114,15 @@ final class DictationPanel {
     /// encargan de recortar lo viejo; no hace falta cortar a mano.
     func update(_ text: String) {
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    /// Letrero del motor activo, encima del fn. Verde = texto en vivo;
+    /// gris = se transcribe al soltar la tecla.
+    func setMotor(_ nombre: String, enVivo: Bool) {
+        motorLabel.stringValue = nombre.uppercased()
+        motorLabel.textColor = enVivo
+            ? NSColor(calibratedRed: 0.35, green: 0.85, blue: 0.45, alpha: 1)
+            : NSColor(calibratedWhite: 0.55, alpha: 1)
     }
 
     func hide(after seconds: TimeInterval = 0) {

@@ -209,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func startDemo() {
+        panel.setMotor("Voxtral", enVivo: true)
         panel.show("revisé el Quipux del GAD y configuré el MikroTik")
         var phase: Double = 0
         Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
@@ -666,7 +667,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 conectarScribeVivo(history: history)
             }
         } else {
+            panel.setMotor(Self.nombreMotor(primero), enVivo: false)
             startLiveLocal(history: history)
+        }
+    }
+
+    /// Nombre corto del motor para el letrero del notch.
+    static func nombreMotor(_ p: Provider?) -> String {
+        guard let p else { return "—" }
+        switch p.id {
+        case "elevenlabs": return "11Labs"
+        case "groq": return "Groq"
+        case "whisper_local": return "Whisper"
+        case "voxtral_local": return "Voxtral"
+        case "nemotron_local": return "Nemotron"
+        case "canary_local": return "Canary"
+        default: return p.nombre
         }
     }
 
@@ -703,14 +719,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.tcppStream = client
             // Backlog del buffer + flujo directo: mismo carril en main.
             fijarMotorVivo { [weak client] chunk in client?.send(chunk: chunk) }
+            panel.setMotor(Self.nombreMotor(Providers.cadena().first(where: { $0.id == id })), enVivo: true)
             panel.update("Escuchando (local en vivo)… (\(tecla) termina)")
         } catch {
             Log.log(.ia, "tcpp vivo no arrancó (\(error.localizedDescription)) — batch al soltar")
+            panel.setMotor("cascada", enVivo: false)
         }
     }
 
     /// Nube en vivo (ElevenLabs). Si no conecta en 4 s → plan B transparente.
     private func conectarScribeVivo(history: HistoryWriter) {
+        panel.setMotor("11Labs…", enVivo: false)
         let stream = StreamClient()
         self.stream = stream
         stream.onPartial = { [weak self, weak stream] text in
@@ -742,6 +761,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .success:
                 StreamClient.registrarExito()
                 self.fijarMotorVivo { [weak stream] chunk in stream?.send(chunk: chunk) }
+                self.panel.setMotor("11Labs", enVivo: true)
             }
         }
     }
@@ -756,6 +776,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         })?.id {
             arrancarTcppVivo(proveedor: id, history: history)
         } else {
+            let respaldo = Providers.cadena().first(where: { $0.id != "elevenlabs" })
+            panel.setMotor(Self.nombreMotor(respaldo), enVivo: false)
             startLiveLocal(history: history)
         }
     }
@@ -788,6 +810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if case .success(let texto) = r, self.recorder.isRecording,
                    self.history === history, !texto.isEmpty {
                     self.lastPartial = texto
+                    self.panel.setMotor("Whisper", enVivo: true)
                     self.panel.update(texto)
                     history.savePartial(texto)
                 }
