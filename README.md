@@ -45,7 +45,7 @@ o exporta la variable de entorno `ELEVENLABS_API_KEY`.
 
 ### Permisos de macOS
 
-BetoDicta necesita **Micrófono** (obvio) y **Accesibilidad** (para escuchar la tecla `fn` y pegar el texto). macOS los pedirá al primer uso. Nota: al recompilar desde código, macOS puede "olvidar" los permisos (firma ad-hoc nueva) — quita y vuelve a agregar la app en Configuración → Privacidad y Seguridad.
+BetoDicta necesita **Micrófono**, **Monitorización de entrada** (para la tecla `fn`) y **Accesibilidad** (para pegar el texto). macOS los pedirá al primer uso. La app se firma con un certificado propio estable, así que los permisos se conservan entre recompilaciones.
 
 ## Configuración
 
@@ -53,7 +53,7 @@ Todo vive en `~/.betodicta/` (editable desde el menú 🎙):
 
 | Archivo | Qué es |
 |---|---|
-| `config.json` | `{"tecla": "fn", "modelo": "scribe_v2_realtime", "silencio_max_seg": 120}` |
+| `config.json` | tecla, modelo, silencio_max_seg, sonidos, esc_cancela, atenuar_multimedia, silenciar_ademas, post_proceso, prompt_pulido, panel_visible, modo_desarrollo… |
 | `keyterms.txt` | Tu vocabulario, una palabra por línea (streaming usa las primeras 50) |
 | `reemplazos.json` | `[{"original": "variante1, variante2", "replacement": "Palabra"}]` |
 | `historial/` | Tus dictados: `.wav` + `.txt` por año/mes/día |
@@ -64,8 +64,8 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 ## Entorno de desarrollo
 
 - **macOS 14+** en Apple Silicon · **Xcode 26+** (Swift 6) · sin dependencias externas: Swift puro + AppKit/AVFoundation
-- `make install` compila (Swift Package Manager) y arma el bundle firmado ad-hoc en /Applications
-- Un solo archivo fuente: `Sources/BetoDicta/main.swift` — léelo entero en 10 minutos
+- `make install` compila (Swift Package Manager) y arma el bundle firmado con certificado propio en /Applications
+- Código modular en `Sources/BetoDicta/` (Config, Recorder, HistoryWriter, MediaControl, clientes Scribe, panel, AppDelegate…)
 - Copia `.env.example`, `config.example.json`, `keyterms.example.txt` y `reemplazos.example.json` a `~/.betodicta/` como punto de partida
 - Este entorno se actualiza con el proyecto: si algo no compila en una versión nueva de Xcode, abre un issue
 
