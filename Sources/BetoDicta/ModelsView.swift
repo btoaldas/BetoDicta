@@ -12,6 +12,7 @@ final class Descargas: ObservableObject {
     static let shared = Descargas()
     @Published var progreso: [String: Double] = [:]      // clave → 0..1
     private var obs: [String: NSKeyValueObservation] = [:]
+    private var tareas: [String: URLSessionDownloadTask] = [:]
 
     func bajar(url: URL, destino: URL, clave: String, nombre: String) {
         guard progreso[clave] == nil else { return }     // ya está bajando
@@ -22,20 +23,29 @@ final class Descargas: ObservableObject {
         let task = URLSession.shared.downloadTask(with: url) { [weak self] tmp, _, err in
             DispatchQueue.main.async {
                 self?.obs[clave] = nil
+                self?.tareas[clave] = nil
                 self?.progreso[clave] = nil
                 if let tmp, err == nil {
                     try? FileManager.default.removeItem(at: destino)
                     try? FileManager.default.moveItem(at: tmp, to: destino)
                     Log.log(.ia, "\(nombre) descargado")
+                } else if (err as NSError?)?.code == NSURLErrorCancelled {
+                    Log.log(.ia, "descarga \(nombre) cancelada por el usuario")
                 } else {
                     Log.log(.ia, "descarga \(nombre) falló: \(err?.localizedDescription ?? "")")
                 }
             }
         }
+        tareas[clave] = task
         obs[clave] = task.progress.observe(\.fractionCompleted) { [weak self] p, _ in
             DispatchQueue.main.async { self?.progreso[clave] = p.fractionCompleted }
         }
         task.resume()
+    }
+
+    /// Cancela la descarga (o descargas) de esas claves; no queda basura.
+    func cancelar(_ claves: [String]) {
+        for c in claves { tareas[c]?.cancel() }
     }
 }
 
@@ -218,10 +228,7 @@ struct ModelsView: View {
                         }
                         Spacer()
                         if let prog = m.descargas[modelo.archivo] {
-                            VStack(spacing: 2) {
-                                ProgressView(value: prog).frame(width: 60).tint(acentoM)
-                                Text("\(Int(prog * 100))%").font(.system(size: 9))
-                            }
+                            progreso(prog, cancelar: [modelo.archivo])
                         } else if modelo.descargado {
                             Button("Usar") { m.usarModeloLocal(modelo.archivo) }
                                 .disabled(m.modeloLocalActual() == modelo.archivo)
@@ -263,7 +270,7 @@ struct ModelsView: View {
                         }
                         Spacer()
                         if let prog = m.progresoExotico(modelo) {
-                            progreso(prog)
+                            progreso(prog, cancelar: modelo.archivos)
                         } else if modelo.descargado {
                             Button("Usar") { m.usarExotico(modelo) }
                                 .disabled(VoxtralServer.serverBinURL == nil)
@@ -342,10 +349,18 @@ struct ModelsView: View {
         }
     }
 
-    private func progreso(_ p: Double) -> some View {
-        VStack(spacing: 2) {
-            ProgressView(value: p).frame(width: 60).tint(acentoM)
-            Text("\(Int(p * 100))%").font(.system(size: 9))
+    /// Barra de progreso con botón ✕ para cancelar la descarga.
+    private func progreso(_ p: Double, cancelar claves: [String]) -> some View {
+        HStack(spacing: 6) {
+            VStack(spacing: 2) {
+                ProgressView(value: p).frame(width: 60).tint(acentoM)
+                Text("\(Int(p * 100))%").font(.system(size: 9))
+            }
+            Button { Descargas.shared.cancelar(claves) } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Cancelar descarga")
         }
     }
     private func botonBorrar(_ action: @escaping () -> Void) -> some View {
@@ -376,7 +391,7 @@ struct ModelsView: View {
             }
             Spacer()
             if let prog = m.descargas[modelo.archivo] {
-                progreso(prog)
+                progreso(prog, cancelar: [modelo.archivo])
             } else if modelo.descargado {
                 Button("Usar") { m.usarTcpp(modelo, proveedor: proveedor) }
                     .disabled(TranscribeCpp.cliURL == nil)
