@@ -1,8 +1,32 @@
 import AppKit
 import SwiftUI
+import AVFoundation
 import UniformTypeIdentifiers
 
 private let acentoTr = Color(red: 0.36, green: 0.28, blue: 0.62)
+
+/// Reproductor simple para escuchar las grabaciones del historial.
+final class AudioPreview: ObservableObject {
+    static let shared = AudioPreview()
+    @Published var sonando: URL?
+    private var player: AVAudioPlayer?
+    private var fin: Any?
+
+    func toggle(_ url: URL) {
+        if sonando == url { stop(); return }
+        stop()
+        guard let p = try? AVAudioPlayer(contentsOf: url) else { return }
+        player = p; p.play(); sonando = url
+        // Avisar cuando termine para volver el ícono a play
+        fin = Timer.scheduledTimer(withTimeInterval: p.duration + 0.1, repeats: false) { [weak self] _ in
+            self?.sonando = nil
+        }
+    }
+    func stop() {
+        player?.stop(); player = nil; sonando = nil
+        if let fin { (fin as? Timer)?.invalidate(); self.fin = nil }
+    }
+}
 
 // MARK: - Vista Transcribir: subir archivo + re-transcribir del historial
 
@@ -11,6 +35,7 @@ struct TranscribeView: View {
     @State private var resultado = ""
     @State private var trabajando = false
     @State private var grabaciones: [Grabacion] = []
+    @ObservedObject private var preview = AudioPreview.shared
 
     struct Grabacion: Identifiable {
         let id = UUID()
@@ -43,7 +68,13 @@ struct TranscribeView: View {
                     Text("No hay grabaciones en el historial.").font(.caption).foregroundStyle(.tertiary)
                 } else {
                     ForEach(grabaciones.prefix(8)) { g in
-                        HStack {
+                        HStack(spacing: 8) {
+                            Button {
+                                preview.toggle(g.wav)
+                            } label: {
+                                Image(systemName: preview.sonando == g.wav ? "stop.circle.fill" : "play.circle")
+                                    .foregroundStyle(acentoTr)
+                            }.buttonStyle(.plain)
                             Text(fecha(g.fecha)).font(.system(.caption, design: .monospaced))
                             Text(g.textoPrevio.isEmpty ? "(sin texto)" : g.textoPrevio)
                                 .font(.caption).lineLimit(1).foregroundStyle(.secondary)

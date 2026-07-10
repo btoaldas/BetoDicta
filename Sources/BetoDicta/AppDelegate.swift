@@ -103,7 +103,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private var tecla: String { Config.hotkey() }
-    private var isStreamingModel: Bool { Config.model() == "scribe_v2_realtime" }
+    /// Solo hay texto en vivo (streaming) si el proveedor #1 de la cadena es
+    /// ElevenLabs Y el modelo es realtime. Si el #1 es Whisper local o Groq,
+    /// se graba plano y se transcribe con la cadena de failover al terminar —
+    /// así el ORDEN de la pestaña Modelos manda de verdad.
+    private var isStreamingModel: Bool {
+        guard Config.model() == "scribe_v2_realtime" else { return false }
+        return Providers.cadena().first?.id == "elevenlabs"
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
