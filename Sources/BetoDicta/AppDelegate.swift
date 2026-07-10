@@ -137,6 +137,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Menú de Edición "invisible": la app no muestra barra de menú
+        // (LSUIElement), pero sin esto macOS no enruta ⌘V/⌘C/⌘X/⌘A/⌘Z en
+        // los campos de texto (pegar la API key solo funcionaba con clic derecho).
+        let principal = NSMenu()
+        principal.addItem(NSMenuItem())   // slot del menú de la app
+        let edicionItem = NSMenuItem()
+        let edicion = NSMenu(title: "Edición")
+        edicion.addItem(withTitle: "Deshacer", action: Selector(("undo:")), keyEquivalent: "z")
+        edicion.addItem(withTitle: "Rehacer", action: Selector(("redo:")), keyEquivalent: "Z")
+        edicion.addItem(NSMenuItem.separator())
+        edicion.addItem(withTitle: "Cortar", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edicion.addItem(withTitle: "Copiar", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edicion.addItem(withTitle: "Pegar", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edicion.addItem(withTitle: "Seleccionar todo", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edicionItem.submenu = edicion
+        principal.addItem(edicionItem)
+        NSApp.mainMenu = principal
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let icon = Self.menuBarIcon() {
             statusItem.button?.image = icon      // monocromo, se adapta a claro/oscuro

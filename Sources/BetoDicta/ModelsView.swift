@@ -402,15 +402,31 @@ struct CloudRow: View {
     @State private var key = ""
     @State private var modelo = ""
     @State private var mostrarKey = false
+    @State private var reciénGuardado = false
+
+    private func guardar() {
+        ApiKeys.set(keyEnv, key)
+        onChange()
+        withAnimation { reciénGuardado = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { reciénGuardado = false }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(nombre).font(.subheadline).bold()
                 Spacer()
-                Text(key.isEmpty ? "sin clave" : "conectado")
-                    .font(.caption2)
-                    .foregroundStyle(key.isEmpty ? Color.secondary : Color.green)
+                if reciénGuardado {
+                    Label("Guardado", systemImage: "checkmark.circle.fill")
+                        .font(.caption2).foregroundStyle(Color.green)
+                        .transition(.opacity)
+                } else {
+                    Text(key.isEmpty ? "sin clave" : "conectado")
+                        .font(.caption2)
+                        .foregroundStyle(key.isEmpty ? Color.secondary : Color.green)
+                }
             }
             HStack {
                 Group {
@@ -421,11 +437,11 @@ struct CloudRow: View {
                     }
                 }
                 .textFieldStyle(.roundedBorder)
-                .onSubmit { ApiKeys.set(keyEnv, key); onChange() }
+                .onSubmit { guardar() }
                 Button { mostrarKey.toggle() } label: {
                     Image(systemName: mostrarKey ? "eye.slash" : "eye")
                 }.buttonStyle(.plain)
-                Button("Guardar") { ApiKeys.set(keyEnv, key); onChange() }
+                Button("Guardar") { guardar() }
             }
             Picker("Modelo:", selection: $modelo) {
                 ForEach(modelos, id: \.self) { Text($0).tag($0) }
