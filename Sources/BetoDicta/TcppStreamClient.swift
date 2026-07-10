@@ -49,7 +49,7 @@ final class TcppStreamClient {
             atPath: TranscribeCpp.modelsDir.appendingPathComponent(m).path)
     }
 
-    private let proveedorId: String
+    let proveedorId: String
     init(proveedor id: String) { proveedorId = id }
 
     func start() throws {

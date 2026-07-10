@@ -728,17 +728,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Nombre corto del motor para el letrero del notch.
+    /// Nombre corto del motor para el letrero del notch y las estadísticas.
     static func nombreMotor(_ p: Provider?) -> String {
         guard let p else { return "—" }
-        switch p.id {
+        return nombreMotor(id: p.id, respaldo: p.nombre)
+    }
+    static func nombreMotor(id: String, respaldo: String = "?") -> String {
+        switch id {
         case "elevenlabs": return "11Labs"
         case "groq": return "Groq"
         case "whisper_local": return "Whisper"
         case "voxtral_local": return "Voxtral"
         case "nemotron_local": return "Nemotron"
         case "canary_local": return "Canary"
-        default: return p.nombre
+        default: return respaldo
         }
     }
 
@@ -968,7 +971,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if final.isEmpty {
                     rescatarConCascada("Sin texto")
                 } else {
-                    self?.deliver(raw: final, wav: wav, via: "Local (en vivo)", history: historyActual)
+                    let motor = Self.nombreMotor(id: tcpp.proveedorId)
+                    self?.deliver(raw: final, wav: wav, via: "\(motor) (en vivo)", history: historyActual)
                 }
             }
             tcpp.finish()
