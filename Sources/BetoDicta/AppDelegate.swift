@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         liveTimer = nil
         _ = recorder.stop()
         entregaVivo = nil
-        vivoBuffer = Data()
+        audioDictado = Data()
         stream?.disconnect()
         stream = nil
         tcppStream?.cancel()
@@ -212,7 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             if self.recorder.isRecording {
                 menu.addItem(NSMenuItem.separator())
-                let nota = NSMenuItem(title: "Aplica desde el próximo dictado", action: nil, keyEquivalent: "")
+                let nota = NSMenuItem(title: "Cambia AHORA — el nuevo motor retoma todo lo dicho", action: nil, keyEquivalent: "")
                 nota.isEnabled = false
                 menu.addItem(nota)
             }
@@ -304,11 +304,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openSettings() { Log.log(.ui, "abrir configuración"); SettingsWindowController.shared.show() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("config.json")) }
     /// Selector rápido: el proveedor elegido pasa a #1 de la cascada.
-    /// Aplica desde el PRÓXIMO dictado (uno en curso no se interrumpe).
+    /// Con un dictado en curso, CONMUTA EN CALIENTE: el motor nuevo recibe
+    /// todo el audio acumulado y sigue desde ahí — no se pierde nada.
     @objc func elegirProveedor(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         Providers.moverAlFrente(id)
-        if !recorder.isRecording {
+        if recorder.isRecording {
+            conmutarEnCaliente()
+        } else {
             let p = Providers.cadena().first
             let esVivo = TcppStreamClient.esModeloStreaming(p?.modelo ?? "")
                 || (p?.id == "elevenlabs" && (p?.modelo ?? "") == "scribe_v2_realtime")
@@ -693,7 +696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async { self?.entregarVivo(chunk) }
         }
         entregaVivo = nil
-        vivoBuffer = Data()
+        audioDictado = Data()
         do {
             try recorder.start()
             armEsc()
@@ -739,20 +742,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Entrega serializada de chunks al motor en vivo activo. Mientras el
-    /// motor no está listo, los chunks se acumulan en vivoBuffer (solo main);
-    /// al fijar el motor recibe ese buffer como backlog y luego el flujo
-    /// directo — mismo carril, cero duplicados, cero pérdidas.
+    /// Entrega serializada de chunks al motor en vivo activo (todo en main).
+    /// audioDictado guarda el PCM COMPLETO del dictado en curso: al fijar un
+    /// motor (al inicio o en una conmutación en caliente) recibe todo el
+    /// acumulado como backlog y sigue con el flujo directo — mismo carril,
+    /// cero duplicados, cero pérdidas.
     private var entregaVivo: ((Data) -> Void)?
-    private var vivoBuffer = Data()
+    private var audioDictado = Data()
     private func entregarVivo(_ chunk: Data) {
-        if let entrega = entregaVivo { entrega(chunk) } else { vivoBuffer.append(chunk) }
+        audioDictado.append(chunk)
+        entregaVivo?(chunk)
     }
-    /// Fija el motor en vivo drenando primero el backlog (todo en main).
+    /// Fija el motor en vivo mandando primero TODO el audio acumulado
+    /// (troceado a ~1 s para no ahogar un WebSocket con un mensaje gigante).
     private func fijarMotorVivo(_ entrega: @escaping (Data) -> Void) {
-        if !vivoBuffer.isEmpty { entrega(vivoBuffer) }
-        vivoBuffer = Data()
+        var i = 0
+        while i < audioDictado.count {
+            let fin = min(i + 32000, audioDictado.count)
+            entrega(audioDictado.subdata(in: i..<fin))
+            i = fin
+        }
         entregaVivo = entrega
+    }
+
+    /// Conmutación EN CALIENTE: corta el motor actual y arranca el nuevo #1
+    /// con todo el audio del dictado — el usuario no pierde ni una palabra.
+    private func conmutarEnCaliente() {
+        guard recorder.isRecording, let history = self.history else { return }
+        liveTimer?.invalidate(); liveTimer = nil
+        entregaVivo = nil
+        stream?.disconnect(); stream = nil
+        tcppStream?.cancel(); tcppStream = nil
+
+        let primero = Providers.cadena().first
+        Log.log(.ia, "conmutación en caliente → \(primero?.nombre ?? "?")")
+        if let id = primero?.id, ["nemotron_local", "voxtral_local", "canary_local"].contains(id),
+           TcppStreamClient.disponible(proveedor: id) {
+            arrancarTcppVivo(proveedor: id, history: history)
+        } else if primero?.id == "elevenlabs", (primero?.modelo ?? "") == "scribe_v2_realtime",
+                  !StreamClient.enCuarentena {
+            conectarScribeVivo(history: history)
+        } else {
+            panel.setMotor(Self.nombreMotor(primero), enVivo: false)
+            if primero?.id == "whisper_local" {
+                DispatchQueue.global(qos: .userInitiated).async { WhisperServer.precalentar() }
+            }
+            startLiveLocal(history: history)
+        }
     }
 
     /// Streaming local nativo (Nemotron/Voxtral RT) con el audio ya acumulado.
@@ -887,7 +923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Cortar la entrega en vivo YA: un chunk rezagado en main no debe
         // tocar el pipe/WS que estamos por cerrar.
         entregaVivo = nil
-        vivoBuffer = Data()
+        audioDictado = Data()
 
         // El HistoryWriter de ESTE dictado viaja capturado por las entregas
         // asíncronas: una entrega tardía jamás toca el historial del próximo.
