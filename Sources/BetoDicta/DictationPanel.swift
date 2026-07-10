@@ -73,13 +73,16 @@ final class DictationPanel {
                               width: capW, height: capH)
         background.addSubview(keycap)
 
-        // Tira inferior: UNA línea de texto delgadita
+        // Tira inferior: UNA línea de texto delgadita, alineada a la DERECHA
+        // (lo último dicho queda pegado al borde, a la altura del fn) y el
+        // texto viejo se recorta por la IZQUIERDA con "…". Así nunca se oculta
+        // lo último que se habla.
         label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
         label.textColor = .white
-        label.alignment = .center
+        label.alignment = .right
         label.maximumNumberOfLines = 1
-        label.lineBreakMode = .byClipping
-        label.frame = NSRect(x: 10, y: 4, width: width - 20, height: 15)
+        label.lineBreakMode = .byTruncatingHead
+        label.frame = NSRect(x: 8, y: 4, width: width - 16, height: 15)
         background.addSubview(label)
     }
 
@@ -90,14 +93,10 @@ final class DictationPanel {
     }
 
     /// Teleprompter de una línea: siempre muestra el FINAL (lo último dicho).
+    /// El truncado por la cabeza (.byTruncatingHead) + alineación derecha se
+    /// encargan de recortar lo viejo; no hace falta cortar a mano.
     func update(_ text: String) {
-        let clean = text.replacingOccurrences(of: "\n", with: " ")
-        let maxChars = 58
-        if clean.count > maxChars {
-            label.stringValue = "…" + String(clean.suffix(maxChars))
-        } else {
-            label.stringValue = clean
-        }
+        label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
     }
 
     func hide(after seconds: TimeInterval = 0) {

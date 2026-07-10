@@ -6,6 +6,20 @@ import ServiceManagement
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private var appMenu: NSMenu?
+
+    /// Clic derecho en el ícono del Dock muestra el mismo menú.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        appMenu?.copy() as? NSMenu
+    }
+
+    /// Clic izquierdo en el ícono del Dock (sin ventanas abiertas) → abre la
+    /// configuración, para que el ícono haga algo útil y no se quede mudo.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { SettingsWindowController.shared.show() }
+        return true
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         menu.items.first(where: { $0.tag == 77 })?.state =
             SMAppService.mainApp.status == .enabled ? .on : .off
@@ -83,11 +97,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.title = "🎙"
+        if let icon = Self.menuBarIcon() {
+            statusItem.button?.image = icon      // monocromo, se adapta a claro/oscuro
+        } else {
+            statusItem.button?.title = "🎙"      // respaldo
+        }
         let menu = NSMenu()
         menu.addItem(withTitle: "BetoDicta v0.4 — \(tecla) para dictar (\(Config.model()))", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "Editar configuración", action: #selector(openConfig), keyEquivalent: "")
+        menu.addItem(withTitle: "Configuración…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "Editar keyterms", action: #selector(openKeyterms), keyEquivalent: "")
         menu.addItem(withTitle: "Editar reemplazos", action: #selector(openReplacements), keyEquivalent: "")
         menu.addItem(withTitle: "Copiar último dictado", action: #selector(copyLastDictation), keyEquivalent: "c")
@@ -114,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(withTitle: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.delegate = self
         statusItem.menu = menu
+        self.appMenu = menu   // el mismo menú se ofrece en el Dock
 
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
         registerHotKey()
@@ -143,6 +162,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Ícono de barra de menú dibujado en código: micrófono + latido.
+    /// Es una "template image" → macOS lo tiñe solo según el tema (claro/oscuro).
+    private static func menuBarIcon() -> NSImage? {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            let ink = NSColor.black  // template: el color real lo pone el sistema
+            ink.setFill()
+            ink.setStroke()
+
+            // Cuerpo del micrófono (cápsula)
+            NSBezierPath(roundedRect: NSRect(x: 6, y: 6.5, width: 6, height: 9),
+                         xRadius: 3, yRadius: 3).fill()
+
+            // Arco/soporte bajo el micrófono
+            let stand = NSBezierPath()
+            stand.lineWidth = 1.4
+            stand.appendArc(withCenter: NSPoint(x: 9, y: 9),
+                            radius: 5, startAngle: 200, endAngle: 340)
+            stand.stroke()
+            // Pie del micrófono
+            NSBezierPath(rect: NSRect(x: 8.35, y: 2.2, width: 1.3, height: 2.4)).fill()
+            NSBezierPath(rect: NSRect(x: 6.5, y: 2, width: 5, height: 1.1)).fill()
+
+            // 3 barras del latido a la derecha (alturas distintas)
+            let heights: [CGFloat] = [4, 7, 5]
+            for (i, h) in heights.enumerated() {
+                let x = 13.2 + CGFloat(i) * 1.7
+                NSBezierPath(roundedRect: NSRect(x: x, y: 9 - h / 2, width: 1.1, height: h),
+                             xRadius: 0.5, yRadius: 0.5).fill()
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    @objc private func openSettings() { SettingsWindowController.shared.show() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("config.json")) }
     @objc private func openKeyterms() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("keyterms.txt")) }
     @objc private func openReplacements() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("reemplazos.json")) }
