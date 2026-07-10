@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.17.1"
+    static let numero = "0.17.2"
     static let fecha = "2026-07-10"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.17.2", "2026-07-10", [
+            "Las API keys viven solo en la configuración de la app (adiós rutas de la máquina del desarrollador)",
+            "Mensaje claro cuando falta la key: 'ponla en Configuración → Modelos'",
+            "Instrucciones de primera apertura al día para macOS moderno",
+        ]),
         ("0.17.1", "2026-07-10", [
             "La app trae TODOS los motores dentro: Voxtral Mini 3B ya no pide instalar nada (adiós brew) — descargar, arrastrar y dictar",
         ]),
