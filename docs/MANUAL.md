@@ -13,20 +13,22 @@
 3. [Instalación](#3-instalación)
 4. [Tu primer dictado](#4-tu-primer-dictado)
 5. [El panel del notch](#5-el-panel-del-notch)
-6. [La cascada de failover](#6-la-cascada-de-failover)
-7. [Los motores, uno por uno](#7-los-motores-uno-por-uno)
-8. [Pestaña Modelos](#8-pestaña-modelos)
-9. [Cambiar de motor al vuelo](#9-cambiar-de-motor-al-vuelo)
-10. [Pestaña Ajustes](#10-pestaña-ajustes)
-11. [Glosario y reemplazos](#11-glosario-y-reemplazos)
-12. [Traducir al dictar](#12-traducir-al-dictar)
-13. [Pestaña Historial](#13-pestaña-historial)
-14. [Pestaña Transcribir](#14-pestaña-transcribir)
-15. [Estadísticas](#15-estadísticas)
-16. [Actualizar la app](#16-actualizar-la-app)
-17. [La caja negra: tus datos](#17-la-caja-negra-tus-datos)
-18. [Solución de problemas](#18-solución-de-problemas)
-19. [Preguntas frecuentes](#19-preguntas-frecuentes)
+6. [El menú de la barra (y el Dock)](#6-el-menú-de-la-barra-y-el-dock)
+7. [La cascada de failover](#7-la-cascada-de-failover)
+8. [Los motores, uno por uno](#8-los-motores-uno-por-uno)
+9. [Pestaña Modelos](#9-pestaña-modelos)
+10. [Cambiar de motor al vuelo](#10-cambiar-de-motor-al-vuelo)
+11. [Pestaña Ajustes](#11-pestaña-ajustes)
+12. [Pestaña Acciones](#12-pestaña-acciones)
+13. [Glosario y reemplazos](#13-glosario-y-reemplazos)
+14. [Traducir al dictar](#14-traducir-al-dictar)
+15. [Pestaña Historial](#15-pestaña-historial)
+16. [Pestaña Transcribir](#16-pestaña-transcribir)
+17. [Estadísticas](#17-estadísticas)
+18. [Actualizar la app](#18-actualizar-la-app)
+19. [La caja negra: tus datos](#19-la-caja-negra-tus-datos)
+20. [Solución de problemas](#20-solución-de-problemas)
+21. [Preguntas frecuentes](#21-preguntas-frecuentes)
 
 ---
 
@@ -82,9 +84,37 @@ Trucos:
   - **Gris** = el texto llega al soltar la tecla
   - El letrero **rota solo** si el failover cambia de motor a mitad del dictado.
 - **Abajo**: el teleprompter — una línea con lo último que dijiste.
-- **Clic sobre el letrero del motor** abre el selector rápido de proveedor (ver [sección 9](#9-cambiar-de-motor-al-vuelo)).
+- **Clic sobre el letrero del motor** abre el selector rápido de proveedor (ver [sección 10](#10-cambiar-de-motor-al-vuelo)).
 
-## 6. La cascada de failover
+## 6. El menú de la barra (y el Dock)
+
+**Clic en el micrófono de la barra de menú** (arriba a la derecha) — es tu centro de accesos directos:
+
+| Opción | Qué hace |
+|---|---|
+| **BetoDicta vX — fn para dictar** | Recordatorio de tu tecla y versión |
+| **Configuración…** (⌘,) | Abre la ventana principal |
+| **Proveedor principal ▸** | Cambia el motor #1 con un clic (solo lista los activos, ✓ en el actual) |
+| **Editar keyterms** | Abre tu glosario en el editor de texto |
+| **Editar reemplazos** | Abre tus reglas de corrección |
+| **Copiar último dictado** (⌘C) | El texto del dictado más reciente al portapapeles |
+| **Últimos dictados ▸** | Los 5 más recientes — clic en uno y se copia |
+| **Exportar dictados de hoy** (⌘E) | Genera un Markdown con todos los dictados del día |
+| **Abrir historial** | La carpeta con todos tus audios y textos |
+| **Ver registro (log)** (⌘L) | El registro técnico de la app |
+| **Modo desarrollo** | Detalle técnico extra en el log |
+| **Mostrar en el Dock** | La app también en el Dock |
+| **Arrancar al iniciar sesión** | Autoarranque con el Mac |
+| **Post-proceso con IA (Groq)** | Interruptor rápido del pulido |
+| **Traducir al dictar ▸** | Elige idioma o desactiva |
+| **— Uso de dictado —** | Resumen de minutos por proveedor |
+| **Salir** (⌘Q) | Cierra BetoDicta |
+
+**En el Dock** (si activaste "Mostrar en el Dock"):
+- **Clic izquierdo** en el ícono → abre la Configuración
+- **Clic derecho** → el mismo menú completo de la barra
+
+## 7. La cascada de failover
 
 ![Pestaña Modelos](img/modelos.png)
 
@@ -101,7 +131,7 @@ Ejemplos de comportamiento:
 - La red muere a MITAD de un dictado → al soltar, el audio completo se transcribe por la cascada. Nada se pierde.
 - Tras un fallo de red, ElevenLabs entra en "cuarentena" 60 segundos (ni se intenta) para no hacerte esperar.
 
-## 7. Los motores, uno por uno
+## 8. Los motores, uno por uno
 
 | Motor | Tipo | ¿En vivo? | ¿Necesita? | Notas |
 |---|---|---|---|---|
@@ -117,7 +147,7 @@ Ejemplos de comportamiento:
 
 **¿Cuál elegir?** Sin gastar un centavo y sin internet: **Voxtral Realtime 4B** de #1 (en vivo, calidad top) con **Whisper local** de respaldo. Si tienes key de ElevenLabs: ponlo de #1 y deja los locales de respaldo.
 
-## 8. Pestaña Modelos
+## 9. Pestaña Modelos
 
 Todo el control de motores vive aquí:
 
@@ -134,7 +164,7 @@ Todo el control de motores vive aquí:
 - El ojito 👁 muestra/oculta la key. Las keys viven **solo en tu Mac** (`~/.betodicta/.env`).
 - Elige el modelo de cada proveedor en su selector (por ejemplo, ElevenLabs: Scribe v2 Realtime para texto en vivo, o v2/v1 por lotes).
 
-## 9. Cambiar de motor al vuelo
+## 10. Cambiar de motor al vuelo
 
 Tres formas, de la más rápida a la más completa:
 
@@ -142,7 +172,7 @@ Tres formas, de la más rápida a la más completa:
 2. **Menú de la barra** (clic en el micrófono) → **"Proveedor principal"** → un clic y listo.
 3. **Pestaña Modelos** → arrastra las filas de la cascada al orden que quieras.
 
-## 10. Pestaña Ajustes
+## 11. Pestaña Ajustes
 
 ![Pestaña Ajustes](img/ajustes.png)
 
@@ -167,21 +197,35 @@ Tres formas, de la más rápida a la más completa:
 **Avanzado**
 - **Modo desarrollo**: anota detalles técnicos extra en el registro (para diagnosticar problemas).
 
-## 11. Glosario y reemplazos
+## 12. Pestaña Acciones
+
+![Pestaña Acciones](img/acciones.png)
+
+Los accesos rápidos de mantenimiento:
+
+- **Glosario**: abre los editores de palabras del glosario y de reemplazos (ver la sección siguiente).
+- **Dictados**: copiar el último dictado, exportar los de hoy a Markdown, abrir la carpeta del historial.
+- **Diagnóstico**: ver el registro (log) de la app — útil si algo falla y quieres reportarlo.
+
+## 13. Glosario y reemplazos
 
 El corazón de "que escriba bien mis palabras":
 
+![Editor del glosario](img/editor-keyterms.png)
+
 **Glosario (keyterms)** — Configuración → Acciones → *Editar palabras del glosario*. Una palabra o frase por línea (nombres propios, siglas, términos técnicos: *Quipux, SENESCYT, Aldás…*). El glosario **viaja a TODOS los motores**: ElevenLabs lo recibe nativo, Whisper/Groq/OpenAI como contexto, Voxtral dentro de la instrucción. Editas el archivo y aplica desde el siguiente dictado.
+
+![Editor de reemplazos](img/editor-reemplazos.png)
 
 **Reemplazos** — Configuración → Acciones → *Editar reemplazos*. Correcciones automáticas DESPUÉS de transcribir, para todos los motores siempre: si un motor escribe "Kipux", la regla `Kipux → Quipux` lo corrige antes de pegar. Cada regla se puede activar/desactivar, y hay soporte de expresiones regulares para cazar variantes.
 
 **¿Cuál usar?** Los dos: el glosario ayuda al motor a acertar a la primera; los reemplazos son la red de seguridad que corrige lo que se escape.
 
-## 12. Traducir al dictar
+## 14. Traducir al dictar
 
 Menú de la barra → **"Traducir al dictar"** → elige idioma (inglés, portugués, francés…). Dictas en español y se pega traducido. Los términos de tu glosario NO se traducen (nombres propios quedan intactos). Necesita key de Groq. **"Desactivado"** vuelve al español normal.
 
-## 13. Pestaña Historial
+## 15. Pestaña Historial
 
 ![Pestaña Historial](img/historial.png)
 
@@ -193,14 +237,14 @@ Todos tus dictados, buscables:
 - **📁** muestra los archivos en Finder.
 - El texto es seleccionable directamente.
 
-## 14. Pestaña Transcribir
+## 16. Pestaña Transcribir
 
 ![Pestaña Transcribir](img/transcribir.png)
 
 - **Subir un archivo**: elige un audio o video (wav, mp3, m4a, mp4, mov…) y lo convierte a texto con tu glosario. Ideal para grabaciones de reuniones.
 - **Re-transcribir un dictado**: vuelve a pasar un audio del historial por el motor — útil si falló la primera vez o si tu glosario mejoró desde entonces.
 
-## 15. Estadísticas
+## 17. Estadísticas
 
 ![Pestaña Estadísticas](img/estadisticas.png)
 
@@ -208,7 +252,7 @@ Todos tus dictados, buscables:
 - Gráfica de barras de los últimos 7 días.
 - El menú de la barra muestra un resumen por proveedor.
 
-## 16. Actualizar la app
+## 18. Actualizar la app
 
 En el pie de la barra lateral de Configuración: **"Verificar actualización"**.
 
@@ -216,7 +260,7 @@ En el pie de la barra lateral de Configuración: **"Verificar actualización"**.
 - Si no: "Ya estás en la última versión".
 - El historial de cambios de cada versión está en **Créditos**.
 
-## 17. La caja negra: tus datos
+## 19. La caja negra: tus datos
 
 Todo vive en tu Mac, en `~/.betodicta/`:
 
@@ -233,7 +277,7 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 
 **Privacidad**: con motores locales, tu voz **jamás sale de tu Mac**. Con motores de nube, el audio va al proveedor que elegiste (ElevenLabs/Groq/OpenAI/Mistral) bajo sus términos. El pulido y la traducción mandan el TEXTO a Groq. Tú controlas qué usas.
 
-## 18. Solución de problemas
+## 20. Solución de problemas
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
@@ -247,7 +291,7 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 
 **¿Nada de esto lo arregla?** → **[Reporta el problema aquí](https://github.com/btoaldas/BetoDicta/issues/new)** — cuéntanos qué hiciste, qué esperabas y qué pasó. Si puedes, adjunta las últimas líneas del registro (Configuración → Acciones → Ver registro).
 
-## 19. Preguntas frecuentes
+## 21. Preguntas frecuentes
 
 **¿Cuánto cuesta?** La app es gratis y open source (GPL-3.0). Los motores locales son gratis para siempre. Los de nube cobran según su tarifa (ElevenLabs ~$0.22–0.39 por hora de audio; Groq tiene capa gratis).
 

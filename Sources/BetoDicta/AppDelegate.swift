@@ -264,6 +264,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 SettingsWindowController.shared.show()
             }
         }
+        // Abrir un editor directo (capturas del manual / pruebas de UI)
+        if let editor = ProcessInfo.processInfo.environment["BETODICTA_EDITOR"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                editor == "reemplazos" ? EditorWindows.showRules() : EditorWindows.showKeyterms()
+            }
+        }
     }
 
     private func startDemo() {
