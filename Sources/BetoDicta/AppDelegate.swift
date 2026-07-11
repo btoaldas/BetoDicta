@@ -998,8 +998,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         func rescatarConCascada(_ etiquetaFallo: String) {
             Failover.transcribe(wav: wav) { [weak self] r in
                 switch r {
-                case .success(let (raw, proveedor)):
-                    self?.deliver(raw: raw, wav: wav, via: proveedor, history: historyActual)
+                case .success(let (raw, proveedor, modelo)):
+                    self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo, history: historyActual)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     if !ultimoParcial.isEmpty {
@@ -1033,7 +1033,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     rescatarConCascada("Sin texto")
                 } else {
                     let motor = Self.nombreMotor(id: tcpp.proveedorId)
-                    self?.deliver(raw: final, wav: wav, via: "\(motor) (en vivo)", history: historyActual)
+                    let mod = Providers.modelo(de: tcpp.proveedorId) ?? ""
+                    self?.deliver(raw: final, wav: wav, via: "\(motor) (en vivo)", modelo: mod, history: historyActual)
                 }
             }
             tcpp.finish()
@@ -1071,7 +1072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if full.isEmpty {
                     rescatarConCascada("Sin texto")
                 } else {
-                    self?.deliver(raw: full, wav: wav, via: "ElevenLabs (en vivo)", history: historyActual)
+                    self?.deliver(raw: full, wav: wav, via: "ElevenLabs (en vivo)", modelo: "scribe_v2_realtime", history: historyActual)
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
@@ -1098,8 +1099,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Failover: recorre los proveedores activos en orden.
             Failover.transcribe(wav: wav) { [weak self] result in
                 switch result {
-                case .success(let (raw, proveedor)):
-                    self?.deliver(raw: raw, wav: wav, via: proveedor, history: historyActual)
+                case .success(let (raw, proveedor, modelo)):
+                    self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo, history: historyActual)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     historyActual?.finish(wav: wav, finalText: "")
@@ -1117,9 +1118,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.hide(after: 3)
     }
 
-    private func deliver(raw: String, wav: Data, via proveedor: String, history: HistoryWriter?) {
+    private func deliver(raw: String, wav: Data, via proveedor: String, modelo: String = "", history: HistoryWriter?) {
         let segundos = Double(wav.count - 44) / 32000.0
-        UsageLog.record(provider: proveedor, seconds: segundos)
+        UsageLog.record(provider: proveedor, modelo: modelo, seconds: segundos)
 
         let crudo = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let trasReglas = applyReplacements(crudo)

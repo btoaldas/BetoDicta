@@ -477,11 +477,12 @@ struct CloudRow: View {
                 if let i = lista.firstIndex(where: { $0.id == id }) {
                     lista[i].modelo = nuevo; Providers.save(lista); onChange()
                 }
+                tarifa = String(format: "%.2f", UsageLog.tarifaModelo(nuevo))  // tarifa del modelo elegido
             }
-            // Tarifa editable (para el cálculo de costo). Default = investigado.
+            // Tarifa POR MODELO (para el cálculo de costo). Default = investigado.
             HStack(spacing: 6) {
-                Text("Costo $/hora:").font(.caption)
-                TextField("", text: $tarifa).frame(width: 60).textFieldStyle(.roundedBorder)
+                Text("Costo $/hora de \(modelo.isEmpty ? "este modelo" : modelo):").font(.caption)
+                TextField("", text: $tarifa).frame(width: 55).textFieldStyle(.roundedBorder)
                 Button("Poner valor") { guardarTarifa() }.controlSize(.small)
                 if tarifaGuardada {
                     Label("Guardado", systemImage: "checkmark.circle.fill")
@@ -495,17 +496,18 @@ struct CloudRow: View {
         .onAppear {
             key = ApiKeys.get(keyEnv)
             modelo = Providers.modelo(de: id) ?? modelos.first ?? ""
-            tarifa = String(format: "%.2f", UsageLog.tarifa(UsageLog.motorCanonico(id)))
+            tarifa = String(format: "%.2f", UsageLog.tarifaModelo(modelo))
         }
     }
 
     @State private var tarifa = ""
     @State private var tarifaGuardada = false
+    /// Guarda la tarifa del MODELO seleccionado (cada modelo tiene su precio).
     private func guardarTarifa() {
-        let motor = UsageLog.motorCanonico(id)
+        guard !modelo.isEmpty else { return }
         let v = Double(tarifa.replacingOccurrences(of: ",", with: "."))
-        Config.setTarifa(motor, v)                      // nil = volver al default
-        tarifa = String(format: "%.2f", UsageLog.tarifa(motor))
+        Config.setTarifa(modelo, v)                     // nil/0 = volver al default
+        tarifa = String(format: "%.2f", UsageLog.tarifaModelo(modelo))
         withAnimation { tarifaGuardada = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { tarifaGuardada = false } }
     }

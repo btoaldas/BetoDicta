@@ -202,13 +202,14 @@ enum WhisperLocal {
 enum Failover {
     /// Intenta transcribir el WAV recorriendo la cadena de proveedores activos.
     /// Devuelve el primer éxito, o el último error si todos fallan.
-    static func transcribe(wav: Data, completion: @escaping (Result<(String, String), Error>) -> Void) {
+    /// completion: (texto, nombre del proveedor, modelo usado).
+    static func transcribe(wav: Data, completion: @escaping (Result<(String, String, String), Error>) -> Void) {
         let cadena = Providers.cadena()
         intentar(wav: wav, cadena: cadena, idx: 0, ultimoError: nil, completion: completion)
     }
 
     private static func intentar(wav: Data, cadena: [Provider], idx: Int,
-                                 ultimoError: Error?, completion: @escaping (Result<(String, String), Error>) -> Void) {
+                                 ultimoError: Error?, completion: @escaping (Result<(String, String, String), Error>) -> Void) {
         guard idx < cadena.count else {
             completion(.failure(ultimoError ?? ScribeError.sinTexto)); return
         }
@@ -221,12 +222,21 @@ enum Failover {
             return
         }
         Log.log(.ia, "failover: intentando \(p.nombre) (#\(idx + 1))")
+        // Modelo efectivo por proveedor (el que fija el costo real).
+        let modeloUsado: String
+        switch p.id {
+        case "elevenlabs": modeloUsado = elevenModel(p)
+        case "groq": modeloUsado = p.modelo ?? "whisper-large-v3"
+        case "openai": modeloUsado = p.modelo ?? "gpt-4o-mini-transcribe"
+        case "mistral": modeloUsado = p.modelo ?? "voxtral-mini-latest"
+        default: modeloUsado = p.modelo ?? ""
+        }
 
         let siguiente: (Result<String, Error>) -> Void = { r in
             switch r {
             case .success(let texto):
                 Log.log(.ia, "failover: \(p.nombre) OK")
-                completion(.success((texto, p.nombre)))
+                completion(.success((texto, p.nombre, modeloUsado)))
             case .failure(let e):
                 Log.log(.ia, "failover: \(p.nombre) falló (\(e.localizedDescription)) → siguiente")
                 intentar(wav: wav, cadena: cadena, idx: idx + 1, ultimoError: e, completion: completion)
