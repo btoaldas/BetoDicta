@@ -681,6 +681,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startDictation() {
         lastPartial = ""
         lastVoice = Date()
+        // ¿Corregiste el dictado anterior donde lo pegaste? Aprende de eso.
+        let aprendidas = Aprendizaje.revisarCorreccion()
+        if let a = aprendidas.first {
+            let extra = aprendidas.count > 1 ? " +\(aprendidas.count - 1) más" : ""
+            panel.flash("📚 Aprendí: \(a.de) → \(a.a)\(extra)", segundos: 3)
+        }
         // Motor local bajo demanda: carga en paralelo mientras hablas.
         // Solo el PRIMER local de la cadena — los de más atrás (failover
         // profundo) arrancan en frío solo si de verdad les toca, para no
@@ -1139,10 +1145,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // El .txt guarda SOLO lo entregado, limpio. El crudo queda en el log.
         history?.finish(wav: wav, finalText: text)
         pasteText(text)
+        // Recordar dónde y qué se pegó: si el usuario lo corrige ahí, el
+        // próximo dictado aprenderá de esa corrección.
+        Aprendizaje.recordarContexto()
         playSound("Glass")
         // Si ya hay otro dictado grabando, no pisar su panel.
         if !recorder.isRecording {
-            panel.update("✓ " + text)
+            panel.updateForzado("✓ " + text)
             panel.hide(after: 1.8)
         }
     }

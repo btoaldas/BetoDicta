@@ -115,10 +115,23 @@ final class DictationPanel {
         background.addSubview(label)
     }
 
+    // Un "flash" (aviso breve, ej. "📚 Aprendí…") tiene prioridad sobre el
+    // texto del dictado hasta que caduca — así se alcanza a ver sin tapar.
+    private var flashHasta = Date.distantPast
+
     func show(_ text: String) {
         guard Config.panelVisible() else { return }
         reposicionar()
         update(text)
+        panel.orderFrontRegardless()
+    }
+
+    /// Muestra un aviso breve por N segundos, por encima del texto del dictado.
+    func flash(_ text: String, segundos: TimeInterval = 2.5) {
+        guard Config.panelVisible() else { return }
+        reposicionar()
+        flashHasta = Date().addingTimeInterval(segundos)
+        label.stringValue = text
         panel.orderFrontRegardless()
     }
 
@@ -177,6 +190,14 @@ final class DictationPanel {
     /// El truncado por la cabeza (.byTruncatingHead) + alineación derecha se
     /// encargan de recortar lo viejo; no hace falta cortar a mano.
     func update(_ text: String) {
+        // No pisar un aviso breve todavía vigente.
+        guard Date() >= flashHasta else { return }
+        label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    /// Update que SÍ pisa el flash (para la entrega final del dictado).
+    func updateForzado(_ text: String) {
+        flashHasta = .distantPast
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
     }
 
