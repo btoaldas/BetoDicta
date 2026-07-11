@@ -66,6 +66,29 @@ Sus cuatro superpoderes:
    - **Accesibilidad**: para pegar el texto donde está tu cursor, detectar la tecla de dictado y (si lo activas) aprender de tus correcciones. Ve a Ajustes del Sistema → Privacidad y seguridad → Accesibilidad y activa BetoDicta.
 5. Verás el **micrófono en la barra de menú** (arriba a la derecha). Listo.
 
+### 3.1 El asistente de primer arranque
+
+La primera vez que abres BetoDicta aparece un **asistente** que te lleva de la mano por todo en ~1 minuto. Si prefieres verlo otra vez más tarde: Configuración → Créditos → **"Volver a ver el asistente de configuración"**.
+
+![Bienvenida del asistente](img/wizard-bienvenida.png)
+
+Son 6 pasos:
+
+1. **Bienvenida** — qué hace la app y qué vas a configurar.
+2. **Permisos** — micrófono y accesibilidad, con **check en vivo**: apenas concedes cada uno, su fila se pone en **verde "Activado"**.
+
+   ![Permisos con check en vivo](img/wizard-permisos.png)
+
+   > La accesibilidad **pide reiniciar** la app para tomar efecto. No te preocupes: el asistente vuelve **exactamente a este paso** y verás los dos permisos en verde ("check activado, check activado"). El botón **"Reiniciar BetoDicta ahora"** lo hace por ti. Solo cuando pulses **Finalizar** al final, el asistente se da por terminado — un reinicio a mitad NO te lo salta.
+3. **IA en la nube (opcional)** — conecta ElevenLabs, Groq (y OpenAI/Mistral) pegando su clave, o déjalo en blanco para quedarte 100% gratis y local. Por seguridad, si ya tienes una clave guardada **no se muestra**: solo pega una nueva si la quieres cambiar.
+4. **Aprendizaje** — enciende que aprenda de tus correcciones, la corrección por sonido y el pulido con IA (cada uno explicado).
+5. **Preferencias** — sonidos, panel, Esc, multimedia, volumen, Dock, arranque al iniciar sesión y modo desarrollo. Cada opción con su nota de qué hace y para qué.
+
+   ![Preferencias del asistente](img/wizard-preferencias.png)
+6. **¡Listo!** — a dictar.
+
+Todo lo que elijas aquí se puede cambiar después en Configuración. Los valores de fábrica ya vienen bien para la mayoría.
+
 ## 4. Tu primer dictado
 
 1. Pon el cursor donde quieras escribir (un correo, Word, WhatsApp Web, donde sea).
