@@ -468,6 +468,15 @@ struct SettingsView: View {
                 link("Repositorio en GitHub", "https://github.com/btoaldas/BetoDicta")
                 Text("Licencia GPL-3.0 · libre para siempre").font(.caption).foregroundStyle(.secondary)
             }
+            tarjeta("Apoya el proyecto ☕", "cup.and.saucer.fill") {
+                Text("BetoDicta es gratis y libre. Si te sirve, invítame un cafecito para seguir programando (y pagar la IA que ayuda a construirlo). Cualquier aporte suma.")
+                    .font(.subheadline)
+                link("☕ Invítame un café (tarjeta · Apple Pay · Google Pay)", "https://betodicta.eztic.ec/apoyar")
+                link("💜 GitHub Sponsors", "https://github.com/sponsors/btoaldas")
+                link("💳 PayPal", "https://betodicta.eztic.ec/apoyar")
+                Text("Más formas (transferencia, cripto, etc.) en la página de apoyo.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             tarjeta("Ayuda", "questionmark.circle") {
                 link("Manual de usuario completo", "https://github.com/btoaldas/BetoDicta/blob/main/docs/MANUAL.md")
                 Text("Instalación, cada pestaña, cada motor, cada ajuste — todo explicado con capturas.")
@@ -567,43 +576,9 @@ struct StatsView: View {
 
             // Bitácora de aprendizajes — solo con Modo desarrollo activo.
             if Config.devMode() {
-                aprendizajesDebug
+                AprendizajesDebugView()
             }
         }
-    }
-
-    /// Qué y cuándo aprendió la app (correcciones automáticas), del último día.
-    private var aprendizajesDebug: some View {
-        let ahora = Date()
-        let unDia = ahora.addingTimeInterval(-86400)
-        let recientes = Aprendizaje.historial().filter { $0.fecha >= unDia }
-        let f: DateFormatter = { let d = DateFormatter(); d.locale = Locale(identifier: "es"); d.dateFormat = "HH:mm:ss"; return d }()
-        return VStack(alignment: .leading, spacing: 8) {
-            Label("Aprendizaje (debug)", systemImage: "brain.head.profile")
-                .font(.subheadline).bold().foregroundStyle(acento)
-            if !Config.aprender() {
-                Text("El aprendizaje está APAGADO (Ajustes → Aprendizaje). No aprenderá nada hasta activarlo.")
-                    .font(.caption).foregroundStyle(.orange)
-            }
-            if recientes.isEmpty {
-                Text("Nada aprendido en las últimas 24 h. Corrige una palabra rara donde la pegaste (antes de enviar) y vuelve a dictar.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("\(recientes.count) corrección(es) hoy (🔊 = por sonido):")
-                    .font(.caption).foregroundStyle(.secondary)
-                ForEach(Array(recientes.enumerated()), id: \.offset) { _, e in
-                    HStack(spacing: 8) {
-                        Text(f.string(from: e.fecha)).font(.caption2).foregroundStyle(.tertiary)
-                        Text("\(e.sonido ? "🔊 " : "")\(e.de) → \(e.a)").font(.caption).bold()
-                    }
-                }
-            }
-            Text("Total histórico: \(Aprendizaje.historial().count) reglas aprendidas.")
-                .font(.caption2).foregroundStyle(.tertiary)
-        }
-        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private var barras: some View {
@@ -647,6 +622,54 @@ struct StatsView: View {
             let d = cal.date(byAdding: .day, value: -(6 - i), to: Date())!
             return f.string(from: d).uppercased()
         }
+    }
+}
+
+// MARK: - Bitácora de aprendizajes con reversión (debug)
+
+private let acentoStats = Color(red: 0.36, green: 0.28, blue: 0.62)
+
+struct AprendizajesDebugView: View {
+    @State private var entradas: [(fecha: Date, de: String, a: String, sonido: Bool)] = []
+    private let f: DateFormatter = { let d = DateFormatter(); d.locale = Locale(identifier: "es"); d.dateFormat = "HH:mm:ss"; return d }()
+
+    var body: some View {
+        let unDia = Date().addingTimeInterval(-86400)
+        let recientes = entradas.filter { $0.fecha >= unDia }
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Aprendizaje (debug)", systemImage: "brain.head.profile")
+                .font(.subheadline).bold().foregroundStyle(acentoStats)
+            if !Config.aprender() {
+                Text("El aprendizaje está APAGADO (Ajustes → Aprendizaje). No aprenderá nada hasta activarlo.")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if recientes.isEmpty {
+                Text("Nada aprendido en las últimas 24 h. Corrige una palabra rara donde la pegaste (antes de enviar) y vuelve a dictar.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("\(recientes.count) corrección(es) hoy (🔊 = por sonido). Quita la que no quieras:")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(Array(recientes.enumerated()), id: \.offset) { _, e in
+                    HStack(spacing: 8) {
+                        Text(f.string(from: e.fecha)).font(.caption2).foregroundStyle(.tertiary)
+                        Text("\(e.sonido ? "🔊 " : "")\(e.de) → \(e.a)").font(.caption).bold()
+                        Spacer()
+                        Button {
+                            Aprendizaje.revertir(de: e.de, a: e.a)
+                            entradas = Aprendizaje.historial()
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward.circle").foregroundStyle(.red)
+                        }.buttonStyle(.plain).help("Deshacer este aprendizaje")
+                    }
+                }
+            }
+            Text("Total histórico: \(entradas.count) reglas aprendidas.")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .onAppear { entradas = Aprendizaje.historial() }
     }
 }
 

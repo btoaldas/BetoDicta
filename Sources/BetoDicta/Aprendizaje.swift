@@ -195,6 +195,39 @@ enum Aprendizaje {
         registrar(de: x, a: y, sonido: true)
     }
 
+    /// DESHACE un aprendizaje: quita la variante X de la regla que produce Y
+    /// (y borra la regla si queda sin variantes), y limpia su rastro de la
+    /// bitácora. Para el botón "quitar" de Estadísticas.
+    static func revertir(de x0: String, a y: String) {
+        lock.lock()
+        let x = x0.lowercased()
+        if var arr = (try? Data(contentsOf: url))
+            .flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }) {
+            for idx in arr.indices where (arr[idx]["isRegex"] as? Bool) != true &&
+                (arr[idx]["replacement"] as? String)?.lowercased() == y.lowercased() {
+                var vars = ((arr[idx]["original"] as? String) ?? "")
+                    .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                vars.removeAll { $0.lowercased() == x }
+                arr[idx]["original"] = vars.joined(separator: ", ")
+            }
+            // Quitar reglas que quedaron sin variantes.
+            arr.removeAll { (($0["original"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty }
+            guardar(arr)
+        }
+        lock.unlock()
+        // Limpiar la bitácora de esa entrada.
+        if let texto = try? String(contentsOf: bitacoraURL, encoding: .utf8) {
+            let lineas = texto.split(separator: "\n").filter { linea in
+                guard let d = try? JSONSerialization.jsonObject(with: Data(linea.utf8)) as? [String: String]
+                else { return true }
+                return !(d["de"]?.lowercased() == x && d["a"]?.lowercased() == y.lowercased())
+            }
+            try? (lineas.joined(separator: "\n") + (lineas.isEmpty ? "" : "\n"))
+                .write(to: bitacoraURL, atomically: true, encoding: .utf8)
+        }
+        Log.log(.config, "revertido: \(x0) → \(y)")
+    }
+
     /// Aprendizajes registrados, del más reciente al más viejo.
     static func historial() -> [(fecha: Date, de: String, a: String, sonido: Bool)] {
         guard let texto = try? String(contentsOf: bitacoraURL, encoding: .utf8) else { return [] }
