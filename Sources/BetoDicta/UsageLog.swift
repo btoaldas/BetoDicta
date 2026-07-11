@@ -6,10 +6,18 @@ import Carbon.HIToolbox
 
 struct UsageLog {
     static var fileURL: URL { Config.dir.appendingPathComponent("uso.jsonl") }
-    /// Tarifa estimada por hora, por MOTOR canónico (los locales = gratis).
+    /// Tarifa estimada por hora de audio, por MOTOR canónico (USD, 2026).
+    /// Los motores LOCALES no están aquí → gratis ($0).
+    /// Refs: elevenlabs.io/pricing/api · openai.com/api/pricing · mistral.ai/pricing · groq.com/pricing
     static let tarifasPorHora: [String: Double] = [
-        "ElevenLabs": 0.39, "Groq": 0.0, "OpenAI": 0.36, "Mistral": 0.0,
+        "ElevenLabs": 0.39,   // Scribe v2 Realtime (batch v2 = 0.22)
+        "Groq": 0.04,         // whisper-large-v3-turbo (full v3 = 0.11)
+        "OpenAI": 0.18,       // gpt-4o-mini-transcribe (whisper-1/4o = 0.36)
+        "Mistral": 0.18,      // Voxtral Mini (small = 0.24, realtime = 0.36)
     ]
+
+    /// Texto de referencia de precios para mostrar en la app.
+    static let referenciaPrecios = "Precios aprox. por hora de audio (2026): ElevenLabs ~$0.39 (en vivo) / $0.22 (lotes) · OpenAI ~$0.18–0.36 · Mistral Voxtral ~$0.18–0.36 · Groq ~$0.04–0.11 · motores locales GRATIS."
 
     /// Consolida las MUCHAS etiquetas históricas ("scribe_v2_realtime",
     /// "ElevenLabs (en vivo)", "ElevenLabs Scribe"…) en un motor único —

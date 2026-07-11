@@ -419,6 +419,14 @@ struct CloudRow: View {
     @State private var mostrarKey = false
     @State private var reciénGuardado = false
 
+    /// Precio aproximado por hora de audio (2026), por proveedor de nube.
+    static let precios: [String: String] = [
+        "elevenlabs": "~$0.39/h en vivo · $0.22 lotes",
+        "groq": "~$0.04–0.11/h (capa gratis)",
+        "openai": "~$0.18–0.36/h",
+        "mistral": "~$0.18–0.36/h",
+    ]
+
     private func guardar() {
         ApiKeys.set(keyEnv, key)
         onChange()
@@ -432,6 +440,9 @@ struct CloudRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(nombre).font(.subheadline).bold()
+                if let precio = Self.precios[id] {
+                    Text(precio).font(.caption2).foregroundStyle(.secondary)
+                }
                 Spacer()
                 if reciénGuardado {
                     Label("Guardado", systemImage: "checkmark.circle.fill")

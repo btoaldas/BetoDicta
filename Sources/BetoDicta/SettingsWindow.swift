@@ -571,7 +571,7 @@ struct StatsView: View {
             .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            Text("Costo estimado según la tarifa por hora de audio de ElevenLabs.")
+            Text(UsageLog.referenciaPrecios)
                 .font(.caption).foregroundStyle(.secondary)
 
             // Bitácora de aprendizajes — solo con Modo desarrollo activo.
