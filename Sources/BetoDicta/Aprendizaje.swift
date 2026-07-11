@@ -178,9 +178,10 @@ enum Aprendizaje {
 
     private static var bitacoraURL: URL { Config.dir.appendingPathComponent("aprendizajes.jsonl") }
 
-    private static func registrar(de x: String, a y: String) {
+    private static func registrar(de x: String, a y: String, sonido: Bool = false) {
         let f = ISO8601DateFormatter()
-        let linea = "{\"ts\":\"\(f.string(from: Date()))\",\"de\":\"\(x)\",\"a\":\"\(y)\"}\n"
+        let marca = sonido ? ",\"sonido\":\"1\"" : ""
+        let linea = "{\"ts\":\"\(f.string(from: Date()))\",\"de\":\"\(x)\",\"a\":\"\(y)\"\(marca)}\n"
         if let h = try? FileHandle(forWritingTo: bitacoraURL) {
             h.seekToEndOfFile(); h.write(Data(linea.utf8)); try? h.close()
         } else {
@@ -188,16 +189,22 @@ enum Aprendizaje {
         }
     }
 
+    /// Registra una corrección aplicada POR SONIDO (fonética) — para que se
+    /// vea en Estadísticas y el usuario pueda revertir el término.
+    static func registrarSonido(de x: String, a y: String) {
+        registrar(de: x, a: y, sonido: true)
+    }
+
     /// Aprendizajes registrados, del más reciente al más viejo.
-    static func historial() -> [(fecha: Date, de: String, a: String)] {
+    static func historial() -> [(fecha: Date, de: String, a: String, sonido: Bool)] {
         guard let texto = try? String(contentsOf: bitacoraURL, encoding: .utf8) else { return [] }
         let f = ISO8601DateFormatter()
-        var out: [(Date, String, String)] = []
+        var out: [(Date, String, String, Bool)] = []
         for linea in texto.split(separator: "\n") {
             guard let d = try? JSONSerialization.jsonObject(with: Data(linea.utf8)) as? [String: String],
                   let ts = d["ts"], let fecha = f.date(from: ts),
                   let de = d["de"], let a = d["a"] else { continue }
-            out.append((fecha, de, a))
+            out.append((fecha, de, a, d["sonido"] == "1"))
         }
         return out.reversed()
     }
@@ -219,7 +226,7 @@ enum Aprendizaje {
     /// Palabras comunes del español: si la palabra "mal transcrita" es una de
     /// estas, NO se aprende — sería una corrección de contenido, no un error
     /// de vocabulario recurrente. Evita reglas venenosas como todo→toco.
-    private static let comunes: Set<String> = [
+    static let comunes: Set<String> = [
         "que","los","las","del","por","con","una","para","como","más","pero","sus","son",
         "este","esta","esto","estos","estas","ese","esa","eso","esos","esas","aqui","alli","ahi",
         "todo","toda","todos","todas","otro","otra","otros","otras","mismo","misma","cada","poco",
@@ -235,7 +242,7 @@ enum Aprendizaje {
         "voy","vamos","fue","era","eran","han","hay","muy","tan","asi","aun","solo","sola","según",
     ]
 
-    private static func esComun(_ w: String) -> Bool {
+    static func esComun(_ w: String) -> Bool {
         comunes.contains(w.folding(options: .diacriticInsensitive, locale: Locale(identifier: "es")).lowercased())
     }
 

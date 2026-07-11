@@ -130,6 +130,7 @@ struct Rule: Identifiable {
     var replacement: String
     var isRegex: Bool
     var activo: Bool
+    var porSonido: Bool = false
 }
 
 final class RulesStore: ObservableObject {
@@ -144,7 +145,8 @@ final class RulesStore: ObservableObject {
         rules = arr.map { Rule(original: $0["original"] as? String ?? "",
                                replacement: $0["replacement"] as? String ?? "",
                                isRegex: $0["isRegex"] as? Bool ?? false,
-                               activo: $0["activo"] as? Bool ?? true) }
+                               activo: $0["activo"] as? Bool ?? true,
+                               porSonido: $0["porSonido"] as? Bool ?? false) }
     }
     /// Guarda descartando filas totalmente vacías (así no quedan huérfanas).
     func save() {
@@ -156,6 +158,7 @@ final class RulesStore: ObservableObject {
             var d: [String: Any] = ["original": r.original, "replacement": r.replacement]
             if r.isRegex { d["isRegex"] = true }
             if !r.activo { d["activo"] = false }
+            if r.porSonido { d["porSonido"] = true }
             return d
         }
         if let data = try? JSONSerialization.data(withJSONObject: arr, options: [.prettyPrinted]) {
@@ -221,6 +224,11 @@ struct RulesEditor: View {
                         Image(systemName: "arrow.right").foregroundStyle(.secondary)
                         TextField("Quipux", text: $rule.replacement, onCommit: { store.save() })
                             .textFieldStyle(.roundedBorder).frame(width: 110)
+                        Toggle(isOn: Binding(get: { rule.porSonido },
+                                             set: { rule.porSonido = $0; store.save() })) {
+                            Image(systemName: "waveform")
+                        }
+                        .toggleStyle(.checkbox).help("Corregir también por SONIDO (lo que suene como este término)")
                         Button { store.remove(rule.id) } label: {
                             Image(systemName: "trash").foregroundStyle(.red)
                         }.buttonStyle(.plain).frame(width: 22)

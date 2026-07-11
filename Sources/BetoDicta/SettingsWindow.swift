@@ -21,6 +21,7 @@ final class SettingsModel: ObservableObject {
     @Published var modelo: String { didSet { Config.set("modelo", to: modelo) } }
     @Published var microfono: String { didSet { Config.set("microfono", to: microfono) } }
     @Published var aprender: Bool { didSet { Config.set("aprender_correcciones", to: aprender) } }
+    @Published var porSonido: Bool { didSet { Config.set("correccion_por_sonido", to: porSonido) } }
     @Published var atajoAprender: String {
         didSet {
             Config.set("atajo_aprender", to: atajoAprender)
@@ -55,6 +56,7 @@ final class SettingsModel: ObservableObject {
         microfono = Config.microfono()
         aprender = Config.aprender()
         atajoAprender = Config.atajoAprender()
+        porSonido = Config.correccionPorSonido()
         silencioMax = Config.maxSilence()
         sonidos = Config.sounds()
         escCancela = Config.escCancels()
@@ -417,6 +419,10 @@ struct SettingsView: View {
                 }
                 Text("• En Claude Code CLI, terminales o cualquier app: corrige, SELECCIONA el texto corregido y pulsa este atajo — aprende de tu selección.")
                     .font(.caption).foregroundStyle(.secondary)
+                Divider()
+                Toggle("Corrección por sonido (fonética)", isOn: $m.porSonido)
+                Text("Corrige palabras que SUENAN como un término, aunque no sea una variante ya conocida (ej: cualquier cosa que suene a Quipux). Actívala por término en Editar reemplazos (casilla 🔊). Más potente pero puede sobre-corregir: revisa lo que hizo en Estadísticas (con Modo desarrollo) y revierte apagando el término.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Multimedia", "speaker.wave.2") {
                 Toggle("Pausar música y videos al dictar", isOn: $m.pausarMultimedia)
@@ -583,12 +589,12 @@ struct StatsView: View {
                 Text("Nada aprendido en las últimas 24 h. Corrige una palabra rara donde la pegaste (antes de enviar) y vuelve a dictar.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                Text("\(recientes.count) corrección(es) aprendidas hoy:")
+                Text("\(recientes.count) corrección(es) hoy (🔊 = por sonido):")
                     .font(.caption).foregroundStyle(.secondary)
                 ForEach(Array(recientes.enumerated()), id: \.offset) { _, e in
                     HStack(spacing: 8) {
                         Text(f.string(from: e.fecha)).font(.caption2).foregroundStyle(.tertiary)
-                        Text("\(e.de) → \(e.a)").font(.caption).bold()
+                        Text("\(e.sonido ? "🔊 " : "")\(e.de) → \(e.a)").font(.caption).bold()
                     }
                 }
             }

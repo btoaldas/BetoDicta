@@ -83,6 +83,10 @@ struct Config {
     /// Atajo global para "aprender de la selección" (funciona en cualquier
     /// app, incl. Claude Code CLI). Default ⌘⇧L.
     static func atajoAprender() -> String { (json()["atajo_aprender"] as? String) ?? "cmd+shift+l" }
+    /// Corrección por SONIDO (fonética): corrige palabras que suenan como un
+    /// término marcado, aunque no sea una variante exacta ya conocida.
+    /// Opt-in: apagada por defecto (más agresiva, puede sobre-corregir).
+    static func correccionPorSonido() -> Bool { (json()["correccion_por_sonido"] as? Bool) ?? false }
 
     /// API key de ElevenLabs: variable de entorno → ~/.betodicta/.env
     /// (la pone la pestaña Modelos; nada de rutas de otras apps).
@@ -117,6 +121,7 @@ struct Config {
         let replacement: String
         let isRegex: Bool?
         let activo: Bool?
+        let porSonido: Bool?     // además de variantes exactas, corregir por sonido
     }
 
     /// Solo las reglas activas (las desactivadas se conservan pero no se aplican).
