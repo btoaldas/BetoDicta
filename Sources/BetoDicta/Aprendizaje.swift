@@ -32,7 +32,7 @@ enum Aprendizaje {
         detener()
         generacion += 1
         let gen = generacion
-        guard !traducido, AXIsProcessTrusted(),
+        guard Config.aprender(), !traducido, AXIsProcessTrusted(),
               !texto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         // Esperar a que el Cmd+V aterrice, luego enganchar el campo.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {

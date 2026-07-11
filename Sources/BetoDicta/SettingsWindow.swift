@@ -20,6 +20,7 @@ final class SettingsModel: ObservableObject {
     }
     @Published var modelo: String { didSet { Config.set("modelo", to: modelo) } }
     @Published var microfono: String { didSet { Config.set("microfono", to: microfono) } }
+    @Published var aprender: Bool { didSet { Config.set("aprender_correcciones", to: aprender) } }
     @Published var silencioMax: Double { didSet { Config.set("silencio_max_seg", to: silencioMax) } }
     @Published var sonidos: Bool { didSet { Config.set("sonidos", to: sonidos) } }
     @Published var escCancela: Bool { didSet { Config.set("esc_cancela", to: escCancela) } }
@@ -46,6 +47,7 @@ final class SettingsModel: ObservableObject {
         tecla = Config.hotkey()
         modelo = Config.model()
         microfono = Config.microfono()
+        aprender = Config.aprender()
         silencioMax = Config.maxSilence()
         sonidos = Config.sounds()
         escCancela = Config.escCancels()
@@ -397,6 +399,11 @@ struct SettingsView: View {
                     }
                 }
                 Text("Los modelos y proveedores se configuran en la pestaña Modelos.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            tarjeta("Aprendizaje", "brain.head.profile") {
+                Toggle("Aprender de mis correcciones", isOn: $m.aprender)
+                Text("Cuando corriges el texto dictado ahí donde lo pegaste (antes de enviarlo), la app aprende la regla sola (ej: Kipux → Quipux). Lee el campo vía Accesibilidad; 100% local. Funciona en apps nativas; en navegadores es limitado.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Multimedia", "speaker.wave.2") {

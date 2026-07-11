@@ -77,6 +77,9 @@ struct Config {
     /// Micrófono: "" = integrado del Mac (default anti-iPhone) · "auto" =
     /// el del sistema · UID = dispositivo específico.
     static func microfono() -> String { (json()["microfono"] as? String) ?? "" }
+    /// Aprender de tus correcciones en el sitio (lee el campo vía
+    /// Accesibilidad). Opt-in: apagado por defecto.
+    static func aprender() -> Bool { (json()["aprender_correcciones"] as? Bool) ?? false }
 
     /// API key de ElevenLabs: variable de entorno → ~/.betodicta/.env
     /// (la pone la pestaña Modelos; nada de rutas de otras apps).
