@@ -6,14 +6,14 @@ import Carbon.HIToolbox
 // MARK: - Asistente de primer arranque (wizard)
 //
 // La primera vez que la app corre en una máquina (o hasta que el usuario lo
-// termine), muestra un asistente paso a paso: permisos (micrófono +
-// accesibilidad, con check EN VIVO y reinicio), IA de nube, aprendizaje y
-// preferencias generales — cada opción con su explicación de qué es y para qué.
+// termine), muestra un asistente paso a paso. 8 pasos:
+//   0 Bienvenida · 1 Permisos · 2 IA nube · 3 IA local · 4 Failover ·
+//   5 Aprendizaje + glosario · 6 Preferencias · 7 Listo (+ donar)
 //
 // Robusto al reinicio de accesibilidad: el flag "wizard_completado" SOLO se
 // pone al pulsar "Finalizar". Si el usuario activa accesibilidad y la app se
-// reinicia a mitad del asistente, este vuelve a abrirse en el mismo paso y los
-// permisos aparecen ya en verde ("check activado, check activado").
+// reinicia a mitad, el asistente vuelve al MISMO paso con los permisos ya en
+// verde ("check activado, check activado").
 
 private let acento = Color(red: 0.36, green: 0.28, blue: 0.62)
 
@@ -21,7 +21,6 @@ final class WizardWindowController {
     static let shared = WizardWindowController()
     private var window: NSWindow?
 
-    /// ¿Debe mostrarse al arrancar? Solo si no se ha completado.
     static var debeMostrarse: Bool { !Config.wizardCompletado() }
 
     func show() {
@@ -29,8 +28,8 @@ final class WizardWindowController {
             let hosting = NSHostingController(rootView: OnboardingView())
             let w = NSWindow(contentViewController: hosting)
             w.title = "Bienvenido a BetoDicta"
-            w.styleMask = [.titled, .closable]      // sin resize/minimize: es un flujo guiado
-            w.setContentSize(NSSize(width: 640, height: 660))
+            w.styleMask = [.titled, .closable]
+            w.setContentSize(NSSize(width: 660, height: 680))
             w.isReleasedWhenClosed = false
             w.center()
             window = w
@@ -55,20 +54,37 @@ final class WizardWindowController {
     }
 }
 
+// MARK: - Opción de modelo local (unifica tcpp / whisper / exótico)
+
+private struct LocalOpt: Identifiable {
+    let id: String
+    let nombre: String
+    let nota: String
+    let tamañoMB: Int
+    let claves: [String]                 // para cancelar la descarga
+    let descargado: () -> Bool
+    let progreso: () -> Double?
+    let descargar: () -> Void
+    let usar: () -> Void
+    let enUso: () -> Bool
+}
+
 // MARK: - Vista del asistente
 
 struct OnboardingView: View {
     @StateObject private var m = SettingsModel()
+    @StateObject private var pm = ProvidersModel()          // cascada + descargas locales
+    @StateObject private var glosario = KeytermsStore()
+    @ObservedObject private var descargas = Descargas.shared
     @State private var paso: Int = Config.wizardPaso()
 
-    // Estado de permisos (se refresca cada segundo).
+    // Permisos (refresco cada segundo).
     @State private var mic: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
     @State private var ax: Bool = AXIsProcessTrusted()
-    // Si la app arrancó SIN accesibilidad y luego se concede, hay que reiniciar
-    // para que los taps se registren. Capturamos el estado al abrir el wizard.
     @State private var axAlArrancar: Bool = AXIsProcessTrusted()
+    @State private var nuevaPalabra = ""
 
-    private let totalPasos = 6
+    private let totalPasos = 8
     private let reloj = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -79,26 +95,27 @@ struct OnboardingView: View {
             Divider()
             barraInferior.padding(.horizontal, 24).padding(.vertical, 14)
         }
-        .frame(width: 640, height: 660)
+        .frame(width: 660, height: 680)
         .onReceive(reloj) { _ in
             mic = AVCaptureDevice.authorizationStatus(for: .audio)
             ax = AXIsProcessTrusted()
         }
     }
 
-    // ---- Contenido por paso ----
     @ViewBuilder private var contenido: some View {
         switch paso {
         case 0: bienvenida
         case 1: permisos
         case 2: nube
-        case 3: aprendizaje
-        case 4: preferencias
+        case 3: local
+        case 4: failover
+        case 5: aprendizaje
+        case 6: preferencias
         default: listo
         }
     }
 
-    // Paso 0 — Bienvenida
+    // MARK: Paso 0 — Bienvenida
     private var bienvenida: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
@@ -113,40 +130,30 @@ struct OnboardingView: View {
             }
             Text("Pulsas una tecla, hablas, vuelves a pulsar — y el texto aparece donde está tu cursor, en cualquier app.")
                 .font(.title3)
-            Text("Este asistente te toma ~1 minuto. Vamos a:")
+            Text("Este asistente te toma un par de minutos. Vamos a:")
                 .font(.headline).padding(.top, 4)
             vinieta("1", "Dar permisos", "Micrófono para escucharte y Accesibilidad para escribir donde tú quieras.")
-            vinieta("2", "Conectar IA (opcional)", "Motores de nube para máxima calidad, o quédate 100% gratis y local.")
-            vinieta("3", "Que aprenda de ti", "Corrige una palabra una vez y la app la recuerda sola.")
-            vinieta("4", "Tus preferencias", "Sonidos, panel, Dock, arranque… todo a tu gusto.")
+            vinieta("2", "Conectar IA", "Motores de nube (opcional) y motores locales gratis que corren sin internet.")
+            vinieta("3", "Ordenar el failover", "Cuál motor va primero, cuál de respaldo — para que nunca pierdas un dictado.")
+            vinieta("4", "Que aprenda y tus preferencias", "Vocabulario, corrección automática, sonidos, tecla, Dock… a tu gusto.")
             Spacer()
             Text("Todo se puede cambiar luego en Configuración. Nada es definitivo.")
                 .font(.caption).foregroundStyle(.tertiary)
         }
     }
 
-    // Paso 1 — Permisos (check en vivo)
+    // MARK: Paso 1 — Permisos
     private var permisos: some View {
         VStack(alignment: .leading, spacing: 18) {
             encabezado("Permisos", "sin estos dos, la app no puede escucharte ni escribir por ti.")
-
-            permisoFila(
-                icono: "mic.fill", titulo: "Micrófono",
-                para: "Para convertir tu voz en texto.",
-                listo: mic == .authorized,
-                estado: micEstadoTexto,
-                accion: micAccion, etiquetaBoton: micBotonTexto
-            )
-
-            permisoFila(
-                icono: "accessibility", titulo: "Accesibilidad",
-                para: "Para escribir el texto donde está tu cursor y detectar la tecla de dictado.",
-                listo: ax && axAlArrancar,   // verde solo si ya estaba al arrancar (si no, falta reiniciar)
-                estado: axEstadoTexto,
-                accion: axAccion, etiquetaBoton: "Abrir Ajustes de Accesibilidad"
-            )
-
-            // Aviso de reinicio: se concedió accesibilidad DESPUÉS de arrancar.
+            permisoFila(icono: "mic.fill", titulo: "Micrófono",
+                        para: "Para convertir tu voz en texto.",
+                        listo: mic == .authorized, estado: micEstadoTexto,
+                        accion: micAccion, etiquetaBoton: micBotonTexto)
+            permisoFila(icono: "accessibility", titulo: "Accesibilidad",
+                        para: "Para escribir el texto donde está tu cursor y detectar la tecla de dictado.",
+                        listo: ax && axAlArrancar, estado: axEstadoTexto,
+                        accion: axAccion, etiquetaBoton: "Abrir Ajustes de Accesibilidad")
             if ax && !axAlArrancar {
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Accesibilidad activada — reinicia BetoDicta para que tome efecto.",
@@ -155,17 +162,13 @@ struct OnboardingView: View {
                     Text("Tranquilo: el asistente vuelve exactamente a este paso y verás los dos permisos en verde.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button {
-                        Config.set("wizard_paso", to: 1)   // reabrir aquí
+                        Config.set("wizard_paso", to: 1)
                         WizardWindowController.reiniciarApp()
-                    } label: {
-                        Label("Reiniciar BetoDicta ahora", systemImage: "arrow.clockwise")
-                    }.buttonStyle(.borderedProminent).tint(acento)
+                    } label: { Label("Reiniciar BetoDicta ahora", systemImage: "arrow.clockwise") }
+                        .buttonStyle(.borderedProminent).tint(acento)
                 }
-                .padding(12)
-                .background(acento.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .padding(12).background(acento.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 10))
             }
-
             Spacer()
             if permisosOK {
                 Label("Todo listo — pulsa Siguiente.", systemImage: "checkmark.seal.fill")
@@ -174,27 +177,27 @@ struct OnboardingView: View {
         }
     }
 
-    // Paso 2 — IA en la nube (opcional)
+    // MARK: Paso 2 — IA en la nube
     private var nube: some View {
         VStack(alignment: .leading, spacing: 16) {
             encabezado("Inteligencia en la nube (opcional)",
-                       "BetoDicta funciona GRATIS y sin internet con motores locales. Si quieres la máxima calidad en vivo, conecta un servicio. Pega la clave o deja en blanco para saltar.")
+                       "BetoDicta funciona GRATIS y sin internet con motores locales (siguiente paso). Si quieres la máxima calidad en vivo, conecta un servicio. Pega la clave o deja en blanco para saltar.")
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    claveNube(id: "elevenlabs", env: "ELEVENLABS_API_KEY",
-                              titulo: "ElevenLabs Scribe", nota: "La mejor calidad, texto EN VIVO. De pago (~$0.22–0.39/h).",
-                              enlace: "https://elevenlabs.io/app/settings/api-keys", activarPrimero: true)
-                    claveNube(id: "groq", env: "GROQ_API_KEY",
-                              titulo: "Groq Whisper", nota: "Muy rápido, capa gratis generosa. También potencia el pulido y la traducción.",
-                              enlace: "https://console.groq.com/keys", activarPrimero: false)
+                    ClaveNubeRow(id: "elevenlabs", env: "ELEVENLABS_API_KEY",
+                                 titulo: "ElevenLabs Scribe", nota: "La mejor calidad, texto EN VIVO. De pago (~$0.22–0.39/h).",
+                                 enlace: "https://elevenlabs.io/app/settings/api-keys", activarPrimero: false, pm: pm)
+                    ClaveNubeRow(id: "groq", env: "GROQ_API_KEY",
+                                 titulo: "Groq Whisper", nota: "Muy rápido, capa gratis generosa. También potencia el pulido y la traducción.",
+                                 enlace: "https://console.groq.com/keys", activarPrimero: false, pm: pm)
                     DisclosureGroup("Más servicios (OpenAI, Mistral)") {
                         VStack(alignment: .leading, spacing: 14) {
-                            claveNube(id: "openai", env: "OPENAI_API_KEY",
-                                      titulo: "OpenAI", nota: "whisper-1 y gpt-4o-transcribe (~$0.18–0.36/h).",
-                                      enlace: "https://platform.openai.com/api-keys", activarPrimero: false)
-                            claveNube(id: "mistral", env: "MISTRAL_API_KEY",
-                                      titulo: "Mistral (Voxtral)", nota: "Voxtral en la nube, sin descargar nada.",
-                                      enlace: "https://console.mistral.ai/api-keys", activarPrimero: false)
+                            ClaveNubeRow(id: "openai", env: "OPENAI_API_KEY",
+                                         titulo: "OpenAI", nota: "whisper-1 y gpt-4o-transcribe (~$0.18–0.36/h).",
+                                         enlace: "https://platform.openai.com/api-keys", activarPrimero: false, pm: pm)
+                            ClaveNubeRow(id: "mistral", env: "MISTRAL_API_KEY",
+                                         titulo: "Mistral (Voxtral)", nota: "Voxtral en la nube, sin descargar nada.",
+                                         enlace: "https://console.mistral.ai/api-keys", activarPrimero: false, pm: pm)
                         }.padding(.top, 6)
                     }.font(.subheadline)
                 }
@@ -202,102 +205,202 @@ struct OnboardingView: View {
         }
     }
 
-    // Paso 3 — Aprendizaje e inteligencia local
-    private var aprendizaje: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            encabezado("Que aprenda de ti", "la app puede recordar tus correcciones y mejorar sola. Todo 100% local.")
-            wizToggle("Aprender de mis correcciones", isOn: $m.aprender,
-                      nota: "Corriges una palabra donde la pegaste (ej. Kipux → Quipux) y la app guarda la regla sola. En la terminal/Claude Code: seleccionas el texto corregido y pulsas ⌘⇧L. Recomendado.")
-            wizToggle("Corrección por sonido (fonética)", isOn: $m.porSonido,
-                      nota: "Corrige palabras que SUENAN como un término tuyo, aunque nunca las hayas visto. Más potente pero puede pasarse: la activas término por término (casilla 🔊 en Reemplazos) y siempre es reversible.")
-            wizToggle("Pulido con IA (Groq)", isOn: $m.postProceso,
-                      nota: "Una IA corrige la puntuación y quita muletillas (\"eh\", \"este…\"). Necesita clave de Groq (paso anterior).")
-            Spacer()
-        }
-    }
-
-    // Paso 4 — Preferencias generales
-    private var preferencias: some View {
+    // MARK: Paso 3 — IA local (descargas en segundo plano)
+    private var local: some View {
         VStack(alignment: .leading, spacing: 14) {
-            encabezado("Tus preferencias", "afina cómo se comporta. Los valores de fábrica ya están bien para la mayoría.")
+            encabezado("Inteligencia local (gratis, sin internet)",
+                       "Descarga uno o más motores. La descarga sigue en SEGUNDO PLANO aunque avances o cierres el asistente. Pulsa \"Usar\" para dejarlo listo en tu cascada.")
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    wizToggle("Sonidos de inicio y fin", isOn: $m.sonidos,
-                              nota: "Un \"tink\" al empezar y un \"glass\" al entregar el texto.")
-                    wizToggle("Mostrar el panel al dictar", isOn: $m.panelVisible,
-                              nota: "El panel negro junto al notch con el latido de tu voz y el texto en vivo. Apágalo para modo ninja.")
-                    wizToggle("Cancelar con Esc", isOn: $m.escCancela,
-                              nota: "Pulsar Esc a mitad del dictado descarta todo sin escribir nada.")
-                    wizToggle("Pausar música y videos al dictar", isOn: $m.pausarMultimedia,
-                              nota: "Pausa Spotify/YouTube/Music mientras hablas y los reanuda al terminar.")
-                    wizToggle("Bajar el volumen al dictar", isOn: $m.bajarVolumen,
-                              nota: "Además baja el volumen del sistema y lo restaura exacto.")
-                    wizToggle("Mostrar en el Dock", isOn: $m.mostrarEnDock,
-                              nota: "La app vive en la barra de menú (arriba). Enciéndelo si además la quieres en el Dock.")
-                    wizToggle("Arrancar al iniciar sesión", isOn: $m.arrancarInicio,
-                              nota: "BetoDicta se abre sola al prender el Mac. Cómodo si dictas a diario.")
-                    Divider()
-                    wizToggle("Modo desarrollo (debug)", isOn: $m.modoDesarrollo,
-                              nota: "Notas técnicas extra en el registro y desbloquea la bitácora de aprendizaje en Estadísticas. Solo si te gusta ver el detalle.")
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(opcionesLocales) { localRow($0) }
                 }
             }
         }
     }
 
-    // Paso 5 — Listo
-    private var listo: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Spacer()
-            HStack {
-                Spacer()
-                Image(systemName: "checkmark.seal.fill").font(.system(size: 64)).foregroundStyle(.green)
-                Spacer()
+    // MARK: Paso 4 — Failover / jerarquía
+    private var failover: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            encabezado("Orden del failover",
+                       "Se usa el motor activo #1; si falla, salta al #2, luego al #3. Enciende los que quieras (uno basta) y ordénalos con las flechas.")
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Sugerencia: una IA LOCAL de #1 (funciona sin internet) y ElevenLabs de #2 de respaldo.",
+                      systemImage: "lightbulb.fill").font(.subheadline).foregroundStyle(acento)
+                Button("Aplicar sugerencia (local primero, nube después)") { aplicarSugerencia() }
+                    .controlSize(.small)
             }
+            .padding(12).background(acento.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 10))
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(Array(pm.lista.enumerated()), id: \.element.id) { i, p in
+                        HStack(spacing: 10) {
+                            Text("\(i + 1)").font(.system(.body, design: .rounded)).bold()
+                                .frame(width: 20).foregroundStyle(p.activo ? acento : .secondary)
+                            Toggle("", isOn: Binding(get: { p.activo }, set: { _ in pm.toggle(p.id) }))
+                                .toggleStyle(.switch).labelsHidden().tint(acento)
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 6) {
+                                    Text(p.nombre).font(.subheadline).bold()
+                                    if esEnVivo(p) {
+                                        Text("EN VIVO").font(.system(size: 8, weight: .bold))
+                                            .padding(.horizontal, 5).padding(.vertical, 1)
+                                            .background(.green.opacity(0.85)).foregroundStyle(.white)
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                                Text("\(p.tipo == "nube" ? "☁️ nube" : "💾 local") · \(p.modelo ?? "—")")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button { pm.subir(i) } label: { Image(systemName: "chevron.up") }
+                                .buttonStyle(.borderless).disabled(i == 0)
+                            Button { pm.bajar(i) } label: { Image(systemName: "chevron.down") }
+                                .buttonStyle(.borderless).disabled(i == pm.lista.count - 1)
+                        }
+                        .padding(10).background(Color(nsColor: .controlBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .opacity(p.activo ? 1 : 0.55)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Paso 5 — Aprendizaje + glosario
+    private var aprendizaje: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            encabezado("Que aprenda de ti", "la app puede recordar tus correcciones y respetar tu vocabulario. Todo 100% local.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    wizToggle("Aprender de mis correcciones", isOn: $m.aprender,
+                              nota: "Corriges una palabra donde la pegaste (ej. Kipux → Quipux) y la app guarda la regla sola. En la terminal/Claude Code: seleccionas el texto corregido y pulsas ⌘⇧L. Recomendado.")
+                    wizToggle("Corrección por sonido (fonética)", isOn: $m.porSonido,
+                              nota: "Corrige palabras que SUENAN como un término tuyo. Más potente pero puede pasarse: la activas término por término (casilla 🔊 en Reemplazos) y siempre es reversible.")
+                    wizToggle("Pulido con IA (Groq)", isOn: $m.postProceso,
+                              nota: "Una IA corrige la puntuación y quita muletillas (\"eh\", \"este…\"). Necesita clave de Groq (paso IA en la nube).")
+                    // Glosario inicial
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Tu glosario").font(.headline)
+                        Text("Palabras que quieres que SIEMPRE escriba bien: nombres, siglas, términos (Quipux, SENESCYT, Aldás…). Tienes \(glosario.activas) ya guardadas.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            TextField("Agrega palabras separadas por coma", text: $nuevaPalabra)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit { agregarPalabras() }
+                            Button("Agregar") { agregarPalabras() }
+                                .disabled(nuevaPalabra.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                    .padding(12).background(Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+        }
+    }
+
+    // MARK: Paso 6 — Preferencias (tecla + micrófono + toggles)
+    private var preferencias: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            encabezado("Tus preferencias", "afina cómo se comporta. Los valores de fábrica ya están bien para la mayoría.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Tecla de dictado
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Tecla de dictado").font(.headline)
+                            Spacer()
+                            HotkeyRecorder(value: $m.tecla).frame(width: 130, height: 26)
+                        }
+                        Text("La tecla que abre y cierra el dictado. Por defecto fn; puedes poner F1–F12 o combinaciones como ⌘⇧D.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(12).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 10))
+                    // Micrófono
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Micrófono").font(.headline)
+                            Spacer()
+                            Picker("", selection: $m.microfono) {
+                                Text("Integrado del Mac (recomendado)").tag("")
+                                Text("Automático (el del sistema)").tag("auto")
+                                ForEach(Microfono.disponibles().filter { !$0.integrado }) { d in
+                                    Text(d.nombre).tag(d.uid)
+                                }
+                            }.labelsHidden().frame(width: 240)
+                        }
+                        Text("Fijo al integrado, el iPhone cercano ya no roba el micrófono a media grabación.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(12).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 10))
+
+                    wizToggle("Sonidos de inicio y fin", isOn: $m.sonidos, nota: "Un \"tink\" al empezar y un \"glass\" al entregar el texto.")
+                    wizToggle("Mostrar el panel al dictar", isOn: $m.panelVisible, nota: "El panel negro junto al notch con el latido de tu voz y el texto en vivo. Apágalo para modo ninja.")
+                    wizToggle("Cancelar con Esc", isOn: $m.escCancela, nota: "Pulsar Esc a mitad del dictado descarta todo sin escribir nada.")
+                    wizToggle("Pausar música y videos al dictar", isOn: $m.pausarMultimedia, nota: "Pausa Spotify/YouTube/Music mientras hablas y los reanuda al terminar.")
+                    wizToggle("Bajar el volumen al dictar", isOn: $m.bajarVolumen, nota: "Además baja el volumen del sistema y lo restaura exacto.")
+                    wizToggle("Mostrar en el Dock", isOn: $m.mostrarEnDock, nota: "La app vive en la barra de menú (arriba). Enciéndelo si además la quieres en el Dock.")
+                    wizToggle("Arrancar al iniciar sesión", isOn: $m.arrancarInicio, nota: "BetoDicta se abre sola al prender el Mac. Cómodo si dictas a diario.")
+                    wizToggle("Modo desarrollo (debug)", isOn: $m.modoDesarrollo, nota: "Notas técnicas extra en el registro y desbloquea la bitácora de aprendizaje en Estadísticas.")
+                }
+            }
+        }
+    }
+
+    // MARK: Paso 7 — Listo + donar
+    private var listo: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack { Spacer()
+                Image(systemName: "checkmark.seal.fill").font(.system(size: 56)).foregroundStyle(.green)
+                Spacer() }
             Text("¡Todo listo!").font(.largeTitle).bold().frame(maxWidth: .infinity, alignment: .center)
             Text("Pon el cursor donde quieras escribir y **pulsa \(Config.hotkey()) para tu primer dictado**. Vuelve a pulsar para soltar el texto.")
                 .font(.title3).multilineTextAlignment(.center).frame(maxWidth: .infinity)
             VStack(alignment: .leading, spacing: 6) {
                 Label("Busca el ícono de micrófono en la barra de menú (arriba a la derecha) para volver a Configuración.", systemImage: "menubar.arrow.up.rectangle")
                 Label("Todo lo que elegiste aquí se puede cambiar cuando quieras.", systemImage: "slider.horizontal.3")
-                Label("¿Dudas? El manual completo está en Créditos.", systemImage: "book")
             }.font(.subheadline).foregroundStyle(.secondary)
+            // Donar
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Apoya el proyecto ☕", systemImage: "cup.and.saucer.fill").font(.headline).foregroundStyle(acento)
+                Text("BetoDicta es gratis y libre. Si te sirve, un cafecito ayuda a seguir programando (y a pagar la IA que la construye).")
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 14) {
+                    Button("☕ Invítame un café") { abrir("https://betodicta.eztic.ec/apoyar") }.buttonStyle(.link)
+                    Button("💜 GitHub Sponsors") { abrir("https://github.com/sponsors/btoaldas") }.buttonStyle(.link)
+                    Button("💳 PayPal") { abrir("https://betodicta.eztic.ec/apoyar") }.buttonStyle(.link)
+                }
+            }
+            .padding(12).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 10))
             Spacer()
         }
     }
 
-    // ---- Barra inferior (navegación) ----
+    // MARK: Barra inferior
     private var barraInferior: some View {
         HStack {
-            if paso > 0 {
-                Button("Atrás") { retroceder() }.controlSize(.large)
-            }
+            if paso > 0 { Button("Atrás") { retroceder() }.controlSize(.large) }
             Spacer()
             HStack(spacing: 6) {
                 ForEach(0..<totalPasos, id: \.self) { i in
-                    Circle().fill(i == paso ? acento : Color.secondary.opacity(0.3))
-                        .frame(width: 7, height: 7)
+                    Circle().fill(i == paso ? acento : Color.secondary.opacity(0.3)).frame(width: 7, height: 7)
                 }
             }
             Spacer()
             if paso < totalPasos - 1 {
                 Button(paso == 0 ? "Empezar" : "Siguiente") { avanzar() }
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction).controlSize(.large)
                     .disabled(paso == 1 && !permisosOK)
             } else {
                 Button("Finalizar") { finalizar() }
-                    .keyboardShortcut(.defaultAction)
-                    .controlSize(.large).buttonStyle(.borderedProminent).tint(acento)
+                    .keyboardShortcut(.defaultAction).controlSize(.large)
+                    .buttonStyle(.borderedProminent).tint(acento)
             }
         }
     }
 
-    // ---- Navegación ----
-    private var permisosOK: Bool {
-        // Micrófono concedido, y accesibilidad concedida DESDE el arranque
-        // (si se concedió a mitad, axAlArrancar es false → falta reiniciar).
-        mic == .authorized && ax && axAlArrancar
-    }
+    // MARK: Navegación
+    private var permisosOK: Bool { mic == .authorized && ax && axAlArrancar }
     private func avanzar() { paso = min(paso + 1, totalPasos - 1); Config.set("wizard_paso", to: paso) }
     private func retroceder() { paso = max(paso - 1, 0); Config.set("wizard_paso", to: paso) }
     private func finalizar() {
@@ -306,7 +409,98 @@ struct OnboardingView: View {
         WizardWindowController.shared.close()
     }
 
-    // ---- Permiso: micrófono ----
+    // MARK: Modelos locales
+    private var opcionesLocales: [LocalOpt] {
+        var out: [LocalOpt] = []
+        // tcpp: Voxtral Realtime, Nemotron, Canary
+        for (m, prov) in [(ModelCatalog.voxtralRealtime[0], "voxtral_local"),
+                          (ModelCatalog.nemotron[0], "nemotron_local"),
+                          (ModelCatalog.canary[0], "canary_local")] {
+            out.append(LocalOpt(
+                id: m.archivo, nombre: m.nombre, nota: "\(m.nota) · \(gb(m.tamañoMB))",
+                tamañoMB: m.tamañoMB, claves: [m.archivo],
+                descargado: { m.descargado },
+                progreso: { Descargas.shared.progreso[m.archivo] },
+                descargar: { pm.descargarTcpp(m) },
+                usar: { pm.usarTcpp(m, proveedor: prov) },
+                enUso: { Providers.modelo(de: prov) == m.archivo && (Providers.load().first { $0.id == prov }?.activo ?? false) }))
+        }
+        // Whisper Large v3 Turbo (recomendado)
+        if let w = ModelCatalog.whisper.first(where: { $0.archivo == "ggml-large-v3-turbo.bin" }) {
+            out.append(LocalOpt(
+                id: w.archivo, nombre: "Whisper \(w.nombre)", nota: "\(w.nota) · \(gb(w.tamañoMB))",
+                tamañoMB: w.tamañoMB, claves: [w.archivo],
+                descargado: { w.descargado },
+                progreso: { Descargas.shared.progreso[w.archivo] },
+                descargar: { pm.descargar(w) },
+                usar: { pm.usarModeloLocal(w.archivo) },
+                enUso: { pm.modeloLocalActual() == w.archivo && (Providers.load().first { $0.id == "whisper_local" }?.activo ?? false) }))
+        }
+        // Voxtral Mini 3B (exótico, llama.cpp)
+        if let e = ModelCatalog.exoticos.first {
+            out.append(LocalOpt(
+                id: e.nombre, nombre: e.nombre, nota: "\(e.nota) · \(gb(e.tamañoMB))",
+                tamañoMB: e.tamañoMB, claves: e.archivos,
+                descargado: { e.descargado },
+                progreso: { pm.progresoExotico(e) },
+                descargar: { pm.descargarExotico(e) },
+                usar: { pm.usarExotico(e) },
+                enUso: { Providers.modelo(de: "voxtral_local") == e.archivos[0] && (Providers.load().first { $0.id == "voxtral_local" }?.activo ?? false) }))
+        }
+        return out
+    }
+
+    @ViewBuilder private func localRow(_ o: LocalOpt) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(o.nombre).font(.subheadline).bold()
+                Text(o.nota).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let p = o.progreso() {
+                HStack(spacing: 6) {
+                    ProgressView(value: p).frame(width: 90)
+                    Button { Descargas.shared.cancelar(o.claves) } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless).foregroundStyle(.secondary)
+                }
+            } else if o.descargado() {
+                if o.enUso() {
+                    Label("EN USO", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                } else {
+                    Button("Usar") { o.usar(); pm.recargar() }.controlSize(.small).buttonStyle(.borderedProminent).tint(acento)
+                }
+            } else {
+                Button { o.descargar() } label: { Label(gb(o.tamañoMB), systemImage: "arrow.down.circle") }
+                    .controlSize(.small)
+            }
+        }
+        .padding(10).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func gb(_ mb: Int) -> String { mb >= 1000 ? String(format: "%.1f GB", Double(mb) / 1000) : "\(mb) MB" }
+    private func esEnVivo(_ p: Provider) -> Bool {
+        TcppStreamClient.esModeloStreaming(p.modelo ?? "")
+            || (p.id == "elevenlabs" && (p.modelo ?? "") == "scribe_v2_realtime")
+    }
+
+    /// Reordena: motores locales primero (en su orden), luego ElevenLabs, luego el resto.
+    private func aplicarSugerencia() {
+        let locales = pm.lista.filter { $0.tipo == "local" }
+        let eleven = pm.lista.filter { $0.id == "elevenlabs" }
+        let resto = pm.lista.filter { $0.tipo != "local" && $0.id != "elevenlabs" }
+        pm.lista = locales + eleven + resto
+        pm.guardar()
+    }
+
+    // MARK: Glosario
+    private func agregarPalabras() {
+        for parte in nuevaPalabra.split(whereSeparator: { $0 == "," || $0 == "\n" }) {
+            glosario.add(parte.trimmingCharacters(in: .whitespaces))
+        }
+        nuevaPalabra = ""
+    }
+
+    // MARK: Permisos — helpers
     private var micEstadoTexto: String {
         switch mic {
         case .authorized: return "Activado"
@@ -318,28 +512,25 @@ struct OnboardingView: View {
     private func micAccion() {
         switch mic {
         case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { ok in
-                DispatchQueue.main.async { mic = AVCaptureDevice.authorizationStatus(for: .audio); _ = ok }
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                DispatchQueue.main.async { mic = AVCaptureDevice.authorizationStatus(for: .audio) }
             }
         default:
             abrir("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
         }
     }
-
-    // ---- Permiso: accesibilidad ----
     private var axEstadoTexto: String {
         if ax && !axAlArrancar { return "Activado — falta reiniciar" }
         return ax ? "Activado" : "Sin conceder todavía"
     }
     private func axAccion() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(opts)      // dispara el diálogo del sistema
+        _ = AXIsProcessTrustedWithOptions(opts)
         abrir("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
-
     private func abrir(_ url: String) { if let u = URL(string: url) { NSWorkspace.shared.open(u) } }
 
-    // ---- Componentes reutilizables ----
+    // MARK: Componentes
     private func encabezado(_ titulo: String, _ sub: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(titulo).font(.title).bold()
@@ -361,52 +552,38 @@ struct OnboardingView: View {
                              accion: @escaping () -> Void, etiquetaBoton: String) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: listo ? "checkmark.circle.fill" : icono)
-                .font(.system(size: 30))
-                .foregroundStyle(listo ? .green : acento)
-                .frame(width: 38)
+                .font(.system(size: 30)).foregroundStyle(listo ? .green : acento).frame(width: 38)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Text(titulo).font(.headline)
                     Text(estado).font(.caption).foregroundStyle(listo ? .green : .secondary)
                 }
                 Text(para).font(.caption).foregroundStyle(.secondary)
-                if !listo {
-                    Button(etiquetaBoton, action: accion).controlSize(.regular).padding(.top, 2)
-                }
+                if !listo { Button(etiquetaBoton, action: accion).controlSize(.regular).padding(.top, 2) }
             }
             Spacer()
         }
-        .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(14).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 12))
     }
-
     private func wizToggle(_ titulo: String, isOn: Binding<Bool>, nota: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Toggle(titulo, isOn: isOn).font(.headline)
             Text(nota).font(.caption).foregroundStyle(.secondary)
         }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    // Fila de clave de nube (guarda en .env y activa el proveedor).
-    @ViewBuilder
-    private func claveNube(id: String, env: String, titulo: String, nota: String, enlace: String, activarPrimero: Bool) -> some View {
-        ClaveNubeRow(id: id, env: env, titulo: titulo, nota: nota, enlace: enlace, activarPrimero: activarPrimero)
+        .padding(12).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
-// MARK: - Fila de clave de nube (estado propio)
+// MARK: - Fila de clave de nube (no muestra el secreto existente)
 
 private struct ClaveNubeRow: View {
     let id: String, env: String, titulo: String, nota: String, enlace: String
     let activarPrimero: Bool
+    let pm: ProvidersModel
 
     @State private var clave: String = ""
     @State private var guardado = false
-    @State private var yaTenia = false     // había clave al abrir (no la mostramos en claro)
+    @State private var yaTenia = false
 
     private let acento = Color(red: 0.36, green: 0.28, blue: 0.62)
     private var conectado: Bool { yaTenia || guardado }
@@ -416,8 +593,7 @@ private struct ClaveNubeRow: View {
             HStack {
                 Text(titulo).font(.headline)
                 if conectado {
-                    Label("conectado", systemImage: "checkmark.circle.fill")
-                        .font(.caption).foregroundStyle(.green)
+                    Label("conectado", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
                 }
                 Spacer()
                 Button("Conseguir clave") { if let u = URL(string: enlace) { NSWorkspace.shared.open(u) } }
@@ -425,8 +601,6 @@ private struct ClaveNubeRow: View {
             }
             Text(nota).font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 8) {
-                // Nunca mostramos la clave existente en claro: solo pedimos una
-                // nueva si la quiere cambiar. Vacío = se conserva la actual.
                 SecureField(conectado ? "Clave guardada — pega otra para reemplazarla"
                                       : "Pega tu API key aquí (o déjalo en blanco)", text: $clave)
                     .textFieldStyle(.roundedBorder)
@@ -434,9 +608,7 @@ private struct ClaveNubeRow: View {
                     .disabled(clave.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(12).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 10))
         .onAppear { yaTenia = !ApiKeys.get(env).isEmpty }
     }
 
@@ -445,19 +617,15 @@ private struct ClaveNubeRow: View {
         guard !v.isEmpty else { return }
         ApiKeys.set(env, v)
         activarProveedor(id, primero: activarPrimero)
-        clave = ""                          // no dejar el secreto en pantalla
+        clave = ""
         withAnimation { guardado = true }
     }
-
-    /// Enciende el proveedor en la cascada (y opcionalmente lo pone #1).
     private func activarProveedor(_ id: String, primero: Bool) {
         var lista = Providers.load()
         guard let i = lista.firstIndex(where: { $0.id == id }) else { return }
         lista[i].activo = true
-        if primero {
-            let menor = (lista.map { $0.orden }.min() ?? 0) - 1
-            lista[i].orden = menor
-        }
+        if primero { lista[i].orden = (lista.map { $0.orden }.min() ?? 0) - 1 }
         Providers.save(lista)
+        pm.recargar()
     }
 }

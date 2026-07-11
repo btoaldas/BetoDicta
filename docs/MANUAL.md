@@ -72,20 +72,26 @@ La primera vez que abres BetoDicta aparece un **asistente** que te lleva de la m
 
 ![Bienvenida del asistente](img/wizard-bienvenida.png)
 
-Son 6 pasos:
+Son 8 pasos:
 
-1. **Bienvenida** — qué hace la app y qué vas a configurar.
-2. **Permisos** — micrófono y accesibilidad, con **check en vivo**: apenas concedes cada uno, su fila se pone en **verde "Activado"**.
+0. **Bienvenida** — qué hace la app y qué vas a configurar.
+1. **Permisos** — micrófono y accesibilidad, con **check en vivo**: apenas concedes cada uno, su fila se pone en **verde "Activado"**.
 
    ![Permisos con check en vivo](img/wizard-permisos.png)
 
    > La accesibilidad **pide reiniciar** la app para tomar efecto. No te preocupes: el asistente vuelve **exactamente a este paso** y verás los dos permisos en verde ("check activado, check activado"). El botón **"Reiniciar BetoDicta ahora"** lo hace por ti. Solo cuando pulses **Finalizar** al final, el asistente se da por terminado — un reinicio a mitad NO te lo salta.
-3. **IA en la nube (opcional)** — conecta ElevenLabs, Groq (y OpenAI/Mistral) pegando su clave, o déjalo en blanco para quedarte 100% gratis y local. Por seguridad, si ya tienes una clave guardada **no se muestra**: solo pega una nueva si la quieres cambiar.
-4. **Aprendizaje** — enciende que aprenda de tus correcciones, la corrección por sonido y el pulido con IA (cada uno explicado).
-5. **Preferencias** — sonidos, panel, Esc, multimedia, volumen, Dock, arranque al iniciar sesión y modo desarrollo. Cada opción con su nota de qué hace y para qué.
+2. **IA en la nube (opcional)** — conecta ElevenLabs, Groq (y OpenAI/Mistral) pegando su clave, o déjalo en blanco para quedarte 100% gratis y local. Por seguridad, si ya tienes una clave guardada **no se muestra**: solo pega una nueva si la quieres cambiar.
+3. **IA local** — descarga los motores que corren gratis y **sin internet** (Voxtral Realtime, Nemotron, Canary, Whisper, Voxtral Mini). La descarga sigue en **segundo plano** aunque avances o cierres; pulsa **"Usar"** para dejarlo en tu cascada.
+
+   ![Descarga de IA local](img/wizard-local.png)
+4. **Orden del failover** — cuál motor va #1, cuál de respaldo. Enciende los que quieras (uno basta) y ordénalos con las flechas. En una instalación nueva te **sugiere una IA local de #1** (funciona sin internet) y ElevenLabs de #2; el botón **"Aplicar sugerencia"** lo hace de un clic.
+
+   ![Orden del failover](img/wizard-failover.png)
+5. **Aprendizaje y glosario** — enciende que aprenda de tus correcciones, la corrección por sonido y el pulido con IA; y agrega las primeras palabras de tu glosario (nombres, siglas, términos).
+6. **Preferencias** — tecla de dictado, micrófono, sonidos, panel, Esc, multimedia, volumen, Dock, arranque al iniciar sesión y modo desarrollo. Cada opción con su nota de qué hace y para qué.
 
    ![Preferencias del asistente](img/wizard-preferencias.png)
-6. **¡Listo!** — a dictar.
+7. **¡Listo!** — a dictar (y, si te sirve, un cafecito para apoyar el proyecto).
 
 Todo lo que elijas aquí se puede cambiar después en Configuración. Los valores de fábrica ya vienen bien para la mayoría.
 
