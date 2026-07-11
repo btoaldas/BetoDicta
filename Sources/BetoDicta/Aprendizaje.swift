@@ -28,25 +28,36 @@ enum Aprendizaje {
 
     /// Tras pegar un dictado (y si no hay traducción activa): arranca el
     /// vigilante que aprenderá de tu corrección en el sitio.
+    /// Log de diagnóstico (solo con Modo desarrollo, para ver por qué aprende
+    /// o no sin ensuciar el registro normal).
+    private static func dbg(_ m: String) {
+        if Config.devMode() { Log.log(.config, "aprendizaje: \(m)") }
+    }
+
     static func recordarContexto(pegado texto: String, traducido: Bool) {
         detener()
         generacion += 1
         let gen = generacion
-        guard Config.aprender(), !traducido, AXIsProcessTrusted(),
-              !texto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        if !Config.aprender() { return }
+        guard !traducido else { dbg("omitido: traducción activa"); return }
+        guard AXIsProcessTrusted() else { dbg("omitido: falta permiso de Accesibilidad"); return }
+        guard !texto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         // Esperar a que el Cmd+V aterrice, luego enganchar el campo.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            // Si otro dictado ya reemplazó esta vigilancia, abortar (sin esto
-            // quedaban timers huérfanos con dictados en ráfaga).
             guard gen == generacion else { return }
-            guard let (elem, valor) = campoEnfocadoYValor() else { return }
-            // Solo campos donde lo pegado es el contenido principal (no un
-            // documento largo): el valor no debe ser mucho mayor que el texto.
-            guard valor.count <= max(400, texto.count * 3) else { return }
+            guard let (elem, valor) = campoEnfocadoYValor() else {
+                dbg("NO pude leer el campo por Accesibilidad — esta app no expone su texto (típico en navegadores/Electron como Claude, VS Code, Chrome). Prueba en Notas/TextEdit/Mail.")
+                return
+            }
+            guard valor.count <= max(400, texto.count * 3) else {
+                dbg("omitido: el campo es un documento largo (\(valor.count) chars), no un campo de prompt")
+                return
+            }
             campo = elem
             pegado = texto
             ultimoEditado = valor
             ticks = 0
+            dbg("vigilando el campo (\(valor.count) chars) — corrige aquí antes de enviar")
             vigilante = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in tick() }
         }
     }
@@ -81,15 +92,20 @@ enum Aprendizaje {
 
     /// Compara el editado final contra lo pegado y guarda las reglas.
     private static func aprenderDe(_ editado: String, pegado t: String) {
-        guard !editado.isEmpty, editado != t else { return }
-        for (x, y) in sustituciones(antes: t, ahora: editado) where esCorreccionAprendible(de: x, a: y) {
+        guard !editado.isEmpty else { dbg("cierre sin texto editado — quizá enviaste antes de que capturara"); return }
+        guard editado != t else { dbg("no editaste nada (texto igual al pegado)"); return }
+        let subs = sustituciones(antes: t, ahora: editado)
+        var conto = 0
+        for (x, y) in subs where esCorreccionAprendible(de: x, a: y) {
             let xl = limpiar(x), yl = limpiar(y)
             if agregarRegla(de: xl, a: yl) {
                 pendientes.append((de: xl, a: yl))
                 registrar(de: xl, a: yl)
+                conto += 1
                 Log.log(.config, "aprendido: \(xl) → \(yl)")
             }
         }
+        if conto == 0 { dbg("detecté cambios pero ninguno es 'palabra rara → parecida' aprendible (\(subs.count) sustituciones brutas)") }
     }
 
     // MARK: Bitácora de aprendizajes (para ver qué y cuándo se aprendió)
