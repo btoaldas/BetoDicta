@@ -1145,9 +1145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // El .txt guarda SOLO lo entregado, limpio. El crudo queda en el log.
         history?.finish(wav: wav, finalText: text)
         pasteText(text)
-        // Recordar dónde y qué se pegó: si el usuario lo corrige ahí, el
-        // próximo dictado aprenderá de esa corrección.
-        Aprendizaje.recordarContexto()
+        // Vigilar el campo: si corriges el texto ahí (antes de enviarlo), la
+        // app aprende de esa corrección. No aplica con traducción activa.
+        Aprendizaje.recordarContexto(pegado: text, traducido: Config.translate())
         playSound("Glass")
         // Si ya hay otro dictado grabando, no pisar su panel.
         if !recorder.isRecording {

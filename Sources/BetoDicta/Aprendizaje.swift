@@ -3,50 +3,129 @@ import ApplicationServices
 
 // MARK: - Aprendizaje automático de correcciones
 //
-// La app pega el texto en el campo con foco. Guarda una referencia a ese
-// campo (vía Accesibilidad) y su contenido. En el SIGUIENTE dictado relee
-// el mismo campo: si tú corregiste una palabra que el motor escribió mal
-// (Kipux → Quipux), lo detecta y aprende la regla sola, sin que hagas nada
-// extra ni vayas a ninguna pestaña. Todo local.
+// El texto dictado es EFÍMERO: en Claude Code (o cualquier chat) lo pegas,
+// lo corriges y pulsas Enter — el campo se vacía. Por eso no esperamos al
+// siguiente dictado: tras pegar, VIGILAMOS el campo (lo leemos cada medio
+// segundo) y capturamos la versión editada final justo antes de que se
+// envíe. Ahí comparamos con lo pegado y aprendemos la corrección.
 //
 // Solo aprende sustituciones de UNA palabra por otra PARECIDA (error de
-// transcripción), nunca reescrituras de frases — así no mete reglas basura.
+// transcripción), nunca reescrituras — así no mete reglas basura. No
+// vigila si hay traducción activa (el texto pegado no está en español).
+//
+// Solo vigila campos donde el texto pegado es el contenido PRINCIPAL
+// (prompts, chats, mensajes, búsquedas). En documentos largos no aprende
+// —para no confundir tu edición con el resto del texto— pero tampoco daña.
 
 enum Aprendizaje {
-    private static var campo: AXUIElement?     // el campo donde se pegó
-    private static var textoTrasPegar: String? // su contenido justo tras pegar
+    private static var campo: AXUIElement?      // el campo donde se pegó
+    private static var pegado: String?          // lo que insertó la app
+    private static var ultimoEditado: String?   // última versión con contenido
+    private static var vigilante: Timer?
+    private static var ticks = 0
+    private static var generacion = 0           // descarta vigilancias obsoletas
+    private static var pendientes: [(de: String, a: String)] = []  // aprendidas por avisar
 
-    /// Tras pegar un dictado: recuerda dónde y qué quedó (para comparar luego).
-    /// Se llama con un pequeño retraso para que el Cmd+V ya haya aterrizado.
-    static func recordarContexto() {
+    /// Tras pegar un dictado (y si no hay traducción activa): arranca el
+    /// vigilante que aprenderá de tu corrección en el sitio.
+    static func recordarContexto(pegado texto: String, traducido: Bool) {
+        detener()
+        generacion += 1
+        let gen = generacion
+        guard !traducido, AXIsProcessTrusted(),
+              !texto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        // Esperar a que el Cmd+V aterrice, luego enganchar el campo.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            guard AXIsProcessTrusted() else { return }
-            guard let (elem, valor) = campoEnfocadoYValor() else {
-                campo = nil; textoTrasPegar = nil; return
-            }
+            // Si otro dictado ya reemplazó esta vigilancia, abortar (sin esto
+            // quedaban timers huérfanos con dictados en ráfaga).
+            guard gen == generacion else { return }
+            guard let (elem, valor) = campoEnfocadoYValor() else { return }
+            // Solo campos donde lo pegado es el contenido principal (no un
+            // documento largo): el valor no debe ser mucho mayor que el texto.
+            guard valor.count <= max(400, texto.count * 3) else { return }
             campo = elem
-            textoTrasPegar = valor
+            pegado = texto
+            ultimoEditado = valor
+            ticks = 0
+            vigilante = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in tick() }
         }
     }
 
-    /// Al empezar el siguiente dictado: ¿corregiste algo en ese campo?
-    /// Devuelve las reglas aprendidas (para avisarte en el panel).
-    @discardableResult
-    static func revisarCorreccion() -> [(de: String, a: String)] {
-        guard AXIsProcessTrusted(), let elem = campo, let antes = textoTrasPegar else { return [] }
-        campo = nil; textoTrasPegar = nil          // un solo intento por dictado
-        guard let ahora = valorDe(elem), ahora != antes else { return [] }
+    /// Un tick del vigilante: mientras el campo tenga contenido, guarda esa
+    /// versión (posiblemente ya corregida). Cuando se vacía/reduce mucho
+    /// (enviaste con Enter o borraste), aprende de la última que vimos.
+    private static func tick() {
+        ticks += 1
+        guard let elem = campo, let t = pegado else { detener(); return }
+        let v = valorDe(elem) ?? ""
+        // "Vivo" = el campo aún tiene el texto (aunque lo hayas corregido o
+        // alargado). Por LONGITUD, no por palabras: así una corrección de UNA
+        // palabra ("migrotic" → "mikrotik") sí se captura.
+        let vivo = !v.isEmpty && v.count >= max(3, t.count / 3)
+        if vivo {
+            ultimoEditado = v
+        } else {
+            aprenderDe(ultimoEditado ?? "", pegado: t)
+            detener()
+        }
+        if ticks > 120 {                 // ~60 s de vida máxima del vigilante
+            aprenderDe(ultimoEditado ?? "", pegado: t)
+            detener()
+        }
+    }
 
-        let subs = sustituciones(antes: antes, ahora: ahora)
-        var aprendidas: [(de: String, a: String)] = []
-        for (x, y) in subs where esCorreccionAprendible(de: x, a: y) {
-            let xl = limpiar(x), yl = limpiar(y)     // sin comas/puntos de borde
+    private static func detener() {
+        vigilante?.invalidate(); vigilante = nil
+        campo = nil; pegado = nil; ultimoEditado = nil
+    }
+
+    /// Compara el editado final contra lo pegado y guarda las reglas.
+    private static func aprenderDe(_ editado: String, pegado t: String) {
+        guard !editado.isEmpty, editado != t else { return }
+        for (x, y) in sustituciones(antes: t, ahora: editado) where esCorreccionAprendible(de: x, a: y) {
+            let xl = limpiar(x), yl = limpiar(y)
             if agregarRegla(de: xl, a: yl) {
-                aprendidas.append((de: xl, a: yl))
+                pendientes.append((de: xl, a: yl))
                 Log.log(.config, "aprendido: \(xl) → \(yl)")
             }
         }
-        return aprendidas
+    }
+
+    /// Al empezar el siguiente dictado: cierra cualquier vigilancia pendiente
+    /// y devuelve lo aprendido (para avisarte en el panel).
+    @discardableResult
+    static func revisarCorreccion() -> [(de: String, a: String)] {
+        // Si aún vigilábamos (no enviaste todavía), aprende de lo que haya.
+        if let elem = campo, let t = pegado {
+            aprenderDe(valorDe(elem) ?? ultimoEditado ?? "", pegado: t)
+        }
+        detener()
+        let avisos = pendientes
+        pendientes.removeAll()
+        return avisos
+    }
+
+    /// Palabras comunes del español: si la palabra "mal transcrita" es una de
+    /// estas, NO se aprende — sería una corrección de contenido, no un error
+    /// de vocabulario recurrente. Evita reglas venenosas como todo→toco.
+    private static let comunes: Set<String> = [
+        "que","los","las","del","por","con","una","para","como","más","pero","sus","son",
+        "este","esta","esto","estos","estas","ese","esa","eso","esos","esas","aqui","alli","ahi",
+        "todo","toda","todos","todas","otro","otra","otros","otras","mismo","misma","cada","poco",
+        "poca","mucho","mucha","muchos","muchas","algo","nada","algun","alguna","cual","quien",
+        "donde","cuando","cuanto","como","porque","aunque","entonces","tambien","tampoco","siempre",
+        "nunca","ahora","antes","despues","luego","hoy","ayer","año","años","dia","dias","vez","veces",
+        "dos","tres","cuatro","cinco","seis","siete","ocho","nueve","diez","cien","mil","bien","mal",
+        "hola","casa","cosa","cosas","caso","modo","mano","parte","forma","tipo","lado","hora","tiempo",
+        "hombre","mujer","gente","vida","mundo","pais","lugar","punto","hecho","tema","nombre","numero",
+        "hacer","tener","poder","decir","estar","haber","hacer","saber","poner","venir","ver","dar","ir",
+        "quiero","puedo","tengo","hace","dice","cada","sobre","hasta","desde","entre","segun","contra",
+        "hola","adios","gracias","favor","claro","cierto","verdad","acaso","apenas","recien","justo",
+        "voy","vamos","fue","era","eran","han","hay","muy","tan","asi","aun","solo","sola","según",
+    ]
+
+    private static func esComun(_ w: String) -> Bool {
+        comunes.contains(w.folding(options: .diacriticInsensitive, locale: Locale(identifier: "es")).lowercased())
     }
 
     // MARK: Accesibilidad
@@ -115,6 +194,10 @@ enum Aprendizaje {
         let x = limpiar(x0), y = limpiar(y0)
         guard x.count >= 3, y.count >= 2, x.lowercased() != y.lowercased() else { return false }
         guard !x.contains(" "), !y.contains(" ") else { return false }
+        // La palabra "mal transcrita" NO puede ser una palabra común válida:
+        // si el motor escribió "todo" y lo cambiaste a "toco", es contenido,
+        // no un error de vocabulario — aprenderlo corromperia futuros dictados.
+        guard !esComun(x) else { return false }
         // Deben SONAR parecido: distancia de edición baja respecto al largo.
         let d = levenshtein(x.lowercased(), y.lowercased())
         let umbral = max(2, Int(Double(max(x.count, y.count)) * 0.5))
