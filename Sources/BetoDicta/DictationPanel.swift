@@ -217,6 +217,8 @@ final class DictationPanel {
                    in: panel.contentView)
     }
 
+    var esVisible: Bool { panel.isVisible }
+
     func hide(after seconds: TimeInterval = 0) {
         meter.reset()
         if seconds == 0 {

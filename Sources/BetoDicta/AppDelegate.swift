@@ -466,10 +466,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func registerHotKey() {
         installCarbonHandler()
         applyBinding()
+        aplicarAtajoAprender()
         // Re-registrar en vivo cuando la GUI cambie la tecla
         NotificationCenter.default.addObserver(
             forName: .betoHotkeyChanged, object: nil, queue: .main) { [weak self] _ in
             self?.applyBinding()
+            self?.aplicarAtajoAprender()
+        }
+    }
+
+    private var atajoAprenderRef: EventHotKeyRef?
+
+    /// Atajo global "aprender de la selección" (id 3). Funciona en cualquier
+    /// app, incluida Claude Code CLI. Default ⌘⇧L, configurable.
+    private func aplicarAtajoAprender() {
+        if let ref = atajoAprenderRef { UnregisterEventHotKey(ref); atajoAprenderRef = nil }
+        guard let (code, mods) = Self.parseBinding(Config.atajoAprender()) else { return }
+        let id = EventHotKeyID(signature: OSType(0x42544443), id: 3)
+        RegisterEventHotKey(UInt32(code), UInt32(mods), id, GetApplicationEventTarget(), 0, &atajoAprenderRef)
+    }
+
+    func aprenderDeSeleccion() {
+        Aprendizaje.aprenderDeSeleccion { [weak self] aprendidas in
+            guard let self else { return }
+            let msg: String
+            if let a = aprendidas.first {
+                let extra = aprendidas.count > 1 ? " +\(aprendidas.count - 1) más" : ""
+                msg = "📚 Aprendí: \(a.de) → \(a.a)\(extra)"
+            } else {
+                msg = "Selecciona el texto corregido y repite el atajo"
+            }
+            self.panel.show(msg)
+            self.panel.hide(after: 3)
         }
     }
 
@@ -597,6 +625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 if hotKeyID.id == 1 { delegate.toggle() }
                 if hotKeyID.id == 2 { delegate.cancelDictation() }
+                if hotKeyID.id == 3 { delegate.aprenderDeSeleccion() }
             }
             return noErr
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)

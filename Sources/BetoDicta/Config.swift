@@ -80,6 +80,9 @@ struct Config {
     /// Aprender de tus correcciones en el sitio (lee el campo vía
     /// Accesibilidad). Opt-in: apagado por defecto.
     static func aprender() -> Bool { (json()["aprender_correcciones"] as? Bool) ?? false }
+    /// Atajo global para "aprender de la selección" (funciona en cualquier
+    /// app, incl. Claude Code CLI). Default ⌘⇧L.
+    static func atajoAprender() -> String { (json()["atajo_aprender"] as? String) ?? "cmd+shift+l" }
 
     /// API key de ElevenLabs: variable de entorno → ~/.betodicta/.env
     /// (la pone la pestaña Modelos; nada de rutas de otras apps).

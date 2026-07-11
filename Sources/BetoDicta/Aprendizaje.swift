@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 
 // MARK: - Aprendizaje automático de correcciones
 //
@@ -34,11 +35,18 @@ enum Aprendizaje {
         if Config.devMode() { Log.log(.config, "aprendizaje: \(m)") }
     }
 
+    /// Último texto entregado (lo usa el atajo "aprender de la selección",
+    /// que funciona en CUALQUIER app — incluida Claude Code CLI, donde el
+    /// campo no se puede leer). Persiste hasta el próximo dictado.
+    private static var ultimoPegado: String?
+
     static func recordarContexto(pegado texto: String, traducido: Bool) {
         detener()
         generacion += 1
         let gen = generacion
-        if !Config.aprender() { return }
+        if !Config.aprender() { ultimoPegado = nil; return }
+        // Guardar para el atajo universal, aunque el vigilante no enganche.
+        ultimoPegado = traducido ? nil : texto
         guard !traducido else { dbg("omitido: traducción activa"); return }
         guard AXIsProcessTrusted() else { dbg("omitido: falta permiso de Accesibilidad"); return }
         guard !texto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
@@ -109,6 +117,43 @@ enum Aprendizaje {
     private static func detener() {
         vigilante?.invalidate(); vigilante = nil
         campo = nil; pegado = nil; ultimoEditado = nil
+    }
+
+    // MARK: Atajo universal — aprender de la selección (funciona en TODO)
+
+    /// El usuario corrigió el dictado, seleccionó el texto corregido y pulsó
+    /// el atajo. Copiamos su selección y aprendemos comparándola con lo que
+    /// se pegó. Funciona en Claude Code CLI, terminales, canvas — donde sea,
+    /// porque copiar es universal (no depende de leer el campo).
+    static func aprenderDeSeleccion(completion: @escaping ([(de: String, a: String)]) -> Void) {
+        guard Config.aprender() else { dbg("atajo: aprendizaje apagado"); completion([]); return }
+        guard let t = ultimoPegado else { dbg("atajo: no hay dictado reciente que comparar"); completion([]); return }
+        let pb = NSPasteboard.general
+        let previo = pb.string(forType: .string)
+        let cambioAntes = pb.changeCount
+        simularCmdC()
+        // Esperar a que el clipboard reciba la selección.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let sel = pb.changeCount != cambioAntes ? pb.string(forType: .string) : nil
+            if let previo { pb.clearContents(); pb.setString(previo, forType: .string) }
+            guard let editado = sel?.trimmingCharacters(in: .whitespacesAndNewlines), !editado.isEmpty else {
+                dbg("atajo: no había nada seleccionado")
+                completion([]); return
+            }
+            pendientes.removeAll()
+            aprenderDe(editado, pegado: t)
+            let aprendidas = pendientes
+            pendientes.removeAll()
+            completion(aprendidas)
+        }
+    }
+
+    private static func simularCmdC() {
+        let src = CGEventSource(stateID: .combinedSessionState)
+        let down = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: true)
+        let up = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_C), keyDown: false)
+        down?.flags = .maskCommand; up?.flags = .maskCommand
+        down?.post(tap: .cghidEventTap); up?.post(tap: .cghidEventTap)
     }
 
     /// Compara el editado final contra lo pegado y guarda las reglas.

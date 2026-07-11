@@ -403,7 +403,11 @@ struct SettingsView: View {
             }
             tarjeta("Aprendizaje", "brain.head.profile") {
                 Toggle("Aprender de mis correcciones", isOn: $m.aprender)
-                Text("Cuando corriges el texto dictado ahí donde lo pegaste (antes de enviarlo), la app aprende la regla sola (ej: Kipux → Quipux). Lee el campo vía Accesibilidad; 100% local. Funciona en apps nativas; en navegadores es limitado.")
+                Text("Cuando corriges el texto dictado ahí donde lo pegaste (antes de enviarlo), la app aprende la regla sola (ej: Kipux → Quipux). 100% local.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("• Automático en apps nativas (Notas, Mail, Word, Pages…).")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("• En Claude Code CLI, terminales o cualquier app: corrige, SELECCIONA el texto corregido y pulsa ⌘⇧L — aprende de tu selección.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Multimedia", "speaker.wave.2") {
