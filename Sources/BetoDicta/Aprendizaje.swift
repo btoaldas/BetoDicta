@@ -42,24 +42,45 @@ enum Aprendizaje {
         guard !traducido else { dbg("omitido: traducción activa"); return }
         guard AXIsProcessTrusted() else { dbg("omitido: falta permiso de Accesibilidad"); return }
         guard !texto.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        // Pedir YA a la app del foco que exponga su texto (Electron/Chromium
+        // lo necesita); el delay le da tiempo a construir el árbol AX.
+        activarAccesibilidadDelFoco()
         // Esperar a que el Cmd+V aterrice, luego enganchar el campo.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             guard gen == generacion else { return }
-            guard let (elem, valor) = campoEnfocadoYValor() else {
-                dbg("NO pude leer el campo por Accesibilidad — esta app no expone su texto (típico en navegadores/Electron como Claude, VS Code, Chrome). Prueba en Notas/TextEdit/Mail.")
-                return
-            }
-            guard valor.count <= max(400, texto.count * 3) else {
-                dbg("omitido: el campo es un documento largo (\(valor.count) chars), no un campo de prompt")
-                return
-            }
-            campo = elem
-            pegado = texto
-            ultimoEditado = valor
-            ticks = 0
-            dbg("vigilando el campo (\(valor.count) chars) — corrige aquí antes de enviar")
-            vigilante = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in tick() }
+            engancharCampo(gen: gen, texto: texto, reintento: false)
         }
+    }
+
+    /// Engancha el campo enfocado; si Electron aún no expone el texto,
+    /// reintenta una vez tras reactivar la accesibilidad.
+    private static func engancharCampo(gen: Int, texto: String, reintento: Bool) {
+        guard gen == generacion else { return }
+        guard let (elem, valor) = campoEnfocadoYValor() else {
+            if !reintento {
+                activarAccesibilidadDelFoco()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    engancharCampo(gen: gen, texto: texto, reintento: true)
+                }
+                return
+            }
+            dbg("NO pude leer el campo por Accesibilidad — esta app no expone su texto ni con AXManualAccessibility. Puede ser una terminal (iTerm/Terminal) o una app que no lo soporta. En Notas/Mail/Pages/Word sí funciona.")
+            return
+        }
+        engancharConValor(elem: elem, valor: valor, texto: texto)
+    }
+
+    private static func engancharConValor(elem: AXUIElement, valor: String, texto: String) {
+        guard valor.count <= max(400, texto.count * 3) else {
+            dbg("omitido: el campo es un documento largo (\(valor.count) chars), no un campo de prompt")
+            return
+        }
+        campo = elem
+        pegado = texto
+        ultimoEditado = valor
+        ticks = 0
+        dbg("vigilando el campo (\(valor.count) chars) — corrige aquí antes de enviar")
+        vigilante = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in tick() }
     }
 
     /// Un tick del vigilante: mientras el campo tenga contenido, guarda esa
@@ -175,6 +196,23 @@ enum Aprendizaje {
 
     // MARK: Accesibilidad
 
+    /// Le pide a la app del foco que exponga su árbol de accesibilidad.
+    /// Chromium/Electron (Claude, VS Code, Chrome) NO expone su texto a menos
+    /// que se active este atributo. Se llama proactivamente al pegar, y el
+    /// delay posterior le da tiempo a construir el árbol.
+    static func activarAccesibilidadDelFoco() {
+        let sistema = AXUIElementCreateSystemWide()
+        var focoRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(sistema, kAXFocusedUIElementAttribute as CFString, &focoRef) == .success,
+              let foco = focoRef, CFGetTypeID(foco) == AXUIElementGetTypeID() else { return }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(foco as! AXUIElement, &pid) == .success, pid > 0 else { return }
+        let app = AXUIElementCreateApplication(pid)
+        // AXManualAccessibility: el interruptor de Chromium/Electron. NO usar
+        // AXEnhancedUserInterface: en multi-monitor hace saltar ventanas.
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    }
+
     private static func campoEnfocadoYValor() -> (AXUIElement, String)? {
         let sistema = AXUIElementCreateSystemWide()
         var focoRef: CFTypeRef?
@@ -185,11 +223,41 @@ enum Aprendizaje {
         return (elem, valor)
     }
 
+    /// Texto del elemento: primero AXValue; si viene vacío (Electron a veces
+    /// da "" en el textbox pero pone el texto en un hijo), busca en los hijos.
     private static func valorDe(_ elem: AXUIElement) -> String? {
         var v: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(elem, kAXValueAttribute as CFString, &v) == .success,
-              let s = v as? String else { return nil }
-        return s
+        if AXUIElementCopyAttributeValue(elem, kAXValueAttribute as CFString, &v) == .success,
+           let s = v as? String, !s.isEmpty {
+            return s
+        }
+        // Chromium: el contenido a veces está en el texto seleccionable o en
+        // los AXStaticText hijos. Intentar recogerlo.
+        if AXUIElementCopyAttributeValue(elem, "AXSelectedText" as CFString, &v) == .success,
+           let s = v as? String, !s.isEmpty {
+            return s
+        }
+        return textoDeHijos(elem, profundidad: 0)
+    }
+
+    /// Recolecta el texto de los AXStaticText descendientes (para Electron).
+    private static func textoDeHijos(_ elem: AXUIElement, profundidad: Int) -> String? {
+        guard profundidad < 4 else { return nil }
+        var hijosRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(elem, kAXChildrenAttribute as CFString, &hijosRef) == .success,
+              let hijos = hijosRef as? [AXUIElement], !hijos.isEmpty else { return nil }
+        var partes: [String] = []
+        for h in hijos.prefix(60) {
+            var val: CFTypeRef?
+            if AXUIElementCopyAttributeValue(h, kAXValueAttribute as CFString, &val) == .success,
+               let s = val as? String, !s.isEmpty {
+                partes.append(s)
+            } else if let sub = textoDeHijos(h, profundidad: profundidad + 1) {
+                partes.append(sub)
+            }
+        }
+        let junto = partes.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return junto.isEmpty ? nil : junto
     }
 
     // MARK: Diff por palabras
