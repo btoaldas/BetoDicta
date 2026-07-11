@@ -21,6 +21,12 @@ final class SettingsModel: ObservableObject {
     @Published var modelo: String { didSet { Config.set("modelo", to: modelo) } }
     @Published var microfono: String { didSet { Config.set("microfono", to: microfono) } }
     @Published var aprender: Bool { didSet { Config.set("aprender_correcciones", to: aprender) } }
+    @Published var atajoAprender: String {
+        didSet {
+            Config.set("atajo_aprender", to: atajoAprender)
+            NotificationCenter.default.post(name: .betoHotkeyChanged, object: nil)
+        }
+    }
     @Published var silencioMax: Double { didSet { Config.set("silencio_max_seg", to: silencioMax) } }
     @Published var sonidos: Bool { didSet { Config.set("sonidos", to: sonidos) } }
     @Published var escCancela: Bool { didSet { Config.set("esc_cancela", to: escCancela) } }
@@ -48,6 +54,7 @@ final class SettingsModel: ObservableObject {
         modelo = Config.model()
         microfono = Config.microfono()
         aprender = Config.aprender()
+        atajoAprender = Config.atajoAprender()
         silencioMax = Config.maxSilence()
         sonidos = Config.sounds()
         escCancela = Config.escCancels()
@@ -81,7 +88,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         private var recording = false
         private var monitor: Any?
         private var timeout: Timer?
-        private var previo = Config.hotkey()
+        private var previo = "fn"   // último valor mostrado (para cancelar)
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -89,13 +96,12 @@ struct HotkeyRecorder: NSViewRepresentable {
             setButtonType(.momentaryPushIn)
             target = self
             action = #selector(startRecording)
-            display(Config.hotkey())
         }
         required init?(coder: NSCoder) { super.init(coder: coder) }
         deinit { stop() }
 
         func display(_ v: String) {
-            if !recording { title = pretty(v) + "  ✎" }
+            if !recording { title = pretty(v) + "  ✎"; previo = v }
         }
         private func pretty(_ v: String) -> String {
             v.split(separator: "+").map { p -> String in
@@ -114,8 +120,7 @@ struct HotkeyRecorder: NSViewRepresentable {
         @objc private func startRecording() {
             guard !recording else { return }
             recording = true
-            previo = Config.hotkey()
-            title = "Pulsa… (Esc cancela)"
+            title = "Pulsa… (Esc cancela)"   // previo ya tiene el valor actual
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
                 self?.handle(event)
                 return nil  // consume solo mientras grabamos
@@ -407,7 +412,10 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Text("• Automático en apps nativas (Notas, Mail, Word, Pages…).")
                     .font(.caption).foregroundStyle(.secondary)
-                Text("• En Claude Code CLI, terminales o cualquier app: corrige, SELECCIONA el texto corregido y pulsa ⌘⇧L — aprende de tu selección.")
+                fila("Atajo: aprender de la selección") {
+                    HotkeyRecorder(value: $m.atajoAprender).frame(width: 120, height: 24)
+                }
+                Text("• En Claude Code CLI, terminales o cualquier app: corrige, SELECCIONA el texto corregido y pulsa este atajo — aprende de tu selección.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Multimedia", "speaker.wave.2") {
