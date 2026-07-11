@@ -117,8 +117,60 @@ final class DictationPanel {
 
     func show(_ text: String) {
         guard Config.panelVisible() else { return }
+        reposicionar()
         update(text)
         panel.orderFrontRegardless()
+    }
+
+    /// La pantalla con notch, o la que tenga el ratón, o la principal.
+    /// Al cerrar/abrir el portátil o mover de monitor, la pantalla activa
+    /// cambia — sin esto el panel se queda pegado a coordenadas viejas
+    /// (aparecía abajo a la izquierda tras dormir/despertar el Mac).
+    private func pantallaActiva() -> NSScreen? {
+        if let conNotch = NSScreen.screens.first(where: { $0.auxiliaryTopLeftArea != nil }) {
+            return conNotch
+        }
+        let raton = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(raton, $0.frame, false) } ?? NSScreen.main
+    }
+
+    /// Recalcula geometría del notch y recoloca el panel en la pantalla
+    /// activa AHORA (se llama en cada aparición, no solo al arrancar).
+    private func reposicionar() {
+        guard let screen = pantallaActiva() else { return }
+        var notchRect = NSRect(x: screen.frame.midX - 105,
+                               y: screen.frame.maxY - 36, width: 210, height: 36)
+        notchHeight = max(screen.safeAreaInsets.top, 28)
+        if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
+            notchRect = NSRect(x: left.maxX, y: screen.frame.maxY - notchHeight,
+                               width: right.minX - left.maxX, height: notchHeight)
+        } else {
+            notchRect = NSRect(x: screen.frame.midX - 105, y: screen.frame.maxY - notchHeight,
+                               width: 210, height: notchHeight)
+        }
+        let nuevoAncho = notchRect.width + wing * 2
+        let nuevoAlto = notchHeight + strip
+        // Si cambió el tamaño (notch ↔ pantalla externa), relayout completo.
+        if abs(nuevoAncho - width) > 0.5 || abs(nuevoAlto - height) > 0.5 {
+            width = nuevoAncho; height = nuevoAlto
+            relayout()
+        }
+        panel.setFrame(NSRect(x: notchRect.minX - wing, y: notchRect.maxY - height,
+                              width: width, height: height), display: true)
+    }
+
+    /// Reajusta los subviews cuando cambia el tamaño (cambio de pantalla).
+    private func relayout() {
+        panel.contentView?.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        meter.frame = NSRect(x: 8, y: strip + 7, width: wing - 16, height: notchHeight - 14)
+        let capW: CGFloat = 30
+        let capH: CGFloat = notchHeight >= 34 ? 18 : 14
+        keycap.font = NSFont.systemFont(ofSize: capH >= 18 ? 12 : 10, weight: .semibold)
+        keycap.frame = NSRect(x: width - wing + (wing - capW) / 2, y: strip + 2, width: capW, height: capH)
+        let motorH = max(8, notchHeight - capH - 7)
+        motorLabel.frame = NSRect(x: width - wing + 1, y: strip + capH + 4,
+                                  width: wing - 2, height: min(motorH, 10))
+        label.frame = NSRect(x: 8, y: 4, width: width - 16, height: 15)
     }
 
     /// Teleprompter de una línea: siempre muestra el FINAL (lo último dicho).
