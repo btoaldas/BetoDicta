@@ -6,14 +6,32 @@ import Carbon.HIToolbox
 
 struct UsageLog {
     static var fileURL: URL { Config.dir.appendingPathComponent("uso.jsonl") }
+    /// Tarifa estimada por hora, por MOTOR canónico (los locales = gratis).
     static let tarifasPorHora: [String: Double] = [
-        "scribe_v2_realtime": 0.39, "scribe_v2": 0.22, "scribe_v1": 0.22,
+        "ElevenLabs": 0.39, "Groq": 0.0, "OpenAI": 0.36, "Mistral": 0.0,
     ]
+
+    /// Consolida las MUCHAS etiquetas históricas ("scribe_v2_realtime",
+    /// "ElevenLabs (en vivo)", "ElevenLabs Scribe"…) en un motor único —
+    /// sin esto el uso salía fragmentado y con líneas viejas en 0.
+    static func motorCanonico(_ p: String) -> String {
+        let s = p.lowercased()
+        if s.contains("eleven") || s.contains("scribe") { return "ElevenLabs" }
+        if s.contains("groq") { return "Groq" }
+        if s.contains("voxtral") { return "Voxtral" }
+        if s.contains("nemotron") { return "Nemotron" }
+        if s.contains("canary") { return "Canary" }
+        if s.contains("whisper") { return "Whisper" }
+        if s.contains("openai") { return "OpenAI" }
+        if s.contains("mistral") { return "Mistral" }
+        if s.contains("local") { return "Local" }
+        return p
+    }
 
     static func record(provider: String, seconds: Double) {
         let iso = ISO8601DateFormatter().string(from: Date())
         guard let data = try? JSONSerialization.data(withJSONObject: [
-            "fecha": iso, "proveedor": provider, "segundos": seconds,
+            "fecha": iso, "proveedor": motorCanonico(provider), "segundos": seconds,
         ]), var line = String(data: data, encoding: .utf8) else { return }
         line += "\n"
         if let handle = FileHandle(forWritingAtPath: fileURL.path) {
@@ -50,7 +68,7 @@ struct UsageLog {
                   let fechaStr = json["fecha"] as? String,
                   let fecha = iso.date(from: fechaStr),
                   let seg = json["segundos"] as? Double else { continue }
-            let prov = json["proveedor"] as? String ?? ""
+            let prov = motorCanonico(json["proveedor"] as? String ?? "")
             let min = seg / 60
             if fecha >= año { t.añoMin += min }
             if fecha >= mes {
@@ -85,8 +103,9 @@ struct UsageLog {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let fechaStr = json["fecha"] as? String,
                   let fecha = iso.date(from: fechaStr),
-                  let proveedor = json["proveedor"] as? String,
+                  let proveedorRaw = json["proveedor"] as? String,
                   let seg = json["segundos"] as? Double else { continue }
+            let proveedor = motorCanonico(proveedorRaw)
             var t = acc[proveedor] ?? (0, 0, 0, 0)
             if fecha >= año { t.a += seg }
             if fecha >= mes { t.m += seg }
