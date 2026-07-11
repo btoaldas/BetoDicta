@@ -87,6 +87,13 @@ struct Config {
     /// término marcado, aunque no sea una variante exacta ya conocida.
     /// Opt-in: apagada por defecto (más agresiva, puede sobre-corregir).
     static func correccionPorSonido() -> Bool { (json()["correccion_por_sonido"] as? Bool) ?? false }
+    /// Asistente de primer arranque: ¿ya lo terminó el usuario? Solo se marca
+    /// true al pulsar "Finalizar" — así un reinicio por Accesibilidad a mitad
+    /// del wizard lo reabre en el mismo paso en vez de saltárselo.
+    static func wizardCompletado() -> Bool { (json()["wizard_completado"] as? Bool) ?? false }
+    /// Paso guardado del asistente (para reabrir donde iba tras un reinicio).
+    static func wizardPaso() -> Int { (json()["wizard_paso"] as? Int) ?? 0 }
+
     /// Tarifa por hora que TÚ pusiste para un motor (override del default).
     static func tarifa(_ motor: String) -> Double? { (json()["tarifas"] as? [String: Double])?[motor] }
     static func setTarifa(_ motor: String, _ valor: Double?) {

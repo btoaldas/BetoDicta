@@ -270,6 +270,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 editor == "reemplazos" ? EditorWindows.showRules() : EditorWindows.showKeyterms()
             }
         }
+
+        // Asistente de primer arranque: la primera vez en la máquina (o hasta
+        // que el usuario lo termine). BETODICTA_WIZARD=1 lo fuerza para pruebas.
+        let forzarWizard = ProcessInfo.processInfo.environment["BETODICTA_WIZARD"] == "1"
+        if forzarWizard || WizardWindowController.debeMostrarse {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                WizardWindowController.shared.show()
+            }
+        }
     }
 
     private func startDemo() {

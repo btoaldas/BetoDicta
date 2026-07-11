@@ -484,6 +484,9 @@ struct SettingsView: View {
                 link("Reportar un problema", "https://github.com/btoaldas/BetoDicta/issues/new")
                 Text("Se abre el formulario en GitHub: cuenta qué hiciste, qué esperabas y qué pasó.")
                     .font(.caption).foregroundStyle(.secondary)
+                boton("Volver a ver el asistente de configuración", "wand.and.stars") {
+                    WizardWindowController.shared.show()
+                }
             }
             tarjeta("Historial de versiones", "clock.arrow.circlepath") {
                 ForEach(Version.historial, id: \.version) { v in
