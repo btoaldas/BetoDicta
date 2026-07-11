@@ -1,6 +1,6 @@
 # 🎙 BetoDicta — Manual de usuario
 
-**Dictado por voz para macOS en español latino — con motores en la nube y 100% locales, failover automático y texto en vivo junto al notch.**
+**Dictado por voz para macOS en español latino — con motores en la nube y 100% locales, failover automático, texto en vivo junto al notch, y una app que aprende tu vocabulario.**
 
 > Página oficial: [betodicta.eztic.ec](https://betodicta.eztic.ec/) · Descargas: [GitHub Releases](https://github.com/btoaldas/BetoDicta/releases/latest) · ¿Problemas? [Reporta un issue](https://github.com/btoaldas/BetoDicta/issues/new)
 
@@ -16,19 +16,22 @@
 6. [El menú de la barra (y el Dock)](#6-el-menú-de-la-barra-y-el-dock)
 7. [La cascada de failover](#7-la-cascada-de-failover)
 8. [Los motores, uno por uno](#8-los-motores-uno-por-uno)
-9. [Pestaña Modelos](#9-pestaña-modelos)
+9. [Pestaña Modelos (y el precio por modelo)](#9-pestaña-modelos-y-el-precio-por-modelo)
 10. [Cambiar de motor al vuelo](#10-cambiar-de-motor-al-vuelo)
 11. [Pestaña Ajustes](#11-pestaña-ajustes)
 12. [Pestaña Acciones](#12-pestaña-acciones)
 13. [Glosario y reemplazos](#13-glosario-y-reemplazos)
-14. [Traducir al dictar](#14-traducir-al-dictar)
-15. [Pestaña Historial](#15-pestaña-historial)
-16. [Pestaña Transcribir](#16-pestaña-transcribir)
-17. [Estadísticas](#17-estadísticas)
-18. [Actualizar la app](#18-actualizar-la-app)
-19. [La caja negra: tus datos](#19-la-caja-negra-tus-datos)
-20. [Solución de problemas](#20-solución-de-problemas)
-21. [Preguntas frecuentes](#21-preguntas-frecuentes)
+14. [Que la app aprenda de ti (aprendizaje)](#14-que-la-app-aprenda-de-ti-aprendizaje)
+15. [Corrección por sonido (fonética)](#15-corrección-por-sonido-fonética)
+16. [Traducir al dictar](#16-traducir-al-dictar)
+17. [Pestaña Historial](#17-pestaña-historial)
+18. [Pestaña Transcribir](#18-pestaña-transcribir)
+19. [Estadísticas y costo por modelo](#19-estadísticas-y-costo-por-modelo)
+20. [Actualizar la app](#20-actualizar-la-app)
+21. [Apoya el proyecto](#21-apoya-el-proyecto)
+22. [La caja negra: tus datos](#22-la-caja-negra-tus-datos)
+23. [Solución de problemas](#23-solución-de-problemas)
+24. [Preguntas frecuentes](#24-preguntas-frecuentes)
 
 ---
 
@@ -36,11 +39,12 @@
 
 BetoDicta convierte tu voz en texto en cualquier aplicación del Mac: pulsas una tecla, hablas, vuelves a pulsar, y el texto aparece donde estaba tu cursor. Fue creada en Ecuador 🇪🇨 para el español latino, porque los dictados comerciales no entendían palabras como *Quipux*, *DGTIC* o *SENESCYT*.
 
-Sus tres superpoderes:
+Sus cuatro superpoderes:
 
 - **Texto en vivo**: ves lo que dices mientras lo dices, junto al notch — con la nube (ElevenLabs) o **100% sin internet** (Voxtral Realtime, Nemotron).
 - **Failover transparente**: si un motor falla, otro toma el mando solo — nunca pierdes un dictado.
 - **Tu vocabulario manda**: tu glosario personal llega a todos los motores, y una capa de reemplazos corrige después.
+- **Aprende de ti**: cuando corriges una palabra ahí donde la pegaste, la app aprende la regla sola (Kipux → Quipux) — sin que vuelvas a repetir el trabajo.
 
 ## 2. Requisitos
 
@@ -59,7 +63,7 @@ Sus tres superpoderes:
    - Pulsa **"Abrir de todos modos"** y pon tu contraseña. Es una sola vez.
 4. **Permisos** — la app pedirá:
    - **Micrófono**: para escucharte (obvio).
-   - **Accesibilidad**: para pegar el texto donde está tu cursor y para detectar la tecla de dictado. Ve a Ajustes del Sistema → Privacidad y seguridad → Accesibilidad y activa BetoDicta.
+   - **Accesibilidad**: para pegar el texto donde está tu cursor, detectar la tecla de dictado y (si lo activas) aprender de tus correcciones. Ve a Ajustes del Sistema → Privacidad y seguridad → Accesibilidad y activa BetoDicta.
 5. Verás el **micrófono en la barra de menú** (arriba a la derecha). Listo.
 
 ## 4. Tu primer dictado
@@ -118,8 +122,6 @@ Trucos:
 
 ## 7. La cascada de failover
 
-![Pestaña Modelos](img/modelos.png)
-
 La cascada es la lista ordenada de motores en **Configuración → Modelos**. Reglas:
 
 - **El #1 manda**: cada dictado empieza con él.
@@ -149,7 +151,9 @@ Ejemplos de comportamiento:
 
 **¿Cuál elegir?** Sin gastar un centavo y sin internet: **Voxtral Realtime 4B** de #1 (en vivo, calidad top) con **Whisper local** de respaldo. Si tienes key de ElevenLabs: ponlo de #1 y deja los locales de respaldo.
 
-## 9. Pestaña Modelos
+## 9. Pestaña Modelos (y el precio por modelo)
+
+![Pestaña Modelos](img/modelos.png)
 
 Todo el control de motores vive aquí:
 
@@ -164,7 +168,13 @@ Todo el control de motores vive aquí:
 **API keys de la nube**
 - Sección "Proveedores en la nube": pega tu key (⌘V funciona), pulsa **Guardar** → verás **"Guardado ✓"** y el estado pasa a **"conectado"**.
 - El ojito 👁 muestra/oculta la key. Las keys viven **solo en tu Mac** (`~/.betodicta/.env`).
-- Elige el modelo de cada proveedor en su selector (por ejemplo, ElevenLabs: Scribe v2 Realtime para texto en vivo, o v2/v1 por lotes).
+- Elige el modelo de cada proveedor en su selector (por ejemplo, ElevenLabs: `scribe_v2_realtime` para texto en vivo, o `scribe_v2` / `scribe_v1` por lotes).
+
+**El precio es POR MODELO** — cada modelo cuesta distinto, no el proveedor entero:
+- Debajo del selector de modelo hay un campo **"Costo $/hora de \<modelo\>"**. Muestra el precio de referencia 2026 del modelo que tengas elegido, y **cambia solo** cuando cambias de modelo en el selector.
+- Ejemplos reales: ElevenLabs `scribe_v2_realtime` = **$0.39/h** (en vivo) pero `scribe_v2` por lotes = **$0.22/h**; OpenAI `gpt-4o-transcribe` = **$0.36/h** pero `gpt-4o-mini-transcribe` = **$0.18/h**; Groq `whisper-large-v3-turbo` = **$0.04/h**. Los modelos locales = **$0** (gratis).
+- ¿No te cuadra un precio? Escribe el tuyo y pulsa **"Poner valor"** → **"Guardado ✓"**. Ese valor manda para el cálculo de costo del mes. Borra el campo para volver al de referencia.
+- El costo del mes (pestaña Estadísticas) usa el precio del **modelo que realmente se usó** en cada dictado — incluso si el failover cambió de modelo a mitad de camino.
 
 ## 10. Cambiar de motor al vuelo
 
@@ -192,12 +202,14 @@ Tres formas, de la más rápida a la más completa:
 - Pasa el texto por una IA (Groq) que corrige puntuación y quita muletillas ("eh", "este…"). Necesita key de Groq.
 - El **estilo del pulido** es una instrucción tuya opcional: "trato formal de usted", "estilo técnico", etc.
 
+**Aprendizaje** — que la app aprenda de tus correcciones y (opcional) corrija por sonido. Es tan importante que tiene sus propias secciones: [14](#14-que-la-app-aprenda-de-ti-aprendizaje) y [15](#15-corrección-por-sonido-fonética).
+
 **Multimedia**
 - **Pausar música y videos al dictar**: pausa Spotify, YouTube, Music… y los reanuda al terminar.
 - **Bajar el volumen al dictar**: además baja el volumen del sistema y lo restaura exacto.
 
 **Avanzado**
-- **Modo desarrollo**: anota detalles técnicos extra en el registro (para diagnosticar problemas).
+- **Modo desarrollo**: anota detalles técnicos extra en el registro (para diagnosticar) y **desbloquea la bitácora de aprendizajes** en Estadísticas.
 
 ## 12. Pestaña Acciones
 
@@ -219,15 +231,84 @@ El corazón de "que escriba bien mis palabras":
 
 ![Editor de reemplazos](img/editor-reemplazos.png)
 
-**Reemplazos** — Configuración → Acciones → *Editar reemplazos*. Correcciones automáticas DESPUÉS de transcribir, para todos los motores siempre: si un motor escribe "Kipux", la regla `Kipux → Quipux` lo corrige antes de pegar. Cada regla se puede activar/desactivar, y hay soporte de expresiones regulares para cazar variantes.
+**Reemplazos** — Configuración → Acciones → *Editar reemplazos*. Correcciones automáticas DESPUÉS de transcribir, para todos los motores siempre: si un motor escribe "Kipux", la regla `kipux, kipox, quipus… → Quipux` lo corrige antes de pegar.
+
+Cada fila del editor tiene, de izquierda a derecha:
+- ☑️ **Activo**: apaga la regla sin borrarla.
+- **Escuchado** (variantes separadas por coma): todo lo que el motor podría escribir mal.
+- **Se escribe**: cómo debe quedar.
+- 🔊 **Por sonido**: casilla de la onda — activa la [corrección fonética](#15-corrección-por-sonido-fonética) para ESE término (más abajo).
+- 🗑 **Borrar**.
+
+Soporta expresiones regulares para cazar familias enteras de variantes. Importar/Exportar tus reglas está en el menú de compartir (arriba a la derecha).
 
 **¿Cuál usar?** Los dos: el glosario ayuda al motor a acertar a la primera; los reemplazos son la red de seguridad que corrige lo que se escape.
 
-## 14. Traducir al dictar
+## 14. Que la app aprenda de ti (aprendizaje)
+
+![Aprendizaje y corrección por sonido](img/aprendizaje.png)
+
+En vez de que edites reglas a mano, BetoDicta puede **aprender sola** de las correcciones que ya haces. Se activa en **Ajustes → Aprendizaje → "Aprender de mis correcciones"** (viene apagado; es opt-in).
+
+**Cómo funciona**
+1. Dictas y la app pega el texto donde está tu cursor.
+2. Ahí mismo, **antes de enviar**, corriges una palabra que salió mal (ej. borras "Kipux" y escribes "Quipux").
+3. Un vigilante lee ese campo, compara lo pegado con lo que quedó, y si el cambio es del tipo *"palabra rara → palabra parecida"*, **aprende la regla solo** (`Kipux → Quipux`). La próxima vez ya te la corrige.
+4. Todo **100% local** — nada sale de tu Mac. La regla nueva se guarda en tus reemplazos.
+
+**Dónde funciona automático**
+- En **apps nativas** (Notas, Mail, Word, Pages, TextEdit…) es 100% automático: exponen su texto por Accesibilidad y el vigilante lo lee sin que hagas nada.
+
+**Dónde necesitas el atajo (Claude Code CLI, terminales, apps Electron)**
+- iTerm, Terminal, Warp, Claude Code CLI y demás **no exponen su texto** por Accesibilidad (dibujan sobre un lienzo). Ahí el vigilante no puede leer solo.
+- Solución: corrige la palabra, **SELECCIONA el texto corregido** y pulsa el atajo **⌘⇧L** (configurable en la misma tarjeta). La app copia tu selección, la compara con lo último que dictó y aprende igual.
+
+**Salvaguardas** — solo aprende cambios "palabra rara → parecida" (distancia de edición corta); ignora palabras comunes y muletillas para no inventar reglas basura.
+
+**Verlo y deshacerlo** — activa **Modo desarrollo** (Ajustes → Avanzado) y ve a **Estadísticas**: abajo aparece **"Aprendizaje (debug)"** con las correcciones de las últimas 24 h y el total histórico. Cada una trae un botón **↺** para revertir esa regla al instante (el 🔊 marca las que vinieron por sonido).
+
+## 15. Corrección por sonido (fonética)
+
+Los reemplazos normales corrigen variantes que ya conoces. La **corrección por sonido** va más allá: corrige palabras que **SUENAN** como un término tuyo, aunque nunca las hayas visto antes (cualquier cosa que suene a *Quipux* → *Quipux*).
+
+**Se enciende en dos niveles** (los dos, a propósito — es potente y conservadora):
+1. **Global**: Ajustes → Aprendizaje → **"Corrección por sonido (fonética)"** (opt-in, apagada por defecto).
+2. **Por término**: en *Editar reemplazos*, marca la casilla de la onda **🔊** en el término que quieras (solo ese usará el sonido). Si el interruptor global está encendido pero **ningún término tiene el 🔊**, no corrige nada — por eso hay que marcar el término.
+
+**Cómo funciona por dentro (Metaphone español)**
+Convierte cada palabra en un código de **cómo suena**, normalizando las consonantes que comparten sonido:
+
+| Suena igual | Se normaliza a |
+|---|---|
+| k / qu / c (ca,co,cu) | **K** |
+| b / v / w | **B** |
+| s / z / c (ce,ci) | **S** |
+| j / g (ge,gi) | **J** |
+| ll | **Y** · x → **KS** · ch → **X** · h → (muda) |
+
+Así *Quipux*, *Kipux* y *Guipux* caen en códigos casi idénticos (`KIPUKS`, `GIPUKS`).
+
+**Triple candado (para no sobre-corregir)** — una palabra solo se cambia si cumple las tres:
+1. tiene 3+ letras y no es ya el término correcto,
+2. su **sonido** está a distancia ≤ 1 del término (suena casi idéntico),
+3. su **escritura** no está muy lejos (≤ 40 % de su largo), y no es una palabra común.
+
+**Ejemplos reales** (con el término *Quipux* marcado 🔊):
+
+| Palabra | ¿Qué hace? |
+|---|---|
+| Kipux, Guipux, Quibux, Whipux | ✅ corrige → **Quipux** |
+| cripto, kilos, equipo | ❌ las deja igual (suenan distinto) |
+
+**Reversible siempre** — cada corrección por sonido queda registrada (con 🔊) en Estadísticas → Aprendizaje (debug), con su botón **↺**. Y si un término empieza a corregir de más, basta **quitarle la casilla 🔊** en Editar reemplazos: vuelve a ser un reemplazo normal.
+
+> ⚠️ Es la función más agresiva de la app. Un término puede sonar como muchas palabras; enciéndela término por término y revisa en Estadísticas lo que hizo.
+
+## 16. Traducir al dictar
 
 Menú de la barra → **"Traducir al dictar"** → elige idioma (inglés, portugués, francés…). Dictas en español y se pega traducido. Los términos de tu glosario NO se traducen (nombres propios quedan intactos). Necesita key de Groq. **"Desactivado"** vuelve al español normal.
 
-## 15. Pestaña Historial
+## 17. Pestaña Historial
 
 ![Pestaña Historial](img/historial.png)
 
@@ -239,22 +320,24 @@ Todos tus dictados, buscables:
 - **📁** muestra los archivos en Finder.
 - El texto es seleccionable directamente.
 
-## 16. Pestaña Transcribir
+## 18. Pestaña Transcribir
 
 ![Pestaña Transcribir](img/transcribir.png)
 
 - **Subir un archivo**: elige un audio o video (wav, mp3, m4a, mp4, mov…) y lo convierte a texto con tu glosario. Ideal para grabaciones de reuniones.
 - **Re-transcribir un dictado**: vuelve a pasar un audio del historial por el motor — útil si falló la primera vez o si tu glosario mejoró desde entonces.
 
-## 17. Estadísticas
+## 19. Estadísticas y costo por modelo
 
 ![Pestaña Estadísticas](img/estadisticas.png)
 
-- Minutos dictados hoy / semana / mes / año, número de dictados y **costo estimado** del mes (según tarifas de la nube; los motores locales cuestan $0).
+- Minutos dictados hoy / semana / mes / año, número de dictados y **costo estimado del mes**.
+- **El costo se calcula por MODELO**, no por proveedor: cada dictado suma según el precio del modelo que realmente se usó (y si el failover cambió de modelo a mitad, cuenta el que entregó). Los motores locales cuestan $0.
 - Gráfica de barras de los últimos 7 días.
 - El menú de la barra muestra un resumen por proveedor.
+- Con **Modo desarrollo** activo aparece la bitácora **Aprendizaje (debug)** (ver [sección 14](#14-que-la-app-aprenda-de-ti-aprendizaje)): las correcciones aprendidas, con 🔊 para las de sonido y ↺ para revertir.
 
-## 18. Actualizar la app
+## 20. Actualizar la app
 
 En el pie de la barra lateral de Configuración: **"Verificar actualización"**.
 
@@ -262,24 +345,39 @@ En el pie de la barra lateral de Configuración: **"Verificar actualización"**.
 - Si no: "Ya estás en la última versión".
 - El historial de cambios de cada versión está en **Créditos**.
 
-## 19. La caja negra: tus datos
+## 21. Apoya el proyecto
+
+![Créditos y donaciones](img/creditos.png)
+
+BetoDicta es gratis y libre (GPL-3.0). Si te sirve y quieres que siga creciendo, en **Configuración → Créditos → "Apoya el proyecto ☕"** hay varias formas de aportar:
+
+- **☕ Invítame un café** — tarjeta, Apple Pay o Google Pay ([betodicta.eztic.ec/apoyar](https://betodicta.eztic.ec/apoyar)).
+- **💜 GitHub Sponsors** — [github.com/sponsors/btoaldas](https://github.com/sponsors/btoaldas).
+- **💳 PayPal**.
+- Más formas (transferencia, cripto, etc.) en la página de apoyo.
+
+Cualquier aporte suma — plata, código, difusión o una buena idea en [Issues](https://github.com/btoaldas/BetoDicta/issues/new).
+
+## 22. La caja negra: tus datos
 
 Todo vive en tu Mac, en `~/.betodicta/`:
 
 | Archivo/carpeta | Qué es |
 |---|---|
 | `historial/año/mes/día/` | Cada dictado: audio (.wav) + texto (.txt). El audio se escribe a disco EN VIVO mientras hablas — un corte de luz no te roba ni un segundo (la app rescata lo grabado al reiniciar) |
-| `config.json` | Tus ajustes |
+| `config.json` | Tus ajustes (incluidas las tarifas por modelo que hayas puesto) |
 | `providers.json` | Tu cascada de motores |
 | `keyterms.txt` | Tu glosario |
-| `reemplazos.json` | Tus reglas de corrección |
+| `reemplazos.json` | Tus reglas de corrección (incluido el marcado 🔊 por sonido) |
+| `aprendizajes.jsonl` | La bitácora de lo que la app aprendió de tus correcciones |
+| `uso.jsonl` | El odómetro de uso (minutos y modelo por dictado) para las estadísticas |
 | `.env` | Tus API keys (solo en tu Mac) |
 | `models/` | Los modelos de IA descargados |
 | `betodicta.log` | El registro de todo (se rota y comprime solo) |
 
-**Privacidad**: con motores locales, tu voz **jamás sale de tu Mac**. Con motores de nube, el audio va al proveedor que elegiste (ElevenLabs/Groq/OpenAI/Mistral) bajo sus términos. El pulido y la traducción mandan el TEXTO a Groq. Tú controlas qué usas.
+**Privacidad**: con motores locales, tu voz **jamás sale de tu Mac**. Con motores de nube, el audio va al proveedor que elegiste (ElevenLabs/Groq/OpenAI/Mistral) bajo sus términos. El pulido y la traducción mandan el TEXTO a Groq. El aprendizaje es 100% local. Tú controlas qué usas.
 
-## 20. Solución de problemas
+## 23. Solución de problemas
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
@@ -290,14 +388,18 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 | Un modelo local "no disponible" | No está descargado (o quedó a medias) | Pestaña Modelos → descárgalo (verifica el ✓ de descargado) |
 | No pega el texto | Falta el permiso de Accesibilidad | Ajustes del Sistema → Privacidad y seguridad → Accesibilidad → activa BetoDicta |
 | La tecla fn no responde | Permiso de Accesibilidad, o fn capturada por el sistema | Revisa Accesibilidad; en Ajustes del Sistema → Teclado pon "Al pulsar la tecla fn: No hacer nada" |
+| **La corrección por sonido no hace nada** | El interruptor global está, pero **ningún término tiene el 🔊** | Editar reemplazos → marca la casilla de la onda 🔊 en el término que quieras (ver [sección 15](#15-corrección-por-sonido-fonética)) |
+| **No aprende mis correcciones en la terminal/Claude Code** | Esas apps no exponen su texto por Accesibilidad | Corrige, SELECCIONA el texto y pulsa **⌘⇧L** (ver [sección 14](#14-que-la-app-aprenda-de-ti-aprendizaje)) |
 
 **¿Nada de esto lo arregla?** → **[Reporta el problema aquí](https://github.com/btoaldas/BetoDicta/issues/new)** — cuéntanos qué hiciste, qué esperabas y qué pasó. Si puedes, adjunta las últimas líneas del registro (Configuración → Acciones → Ver registro).
 
-## 21. Preguntas frecuentes
+## 24. Preguntas frecuentes
 
-**¿Cuánto cuesta?** La app es gratis y open source (GPL-3.0). Los motores locales son gratis para siempre. Los de nube cobran según su tarifa (ElevenLabs ~$0.22–0.39 por hora de audio; Groq tiene capa gratis).
+**¿Cuánto cuesta?** La app es gratis y open source (GPL-3.0). Los motores locales son gratis para siempre. Los de nube cobran por hora de audio y **el precio es por modelo** (lo ves y lo editas en Modelos): ElevenLabs `scribe_v2_realtime` ~$0.39 / `scribe_v2` ~$0.22; OpenAI ~$0.18–0.36; Mistral ~$0.18–0.36; Groq ~$0.04–0.11 (con capa gratis).
 
 **¿Funciona sin internet?** Sí — con cualquier motor local (Voxtral, Nemotron, Whisper, Canary). Descárgalos una vez y dicta offline para siempre.
+
+**¿De verdad aprende mis palabras?** Sí. Corrige la palabra ahí donde la pegaste (o selecciónala y pulsa ⌘⇧L en la terminal) y la app guarda la regla sola, 100% local. Ver [sección 14](#14-que-la-app-aprenda-de-ti-aprendizaje).
 
 **¿Puedo dictar en otros idiomas?** BetoDicta está afinada para español latino. Voxtral Realtime detecta el idioma automáticamente; Nemotron soporta 40 idiomas (hoy la app lo fija en español).
 
