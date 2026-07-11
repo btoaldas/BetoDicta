@@ -87,6 +87,13 @@ struct Config {
     /// término marcado, aunque no sea una variante exacta ya conocida.
     /// Opt-in: apagada por defecto (más agresiva, puede sobre-corregir).
     static func correccionPorSonido() -> Bool { (json()["correccion_por_sonido"] as? Bool) ?? false }
+    /// Tarifa por hora que TÚ pusiste para un motor (override del default).
+    static func tarifa(_ motor: String) -> Double? { (json()["tarifas"] as? [String: Double])?[motor] }
+    static func setTarifa(_ motor: String, _ valor: Double?) {
+        var t = (json()["tarifas"] as? [String: Double]) ?? [:]
+        if let valor { t[motor] = valor } else { t[motor] = nil }
+        set("tarifas", to: t)
+    }
 
     /// API key de ElevenLabs: variable de entorno → ~/.betodicta/.env
     /// (la pone la pestaña Modelos; nada de rutas de otras apps).

@@ -478,12 +478,35 @@ struct CloudRow: View {
                     lista[i].modelo = nuevo; Providers.save(lista); onChange()
                 }
             }
+            // Tarifa editable (para el cálculo de costo). Default = investigado.
+            HStack(spacing: 6) {
+                Text("Costo $/hora:").font(.caption)
+                TextField("", text: $tarifa).frame(width: 60).textFieldStyle(.roundedBorder)
+                Button("Poner valor") { guardarTarifa() }.controlSize(.small)
+                if tarifaGuardada {
+                    Label("Guardado", systemImage: "checkmark.circle.fill")
+                        .font(.caption2).foregroundStyle(.green).transition(.opacity)
+                }
+                Spacer()
+            }
         }
         .padding(10).background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onAppear {
             key = ApiKeys.get(keyEnv)
             modelo = Providers.modelo(de: id) ?? modelos.first ?? ""
+            tarifa = String(format: "%.2f", UsageLog.tarifa(UsageLog.motorCanonico(id)))
         }
+    }
+
+    @State private var tarifa = ""
+    @State private var tarifaGuardada = false
+    private func guardarTarifa() {
+        let motor = UsageLog.motorCanonico(id)
+        let v = Double(tarifa.replacingOccurrences(of: ",", with: "."))
+        Config.setTarifa(motor, v)                      // nil = volver al default
+        tarifa = String(format: "%.2f", UsageLog.tarifa(motor))
+        withAnimation { tarifaGuardada = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { tarifaGuardada = false } }
     }
 }
