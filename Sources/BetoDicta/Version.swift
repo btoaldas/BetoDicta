@@ -6,12 +6,12 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.19.0"
+    static let numero = "0.19.1"
     static let fecha = "2026-07-11"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
-        ("0.19.0", "2026-07-11", [
+        ("0.19.1", "2026-07-11", [
             "Asistente de primer arranque: te guía en 8 pasos por permisos, IA de nube y local, el orden del failover, aprendizaje y preferencias — con check en vivo de los permisos",
             "La app aprende de ti: corriges una palabra donde la pegaste (Kipux → Quipux) y la recuerda sola. En la terminal o Claude Code, selecciónala y pulsa ⌘⇧L",
             "Corrección por sonido (fonética): corrige lo que SUENA como un término tuyo, término por término y siempre reversible",
