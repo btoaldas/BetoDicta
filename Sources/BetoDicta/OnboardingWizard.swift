@@ -54,6 +54,71 @@ final class WizardWindowController {
     }
 }
 
+// MARK: - Modal de novedades (tras actualizar)
+
+final class NovedadesWindowController {
+    static let shared = NovedadesWindowController()
+    private var window: NSWindow?
+
+    func show() {
+        if window == nil {
+            let hosting = NSHostingController(rootView: NovedadesView())
+            let w = NSWindow(contentViewController: hosting)
+            w.title = "Novedades de BetoDicta"
+            w.styleMask = [.titled, .closable]
+            w.setContentSize(NSSize(width: 460, height: 440))
+            w.isReleasedWhenClosed = false
+            w.center()
+            window = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+        window?.level = .floating
+    }
+    func close() { window?.close() }
+}
+
+struct NovedadesView: View {
+    private let acento = Color(red: 0.36, green: 0.28, blue: 0.62)
+    private var ultima: (version: String, fecha: String, cambios: [String])? { Version.historial.first }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                if let img = NSImage(named: "AppIcon") {
+                    Image(nsImage: img).resizable().frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Novedades").font(.title).bold()
+                    if let u = ultima { Text("Versión \(u.version) · \(u.fecha)").font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(ultima?.cambios ?? [], id: \.self) { c in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "sparkle").foregroundStyle(acento).font(.caption)
+                            Text(c).font(.subheadline)
+                        }
+                    }
+                }
+            }
+            Spacer()
+            HStack {
+                Button("Ver el manual") { if let u = URL(string: "https://github.com/btoaldas/BetoDicta/blob/main/docs/MANUAL.md") { NSWorkspace.shared.open(u) } }
+                    .buttonStyle(.link)
+                Spacer()
+                Button("Entendido") { NovedadesWindowController.shared.close() }
+                    .keyboardShortcut(.defaultAction).controlSize(.large)
+                    .buttonStyle(.borderedProminent).tint(acento)
+            }
+        }
+        .padding(24).frame(width: 460, height: 440)
+    }
+}
+
 // MARK: - Opción de modelo local (unifica tcpp / whisper / exótico)
 
 private struct LocalOpt: Identifiable {

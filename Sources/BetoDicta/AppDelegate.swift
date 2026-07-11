@@ -271,12 +271,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
-        // Asistente de primer arranque: la primera vez en la máquina (o hasta
-        // que el usuario lo termine). BETODICTA_WIZARD=1 lo fuerza para pruebas.
+        // ── Primer arranque vs actualización ──
+        // Señal capturada ANTES de tocar nada: ¿ya se usó la app aquí?
+        let instalacionPrevia = Config.instalacionPrevia()
+        // Migración: quien ya usaba la app (actualiza desde una versión sin
+        // wizard) NO debe ver el asistente de cero — se marca como hecho.
+        if !Config.tieneWizardFlag() {
+            Config.set("wizard_completado", to: instalacionPrevia)
+        }
         let forzarWizard = ProcessInfo.processInfo.environment["BETODICTA_WIZARD"] == "1"
-        if forzarWizard || WizardWindowController.debeMostrarse {
+        let mostrarWizard = forzarWizard || WizardWindowController.debeMostrarse
+        // Novedades: solo para quien ACTUALIZÓ (ya usaba la app y ve una
+        // versión nueva). Nunca junto al wizard (instalación nueva).
+        let mostrarNovedades = !mostrarWizard && instalacionPrevia
+            && Config.ultimaVersionVista() != Version.numero
+        Config.set("ultima_version_vista", to: Version.numero)
+
+        if mostrarWizard {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 WizardWindowController.shared.show()
+            }
+        } else if mostrarNovedades {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                NovedadesWindowController.shared.show()
             }
         }
     }

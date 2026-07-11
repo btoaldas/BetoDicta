@@ -308,6 +308,7 @@ struct SettingsView: View {
 
     // ---- Pie del sidebar: versión + actualización con un clic ----
     @State private var estadoUpdate: Updater.Estado = .reposo
+    @State private var mostrarNotas = false
 
     private var pieActualizacion: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -326,15 +327,27 @@ struct SettingsView: View {
             case .alDia:
                 Label("Ya estás en la última versión", systemImage: "checkmark.circle.fill")
                     .font(.caption2).foregroundStyle(.green)
-            case .disponible(let v, let dmg):
-                Button {
-                    estadoUpdate = .descargando
-                    Updater.actualizar(dmg: dmg) { estadoUpdate = $0 }
-                } label: {
-                    Label("Actualizar a v\(v)", systemImage: "arrow.down.circle.fill")
-                        .font(.caption2).bold()
+            case .disponible(let v, let dmg, let notas):
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        estadoUpdate = .descargando
+                        Updater.actualizar(dmg: dmg) { estadoUpdate = $0 }
+                    } label: {
+                        Label("Actualizar a v\(v)", systemImage: "arrow.down.circle.fill")
+                            .font(.caption2).bold()
+                    }
+                    .buttonStyle(.borderedProminent).tint(acento).controlSize(.small)
+                    if !notas.isEmpty {
+                        Button("Ver novedades") { mostrarNotas = true }
+                            .buttonStyle(.plain).font(.caption2).foregroundStyle(acento)
+                            .popover(isPresented: $mostrarNotas, arrowEdge: .trailing) {
+                                ScrollView {
+                                    Text(notas).font(.caption).textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                                }.frame(width: 320, height: 260)
+                            }
+                    }
                 }
-                .buttonStyle(.borderedProminent).tint(acento).controlSize(.small)
             case .descargando:
                 Label("Descargando… se reiniciará sola", systemImage: "arrow.down.circle")
                     .font(.caption2).foregroundStyle(.secondary)

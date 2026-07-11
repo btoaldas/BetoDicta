@@ -14,7 +14,7 @@ enum Updater {
         case reposo
         case buscando
         case alDia
-        case disponible(version: String, dmg: URL)
+        case disponible(version: String, dmg: URL, notas: String)
         case descargando
         case error(String)
     }
@@ -42,8 +42,9 @@ enum Updater {
                       let url = URL(string: dmg) else {
                     completion(.error("el release v\(remota) no trae DMG")); return
                 }
+                let notas = (json["body"] as? String) ?? ""
                 Log.log(.sistema, "actualización disponible: v\(remota)")
-                completion(.disponible(version: remota, dmg: url))
+                completion(.disponible(version: remota, dmg: url, notas: notas))
             }
         }.resume()
     }

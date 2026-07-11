@@ -91,8 +91,22 @@ struct Config {
     /// true al pulsar "Finalizar" — así un reinicio por Accesibilidad a mitad
     /// del wizard lo reabre en el mismo paso en vez de saltárselo.
     static func wizardCompletado() -> Bool { (json()["wizard_completado"] as? Bool) ?? false }
+    /// ¿Existe ya la decisión del wizard? (ausente = nunca se ha decidido;
+    /// sirve para migrar a usuarios que actualizan desde una versión sin wizard).
+    static func tieneWizardFlag() -> Bool { json()["wizard_completado"] != nil }
     /// Paso guardado del asistente (para reabrir donde iba tras un reinicio).
     static func wizardPaso() -> Int { (json()["wizard_paso"] as? Int) ?? 0 }
+    /// Última versión que el usuario YA vio (para el modal de novedades).
+    static func ultimaVersionVista() -> String { (json()["ultima_version_vista"] as? String) ?? "" }
+    /// ¿Hay señales de que la app ya se usó antes en esta máquina? (config,
+    /// historial, uso, claves…). Distingue "actualización" de "instalación nueva".
+    static func instalacionPrevia() -> Bool {
+        let fm = FileManager.default
+        for f in ["config.json", "uso.jsonl", "providers.json", ".env", "keyterms.txt"] {
+            if fm.fileExists(atPath: dir.appendingPathComponent(f).path) { return true }
+        }
+        return fm.fileExists(atPath: dir.appendingPathComponent("historial").path)
+    }
 
     /// Tarifa por hora que TÚ pusiste para un motor (override del default).
     static func tarifa(_ motor: String) -> Double? { (json()["tarifas"] as? [String: Double])?[motor] }
