@@ -86,9 +86,38 @@ enum Aprendizaje {
             let xl = limpiar(x), yl = limpiar(y)
             if agregarRegla(de: xl, a: yl) {
                 pendientes.append((de: xl, a: yl))
+                registrar(de: xl, a: yl)
                 Log.log(.config, "aprendido: \(xl) → \(yl)")
             }
         }
+    }
+
+    // MARK: Bitácora de aprendizajes (para ver qué y cuándo se aprendió)
+
+    private static var bitacoraURL: URL { Config.dir.appendingPathComponent("aprendizajes.jsonl") }
+
+    private static func registrar(de x: String, a y: String) {
+        let f = ISO8601DateFormatter()
+        let linea = "{\"ts\":\"\(f.string(from: Date()))\",\"de\":\"\(x)\",\"a\":\"\(y)\"}\n"
+        if let h = try? FileHandle(forWritingTo: bitacoraURL) {
+            h.seekToEndOfFile(); h.write(Data(linea.utf8)); try? h.close()
+        } else {
+            try? linea.write(to: bitacoraURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Aprendizajes registrados, del más reciente al más viejo.
+    static func historial() -> [(fecha: Date, de: String, a: String)] {
+        guard let texto = try? String(contentsOf: bitacoraURL, encoding: .utf8) else { return [] }
+        let f = ISO8601DateFormatter()
+        var out: [(Date, String, String)] = []
+        for linea in texto.split(separator: "\n") {
+            guard let d = try? JSONSerialization.jsonObject(with: Data(linea.utf8)) as? [String: String],
+                  let ts = d["ts"], let fecha = f.date(from: ts),
+                  let de = d["de"], let a = d["a"] else { continue }
+            out.append((fecha, de, a))
+        }
+        return out.reversed()
     }
 
     /// Al empezar el siguiente dictado: cierra cualquier vigilancia pendiente

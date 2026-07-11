@@ -546,7 +546,46 @@ struct StatsView: View {
 
             Text("Costo estimado según la tarifa por hora de audio de ElevenLabs.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            // Bitácora de aprendizajes — solo con Modo desarrollo activo.
+            if Config.devMode() {
+                aprendizajesDebug
+            }
         }
+    }
+
+    /// Qué y cuándo aprendió la app (correcciones automáticas), del último día.
+    private var aprendizajesDebug: some View {
+        let ahora = Date()
+        let unDia = ahora.addingTimeInterval(-86400)
+        let recientes = Aprendizaje.historial().filter { $0.fecha >= unDia }
+        let f: DateFormatter = { let d = DateFormatter(); d.locale = Locale(identifier: "es"); d.dateFormat = "HH:mm:ss"; return d }()
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Aprendizaje (debug)", systemImage: "brain.head.profile")
+                .font(.subheadline).bold().foregroundStyle(acento)
+            if !Config.aprender() {
+                Text("El aprendizaje está APAGADO (Ajustes → Aprendizaje). No aprenderá nada hasta activarlo.")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if recientes.isEmpty {
+                Text("Nada aprendido en las últimas 24 h. Corrige una palabra rara donde la pegaste (antes de enviar) y vuelve a dictar.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("\(recientes.count) corrección(es) aprendidas hoy:")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(Array(recientes.enumerated()), id: \.offset) { _, e in
+                    HStack(spacing: 8) {
+                        Text(f.string(from: e.fecha)).font(.caption2).foregroundStyle(.tertiary)
+                        Text("\(e.de) → \(e.a)").font(.caption).bold()
+                    }
+                }
+            }
+            Text("Total histórico: \(Aprendizaje.historial().count) reglas aprendidas.")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private var barras: some View {
