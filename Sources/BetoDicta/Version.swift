@@ -6,11 +6,14 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.9"
+    static let numero = "0.20.10"
     static let fecha = "2026-07-13"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.10", "2026-07-13", [
+            "Ayuda por proveedor: cada IA de nube (chat y voz) tiene ahora un icono ⓘ con una explicación INSTANTÁNEA (qué es, si es gratis, si va en vivo) y un enlace 'Conseguir clave' que abre la página oficial donde sacas tu API key — sin perder tiempo buscándola",
+        ]),
         ("0.20.9", "2026-07-13", [
             "Motores locales de transcripción al día: whisper.cpp (ggml 0.16.0, más allá de v1.9.1), llama.cpp (build 9976) y transcribe.cpp (v0.1.3) — mejoras de rendimiento y correcciones de los proyectos base, sin tocar tu configuración ni tus modelos",
         ]),
