@@ -129,13 +129,14 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 
 ## Hoja de ruta
 
-Lo que estaba en la lista original ya está **hecho**:
+Lo que sigue (pendiente e ideas — ¿te falta algo? [abre un issue](https://github.com/btoaldas/BetoDicta/issues/new)):
 
-- [x] Failover multi-proveedor (cascada arrastrable; con motores locales gratis y sin internet)
-- [x] UI de configuración completa + asistente de arranque (sin editar JSON)
-- [x] Re-transcribir desde el historial (pestaña **Transcribir**)
-
-Y bastante más desde entonces: ~25 motores de transcripción (muchos gratis), texto en vivo también en la nube, pulido con cualquier IA, búsqueda semántica del historial, precios que se actualizan solos… ¿Se te ocurre algo? Abre un issue.
+- [ ] **Google Cloud Speech (Chirp)** — español LATAM tope de gama (requiere autenticación con cuenta de servicio GCP)
+- [ ] **Azure AI Speech EN VIVO** — hoy va por lotes; su tiempo real es por SDK
+- [ ] Afinar el streaming en vivo de cada motor de nube (Deepgram, AssemblyAI, Gladia…) con pruebas reales de punta a punta
+- [ ] **Traducción en vivo** mientras dictas
+- [ ] Más idiomas y mejor multilingüe según lo que pidan
+- [ ] Dictado por comandos de voz (puntuación y formato hablados)
 
 ## Créditos
 
@@ -147,7 +148,7 @@ Creado por **Alberto Aldás** ([@btoaldas](https://github.com/btoaldas)) en comp
 - [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) de Jonas van den Berg (BSD-3-Clause) — pausa de multimedia
 - [Ollama](https://ollama.com) y [LM Studio](https://lmstudio.ai) — IA local (chat, embeddings, whisper)
 
-**Datos y fuentes:** [LiteLLM](https://github.com/BerriAI/litellm) (precios de modelos que se actualizan solos) · modelos ASR Whisper (OpenAI), Voxtral (Mistral), Nemotron y Canary ([NVIDIA](https://huggingface.co/nvidia)) · [bge-m3](https://huggingface.co/BAAI/bge-m3) (BAAI, búsqueda semántica).
+**Datos y fuentes:** [LiteLLM](https://github.com/BerriAI/litellm) (precios de modelos que se actualizan solos) · modelos ASR: Whisper de OpenAI ([ggml de ggerganov](https://huggingface.co/ggerganov/whisper.cpp)), Voxtral de Mistral ([GGUF de ggml-org](https://huggingface.co/ggml-org/Voxtral-Mini-3B-2507-GGUF)), Nemotron y Canary de NVIDIA ([GGUF de handy-computer](https://huggingface.co/handy-computer)) · [bge-m3](https://huggingface.co/BAAI/bge-m3) (BAAI, búsqueda semántica).
 
 **Servicios de IA que puedes conectar** (opcionales, muchos con capa gratis) — transcripción: ElevenLabs, Groq, OpenAI, Mistral, Fireworks, Hugging Face, Deepgram, AssemblyAI, Gladia, Speechmatics, Cloudflare, Soniox, Azure · pulido/traducción: OpenRouter, Anthropic, Google Gemini, DeepSeek, xAI, Cerebras, GitHub Models, NVIDIA, Together, Novita, Z.ai, SiliconFlow. Cada uno con su enlace y botón "Conseguir clave" dentro de la app (Créditos y Modelos).
 

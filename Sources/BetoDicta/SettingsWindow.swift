@@ -811,8 +811,10 @@ struct SettingsView: View {
     ]
     static let creditosDatos: [(String, String)] = [
         ("LiteLLM — precios de modelos que se actualizan solos", "https://github.com/BerriAI/litellm"),
-        ("Modelos ASR: Whisper (OpenAI), Voxtral (Mistral), Nemotron y Canary (NVIDIA)", "https://huggingface.co/nvidia"),
-        ("bge-m3 — embeddings para la búsqueda semántica (BAAI)", "https://huggingface.co/BAAI/bge-m3"),
+        ("Whisper (OpenAI) — modelos ggml de ggerganov/whisper.cpp", "https://huggingface.co/ggerganov/whisper.cpp"),
+        ("Voxtral (Mistral) — GGUF de ggml-org / handy-computer", "https://huggingface.co/ggml-org/Voxtral-Mini-3B-2507-GGUF"),
+        ("Nemotron y Canary (NVIDIA) — GGUF de handy-computer", "https://huggingface.co/handy-computer"),
+        ("bge-m3 (BAAI) — embeddings de la búsqueda semántica", "https://huggingface.co/BAAI/bge-m3"),
     ]
 
     // ---- helpers de UI ----
