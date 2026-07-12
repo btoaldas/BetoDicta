@@ -376,6 +376,8 @@ struct SettingsView: View {
     @State private var msgMod: String?
     @State private var msgModId: String?
     @State private var msgModOK = false
+    @State private var buscandoLocales = false
+    @State private var buscoLocales = false
 
     private var pieActualizacion: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -560,15 +562,25 @@ struct SettingsView: View {
                             HStack(spacing: 8) {
                                 Text("Locales: LM Studio / Ollama se detectan solos si están corriendo.")
                                     .font(.caption2).foregroundStyle(.secondary)
-                                Button("Buscar") { ChatIA.detectarLocales { detectTrigger += 1 } }.controlSize(.small)
+                                Button(buscandoLocales ? "Buscando…" : "Buscar") {
+                                    buscandoLocales = true
+                                    ChatIA.detectarLocales { buscandoLocales = false; buscoLocales = true; detectTrigger += 1 }
+                                }.controlSize(.small).disabled(buscandoLocales)
                             }
-                            ForEach(["lmstudio", "ollama"], id: \.self) { lid in
-                                if let mod = ChatIA.modelosLocales[lid] {
-                                    Text("• \(lid == "lmstudio" ? "LM Studio" : "Ollama") ✓ (\(mod))")
-                                        .font(.caption2).foregroundStyle(.green)
-                                }
+                            let locales = ["lmstudio", "ollama"].filter { ChatIA.modelosLocales[$0] != nil }
+                            ForEach(locales, id: \.self) { lid in
+                                Text("• \(lid == "lmstudio" ? "LM Studio" : "Ollama") ✓ (\(ChatIA.modelosLocales[lid] ?? ""))")
+                                    .font(.caption2).foregroundStyle(.green)
                             }
-                        }.padding(.top, 6)
+                            if buscoLocales && locales.isEmpty && !buscandoLocales {
+                                Text("Ninguno corriendo. Abre LM Studio / Ollama con un modelo de CHAT cargado y pulsa Buscar (no necesitan API key).")
+                                    .font(.caption2).foregroundStyle(.orange)
+                            }
+                        }
+                        .padding(.top, 6)
+                        // Auto-detecta al abrir esta sección (sin tener que pulsar
+                        // Buscar): sondeo EN VIVO con sesión fresca.
+                        .onAppear { ChatIA.detectarLocales { buscoLocales = true; detectTrigger += 1 } }
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Estilo del pulido (opcional)").font(.subheadline)

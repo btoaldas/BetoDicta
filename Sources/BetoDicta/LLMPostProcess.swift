@@ -102,12 +102,20 @@ struct ChatIA {
     }
     /// Sondea LM Studio / Ollama y cachea su modelo cargado (si responden).
     static func detectarLocales(_ done: (() -> Void)? = nil) {
+        // Sesión EFÍMERA y NUEVA en cada llamada: sin caché ni conexiones
+        // reusadas. Así "Buscar" siempre sondea EN VIVO — antes URLSession.shared
+        // reusaba el estado de cuando el server estaba caído y solo al reiniciar
+        // la app (sesión fresca) encontraba el server recién levantado.
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        cfg.timeoutIntervalForRequest = 2   // tolerante con arranque en frío
+        let sesion = URLSession(configuration: cfg)
         let grupo = DispatchGroup()
         for c in catalogo where c.local {
             guard let url = URL(string: "\(c.base)/models") else { continue }
             grupo.enter()
-            var req = URLRequest(url: url); req.timeoutInterval = 2   // tolerante con arranque en frío
-            URLSession.shared.dataTask(with: req) { data, _, _ in
+            var req = URLRequest(url: url); req.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+            sesion.dataTask(with: req) { data, _, _ in
                 defer { grupo.leave() }
                 let ids = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
                     .flatMap { $0["data"] as? [[String: Any]] }?.compactMap { $0["id"] as? String } ?? []
@@ -120,7 +128,7 @@ struct ChatIA {
                 }
             }.resume()
         }
-        grupo.notify(queue: .main) { done?() }
+        grupo.notify(queue: .main) { sesion.finishTasksAndInvalidate(); done?() }
     }
     /// ¿El id parece un modelo de EMBEDDINGS (no de chat)? — para no elegirlo
     /// como modelo de pulido por defecto.
