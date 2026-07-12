@@ -196,6 +196,26 @@ struct ChatIA {
         "grok-build-0.1": (1, 2), "grok-3": (2, 10), "grok-3-mini": (0.3, 0.5), "grok-2-latest": (2, 10),
     ]
 
+    /// Precios desde ~/.betodicta/precios_ia.json (fuente mantenida LiteLLM,
+    /// actualizada por scripts/update-prices.sh — SIN gastar IA). Miles de
+    /// modelos con precio real; más completo y fresco que el curado del código.
+    static var preciosArchivo: [String: (Double, Double)] = [:]
+    static func cargarPreciosArchivo() {
+        let url = Config.dir.appendingPathComponent("precios_ia.json")
+        guard let data = try? Data(contentsOf: url),
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: [Double]] else { return }
+        var out: [String: (Double, Double)] = [:]
+        for (k, v) in j where v.count == 2 { out[k] = (v[0], v[1]) }
+        if !out.isEmpty { preciosArchivo = out }
+    }
+    /// Último recurso para el COSTO (no para mostrar): precio típico por
+    /// proveedor, así el gasto en Estadísticas nunca queda en $0 por un modelo
+    /// sin precio conocido.
+    static let preciosProveedorFallback: [String: (Double, Double)] = [
+        "openai": (1, 4), "anthropic": (3, 15), "gemini": (0.3, 2.5), "groq": (0.3, 0.6),
+        "mistral": (0.5, 1.5), "deepseek": (0.14, 0.28), "xai": (2, 10), "openrouter": (0.5, 1.5),
+    ]
+
     static func etiquetaPrecioDe(_ inp: Double, _ out: Double, aprox: Bool = false) -> String {
         if inp <= 0 && out <= 0 { return "gratis" }
         return String(format: "$%.2f/$%.2f 1M", inp, out) + (aprox ? " ~" : "")
@@ -203,23 +223,23 @@ struct ChatIA {
     /// Precio a MOSTRAR para (proveedor, modelo). Prioridad: manual del usuario >
     /// publicado por el proveedor (OpenRouter) > curado (aprox.). nil si nada.
     static func precioDe(_ proveedorId: String, _ modelo: String) -> String? {
-        let key = "\(proveedorId)::\(modelo)"
-        if let m = Config.precioManual(key) { return etiquetaPrecioDe(m.0, m.1) }
-        if let pub = precios[proveedorId]?[modelo] { return pub }
+        if let m = Config.precioManual("\(proveedorId)::\(modelo)") { return etiquetaPrecioDe(m.0, m.1) }
+        if let pub = precios[proveedorId]?[modelo] { return pub }                          // OpenRouter en vivo
+        if let f = preciosArchivo[modelo] { return etiquetaPrecioDe(f.0, f.1) }            // archivo LiteLLM (real)
         if let cur = preciosConocidos[modelo] { return etiquetaPrecioDe(cur.0, cur.1, aprox: true) }
         return nil
     }
     /// Precio NUMÉRICO (entrada, salida) $ por 1M tokens — para calcular costo.
-    /// manual > curado > publicado (parseado del label). nil si desconocido.
+    /// manual > publicado > archivo > curado > fallback por proveedor.
     static func precioNum(_ proveedorId: String, _ modelo: String) -> (Double, Double)? {
         if let m = Config.precioManual("\(proveedorId)::\(modelo)") { return m }
-        if let cur = preciosConocidos[modelo] { return cur }
         if let pub = precios[proveedorId]?[modelo] {
             if pub.lowercased().contains("gratis") { return (0, 0) }
-            let ns = numerosDe(pub)
-            if ns.count >= 2 { return (ns[0], ns[1]) }
+            let ns = numerosDe(pub); if ns.count >= 2 { return (ns[0], ns[1]) }
         }
-        return nil
+        if let f = preciosArchivo[modelo] { return f }
+        if let cur = preciosConocidos[modelo] { return cur }
+        return preciosProveedorFallback[proveedorId]   // el costo nunca queda desconocido
     }
     private static func numerosDe(_ s: String) -> [Double] {
         var out: [Double] = []; var cur = ""
