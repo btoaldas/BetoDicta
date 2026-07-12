@@ -370,6 +370,9 @@ struct SettingsView: View {
     @State private var mostrarNotas = false
     @State private var keyInputs: [String: String] = [:]
     @State private var detectTrigger = 0
+    @State private var descubriendoMod = false
+    @State private var msgMod: String?
+    @State private var msgModId: String?
 
     private var pieActualizacion: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -515,37 +518,15 @@ struct SettingsView: View {
                     } else {
                         fila("IA para pulido y traducción") {
                             Picker("", selection: $m.pulidoProveedor) {
-                                ForEach(conectadas, id: \.id) { Text($0.nombre).tag($0.id) }
-                            }.labelsHidden().frame(width: 260)
+                                ForEach(conectadas, id: \.id) { Text($0.etiqueta).tag($0.id) }
+                            }.labelsHidden().frame(width: 300)
                         }
-                        Text("Cualquier IA conectada — nube, local o personalizada. Se usa para pulir y traducir.")
+                        Text("Muestra el proveedor y el modelo activo. Se usa para pulir y traducir.")
                             .font(.caption).foregroundStyle(.secondary)
-                        // Gateway con varios modelos descubiertos: elige cualquiera
-                        // al vuelo, sin abrir el editor.
-                        if m.pulidoProveedor.hasPrefix("custom:") {
-                            let gid = String(m.pulidoProveedor.dropFirst(7))
-                            let gws = PersonalizadaStore.cargar()
-                            if let g = gws.first(where: { $0.id == gid }), g.modelos.count > 1 {
-                                // El activo puede ser un ID escrito a mano que no
-                                // esté en la lista descubierta: inclúyelo para que
-                                // el Picker siempre tenga un tag que casar.
-                                let opciones = g.modelos.contains(g.modelo) || g.modelo.isEmpty
-                                    ? g.modelos : [g.modelo] + g.modelos
-                                fila("Modelo del gateway") {
-                                    Picker("", selection: Binding(
-                                        get: { g.modelo },
-                                        set: { nuevo in
-                                            var a = PersonalizadaStore.cargar()
-                                            if let k = a.firstIndex(where: { $0.id == gid }) {
-                                                a[k].modelo = nuevo; PersonalizadaStore.guardar(a); detectTrigger += 1
-                                            }
-                                        })) {
-                                        ForEach(opciones, id: \.self) { Text($0).tag($0) }
-                                    }.labelsHidden().frame(width: 260)
-                                }
-                                Text("\(g.modelos.count) modelos descubiertos. Cambia el activo cuando quieras, aquí mismo.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
+                        // Selector de MODELO del proveedor elegido (cualquiera:
+                        // gateway, nube o local). Elige al vuelo + Descubrir.
+                        if let sel = conectadas.first(where: { $0.id == m.pulidoProveedor }) {
+                            selectorModelo(sel)
                         }
                     }
                     // Conectar IAs de nube por key (OpenRouter, DeepSeek, xAI…)
@@ -737,6 +718,79 @@ struct SettingsView: View {
     }
     private func fila<T: View>(_ label: String, @ViewBuilder _ trailing: () -> T) -> some View {
         HStack { Text(label); Spacer(); trailing() }
+    }
+
+    // MARK: - Selector de modelo (para CUALQUIER proveedor de pulido)
+
+    /// Lista de modelos elegibles del proveedor: gateway → los guardados en su
+    /// JSON; fijo/local → los descubiertos en caché (modelosPorProveedor).
+    private func modelosDe(_ sel: ChatIA) -> [String] {
+        if sel.id.hasPrefix("custom:") {
+            let gid = String(sel.id.dropFirst(7))
+            return PersonalizadaStore.cargar().first(where: { $0.id == gid })?.modelos ?? []
+        }
+        return ChatIA.modelosPorProveedor[sel.id] ?? []
+    }
+    @ViewBuilder private func selectorModelo(_ sel: ChatIA) -> some View {
+        let _ = detectTrigger
+        let lista = modelosDe(sel)
+        let activo = sel.modeloEfectivo
+        // Incluye el activo aunque no esté en la lista (evita Picker sin tag).
+        let opciones = (lista.contains(activo) || activo.isEmpty) ? lista : [activo] + lista
+        VStack(alignment: .leading, spacing: 4) {
+            fila("Modelo") {
+                HStack(spacing: 8) {
+                    if opciones.count > 1 {
+                        Picker("", selection: Binding(
+                            get: { activo },
+                            set: { elegirModelo(sel, $0); detectTrigger += 1 })) {
+                            ForEach(opciones, id: \.self) { Text($0).tag($0) }
+                        }.labelsHidden().frame(width: 220)
+                    } else {
+                        Text(activo.isEmpty ? "—" : activo).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button(descubriendoMod && msgModId == sel.id ? "Buscando…" : "Descubrir") {
+                        descubriendoMod = true; msgMod = nil; msgModId = sel.id
+                        descubrirModelosDe(sel)
+                    }.controlSize(.small).disabled(descubriendoMod)
+                }
+            }
+            if msgModId == sel.id, let mm = msgMod {
+                Text(mm).font(.caption2).foregroundStyle(mm.contains("modelos") ? .green : .orange)
+            }
+            Text(sel.id.hasPrefix("custom:")
+                 ? "Modelos del gateway. Cambia el activo cuando quieras, aquí mismo."
+                 : "Elige el modelo de este proveedor. 'Descubrir' trae la lista completa.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+    private func elegirModelo(_ sel: ChatIA, _ nuevo: String) {
+        if sel.id.hasPrefix("custom:") {
+            let gid = String(sel.id.dropFirst(7))
+            var a = PersonalizadaStore.cargar()
+            if let k = a.firstIndex(where: { $0.id == gid }) { a[k].modelo = nuevo; PersonalizadaStore.guardar(a) }
+        } else {
+            Config.setPulidoModelo(sel.id, nuevo)
+        }
+    }
+    private func descubrirModelosDe(_ sel: ChatIA) {
+        if sel.id.hasPrefix("custom:") {
+            let gid = String(sel.id.dropFirst(7))
+            var a = PersonalizadaStore.cargar()
+            guard let k = a.firstIndex(where: { $0.id == gid }) else { descubriendoMod = false; return }
+            PersonalizadaStore.descubrirModelos(a[k]) { ids, msg in
+                if !ids.isEmpty {
+                    a[k].modelos = ids
+                    if a[k].modelo.isEmpty { a[k].modelo = ids[0] }
+                    PersonalizadaStore.guardar(a)
+                }
+                descubriendoMod = false; msgMod = msg; detectTrigger += 1
+            }
+        } else {
+            ChatIA.descubrirProveedor(sel) { _, msg in
+                descubriendoMod = false; msgMod = msg; detectTrigger += 1
+            }
+        }
     }
     private func boton(_ titulo: String, _ icono: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {

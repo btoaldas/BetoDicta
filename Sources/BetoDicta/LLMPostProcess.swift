@@ -33,8 +33,18 @@ struct ChatIA {
         if !local, baseSegura, let k = key { req.setValue(authPrefix + k, forHTTPHeaderField: authHeader) }
         for (h, v) in headersExtra { req.setValue(v, forHTTPHeaderField: h) }
     }
-    /// Modelo a usar: local usa el que tenga cargado el servidor (detectado).
-    var modeloEfectivo: String { local ? (Self.modelosLocales[id] ?? modelo) : modelo }
+    /// Modelo a usar de VERDAD: local usa el que tenga cargado el servidor;
+    /// un gateway trae su modelo activo en `modelo`; un proveedor fijo usa el
+    /// que el usuario eligió (Config.pulidoModelo) o su default.
+    var modeloEfectivo: String {
+        if local { return Config.pulidoModelo(id) ?? Self.modelosLocales[id] ?? modelo }
+        if id.hasPrefix("custom:") { return modelo }
+        return Config.pulidoModelo(id) ?? modelo
+    }
+    /// Nombre corto del proveedor (sin el " · modelo" que traen algunos).
+    var proveedorCorto: String { nombre.components(separatedBy: " · ").first ?? nombre }
+    /// Etiqueta para el selector: "Proveedor · modelo-activo".
+    var etiqueta: String { "\(proveedorCorto) · \(modeloEfectivo)" }
 
     /// Proveedores fijos (nube + locales). Constantes.
     static let fijos: [ChatIA] = [
@@ -53,6 +63,21 @@ struct ChatIA {
     static var catalogo: [ChatIA] { fijos + PersonalizadaStore.comoChatIA() }
     /// Modelo detectado de cada servidor local (vacío si no está corriendo).
     static var modelosLocales: [String: String] = [:]
+    /// Modelos descubiertos por proveedor (id → lista), para el selector de
+    /// modelo de CUALQUIER proveedor (no solo gateways). Se llena al pulsar
+    /// "Descubrir" en Ajustes → Pulido.
+    static var modelosPorProveedor: [String: [String]] = [:]
+
+    /// Descubre los modelos de un proveedor conectado (fijo o local) usando su
+    /// base + key, y los cachea en modelosPorProveedor[id].
+    static func descubrirProveedor(_ ia: ChatIA, _ done: @escaping ([String], String) -> Void) {
+        PersonalizadaStore.descubrirEn(base: ia.base, apiKey: ia.key ?? "",
+                                       authHeader: ia.authHeader, authPrefix: ia.authPrefix,
+                                       headers: ia.headersExtra) { ids, msg in
+            if !ids.isEmpty { modelosPorProveedor[ia.id] = ids }
+            done(ids, msg)
+        }
+    }
 
     /// Conectadas: nube con key + locales corriendo + personalizadas con base.
     static var conectadas: [ChatIA] {
@@ -184,33 +209,51 @@ enum PersonalizadaStore {
     /// trae /v1 y ahí no hay lista JSON (muchos gateways sirven una PÁGINA en
     /// /models y la API real bajo /v1), reintenta en base/v1/models.
     /// Devuelve (ids, mensaje).
-    static func descubrirModelos(_ ia: IAPersonalizada, _ done: @escaping ([String], String) -> Void) {
-        var base = ia.base.trimmingCharacters(in: .whitespaces)
-        while base.hasSuffix("/") { base = String(base.dropLast()) }
-        var rutas = ["\(base)/models"]
-        let baseLower = base.lowercased()
-        if !baseLower.contains("/v1") && !baseLower.contains("/v2") && !baseLower.contains("/openai") {
-            rutas.append("\(base)/v1/models")
+    static func descubrirModelos(_ ia: IAPersonalizada, rutaManual: String? = nil,
+                                 _ done: @escaping ([String], String) -> Void) {
+        descubrirEn(base: ia.base, apiKey: ia.apiKey, authHeader: ia.authHeader,
+                    authPrefix: ia.authPrefix, headers: ia.headers, rutaManual: rutaManual, done)
+    }
+
+    /// Núcleo de descubrimiento (OpenAI-compat). Prueba varias formas de ruta
+    /// porque cada proveedor/gateway sirve la lista distinto: /models, /v1/models,
+    /// /openai/v1/models, /api/v1/models. `rutaManual` (URL completa o ruta) se
+    /// prueba PRIMERO — para "con esta URL, probar el descubrimiento".
+    static func descubrirEn(base: String, apiKey: String, authHeader: String, authPrefix: String,
+                            headers: [String: String], rutaManual: String? = nil,
+                            _ done: @escaping ([String], String) -> Void) {
+        var b = base.trimmingCharacters(in: .whitespaces)
+        while b.hasSuffix("/") { b = String(b.dropLast()) }
+        let bl = b.lowercased()
+        var rutas: [String] = []
+        if let rm = rutaManual?.trimmingCharacters(in: .whitespaces), !rm.isEmpty {
+            rutas.append(rm.hasPrefix("http") ? rm : "\(b)/\(rm.hasPrefix("/") ? String(rm.dropFirst()) : rm)")
         }
-        func intentar(_ i: Int, _ ultimoCode: Int, _ ultimoErr: String?) {
+        rutas.append("\(b)/models")
+        if !bl.contains("/v1") && !bl.contains("/v2") { rutas.append("\(b)/v1/models") }
+        if !bl.contains("/openai") { rutas.append("\(b)/openai/v1/models") }
+        rutas.append("\(b)/api/v1/models")
+        var vistos = Set<String>(); rutas = rutas.filter { vistos.insert($0).inserted }   // dedup, mantiene orden
+        func intentar(_ i: Int, _ code: Int, _ err: String?) {
             guard i < rutas.count, let url = URL(string: rutas[i]) else {
-                let m = ultimoErr ?? (ultimoCode >= 400
-                    ? "HTTP \(ultimoCode): revisa URL o auth"
-                    : "sin lista de modelos (prueba agregar /v1 a la URL base)")
+                let m = err ?? (code >= 400
+                    ? "HTTP \(code): revisa URL o auth"
+                    : "sin lista de modelos (prueba una ruta manual, ej: /v1/models)")
                 DispatchQueue.main.async { done([], m) }; return
             }
             var req = URLRequest(url: url); req.timeoutInterval = 10
-            if !ia.apiKey.isEmpty { req.setValue(ia.authPrefix + ia.apiKey, forHTTPHeaderField: ia.authHeader.isEmpty ? "Authorization" : ia.authHeader) }
-            for (h, v) in ia.headers { req.setValue(v, forHTTPHeaderField: h) }
-            URLSession.shared.dataTask(with: req) { data, resp, err in
+            if !apiKey.isEmpty { req.setValue(authPrefix + apiKey, forHTTPHeaderField: authHeader.isEmpty ? "Authorization" : authHeader) }
+            for (h, v) in headers { req.setValue(v, forHTTPHeaderField: h) }
+            URLSession.shared.dataTask(with: req) { data, resp, e in
                 var ids: [String] = []
-                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                if err == nil, let data, let j = try? JSONSerialization.jsonObject(with: data) { ids = extraerModelos(j) }
+                let c = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if e == nil, let data, let j = try? JSONSerialization.jsonObject(with: data) { ids = extraerModelos(j) }
                 if !ids.isEmpty {
-                    let via = rutas[i].hasSuffix("/v1/models") ? " (la API está bajo /v1)" : ""
+                    let ruta = URL(string: rutas[i])?.path ?? rutas[i]
+                    let via = rutas[i] == "\(b)/models" ? "" : " (\(ruta))"
                     DispatchQueue.main.async { done(ids, "\(ids.count) modelos\(via)") }
                 } else {
-                    intentar(i + 1, code, err?.localizedDescription)
+                    intentar(i + 1, c, e?.localizedDescription)
                 }
             }.resume()
         }

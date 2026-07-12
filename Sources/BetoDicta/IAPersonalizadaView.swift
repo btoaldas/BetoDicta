@@ -21,6 +21,7 @@ struct IAPersonalizadaEditor: View {
     @State private var seleccion: String?
     @State private var descubriendo = false
     @State private var msgDescubrir: String?
+    @State private var rutaManual = ""
     @State private var estadoPrueba: String?
     @State private var probando = false
     @State private var nuevoHeaderN = ""
@@ -110,7 +111,7 @@ struct IAPersonalizadaEditor: View {
                 HStack(spacing: 8) {
                     Button(descubriendo ? "Buscando…" : "Descubrir modelos") {
                         descubriendo = true; msgDescubrir = nil
-                        PersonalizadaStore.descubrirModelos(store.items[i]) { ids, msg in
+                        PersonalizadaStore.descubrirModelos(store.items[i], rutaManual: rutaManual.isEmpty ? nil : rutaManual) { ids, msg in
                             descubriendo = false; msgDescubrir = msg
                             if !ids.isEmpty {
                                 // Guarda TODO el catálogo; el usuario elige cualquiera
@@ -131,6 +132,12 @@ struct IAPersonalizadaEditor: View {
                             }
                         }.frame(width: 150)
                     }
+                }
+                // Ruta manual del endpoint de modelos (opcional): se prueba
+                // PRIMERO. Para gateways que sirven la lista en una ruta rara.
+                campo("Ruta de modelos (opcional)") {
+                    TextField("auto (prueba /models, /v1/models…) o ej: /v1/models", text: $rutaManual)
+                        .textFieldStyle(.roundedBorder)
                 }
                 if !store.items[i].modelos.isEmpty {
                     Text("Se guardaron \(store.items[i].modelos.count) modelos. Puedes cambiar el activo aquí o en Ajustes → Pulido, cuando quieras.")

@@ -29,6 +29,18 @@ struct Config {
     /// Qué IA hace el pulido (y la traducción). Cualquier proveedor de chat
     /// conectado, no solo Groq. Default "groq".
     static func pulidoProveedor() -> String { (json()["pulido_proveedor"] as? String) ?? "groq" }
+    /// Modelo ACTIVO elegido por el usuario para un proveedor de pulido (por id).
+    /// Si no eligió, se usa el modelo por defecto del proveedor. Aplica a todos
+    /// (Groq, OpenAI, OpenRouter, Gemini, locales…), no solo a los gateways.
+    static func pulidoModelo(_ id: String) -> String? {
+        guard let m = (json()["pulido_modelos"] as? [String: Any])?[id] as? String, !m.isEmpty else { return nil }
+        return m
+    }
+    static func setPulidoModelo(_ id: String, _ modelo: String?) {
+        var d = (json()["pulido_modelos"] as? [String: Any]) ?? [:]
+        if let modelo, !modelo.isEmpty { d[id] = modelo } else { d[id] = nil }
+        set("pulido_modelos", to: d)
+    }
     static func customPrompt() -> String? {
         guard let s = json()["prompt_pulido"] as? String, !s.isEmpty else { return nil }
         return s
