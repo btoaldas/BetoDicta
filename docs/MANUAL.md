@@ -234,8 +234,9 @@ Tres formas, de la más rápida a la más completa:
 
 **Pulido con IA**
 - Pasa el texto por una IA que corrige puntuación y quita muletillas ("eh", "este…").
-- **Elige la IA**: no tiene que ser Groq. Cualquiera conectada — **Groq, OpenAI, Mistral, OpenRouter** (nube) o **LM Studio / Ollama** (local, se detectan solos si están corriendo). El selector solo lista las que tienes conectadas; la misma IA pule y traduce.
-- Para OpenRouter, pega su API key ahí mismo. Para los locales, pulsa **"Buscar"** (o préndelos y reabre) — la app encuentra el modelo cargado.
+- **Elige la IA**: no tiene que ser Groq. Cualquiera conectada — **Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI (Grok)** (nube) o **LM Studio / Ollama** (local, se detectan solos si están corriendo). El selector solo lista las conectadas; la misma IA pule y traduce.
+- **Conectar más IAs de chat** (despliega la sección): pega la API key de la que quieras (OpenRouter/DeepSeek/xAI…). Para los locales, pulsa **"Buscar"** (o préndelos y reabre) — la app encuentra el modelo cargado.
+- **IA personalizada (gateway propio)**: para servidores/gateways que no están en la lista. Pones tu **URL base**, **API key**, el **esquema de autenticación** (Bearer, X-API-Key o un encabezado propio), **encabezados extra**, y el **modelo** (a mano o con "Descubrir modelos"). Botón **"Probar conexión"** y marcas si sirve **para pulir** (reconocer voz llega pronto). Cada gateway aparece luego en el selector.
 - El **estilo del pulido** es una instrucción tuya opcional: "trato formal de usted", "estilo técnico", etc.
 
 **Aprendizaje** — que la app aprenda de tus correcciones y (opcional) corrija por sonido. Es tan importante que tiene sus propias secciones: [14](#14-que-la-app-aprenda-de-ti-aprendizaje) y [15](#15-corrección-por-sonido-fonética).
