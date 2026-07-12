@@ -170,6 +170,7 @@ struct Config {
         let isRegex: Bool?
         let activo: Bool?
         let porSonido: Bool?     // además de variantes exactas, corregir por sonido
+        let sigla: Bool?         // es un acrónimo (DGTIC): coloca por posición de audio
     }
 
     /// Solo las reglas activas (las desactivadas se conservan pero no se aplican).

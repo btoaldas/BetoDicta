@@ -162,8 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let dict = AudioMatch.rasgosDeWav(wav), let d = AudioMatch.detectadoEnDictado(termino: term, rasgosDictado: dict) {
                 print("SPOTTEST distancia spotting=\(String(format: "%.3f", d))")
             } else { print("SPOTTEST spotting=nil (sin muestras o audio corto)") }
-            let (out, cambios) = AudioMatch.corregirConAudio(texto: texto, wav: wav, terminos: [term])
-            print("SPOTTEST term=\(term) raya=\(AudioMatch.umbral())")
+            let esSigla = ProcessInfo.processInfo.environment["BETODICTA_SPOTSIGLA"] == "1"
+            let (out, cambios) = AudioMatch.corregirConAudio(texto: texto, wav: wav, terminos: [term],
+                                                             siglas: esSigla ? [term] : [])
+            print("SPOTTEST term=\(term) sigla=\(esSigla) raya=\(AudioMatch.umbralDictado())")
             print("  texto entrada: \(texto)")
             print("  texto salida : \(out)")
             print("  cambios: \(cambios.isEmpty ? "(ninguno)" : cambios.joined(separator: " · "))")
@@ -1189,9 +1191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // palabra que el motor botó. Combina audio + texto. Apagado no corre.
         if Config.matchPorAudio(), segundos <= 30 {
             // dedup: varias reglas apuntan al mismo término (Quipux, DGTIC…).
-            let terms = Array(Set(Config.replacements().map { $0.replacement })).filter { AudioMatch.tieneMuestras($0) }
+            let reglas = Config.replacements()
+            let terms = Array(Set(reglas.map { $0.replacement })).filter { AudioMatch.tieneMuestras($0) }
+            let siglas = Set(reglas.filter { $0.sigla == true }.map { $0.replacement })
             if !terms.isEmpty {
-                let (t, cambios) = AudioMatch.corregirConAudio(texto: textoFinal, wav: wav, terminos: terms)
+                let (t, cambios) = AudioMatch.corregirConAudio(texto: textoFinal, wav: wav, terminos: terms, siglas: siglas)
                 textoFinal = t
                 cambios.forEach { Log.write("  2b·audio:    \($0)") }
             }

@@ -290,6 +290,7 @@ struct Rule: Identifiable {
     var isRegex: Bool
     var activo: Bool
     var porSonido: Bool = false
+    var sigla: Bool = false
 }
 
 final class RulesStore: ObservableObject {
@@ -305,7 +306,8 @@ final class RulesStore: ObservableObject {
                                replacement: $0["replacement"] as? String ?? "",
                                isRegex: $0["isRegex"] as? Bool ?? false,
                                activo: $0["activo"] as? Bool ?? true,
-                               porSonido: $0["porSonido"] as? Bool ?? false) }
+                               porSonido: $0["porSonido"] as? Bool ?? false,
+                               sigla: $0["sigla"] as? Bool ?? false) }
     }
     /// Guarda descartando filas totalmente vacías (así no quedan huérfanas).
     func save() {
@@ -318,6 +320,7 @@ final class RulesStore: ObservableObject {
             if r.isRegex { d["isRegex"] = true }
             if !r.activo { d["activo"] = false }
             if r.porSonido { d["porSonido"] = true }
+            if r.sigla { d["sigla"] = true }
             return d
         }
         if let data = try? JSONSerialization.data(withJSONObject: arr, options: [.prettyPrinted]) {
@@ -353,7 +356,8 @@ struct RulesEditor: View {
     @State private var probarID: UUID?     // fila con el popover "probar" abierto
     @State private var vozID: UUID?        // fila con el popover de voz abierto
     @State private var porAudio = Config.matchPorAudio()
-    @State private var umbral = Double(AudioMatch.umbral())   // raya de sensibilidad
+    @State private var umbral = Double(AudioMatch.umbral())   // raya de sensibilidad (probar)
+    @State private var umbralDict = Double(AudioMatch.umbralDictado())  // raya del dictado real
     @State private var refrescarSugerido = 0                  // bump al cerrar popover de voz
 
     var body: some View {
@@ -413,6 +417,34 @@ struct RulesEditor: View {
                     Text("Haz pruebas etiquetadas (🎙 → “Prueba correcta” / “Prueba falsa”) y te sugiero una raya a tu medida (necesita ≥2 de cada una).")
                         .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
                 }
+                Divider()
+                // Raya del DICTADO real (escala PROPIA, más alta que probar).
+                HStack(spacing: 10) {
+                    Text("Raya al dictar: \(String(format: "%.1f", umbralDict))")
+                        .font(.caption).frame(width: 155, alignment: .leading)
+                    Slider(value: Binding(get: { umbralDict },
+                                          set: { umbralDict = $0; Config.set("umbral_audio_dictado", to: $0) }),
+                           in: 6.0...16.0, step: 0.1).tint(acentoEd)
+                    Button("Restablecer") {
+                        umbralDict = Double(AudioMatch.umbralDictadoDefecto)
+                        Config.set("umbral_audio_dictado", to: umbralDict)
+                    }.controlSize(.small)
+                }
+                Text("Es la raya para corregir DENTRO de un dictado (frase completa). Corre en escala más alta que “probar por voz” (~8–13). Default 10.4.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                if let sd = AudioMatch.umbralDictadoSugerido() {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wand.and.stars").foregroundStyle(acentoEd)
+                        Text(String(format: "Sugerido al dictar: %.1f", sd.valor)).font(.caption).bold()
+                        Text(String(format: "(dijiste ≤%.1f · no ≥%.1f · %d+%d dictados)", sd.corrHi, sd.falsLo, sd.nCorr, sd.nFals))
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Button("Usar") { umbralDict = Double(sd.valor); Config.set("umbral_audio_dictado", to: umbralDict) }.controlSize(.small)
+                    }
+                    if sd.traslape {
+                        Text("⚠️ En dictado tus con/sin se traslapan — margen fino. Más muestras del término ayudan.")
+                            .font(.caption2).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
             HStack(spacing: 8) {
                 Text("").frame(width: 22)
@@ -463,6 +495,12 @@ struct RulesEditor: View {
                                                           set: { if !$0 { vozID = nil; refrescarSugerido += 1; umbral = Double(AudioMatch.umbral()) } })) {
                                 VozView(termino: rule.replacement)
                             }
+                            // Sigla: acrónimo (DGTIC) → coloca por posición del audio.
+                            Toggle(isOn: Binding(get: { rule.sigla }, set: { rule.sigla = $0; store.save() })) {
+                                Image(systemName: "textformat.abc")
+                            }
+                            .toggleStyle(.checkbox)
+                            .help("Es una SIGLA/acrónimo (DGTIC, SENESCYT). El audio la coloca por DÓNDE sonó, no por parecido de letras (las siglas deletreadas no suenan a sus letras).")
                         }
                         // Interruptor de la corrección por sonido (fonética).
                         Toggle(isOn: Binding(get: { rule.porSonido },

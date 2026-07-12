@@ -297,6 +297,26 @@ enum AudioMatch {
                           nCorr: corr.count, nFals: fals.count, traslape: traslape)
     }
 
+    /// Sugerido de la raya del DICTADO desde dictado.jsonl. "con" = el término
+    /// aparece en el texto (lo dijiste y el motor acertó); "sin" = no aparece.
+    static func umbralDictadoSugerido() -> Sugerencia? {
+        guard let text = try? String(contentsOf: dictadoURL, encoding: .utf8) else { return nil }
+        var con: [Float] = [], sin: [Float] = []
+        for line in text.split(separator: "\n") {
+            guard let d = line.data(using: .utf8),
+                  let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  let t = j["termino"] as? String, let dist = j["dist"] as? Double,
+                  let txt = j["texto"] as? String else { continue }
+            if txt.range(of: t, options: .caseInsensitive) != nil { con.append(Float(dist)) }
+            else { sin.append(Float(dist)) }
+        }
+        guard con.count >= 2, sin.count >= 2 else { return nil }
+        let corrHi = percentil(con, 0.85), falsLo = percentil(sin, 0.15)
+        let traslape = corrHi >= falsLo
+        return Sugerencia(valor: (corrHi + falsLo) / 2, corrHi: corrHi, falsLo: falsLo,
+                          nCorr: con.count, nFals: sin.count, traslape: traslape)
+    }
+
     // ---- Spotting: ¿aparece el término DENTRO del audio del dictado? ----
     // Sin timestamps del motor: deslizo la muestra (ventana móvil) sobre el
     // audio completo y me quedo con el mejor calce (misma escala que probar
@@ -336,20 +356,20 @@ enum AudioMatch {
         // refs crudos (sin CMN) para igualar al dictado (también crudo).
         let refs = muestras(termino).compactMap { rasgos($0, cmn: false) }
         guard !refs.isEmpty else { return nil }
-        return spotSubseqMin(refs: refs, dictado: rasgosDictado)
+        return spotSubseqMin(refs: refs, dictado: rasgosDictado)?.dist
     }
 
     /// Subsequence DTW: alinea la referencia a la MEJOR subventana del dictado
     /// (arranque y fin libres) — localiza la palabra sin ventana fija. Es la
     /// idea de "encontrar dónde encaja mejor". Normaliza por largo de referencia.
-    private static func subseqDTW(ref: [[Float]], dictado: [[Float]]) -> Float {
+    /// Devuelve (distancia normalizada, columna final del mejor calce) para
+    /// saber DÓNDE en el audio encaja mejor la referencia (→ colocar la palabra).
+    private static func subseqDTW(ref: [[Float]], dictado: [[Float]]) -> (dist: Float, fin: Int) {
         let m = ref.count, n = dictado.count
-        if m == 0 || n == 0 { return .greatestFiniteMagnitude }
+        if m == 0 || n == 0 { return (.greatestFiniteMagnitude, 0) }
         let inf = Float.greatestFiniteMagnitude
         var prev = [Float](repeating: 0, count: n + 1)   // fila 0 = 0 en todo j (arranque libre)
         var curr = [Float](repeating: inf, count: n + 1)
-        // ventana CMN local: normalizar el dictado por un entorno móvil ayuda,
-        // pero para subseq lo aplicamos a todo el dictado una vez (ya viene sin CMN).
         for i in 1...m {
             curr[0] = inf
             for j in 1...n {
@@ -358,17 +378,19 @@ enum AudioMatch {
             }
             swap(&prev, &curr)
         }
-        var best = inf
-        for j in 1...n { best = min(best, prev[j]) }   // fin libre
-        return best / Float(m)
+        var best = inf, bestJ = 0
+        for j in 1...n where prev[j] < best { best = prev[j]; bestJ = j }   // fin libre
+        return (best / Float(m), bestJ)
     }
-    private static func spotSubseqMin(refs: [[[Float]]], dictado: [[Float]]) -> Float? {
+    /// (distancia, posición 0..1 dentro del audio) del mejor calce entre muestras.
+    private static func spotSubseqMin(refs: [[[Float]]], dictado: [[Float]]) -> (dist: Float, pos: Float)? {
         guard !refs.isEmpty, !dictado.isEmpty else { return nil }
-        var mejor = Float.greatestFiniteMagnitude
+        var mejorD = Float.greatestFiniteMagnitude, mejorPos: Float = 0
         for ref in refs where ref.count >= 4 && dictado.count >= ref.count {
-            mejor = min(mejor, subseqDTW(ref: ref, dictado: dictado))
+            let (d, fin) = subseqDTW(ref: ref, dictado: dictado)
+            if d < mejorD { mejorD = d; mejorPos = Float(fin) / Float(dictado.count) }
         }
-        return mejor == .greatestFiniteMagnitude ? nil : mejor
+        return mejorD == .greatestFiniteMagnitude ? nil : (mejorD, mejorPos)
     }
     /// Método viejo (ventana fija) — para comparar en pruebas.
     static func detectadoViejo(termino: String, rasgosDictado: [[Float]]) -> Float? {
@@ -382,26 +404,28 @@ enum AudioMatch {
     /// está ya escrito, reemplaza la palabra del texto fonéticamente más cercana
     /// (la que el motor botó). Audio confirma, texto coloca. Devuelve el texto
     /// corregido y un registro de lo que hizo.
-    static func corregirConAudio(texto: String, wav: Data, terminos: [String]) -> (texto: String, cambios: [String]) {
+    static func corregirConAudio(texto: String, wav: Data, terminos: [String],
+                                 siglas: Set<String> = []) -> (texto: String, cambios: [String]) {
         guard let dict = rasgosDeWav(wav) else { return (texto, []) }
         let u = umbralDictado()
         var resultado = texto
         var cambios: [String] = []
         for termino in terminos where tieneMuestras(termino) {
-            guard let d = spotSubseqMin(refs: muestras(termino).compactMap { rasgos($0, cmn: false) }, dictado: dict) else { continue }
+            guard let (d, pos) = spotSubseqMin(refs: muestras(termino).compactMap { rasgos($0, cmn: false) }, dictado: dict) else { continue }
             let ds = String(format: "%.2f", d)
-            // Si ya está escrito, NO se corrige — pero SÍ se registra (para
-            // tener el caso "lo dijiste y el motor acertó" en la calibración).
             let yaEscrito = resultado.range(of: termino, options: .caseInsensitive) != nil
             var corrigio = false
             if !yaEscrito {
-                if d <= u, let mala = palabraMasParecida(en: resultado, a: termino) {
+                // Coloca por POSICIÓN del audio (dónde encajó) + parecido. Para
+                // siglas, por posición (no suenan parecido a las letras).
+                if d <= u, let mala = palabraAReemplazar(en: resultado, termino: termino,
+                                                         sigla: siglas.contains(termino), pos: pos) {
                     resultado = reemplazarPalabra(mala, por: termino, en: resultado)
                     corrigio = true
-                    cambios.append("🔊 \(termino) (audio \(ds)): '\(mala)' → '\(termino)'")
+                    cambios.append("🔊 \(termino) (audio \(ds)\(siglas.contains(termino) ? " sigla" : "")): '\(mala)' → '\(termino)'")
                 } else if d <= u {
                     cambios.append("🔊 \(termino) sonó a \(ds) pero no hallé palabra que reemplazar")
-                } else if d <= u * 1.12 {   // solo near-miss (cerca de la raya)
+                } else if d <= u * 1.12 {
                     cambios.append("· \(termino) sonó a \(ds) (raya \(String(format: "%.2f", u)) → no corrige)")
                 }
             }
@@ -410,8 +434,51 @@ enum AudioMatch {
         return (resultado, cambios)
     }
 
-    /// Palabra del texto con el sonido (Metaphone) más cercano al término,
-    /// que no sea común y esté razonablemente cerca. nil si ninguna califica.
+    /// Elige la palabra del texto a reemplazar por el término, usando la
+    /// POSICIÓN donde el audio encajó (pos 0..1). Palabra normal: la más
+    /// parecida fonéticamente cerca de esa posición (o global). Sigla: la
+    /// palabra rara más cercana a esa posición (las siglas no suenan a sus letras).
+    private static func palabraAReemplazar(en texto: String, termino: String, sigla: Bool, pos: Float) -> String? {
+        let regex = try? NSRegularExpression(pattern: "\\p{L}[\\p{L}\\p{N}]*")
+        let ns = texto as NSString
+        let ms = regex?.matches(in: texto, range: NSRange(location: 0, length: ns.length)) ?? []
+        let palabras = ms.map { ns.substring(with: $0.range) }
+        guard !palabras.isEmpty else { return nil }
+        let n = palabras.count
+        let objetivo = min(n - 1, max(0, Int((pos * Float(n)).rounded())))
+
+        // Candidatas: no comunes, ≥2 letras, no el término mismo.
+        func califica(_ w: String) -> Bool {
+            w.count >= 2 && !Aprendizaje.esComun(w) && w.caseInsensitiveCompare(termino) != .orderedSame
+        }
+        if sigla {
+            // Guarda anti-falsos: solo reemplaza una palabra cuya INICIAL
+            // coincida con la de la sigla (deótico→D sí, aprobó→a no), y
+            // cercana a donde sonó. Así no pisa palabras correctas.
+            func inicial(_ s: String) -> Character? {
+                s.folding(options: .diacriticInsensitive, locale: .current).lowercased().first
+            }
+            let ini = inicial(termino)
+            var mejor: (String, Int)?     // (palabra, distancia a la posición)
+            for (i, w) in palabras.enumerated()
+            where califica(w) && abs(i - objetivo) <= 3 && inicial(w) == ini {
+                let dist = abs(i - objetivo)
+                if mejor == nil || dist < mejor!.1 { mejor = (w, dist) }
+            }
+            return mejor?.0     // nil si ninguna coincide en inicial → no toca
+        }
+        // palabra normal: fonética cerca de la posición; si no, global (viejo).
+        let ct = Fonetica.codigo(termino)
+        var cerca: (String, Int)?
+        for (i, w) in palabras.enumerated() where abs(i - objetivo) <= 3 && califica(w) && w.count >= 3 {
+            let fd = Fonetica.distancia(Fonetica.codigo(w), ct)
+            if fd <= max(2, ct.count / 2), cerca == nil || fd < cerca!.1 { cerca = (w, fd) }
+        }
+        if let c = cerca { return c.0 }
+        return palabraMasParecida(en: texto, a: termino)   // respaldo global
+    }
+
+    /// Palabra del texto con el sonido (Metaphone) más cercano al término.
     private static func palabraMasParecida(en texto: String, a termino: String) -> String? {
         let ct = Fonetica.codigo(termino)
         var mejor: (palabra: String, d: Int)?
@@ -424,7 +491,6 @@ enum AudioMatch {
             let d = Fonetica.distancia(Fonetica.codigo(w), ct)
             if mejor == nil || d < mejor!.d { mejor = (w, d) }
         }
-        // solo si el sonido es de verdad cercano (evita reemplazar cualquier cosa)
         guard let mj = mejor, mj.d <= max(2, ct.count / 2) else { return nil }
         return mj.palabra
     }
