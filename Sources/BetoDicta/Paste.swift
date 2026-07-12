@@ -30,3 +30,14 @@ func pasteText(_ text: String) {
     }
 }
 
+/// Pulsa Return (o Shift+Return) — para los flags "Enter / Shift+Enter al
+/// terminar el dictado". Se llama con un pequeño retraso tras pegar.
+func presionarRetorno(shift: Bool) {
+    let src = CGEventSource(stateID: .combinedSessionState)
+    let down = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_Return), keyDown: true)
+    let up = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_Return), keyDown: false)
+    if shift { down?.flags = .maskShift; up?.flags = .maskShift }
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
+}
+

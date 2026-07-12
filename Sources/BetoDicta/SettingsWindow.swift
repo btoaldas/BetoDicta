@@ -49,6 +49,13 @@ final class SettingsModel: ObservableObject {
         }
     }
     @Published var modoDesarrollo: Bool { didSet { Config.set("modo_desarrollo", to: modoDesarrollo) } }
+    @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
+    @Published var enterAlTerminar: Bool {
+        didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }
+    }
+    @Published var shiftEnterAlTerminar: Bool {
+        didSet { Config.set("shift_enter_al_terminar", to: shiftEnterAlTerminar); if shiftEnterAlTerminar { enterAlTerminar = false } }
+    }
 
     init() {
         tecla = Config.hotkey()
@@ -68,6 +75,9 @@ final class SettingsModel: ObservableObject {
         mostrarEnDock = Config.showInDock()
         arrancarInicio = SMAppService.mainApp.status == .enabled
         modoDesarrollo = Config.devMode()
+        espacioAlTerminar = Config.espacioAlTerminar()
+        enterAlTerminar = Config.enterAlTerminar()
+        shiftEnterAlTerminar = Config.shiftEnterAlTerminar()
     }
 }
 
@@ -408,6 +418,17 @@ struct SettingsView: View {
                     Text("Auto-cerrar tras \(Int(m.silencioMax)) s de silencio").font(.subheadline)
                     Slider(value: $m.silencioMax, in: 15...300, step: 15).tint(acento)
                 }
+            }
+            tarjeta("Al terminar el dictado", "return") {
+                Toggle("Añadir un espacio al final", isOn: $m.espacioAlTerminar)
+                Text("Separa dictados seguidos (si no, quedan pegados).")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Pulsar Enter al terminar", isOn: $m.enterAlTerminar)
+                Text("Envía en chats (WhatsApp, Slack…) o salta de línea en editores.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Pulsar Shift+Enter al terminar", isOn: $m.shiftEnterAlTerminar)
+                Text("Salto de línea suave (sin enviar). Excluyente con Enter.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Pulido con IA", "waveform") {
                 Toggle("Pulir el texto con IA (Groq)", isOn: $m.postProceso)

@@ -90,6 +90,14 @@ struct Config {
     /// Asistente de primer arranque: ¿ya lo terminó el usuario? Solo se marca
     /// true al pulsar "Finalizar" — así un reinicio por Accesibilidad a mitad
     /// del wizard lo reabre en el mismo paso en vez de saltárselo.
+    // Qué hacer al TERMINAR un dictado (tras pegar). Todos opt-in, default off.
+    /// Añade un espacio al final (separa dictados seguidos).
+    static func espacioAlTerminar() -> Bool { (json()["espacio_al_terminar"] as? Bool) ?? false }
+    /// Pulsa Enter al terminar (envía en chats / salta línea en editores).
+    static func enterAlTerminar() -> Bool { (json()["enter_al_terminar"] as? Bool) ?? false }
+    /// Pulsa Shift+Enter al terminar (salto de línea suave).
+    static func shiftEnterAlTerminar() -> Bool { (json()["shift_enter_al_terminar"] as? Bool) ?? false }
+
     /// Coincidencia por AUDIO (experimental): reconocer un término por tu voz
     /// grabada, además del texto. Opt-in, apagado por defecto.
     static func matchPorAudio() -> Bool { (json()["match_por_audio"] as? Bool) ?? false }

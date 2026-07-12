@@ -1188,7 +1188,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // confirma por sonido que dijiste un término grabado y coloca la
         // palabra que el motor botó. Combina audio + texto. Apagado no corre.
         if Config.matchPorAudio(), segundos <= 30 {
-            let terms = Config.replacements().map { $0.replacement }.filter { AudioMatch.tieneMuestras($0) }
+            // dedup: varias reglas apuntan al mismo término (Quipux, DGTIC…).
+            let terms = Array(Set(Config.replacements().map { $0.replacement })).filter { AudioMatch.tieneMuestras($0) }
             if !terms.isEmpty {
                 let (t, cambios) = AudioMatch.corregirConAudio(texto: textoFinal, wav: wav, terminos: terms)
                 textoFinal = t
@@ -1245,7 +1246,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func finishDelivery(_ text: String, rawText: String, wav: Data, history: HistoryWriter?) {
         // El .txt guarda SOLO lo entregado, limpio. El crudo queda en el log.
         history?.finish(wav: wav, finalText: text)
-        pasteText(text)
+        // Flags "al terminar": espacio al final (pegado con el texto) + Enter /
+        // Shift+Enter (teclas tras pegar). Todos opt-in.
+        let textoAPegar = Config.espacioAlTerminar() ? text + " " : text
+        pasteText(textoAPegar)
+        if Config.enterAlTerminar() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { presionarRetorno(shift: false) }
+        } else if Config.shiftEnterAlTerminar() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { presionarRetorno(shift: true) }
+        }
         // Vigilar el campo: si corriges el texto ahí (antes de enviarlo), la
         // app aprende de esa corrección. No aplica con traducción activa.
         Aprendizaje.recordarContexto(pegado: text, traducido: Config.translate())
