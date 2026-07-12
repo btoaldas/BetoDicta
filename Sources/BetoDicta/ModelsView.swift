@@ -201,13 +201,7 @@ struct ModelsView: View {
                             VStack(alignment: .leading, spacing: 1) {
                                 HStack(spacing: 6) {
                                     Text(p.nombre).font(.subheadline).bold()
-                                    if TcppStreamClient.esModeloStreaming(p.modelo ?? "")
-                                        || (p.id == "elevenlabs" && (p.modelo ?? "") == "scribe_v2_realtime") {
-                                        Text("EN VIVO").font(.system(size: 8, weight: .bold))
-                                            .padding(.horizontal, 5).padding(.vertical, 1)
-                                            .background(.green.opacity(0.85)).foregroundStyle(.white)
-                                            .clipShape(Capsule())
-                                    }
+                                    BadgeVivo(id: p.id, modelo: p.modelo ?? "")
                                 }
                                 Text("\(p.tipo == "nube" ? "☁️ nube" : "💾 local") · \(modeloDe(p))")
                                     .font(.caption2).foregroundStyle(.secondary)
@@ -427,6 +421,37 @@ struct ModelsView: View {
     }
 }
 
+// MARK: - Badge "EN VIVO" (streaming) por proveedor
+//
+// Marca los motores que transcriben EN VIVO (texto mientras hablas): locales
+// streaming (Nemotron/Voxtral RT), ElevenLabs realtime, y los de NUBE con
+// WebSocket (Deepgram, Soniox, AssemblyAI, Speechmatics, Gladia). Verde = en
+// vivo ACTIVO; gris = lo soporta pero falta activarlo (Avanzado → STT en vivo).
+struct BadgeVivo: View {
+    let id: String
+    let modelo: String
+    var body: some View {
+        let e = Self.estado(id: id, modelo: modelo)
+        if e.mostrar {
+            Text(e.activo ? "EN VIVO" : "en vivo")
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(e.activo ? Color.green.opacity(0.85) : Color.gray.opacity(0.55))
+                .foregroundStyle(.white).clipShape(Capsule())
+                .help(e.activo
+                      ? "Transcribe EN VIVO por WebSocket — ves el texto mientras hablas."
+                      : "Soporta texto EN VIVO. Actívalo en Ajustes → Avanzado → 'STT en vivo para la nube'.")
+        }
+    }
+    /// (¿mostrar badge?, ¿está activo el modo vivo?)
+    static func estado(id: String, modelo: String) -> (mostrar: Bool, activo: Bool) {
+        if TcppStreamClient.esModeloStreaming(modelo) { return (true, true) }       // local streaming
+        if id == "elevenlabs" && modelo == "scribe_v2_realtime" { return (true, true) }
+        if LiveNube.soportan[id] != nil { return (true, Config.sttStreaming()) }    // nube WS: activo solo con el flag
+        return (false, false)
+    }
+}
+
 // MARK: - Fila de proveedor cloud (key + modelo)
 
 struct CloudRow: View {
@@ -464,6 +489,7 @@ struct CloudRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(nombre).font(.subheadline).bold()
+                BadgeVivo(id: id, modelo: modelo)
                 if let precio = Self.precios[id] {
                     Text(precio).font(.caption2).foregroundStyle(.secondary)
                 }
