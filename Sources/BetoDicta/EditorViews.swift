@@ -164,6 +164,88 @@ struct KeytermsEditor: View {
     }
 }
 
+// MARK: - Voz (experimental): grabar muestras del término + probar por voz
+
+struct VozView: View {
+    let termino: String
+    @StateObject private var grabador = GrabadorVoz()
+    @State private var muestras: [URL] = []
+    @State private var reproductor: AVAudioPlayer?
+    @State private var probando = false
+    @State private var resultado: String?
+    @State private var cazaria = false
+
+    private var pruebaURL: URL { FileManager.default.temporaryDirectory.appendingPathComponent("beto-prueba-voz.wav") }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Voz para «\(termino)»").font(.headline)
+            Text("Graba tu voz diciéndolo varias veces (más muestras = más robusto). Al dictar, con el flag activo, se reconoce por cómo suena, además del texto.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+
+            if muestras.isEmpty {
+                Text("Sin muestras todavía.").font(.caption2).foregroundStyle(.tertiary)
+            } else {
+                ForEach(muestras, id: \.self) { url in
+                    HStack(spacing: 8) {
+                        Text(url.lastPathComponent).font(.caption).monospaced()
+                        Spacer()
+                        Button { reproducir(url) } label: { Image(systemName: "play.circle") }.buttonStyle(.borderless)
+                        Button { AudioMatch.borrar(url); refrescar() } label: { Image(systemName: "trash").foregroundStyle(.red) }.buttonStyle(.borderless)
+                    }
+                }
+            }
+
+            Button {
+                if grabador.grabando { grabador.detener(); refrescar() }
+                else { grabador.iniciar(a: AudioMatch.nuevaMuestraURL(termino)) }
+            } label: {
+                Label(grabador.grabando ? "Detener (guardar muestra)" : "Grabar muestra",
+                      systemImage: grabador.grabando ? "stop.circle.fill" : "record.circle")
+                    .foregroundStyle(grabador.grabando ? .red : acentoEd)
+            }.buttonStyle(.bordered)
+
+            Divider()
+
+            Button {
+                if probando { evaluarPrueba() }
+                else { resultado = nil; grabador.iniciar(a: pruebaURL); probando = true }
+            } label: {
+                Label(probando ? "Detener y evaluar" : "Probar por voz",
+                      systemImage: probando ? "stop.circle.fill" : "waveform.badge.mic")
+            }.buttonStyle(.bordered).disabled(muestras.isEmpty)
+            .help("Di el término y te muestro la distancia y si lo reconocería.")
+
+            if let r = resultado {
+                HStack(spacing: 6) {
+                    Image(systemName: cazaria ? "checkmark.circle.fill" : "xmark.circle")
+                        .foregroundStyle(cazaria ? .green : .secondary)
+                    Text(r).font(.subheadline).bold()
+                }
+            }
+        }
+        .padding(14).frame(width: 300)
+        .onAppear { refrescar() }
+    }
+
+    private func refrescar() { muestras = AudioMatch.muestras(termino) }
+    private func reproducir(_ url: URL) {
+        reproductor = try? AVAudioPlayer(contentsOf: url); reproductor?.play()
+    }
+    private func evaluarPrueba() {
+        grabador.detener(); probando = false
+        // pequeño respiro para que el archivo termine de escribirse
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            guard let d = AudioMatch.distancia(pruebaURL: pruebaURL, termino: termino) else {
+                resultado = "no pude leer el audio"; cazaria = false; return
+            }
+            cazaria = d <= AudioMatch.umbral()
+            resultado = String(format: "distancia %.2f (raya %.2f) → %@", d, AudioMatch.umbral(),
+                               cazaria ? "sí, lo reconoce" : "no")
+        }
+    }
+}
+
 // MARK: - Editor visual de reemplazos (CRUD + activar/desactivar + import/export)
 
 struct Rule: Identifiable {
@@ -234,6 +316,8 @@ final class RulesStore: ObservableObject {
 struct RulesEditor: View {
     @StateObject private var store = RulesStore()
     @State private var probarID: UUID?     // fila con el popover "probar" abierto
+    @State private var vozID: UUID?        // fila con el popover de voz abierto
+    @State private var porAudio = Config.matchPorAudio()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -249,6 +333,18 @@ struct RulesEditor: View {
                     Button("Exportar…") { exportar() }
                 } label: { Image(systemName: "square.and.arrow.up.on.square") }.frame(width: 44)
                 Button { store.add() } label: { Image(systemName: "plus") }
+            }
+            // Flag experimental: coincidir por AUDIO (tu voz grabada).
+            Toggle(isOn: Binding(get: { porAudio },
+                                 set: { porAudio = $0; Config.set("match_por_audio", to: $0) })) {
+                HStack(spacing: 6) {
+                    Image(systemName: "mic.badge.plus")
+                    Text("Coincidir por audio (experimental)").font(.subheadline)
+                }
+            }.toggleStyle(.switch).tint(acentoEd)
+            if porAudio {
+                Text("Graba tu voz diciendo el término (botón 🎙 de cada fila) y, al dictar, se reconoce por cómo suena — además del texto. Apagado no cambia nada.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
                 Text("").frame(width: 22)
@@ -285,6 +381,20 @@ struct RulesEditor: View {
                         .popover(isPresented: Binding(get: { probarID == rule.id },
                                                       set: { if !$0 { probarID = nil } })) {
                             ProbarSonidoView(termino: rule.replacement)
+                        }
+                        // Voz (experimental): grabar muestras + probar por voz.
+                        if porAudio {
+                            Button { vozID = (vozID == rule.id ? nil : rule.id) } label: {
+                                Image(systemName: AudioMatch.tieneMuestras(rule.replacement) ? "mic.fill" : "mic")
+                                    .foregroundStyle(AudioMatch.tieneMuestras(rule.replacement) ? acentoEd : Color.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(rule.replacement.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .help("Grabar tu voz para este término y probar por voz.")
+                            .popover(isPresented: Binding(get: { vozID == rule.id },
+                                                          set: { if !$0 { vozID = nil } })) {
+                                VozView(termino: rule.replacement)
+                            }
                         }
                         // Interruptor de la corrección por sonido (fonética).
                         Toggle(isOn: Binding(get: { rule.porSonido },

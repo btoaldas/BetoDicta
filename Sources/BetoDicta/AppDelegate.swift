@@ -137,6 +137,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Prueba del motor de audio (dev): BETODICTA_AUDIOTEST=<wav de prueba>
+        // imprime la distancia a cada término enrolado en ~/.betodicta/voces/ y sale.
+        if let prueba = ProcessInfo.processInfo.environment["BETODICTA_AUDIOTEST"] {
+            let url = URL(fileURLWithPath: prueba)
+            let carpetas = (try? FileManager.default.contentsOfDirectory(at: AudioMatch.dir, includingPropertiesForKeys: nil)) ?? []
+            guard let test = AudioMatch.rasgos(url) else { print("AUDIOTEST: no pude leer \(prueba)"); exit(2) }
+            print("AUDIOTEST prueba=\(url.lastPathComponent) umbral=\(AudioMatch.umbral())")
+            for c in carpetas.filter({ $0.hasDirectoryPath }) {
+                let term = c.lastPathComponent
+                let refs = (try? FileManager.default.contentsOfDirectory(at: c, includingPropertiesForKeys: nil))?.filter { $0.pathExtension == "wav" }.compactMap { AudioMatch.rasgos($0) } ?? []
+                if refs.isEmpty { continue }
+                let d = refs.map { AudioMatch.dtw(test, $0) }.min() ?? 999
+                print(String(format: "  %@ : dist=%.3f  %@", term, d, d <= AudioMatch.umbral() ? "CAZA ✅" : "ignora ❌"))
+            }
+            exit(0)
+        }
         // Menú de Edición "invisible": la app no muestra barra de menú
         // (LSUIElement), pero sin esto macOS no enruta ⌘V/⌘C/⌘X/⌘A/⌘Z en
         // los campos de texto (pegar la API key solo funcionaba con clic derecho).

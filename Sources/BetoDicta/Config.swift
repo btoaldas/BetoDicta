@@ -90,6 +90,12 @@ struct Config {
     /// Asistente de primer arranque: ¿ya lo terminó el usuario? Solo se marca
     /// true al pulsar "Finalizar" — así un reinicio por Accesibilidad a mitad
     /// del wizard lo reabre en el mismo paso en vez de saltárselo.
+    /// Coincidencia por AUDIO (experimental): reconocer un término por tu voz
+    /// grabada, además del texto. Opt-in, apagado por defecto.
+    static func matchPorAudio() -> Bool { (json()["match_por_audio"] as? Bool) ?? false }
+    /// Umbral de distancia para el match por audio (nil = usar el default).
+    static func umbralAudio() -> Double? { json()["umbral_audio"] as? Double }
+
     static func wizardCompletado() -> Bool { (json()["wizard_completado"] as? Bool) ?? false }
     /// ¿Existe ya la decisión del wizard? (ausente = nunca se ha decidido;
     /// sirve para migrar a usuarios que actualizan desde una versión sin wizard).
