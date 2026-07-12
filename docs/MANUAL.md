@@ -227,8 +227,15 @@ Tres formas, de la más rápida a la más completa:
 - **Arrancar al iniciar sesión**: BetoDicta se abre sola al prender el Mac.
 - **Auto-cerrar tras N segundos de silencio**: el guardián que te salva si olvidas la tecla abierta (15–300 s).
 
+**Al terminar el dictado** (opt-in, apagados por defecto)
+- **Añadir un espacio al final**: separa dictados seguidos para que no queden pegados.
+- **Pulsar Enter al terminar**: envía en chats (WhatsApp, Slack…) o salta de línea en editores.
+- **Pulsar Shift+Enter al terminar**: salto de línea suave, sin enviar (excluyente con Enter).
+
 **Pulido con IA**
-- Pasa el texto por una IA (Groq) que corrige puntuación y quita muletillas ("eh", "este…"). Necesita key de Groq.
+- Pasa el texto por una IA que corrige puntuación y quita muletillas ("eh", "este…").
+- **Elige la IA**: no tiene que ser Groq. Cualquiera conectada — **Groq, OpenAI, Mistral, OpenRouter** (nube) o **LM Studio / Ollama** (local, se detectan solos si están corriendo). El selector solo lista las que tienes conectadas; la misma IA pule y traduce.
+- Para OpenRouter, pega su API key ahí mismo. Para los locales, pulsa **"Buscar"** (o préndelos y reabre) — la app encuentra el modelo cargado.
 - El **estilo del pulido** es una instrucción tuya opcional: "trato formal de usted", "estilo técnico", etc.
 
 **Aprendizaje** — que la app aprenda de tus correcciones y (opcional) corrija por sonido. Es tan importante que tiene sus propias secciones: [14](#14-que-la-app-aprenda-de-ti-aprendizaje) y [15](#15-corrección-por-sonido-fonética).
@@ -237,8 +244,9 @@ Tres formas, de la más rápida a la más completa:
 - **Pausar música y videos al dictar**: pausa Spotify, YouTube, Music… y los reanuda al terminar.
 - **Bajar el volumen al dictar**: además baja el volumen del sistema y lo restaura exacto.
 
-**Avanzado**
+**Avanzado** (plegado por defecto; se despliega al clic)
 - **Modo desarrollo**: anota detalles técnicos extra en el registro (para diagnosticar) y **desbloquea la bitácora de aprendizajes** en Estadísticas.
+- **Espera del pulido con IA**: cuánto esperar la respuesta antes de rendirse (10–60 s). La app ya reintenta sola ante cortes de red, y espera más para textos largos. Súbelo si tu conexión es lenta.
 
 ## 12. Pestaña Acciones
 
@@ -266,10 +274,14 @@ Cada fila del editor tiene, de izquierda a derecha:
 - ☑️ **Activo**: apaga la regla sin borrarla.
 - **Escuchado** (variantes separadas por coma): todo lo que el motor podría escribir mal.
 - **Se escribe**: cómo debe quedar.
-- 🔊 **Por sonido**: casilla de la onda — activa la [corrección fonética](#15-corrección-por-sonido-fonética) para ESE término (más abajo).
+- 🔉 **Escuchar**: la Mac pronuncia el término (solo para oírlo — la corrección no usa audio).
+- 🔍 **Probar**: escribe una palabra y te dice si la [fonética](#15-corrección-por-sonido-fonética) la corregiría (y por qué).
+- 🔊 **Por sonido**: casilla de la onda — activa la corrección fonética para ESE término.
 - 🗑 **Borrar**.
 
 Soporta expresiones regulares para cazar familias enteras de variantes. Importar/Exportar tus reglas está en el menú de compartir (arriba a la derecha).
+
+**Coincidencia por audio (experimental)** — arriba del editor hay un interruptor "Coincidir por audio". Con él encendido, cada fila muestra un **🎙** para **grabar tu voz** diciendo el término (varias veces = mejor) y una casilla **Abc** para marcarlo como **sigla** (DGTIC). Al dictar, la app reconoce el término por **cómo suena tu voz** —además del texto— y corrige aunque el motor lo escriba muy distinto. Es experimental: se calibra con "probar por voz" y una **raya al dictar** ajustable, y solo actúa en dictados ≤30 s. Apagado no cambia nada.
 
 **¿Cuál usar?** Los dos: el glosario ayuda al motor a acertar a la primera; los reemplazos son la red de seguridad que corrige lo que se escape.
 
@@ -404,7 +416,7 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 | `models/` | Los modelos de IA descargados |
 | `betodicta.log` | El registro de todo (se rota y comprime solo) |
 
-**Privacidad**: con motores locales, tu voz **jamás sale de tu Mac**. Con motores de nube, el audio va al proveedor que elegiste (ElevenLabs/Groq/OpenAI/Mistral) bajo sus términos. El pulido y la traducción mandan el TEXTO a Groq. El aprendizaje es 100% local. Tú controlas qué usas.
+**Privacidad**: con motores locales, tu voz **jamás sale de tu Mac**. Con motores de nube, el audio va al proveedor que elegiste (ElevenLabs/Groq/OpenAI/Mistral) bajo sus términos. El pulido y la traducción mandan el TEXTO a la IA que elijas — o **no salen de tu Mac** si usas una IA local (LM Studio / Ollama). El aprendizaje y la coincidencia por audio son 100% locales. Tú controlas qué usas.
 
 ## 23. Solución de problemas
 
