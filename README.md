@@ -139,11 +139,17 @@ Y bastante más desde entonces: ~25 motores de transcripción (muchos gratis), t
 
 ## Créditos
 
-Creado por **Alberto Aldás** ([@btoaldas](https://github.com/btoaldas)) en compañía de **Claude** (Anthropic) — programado a pura voz, dictándole a las mismas herramientas que lo inspiraron.
+Creado por **Alberto Aldás** ([@btoaldas](https://github.com/btoaldas)) en compañía de **Claude** (Anthropic) — programado a pura voz, dictándole a las mismas herramientas que lo inspiraron. Inspirado en el gran corazón open source de [Handy](https://github.com/cjpais/Handy) de **@cjpais**.
 
-La pausa de multimedia usa [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) de Jonas van den Berg (BSD-3-Clause).
+**Motores y librerías de código abierto:**
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) y [llama.cpp](https://github.com/ggml-org/llama.cpp) (ggml-org) — Whisper y Voxtral locales
+- [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) — streaming local en vivo (Voxtral Realtime / Nemotron)
+- [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) de Jonas van den Berg (BSD-3-Clause) — pausa de multimedia
+- [Ollama](https://ollama.com) y [LM Studio](https://lmstudio.ai) — IA local (chat, embeddings, whisper)
 
-Inspirado en el gran corazón open source de [Handy](https://github.com/cjpais/Handy) de **@cjpais** — si prefieres dictado 100% local y gratuito, empieza por ahí.
+**Datos y fuentes:** [LiteLLM](https://github.com/BerriAI/litellm) (precios de modelos que se actualizan solos) · modelos ASR Whisper (OpenAI), Voxtral (Mistral), Nemotron y Canary ([NVIDIA](https://huggingface.co/nvidia)) · [bge-m3](https://huggingface.co/BAAI/bge-m3) (BAAI, búsqueda semántica).
+
+**Servicios de IA que puedes conectar** (opcionales, muchos con capa gratis) — transcripción: ElevenLabs, Groq, OpenAI, Mistral, Fireworks, Hugging Face, Deepgram, AssemblyAI, Gladia, Speechmatics, Cloudflare, Soniox, Azure · pulido/traducción: OpenRouter, Anthropic, Google Gemini, DeepSeek, xAI, Cerebras, GitHub Models, NVIDIA, Together, Novita, Z.ai, SiliconFlow. Cada uno con su enlace y botón "Conseguir clave" dentro de la app (Créditos y Modelos).
 
 ## Licencia
 

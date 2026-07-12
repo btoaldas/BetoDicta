@@ -733,6 +733,27 @@ struct SettingsView: View {
                     WizardWindowController.shared.show()
                 }
             }
+            tarjeta("Créditos", "heart") {
+                Text("Creado por Alberto Aldás en compañía de Claude (Anthropic), programado a pura voz. Inspirado en el corazón open source de Handy (@cjpais).")
+                    .font(.subheadline)
+                link("Handy — inspiración open source", "https://github.com/cjpais/Handy")
+            }
+            tarjeta("Motores y librerías de código abierto", "shippingbox") {
+                ForEach(Self.creditosOpenSource, id: \.0) { link($0.0, $0.1) }
+            }
+            tarjeta("Servicios de transcripción (voz)", "waveform") {
+                Text("Los motores de nube que puedes conectar para pasar tu voz a texto:")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(Self.creditosVoz, id: \.0) { link($0.0, $0.1) }
+            }
+            tarjeta("Servicios de IA para pulir y traducir", "sparkles") {
+                Text("Las IAs que puedes conectar para limpiar puntuación, muletillas y traducir:")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(Self.creditosPulido, id: \.0) { link($0.0, $0.1) }
+            }
+            tarjeta("Datos y otras fuentes", "tablecells") {
+                ForEach(Self.creditosDatos, id: \.0) { link($0.0, $0.1) }
+            }
             tarjeta("Historial de versiones", "clock.arrow.circlepath") {
                 ForEach(Version.historial, id: \.version) { v in
                     VStack(alignment: .leading, spacing: 3) {
@@ -747,16 +768,52 @@ struct SettingsView: View {
                     .padding(.bottom, 4)
                 }
             }
-            tarjeta("Créditos", "heart") {
-                Text("Creado por Alberto Aldás en compañía de Claude (Anthropic), programado a pura voz.")
-                    .font(.subheadline)
-                link("Handy — inspiración open source", "https://github.com/cjpais/Handy")
-                link("transcribe.cpp — motor de modelos streaming", "https://github.com/handy-computer/transcribe.cpp")
-                link("mediaremote-adapter — pausa de multimedia", "https://github.com/ungive/mediaremote-adapter")
-                link("ElevenLabs Scribe — transcripción", "https://elevenlabs.io")
-            }
         }
     }
+
+    // Fuentes de terceros que usa BetoDicta (nombre, enlace) — para los Créditos.
+    static let creditosOpenSource: [(String, String)] = [
+        ("whisper.cpp — Whisper local (ggml-org)", "https://github.com/ggml-org/whisper.cpp"),
+        ("llama.cpp — Voxtral local (ggml-org)", "https://github.com/ggml-org/llama.cpp"),
+        ("transcribe.cpp — streaming local en vivo", "https://github.com/handy-computer/transcribe.cpp"),
+        ("mediaremote-adapter — pausa de multimedia", "https://github.com/ungive/mediaremote-adapter"),
+        ("Ollama — IA local (chat, embeddings, whisper)", "https://ollama.com"),
+        ("LM Studio — IA local", "https://lmstudio.ai"),
+    ]
+    static let creditosVoz: [(String, String)] = [
+        ("ElevenLabs Scribe", "https://elevenlabs.io"),
+        ("Groq Whisper (gratis)", "https://groq.com"),
+        ("OpenAI (Whisper / gpt-4o-transcribe)", "https://openai.com"),
+        ("Mistral (Voxtral)", "https://mistral.ai"),
+        ("Fireworks AI (Whisper)", "https://fireworks.ai"),
+        ("Hugging Face (Whisper, gratis)", "https://huggingface.co"),
+        ("Deepgram (Nova)", "https://deepgram.com"),
+        ("AssemblyAI (Universal)", "https://www.assemblyai.com"),
+        ("Gladia", "https://www.gladia.io"),
+        ("Speechmatics", "https://www.speechmatics.com"),
+        ("Cloudflare Workers AI", "https://developers.cloudflare.com/workers-ai/"),
+        ("Soniox", "https://soniox.com"),
+        ("Azure AI Speech", "https://azure.microsoft.com/products/ai-services/ai-speech"),
+    ]
+    static let creditosPulido: [(String, String)] = [
+        ("OpenRouter (cientos de modelos, muchos gratis)", "https://openrouter.ai"),
+        ("Anthropic (Claude)", "https://www.anthropic.com"),
+        ("Google Gemini", "https://ai.google.dev"),
+        ("DeepSeek", "https://www.deepseek.com"),
+        ("xAI (Grok)", "https://x.ai"),
+        ("Cerebras (gratis)", "https://www.cerebras.ai"),
+        ("GitHub Models (gratis)", "https://github.com/marketplace/models"),
+        ("NVIDIA NIM (gratis)", "https://build.nvidia.com"),
+        ("Together AI", "https://www.together.ai"),
+        ("Novita AI", "https://novita.ai"),
+        ("Z.ai (GLM, gratis)", "https://z.ai"),
+        ("SiliconFlow", "https://www.siliconflow.com"),
+    ]
+    static let creditosDatos: [(String, String)] = [
+        ("LiteLLM — precios de modelos que se actualizan solos", "https://github.com/BerriAI/litellm"),
+        ("Modelos ASR: Whisper (OpenAI), Voxtral (Mistral), Nemotron y Canary (NVIDIA)", "https://huggingface.co/nvidia"),
+        ("bge-m3 — embeddings para la búsqueda semántica (BAAI)", "https://huggingface.co/BAAI/bge-m3"),
+    ]
 
     // ---- helpers de UI ----
     @ViewBuilder
