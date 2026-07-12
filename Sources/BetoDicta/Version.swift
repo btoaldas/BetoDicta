@@ -6,11 +6,19 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.7"
-    static let fecha = "2026-07-12"
+    static let numero = "0.20.8"
+    static let fecha = "2026-07-13"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.8", "2026-07-13", [
+            "MUCHOS motores de transcripción nuevos, varios GRATIS: Groq Whisper, Hugging Face y Cloudflare (gratis), Fireworks, Deepgram, AssemblyAI, Gladia y Speechmatics; y de pago premium Soniox (mejor español latino) y Azure AI Speech (con locale es-EC de Ecuador). Ollama y LM Studio locales se ofrecen solo si tienen un modelo whisper (detección inteligente)",
+            "TEXTO EN VIVO también en la nube: Deepgram, Soniox, AssemblyAI, Speechmatics y Gladia pueden transcribir por WebSocket mientras hablas (actívalo en Avanzado → 'STT en vivo para la nube')",
+            "7 IAs de pulido GRATIS más: Cerebras, GitHub Models, NVIDIA NIM, Together, Novita, Z.ai (GLM) y SiliconFlow; y plantilla lista de Cloudflare Workers AI (solo pones tu Account ID)",
+            "Precios REALES de todos los modelos (voz y chat) y se actualizan solos desde una fuente mantenida, sin gastar IA; en Estadísticas ves además el GASTO de pulido con IA (hoy/semana/mes) con gráfica",
+            "Búsqueda por SIGNIFICADO en el Historial (semántica): encuentra dictados por idea, no por palabra exacta; eliges con cuál IA se calcula (Ollama local gratis, OpenAI, Gemini o Mistral)",
+            "Tu gateway propio ahora también puede TRANSCRIBIR (antes solo pulía); y salvaguarda anti-inyección opcional para IAs de terceros",
+        ]),
         ("0.20.7", "2026-07-12", [
             "Pulir/traducir con Anthropic (Claude) y Gemini (Google) — se suman a Groq, OpenAI, Mistral, OpenRouter, DeepSeek y xAI. Pon tu key en 'Conectar más IAs'",
             "Push-to-talk: opción para grabar mientras MANTIENES la tecla y terminar al soltarla (Ajustes → General). El modo toque sigue de default",
