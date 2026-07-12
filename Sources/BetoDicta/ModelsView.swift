@@ -163,6 +163,25 @@ struct ModelsView: View {
     // Observa el gestor GLOBAL: el progreso se pinta aunque la pestaña se
     // haya cerrado y reabierto a mitad de la descarga.
     @ObservedObject private var descargas = Descargas.shared
+    @State private var sttTick = 0   // re-render tras detectar STT local
+
+    /// DETECCIÓN INTELIGENTE: oculta los motores STT locales que NO tienen un
+    /// modelo que escuche (Ollama/LM Studio sin whisper). Van al final (orden
+    /// alto), así ocultarlos no descoloca el orden de la cascada.
+    private var listaVisible: [Provider] {
+        let _ = sttTick
+        return m.lista.filter { p in
+            if p.id == "ollama_stt" { return ChatIA.sttLocalModelo["ollama"] != nil }
+            if p.id == "lmstudio_stt" { return ChatIA.sttLocalModelo["lmstudio"] != nil }
+            return true
+        }
+    }
+    /// Modelo a mostrar para un proveedor (los STT locales usan el whisper detectado).
+    private func modeloDe(_ p: Provider) -> String {
+        if p.id == "ollama_stt" { return ChatIA.sttLocalModelo["ollama"] ?? "" }
+        if p.id == "lmstudio_stt" { return ChatIA.sttLocalModelo["lmstudio"] ?? "" }
+        return p.modelo ?? ""
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -171,7 +190,7 @@ struct ModelsView: View {
                 Text("Se usa el activo #1; si falla, salta al #2, luego al #3. Arrastra las filas para ordenarlas.")
                     .font(.caption).foregroundStyle(.secondary)
                 List {
-                    ForEach(Array(m.lista.enumerated()), id: \.element.id) { i, p in
+                    ForEach(Array(listaVisible.enumerated()), id: \.element.id) { i, p in
                         HStack(spacing: 10) {
                             Image(systemName: "line.3.horizontal")
                                 .font(.system(size: 11)).foregroundStyle(.tertiary)
@@ -190,7 +209,7 @@ struct ModelsView: View {
                                             .clipShape(Capsule())
                                     }
                                 }
-                                Text("\(p.tipo == "nube" ? "☁️ nube" : "💾 local") · \(p.modelo ?? "")")
+                                Text("\(p.tipo == "nube" ? "☁️ nube" : "💾 local") · \(modeloDe(p))")
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -203,9 +222,12 @@ struct ModelsView: View {
                 }
                 .listStyle(.plain)
                 .scrollDisabled(true)
-                .frame(height: CGFloat(m.lista.count) * 46 + 8)
+                .frame(height: CGFloat(listaVisible.count) * 46 + 8)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                Text("Los motores locales de transcripción (Ollama/LM Studio) solo aparecen si tienen un modelo whisper. Si no lo ves, haz 'ollama pull whisper' (o carga uno en LM Studio).")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
+            .onAppear { ChatIA.detectarSTTLocales { sttTick += 1 } }
 
             // ── Modelos locales (catálogo descargable) ──
             seccion("Modelos locales (Whisper)", "internaldrive") {

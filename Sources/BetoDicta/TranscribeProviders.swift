@@ -29,7 +29,7 @@ enum OpenAICompatible {
         // Corto a propósito: mejor saltar al siguiente de la cascada que colgar.
         req.timeoutInterval = 15
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }  // locales sin auth
 
         URLSession.shared.uploadTask(with: req, from: body) { data, resp, err in
             DispatchQueue.main.async {
@@ -116,6 +116,30 @@ enum GroqTranscribe {
                 completion(.success(text.trimmingCharacters(in: .whitespacesAndNewlines)))
             }
         }.resume()
+    }
+}
+
+/// Transcribe con Fireworks (Whisper en la nube). API compatible OpenAI.
+enum FireworksTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("FIREWORKS_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de Fireworks — ponla en Configuración → Modelos"))); return
+        }
+        OpenAICompatible.transcribir(endpoint: "https://api.fireworks.ai/inference/v1/audio/transcriptions",
+                                     key: key, model: model, wav: wav, completion: completion)
+    }
+}
+
+/// Transcribe con un servidor LOCAL (Ollama/LM Studio) que tenga un modelo
+/// whisper — vía /v1/audio/transcriptions (OpenAI-compat, sin auth). El modelo
+/// lo detecta ChatIA.sttLocalModelo (detección INTELIGENTE): si el local no
+/// tiene un modelo que escuche, este motor NO transcribe (y no debe ofrecerse).
+enum LocalTranscribe {
+    /// base ej. http://localhost:11434/v1 (ollama) o :1234/v1 (lm studio).
+    static func run(base: String, model: String, wav: Data, completion: @escaping (Result<String, Error>) -> Void) {
+        OpenAICompatible.transcribir(endpoint: "\(base)/audio/transcriptions",
+                                     key: "", model: model, wav: wav, conPrompt: false, completion: completion)
     }
 }
 
@@ -229,6 +253,9 @@ enum Failover {
         case "groq": modeloUsado = p.modelo ?? "whisper-large-v3"
         case "openai": modeloUsado = p.modelo ?? "gpt-4o-mini-transcribe"
         case "mistral": modeloUsado = p.modelo ?? "voxtral-mini-latest"
+        case "fireworks": modeloUsado = p.modelo ?? "whisper-v3"
+        case "ollama_stt": modeloUsado = ChatIA.sttLocalModelo["ollama"] ?? ""
+        case "lmstudio_stt": modeloUsado = ChatIA.sttLocalModelo["lmstudio"] ?? ""
         default: modeloUsado = p.modelo ?? ""
         }
 
@@ -266,6 +293,17 @@ enum Failover {
             OpenAITranscribe.run(wav: wav, model: p.modelo ?? "gpt-4o-mini-transcribe") { siguiente($0) }
         case "mistral":
             MistralTranscribe.run(wav: wav, model: p.modelo ?? "voxtral-mini-latest") { siguiente($0) }
+        case "fireworks":
+            FireworksTranscribe.run(wav: wav, model: p.modelo ?? "whisper-v3") { siguiente($0) }
+        case "ollama_stt":
+            // Detección inteligente: solo si Ollama tiene un modelo que escuche.
+            if let m = ChatIA.sttLocalModelo["ollama"] {
+                LocalTranscribe.run(base: "http://localhost:11434/v1", model: m, wav: wav) { siguiente($0) }
+            } else { siguiente(.failure(ScribeError.ws("Ollama no tiene un modelo whisper (haz: ollama pull whisper)"))) }
+        case "lmstudio_stt":
+            if let m = ChatIA.sttLocalModelo["lmstudio"] {
+                LocalTranscribe.run(base: "http://localhost:1234/v1", model: m, wav: wav) { siguiente($0) }
+            } else { siguiente(.failure(ScribeError.ws("LM Studio no tiene un modelo whisper cargado"))) }
         default: siguiente(.failure(ScribeError.sinTexto))
         }
     }

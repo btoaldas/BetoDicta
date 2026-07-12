@@ -25,9 +25,10 @@ enum Providers {
     /// Proveedores cloud que se pueden añadir (con su config de conexión).
     static let cloudDisponibles: [(id: String, nombre: String, modelos: [String], keyEnv: String)] = [
         ("elevenlabs", "ElevenLabs Scribe", ["scribe_v2_realtime", "scribe_v2", "scribe_v1"], "ELEVENLABS_API_KEY"),
-        ("groq", "Groq Whisper", ["whisper-large-v3", "whisper-large-v3-turbo"], "GROQ_API_KEY"),
+        ("groq", "Groq Whisper (gratis)", ["whisper-large-v3", "whisper-large-v3-turbo"], "GROQ_API_KEY"),
         ("openai", "OpenAI", ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"], "OPENAI_API_KEY"),
         ("mistral", "Mistral (Voxtral)", ["voxtral-mini-latest", "voxtral-small-latest"], "MISTRAL_API_KEY"),
+        ("fireworks", "Fireworks (Whisper)", ["whisper-v3", "whisper-v3-turbo"], "FIREWORKS_API_KEY"),
     ]
 
     /// Proveedores que se agregan a configs existentes cuando salen en una
@@ -43,6 +44,14 @@ enum Providers {
                  orden: 102, modelo: "gpt-4o-mini-transcribe"),
         Provider(id: "mistral", nombre: "Mistral (Voxtral nube)", tipo: "nube", activo: false,
                  orden: 103, modelo: "voxtral-mini-latest"),
+        Provider(id: "fireworks", nombre: "Fireworks (Whisper)", tipo: "nube", activo: false,
+                 orden: 104, modelo: "whisper-v3"),
+        // Locales STT: solo transcriben si tienen un modelo whisper (detección
+        // inteligente: se ocultan/desactivan en Modelos si no lo tienen).
+        Provider(id: "ollama_stt", nombre: "Ollama (local, whisper)", tipo: "local", activo: false,
+                 orden: 105, modelo: nil),
+        Provider(id: "lmstudio_stt", nombre: "LM Studio (local, whisper)", tipo: "local", activo: false,
+                 orden: 106, modelo: nil),
     ]
 
     static func load() -> [Provider] {
