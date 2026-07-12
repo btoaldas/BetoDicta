@@ -373,6 +373,7 @@ struct SettingsView: View {
     @State private var descubriendoMod = false
     @State private var msgMod: String?
     @State private var msgModId: String?
+    @State private var msgModOK = false
 
     private var pieActualizacion: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -756,7 +757,7 @@ struct SettingsView: View {
                 }
             }
             if msgModId == sel.id, let mm = msgMod {
-                Text(mm).font(.caption2).foregroundStyle(mm.contains("modelos") ? .green : .orange)
+                Text(mm).font(.caption2).foregroundStyle(msgModOK ? .green : .orange)
             }
             Text(sel.id.hasPrefix("custom:")
                  ? "Modelos del gateway. Cambia el activo cuando quieras, aquí mismo."
@@ -776,19 +777,24 @@ struct SettingsView: View {
     private func descubrirModelosDe(_ sel: ChatIA) {
         if sel.id.hasPrefix("custom:") {
             let gid = String(sel.id.dropFirst(7))
-            var a = PersonalizadaStore.cargar()
-            guard let k = a.firstIndex(where: { $0.id == gid }) else { descubriendoMod = false; return }
-            PersonalizadaStore.descubrirModelos(a[k]) { ids, msg in
+            guard let snap = PersonalizadaStore.cargar().first(where: { $0.id == gid }) else { descubriendoMod = false; return }
+            PersonalizadaStore.descubrirModelos(snap) { ids, msg in
+                // Recarga FRESCO dentro del callback y aplica solo la mutación
+                // puntual: no pisa ediciones a otros gateways hechas mientras se
+                // descubría (el editor es otra ventana no modal).
                 if !ids.isEmpty {
-                    a[k].modelos = ids
-                    if a[k].modelo.isEmpty { a[k].modelo = ids[0] }
-                    PersonalizadaStore.guardar(a)
+                    var fresh = PersonalizadaStore.cargar()
+                    if let k = fresh.firstIndex(where: { $0.id == gid }) {
+                        fresh[k].modelos = ids
+                        if fresh[k].modelo.isEmpty { fresh[k].modelo = ids[0] }
+                        PersonalizadaStore.guardar(fresh)
+                    }
                 }
-                descubriendoMod = false; msgMod = msg; detectTrigger += 1
+                descubriendoMod = false; msgMod = msg; msgModOK = !ids.isEmpty; detectTrigger += 1
             }
         } else {
-            ChatIA.descubrirProveedor(sel) { _, msg in
-                descubriendoMod = false; msgMod = msg; detectTrigger += 1
+            ChatIA.descubrirProveedor(sel) { ids, msg in
+                descubriendoMod = false; msgMod = msg; msgModOK = !ids.isEmpty; detectTrigger += 1
             }
         }
     }

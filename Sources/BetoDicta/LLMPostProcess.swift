@@ -235,12 +235,15 @@ enum PersonalizadaStore {
         rutas.append("\(b)/api/v1/models")
         var vistos = Set<String>(); rutas = rutas.filter { vistos.insert($0).inserted }   // dedup, mantiene orden
         func intentar(_ i: Int, _ code: Int, _ err: String?) {
-            guard i < rutas.count, let url = URL(string: rutas[i]) else {
+            guard i < rutas.count else {
                 let m = err ?? (code >= 400
                     ? "HTTP \(code): revisa URL o auth"
                     : "sin lista de modelos (prueba una ruta manual, ej: /v1/models)")
                 DispatchQueue.main.async { done([], m) }; return
             }
+            // URL candidata inválida (ej: ruta manual con espacio): salta a la
+            // siguiente, no abortes todo el descubrimiento.
+            guard let url = URL(string: rutas[i]) else { intentar(i + 1, code, err); return }
             var req = URLRequest(url: url); req.timeoutInterval = 10
             if !apiKey.isEmpty { req.setValue(authPrefix + apiKey, forHTTPHeaderField: authHeader.isEmpty ? "Authorization" : authHeader) }
             for (h, v) in headers { req.setValue(v, forHTTPHeaderField: h) }
