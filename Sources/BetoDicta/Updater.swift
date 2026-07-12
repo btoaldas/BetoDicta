@@ -59,10 +59,12 @@ enum Updater {
         }
     }
 
-    /// Consulta el último release publicado.
+    /// Consulta el último release publicado. 100% asíncrono: sin internet,
+    /// URLSession falla rápido (no espera el timeout) y esto NO bloquea la UI
+    /// — buscarAlArrancar ignora el error, así que abrir sin red es instantáneo.
     static func verificar(completion: @escaping (Estado) -> Void) {
         var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
-        req.timeoutInterval = 15
+        req.timeoutInterval = 10
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         URLSession.shared.dataTask(with: req) { data, _, err in
             DispatchQueue.main.async {
