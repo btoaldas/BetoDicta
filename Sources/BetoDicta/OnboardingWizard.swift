@@ -109,6 +109,10 @@ struct NovedadesView: View {
             HStack {
                 Button("Ver el manual") { if let u = URL(string: "https://github.com/btoaldas/BetoDicta/blob/main/docs/MANUAL.md") { NSWorkspace.shared.open(u) } }
                     .buttonStyle(.link)
+                Button("Revisar todas las novedades") {
+                    NovedadesWindowController.shared.close()
+                    SettingsWindowController.shared.show(irA: "Créditos")
+                }.buttonStyle(.link)
                 Spacer()
                 Button("Entendido") { NovedadesWindowController.shared.close() }
                     .keyboardShortcut(.defaultAction).controlSize(.large)

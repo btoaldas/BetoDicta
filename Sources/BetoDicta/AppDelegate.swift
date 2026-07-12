@@ -117,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         history?.discard()
         history = nil
         playSound("Basso")
+        setIcono(.reposo)
         panel.update("✕ Cancelado")
         panel.hide(after: 1)
     }
@@ -381,6 +382,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         image.isTemplate = true
         return image
+    }
+
+    // MARK: - Estado del ícono de la barra (reposo / grabando / procesando)
+    enum EstadoIcono { case reposo, grabando, procesando }
+    private var iconoTimer: Timer?
+
+    /// Cambia el ícono de la barra según el estado y lo hace "latir".
+    func setIcono(_ e: EstadoIcono) {
+        iconoTimer?.invalidate(); iconoTimer = nil
+        guard let btn = statusItem?.button else { return }
+        btn.alphaValue = 1
+        switch e {
+        case .reposo:
+            btn.contentTintColor = nil
+            btn.image = Self.menuBarIcon()
+        case .grabando:
+            btn.contentTintColor = .systemRed
+            btn.image = Self.simbolo("waveform") ?? Self.menuBarIcon()
+            latir(btn)
+        case .procesando:
+            btn.contentTintColor = NSColor(red: 0.55, green: 0.45, blue: 0.85, alpha: 1)
+            btn.image = Self.simbolo("sparkles") ?? Self.menuBarIcon()
+            latir(btn)
+        }
+    }
+    private func latir(_ btn: NSStatusBarButton) {
+        iconoTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            btn.animator().alphaValue = btn.alphaValue > 0.6 ? 0.35 : 1.0
+        }
+    }
+    private static func simbolo(_ nombre: String) -> NSImage? {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        let img = NSImage(systemSymbolName: nombre, accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg)
+        img?.isTemplate = true
+        return img
     }
 
     // Puentes públicos para la GUI
@@ -825,6 +862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             armEsc()
             media.dictationStarted()
             playSound("Tink")
+            setIcono(.grabando)
             panel.show("Escuchando… (\(tecla) para terminar)")
         } catch {
             panel.show("⚠️ Micrófono: \(error.localizedDescription)")
@@ -1041,6 +1079,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func stopAndTranscribe() {
         disarmEsc()
+        setIcono(.procesando)
         media.dictationEnded()
         silenceTimer?.invalidate()
         silenceTimer = nil
@@ -1178,6 +1217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// tardía no debe pisar el panel del dictado siguiente).
     private func avisarSiLibre(_ mensaje: String) {
         guard !recorder.isRecording else { return }
+        setIcono(.reposo)
         panel.update(mensaje)
         panel.hide(after: 3)
     }
@@ -1267,6 +1307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // app aprende de esa corrección. No aplica con traducción activa.
         Aprendizaje.recordarContexto(pegado: text, traducido: Config.translate())
         playSound("Glass")
+        if !recorder.isRecording { setIcono(.reposo) }
         // Si ya hay otro dictado grabando, no pisar su panel.
         if !recorder.isRecording {
             panel.updateForzado("✓ " + text)

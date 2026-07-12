@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.1"
+    static let numero = "0.20.2"
     static let fecha = "2026-07-12"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.2", "2026-07-12", [
+            "El ícono de la barra de menú ahora REACCIONA: late en rojo mientras grabas y en morado mientras procesa/pule; vuelve a normal al terminar",
+            "En el aviso de novedades, botón 'Revisar todas las novedades' que abre Créditos con el historial completo",
+        ]),
         ("0.20.1", "2026-07-12", [
             "Más IAs para pulir/traducir: DeepSeek, xAI (Grok), y GATEWAYS personalizados (tu propia URL base, API key, esquema de auth Bearer/X-API-Key/encabezado propio, encabezados extra y descubrimiento de modelos)",
             "Las novedades de la actualización ahora se ven bien formateadas (ya no en texto plano)",

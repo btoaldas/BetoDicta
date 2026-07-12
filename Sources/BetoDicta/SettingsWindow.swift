@@ -248,8 +248,15 @@ private enum Seccion: String, CaseIterable, Identifiable {
     }
 }
 
+/// Navegación programática a una sección (p. ej. desde el modal de novedades).
+final class NavAjustes: ObservableObject {
+    static let shared = NavAjustes()
+    @Published var ir: String?
+}
+
 struct SettingsView: View {
     @StateObject private var m = SettingsModel()
+    @ObservedObject private var nav = NavAjustes.shared
     @State private var seccion: Seccion
 
     init() {
@@ -273,6 +280,9 @@ struct SettingsView: View {
         }
         .frame(minWidth: 720, idealWidth: 760, maxWidth: .infinity,
                minHeight: 560, idealHeight: 640, maxHeight: .infinity)
+        .onChange(of: nav.ir) { _, v in
+            if let v, let s = Seccion(rawValue: v) { seccion = s; nav.ir = nil }
+        }
     }
 
     @ViewBuilder
@@ -815,5 +825,10 @@ final class SettingsWindowController {
         NSApp.activate(ignoringOtherApps: true)
         window?.center()
         window?.makeKeyAndOrderFront(nil)
+    }
+    /// Abre la Configuración en una sección concreta (ej. "Créditos").
+    func show(irA seccion: String) {
+        show()
+        NavAjustes.shared.ir = seccion
     }
 }
