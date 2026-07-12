@@ -174,6 +174,7 @@ struct VozView: View {
     @State private var probando = false
     @State private var resultado: String?
     @State private var cazaria = false
+    @State private var recientes: [Float] = []
 
     private var pruebaURL: URL { FileManager.default.temporaryDirectory.appendingPathComponent("beto-prueba-voz.wav") }
 
@@ -223,9 +224,21 @@ struct VozView: View {
                     Text(r).font(.subheadline).bold()
                 }
             }
+            if !recientes.isEmpty {
+                let mn = recientes.min() ?? 0, mx = recientes.max() ?? 0
+                let avg = recientes.reduce(0, +) / Float(recientes.count)
+                Divider()
+                Text(String(format: "Pruebas (%d): mín %.2f · media %.2f · máx %.2f", recientes.count, mn, avg, mx))
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(recientes.map { String(format: "%.2f", $0) }.joined(separator: ", "))
+                    .font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Repite varias veces diciendo «\(termino)» (misma palabra baja) y también otras palabras (deben salir alto). La raya va en medio.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(14).frame(width: 300)
-        .onAppear { refrescar() }
+        .onAppear { refrescar(); recientes = AudioMatch.distanciasRecientes(termino) }
     }
 
     private func refrescar() { muestras = AudioMatch.muestras(termino) }
@@ -239,9 +252,12 @@ struct VozView: View {
             guard let d = AudioMatch.distancia(pruebaURL: pruebaURL, termino: termino) else {
                 resultado = "no pude leer el audio"; cazaria = false; return
             }
-            cazaria = d <= AudioMatch.umbral()
-            resultado = String(format: "distancia %.2f (raya %.2f) → %@", d, AudioMatch.umbral(),
+            let u = AudioMatch.umbral()
+            cazaria = d <= u
+            resultado = String(format: "distancia %.2f (raya %.2f) → %@", d, u,
                                cazaria ? "sí, lo reconoce" : "no")
+            AudioMatch.registrarPrueba(termino: termino, dist: d, umbral: u, caza: cazaria)
+            recientes = AudioMatch.distanciasRecientes(termino)
         }
     }
 }

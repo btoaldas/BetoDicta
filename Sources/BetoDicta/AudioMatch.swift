@@ -212,6 +212,36 @@ enum AudioMatch {
     /// Umbral efectivo (el que puso el usuario, o el default).
     static func umbral() -> Float { Float(Config.umbralAudio() ?? Double(umbralDefecto)) }
 
+    // ---- Bitácora de pruebas (para afinar el umbral con datos reales) ----
+    static var pruebasURL: URL { dir.appendingPathComponent("pruebas.jsonl") }
+    static func registrarPrueba(termino: String, dist: Float, umbral u: Float, caza: Bool) {
+        let iso = ISO8601DateFormatter().string(from: Date())
+        let obj: [String: Any] = ["ts": iso, "termino": termino, "dist": Double(dist),
+                                  "umbral": Double(u), "caza": caza]
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              var line = String(data: data, encoding: .utf8) else { return }
+        line += "\n"
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if let h = FileHandle(forWritingAtPath: pruebasURL.path) {
+            h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+        } else {
+            try? line.write(to: pruebasURL, atomically: true, encoding: .utf8)
+        }
+        Log.log(.config, "prueba voz: \(termino) dist=\(String(format: "%.2f", dist)) raya=\(String(format: "%.2f", u)) → \(caza ? "caza ✅" : "no ❌")")
+    }
+    /// Distancias recientes registradas para un término (para el resumen en vivo).
+    static func distanciasRecientes(_ termino: String, n: Int = 15) -> [Float] {
+        guard let text = try? String(contentsOf: pruebasURL, encoding: .utf8) else { return [] }
+        var out: [Float] = []
+        for line in text.split(separator: "\n") {
+            guard let d = line.data(using: .utf8),
+                  let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  (j["termino"] as? String) == termino, let dist = j["dist"] as? Double else { continue }
+            out.append(Float(dist))
+        }
+        return Array(out.suffix(n))
+    }
+
     /// El término más cercano entre los que tienen muestras (para el flujo de
     /// dictado y el "probar por voz"). nil si nada supera el umbral.
     static func mejorCoincidencia(pruebaURL: URL, terminos: [String]) -> (termino: String, dist: Float)? {
