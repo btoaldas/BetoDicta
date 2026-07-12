@@ -17,6 +17,7 @@ struct UsageLog {
         "whisper-1": 0.36, "gpt-4o-transcribe": 0.36, "gpt-4o-mini-transcribe": 0.18,
         // Mistral (Voxtral nube)
         "voxtral-mini-latest": 0.18, "voxtral-small-latest": 0.24,
+        "voxtral-mini-transcribe": 0.18, "voxtral-realtime": 0.36,
         // (modelos locales / GGUF → no listados → $0, gratis)
     ]
 

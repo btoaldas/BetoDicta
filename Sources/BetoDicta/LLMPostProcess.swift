@@ -149,34 +149,51 @@ struct ChatIA {
     /// usuario no puso uno manual. Pueden quedar desactualizados → el usuario
     /// puede sobrescribir a mano.
     static let preciosConocidos: [String: (Double, Double)] = [
-        // Investigado jul-2026 (fuentes: pricing oficial de cada proveedor). Aprox.
+        // Investigado jul-2026 (páginas oficiales de pricing). Precios REALES
+        // vigentes; pueden quedar desactualizados → el usuario los sobrescribe.
         // OpenAI
-        "gpt-4o": (2.5, 10), "gpt-4o-mini": (0.15, 0.6), "gpt-4.1": (2, 8),
-        "gpt-4.1-mini": (0.4, 1.6), "gpt-4.1-nano": (0.1, 0.4), "o3": (2, 8),
-        "o3-mini": (1.1, 4.4), "o4-mini": (1.1, 4.4),
-        "gpt-5.4": (2.5, 15), "gpt-5.4-mini": (0.75, 4.5), "gpt-5.4-nano": (0.2, 1.25),
-        "gpt-5.4-pro": (30, 180), "gpt-5.5": (5, 30), "gpt-5.5-pro": (30, 180),
-        "gpt-5.6-sol": (5, 30), "gpt-5.6-terra": (2.5, 15), "gpt-5.6-luna": (1, 6),
+        "gpt-5.6-sol": (5, 30), "gpt-5.6-terra": (2.5, 15), "gpt-5.6-luna": (1, 6), "gpt-5.5": (5, 30),
+        "gpt-5.5-pro": (30, 180), "gpt-5.4": (2.5, 15), "gpt-5.4-mini": (0.75, 4.5),
+        "gpt-5.4-nano": (0.2, 1.25), "gpt-5.4-pro": (30, 180), "gpt-5.3-codex": (1.75, 14),
+        "gpt-5-chat-latest": (5, 30), "gpt-5": (1.25, 10), "gpt-5-mini": (0.25, 2), "gpt-4.1": (2, 8),
+        "gpt-4.1-mini": (0.4, 1.6), "gpt-4.1-nano": (0.1, 0.4), "gpt-4o": (2.5, 10),
+        "gpt-4o-mini": (0.15, 0.6), "o3": (2, 8), "o3-mini": (1.1, 4.4), "o4-mini": (1.1, 4.4), "o1": (15, 60),
         // Anthropic
-        "claude-haiku-4-5": (1, 5), "claude-sonnet-4-5": (3, 15), "claude-sonnet-4-6": (3, 15),
-        "claude-sonnet-5": (2, 10), "claude-opus-4-5": (5, 25), "claude-opus-4-6": (5, 25),
-        "claude-opus-4-7": (5, 25), "claude-opus-4-8": (5, 25),
+        "claude-fable-5": (10, 50), "claude-mythos-5": (10, 50), "claude-opus-4-8": (5, 25),
+        "claude-opus-4-7": (5, 25), "claude-opus-4-6": (5, 25), "claude-opus-4-5-20251101": (5, 25),
+        "claude-opus-4-1-20250805": (15, 75), "claude-opus-4-20250514": (15, 75), "claude-sonnet-5": (2, 10),
+        "claude-sonnet-4-6": (3, 15), "claude-sonnet-4-5-20250929": (3, 15),
+        "claude-sonnet-4-20250514": (3, 15), "claude-haiku-4-5-20251001": (1, 5),
+        "claude-3-5-haiku-20241022": (0.8, 4),
+        // Anthropic — aliases cortos (defaults del app / Descubrir)
+        "claude-haiku-4-5": (1, 5), "claude-sonnet-4-5": (3, 15), "claude-opus-4-5": (5, 25),
         // Gemini
-        "gemini-2.5-flash-lite": (0.1, 0.4), "gemini-2.5-flash": (0.3, 2.5), "gemini-2.5-pro": (1.25, 10),
-        "gemini-3-flash-preview": (0.5, 3), "gemini-3-pro": (2, 12), "gemini-3.5-flash": (1.5, 9),
+        "gemini-3.5-flash": (1.5, 9), "gemini-3.1-pro-preview": (2, 12), "gemini-3.1-flash-lite": (0.25, 1.5),
+        "gemini-3-flash-preview": (0.5, 3), "gemini-2.5-pro": (1.25, 10), "gemini-2.5-flash": (0.3, 2.5),
+        "gemini-2.5-flash-lite": (0.1, 0.4), "gemini-2.5-flash-lite-preview-09-2025": (0.1, 0.4),
+        "gemini-2.0-flash": (0.1, 0.4), "gemini-2.0-flash-lite": (0.075, 0.3), "gemma-4": (0, 0),
+        "gemini-3-pro": (2, 12), "gemini-3-flash": (0.5, 3),
         // Groq
-        "llama-3.3-70b-versatile": (0.59, 0.79), "llama-3.1-8b-instant": (0.05, 0.08),
-        "openai/gpt-oss-20b": (0.075, 0.3), "openai/gpt-oss-120b": (0.15, 0.6),
-        "meta-llama/llama-4-scout-17b-16e-instruct": (0.11, 0.34), "qwen/qwen3-32b": (0.29, 0.59),
+        "llama-3.1-8b-instant": (0.05, 0.08), "llama-3.3-70b-versatile": (0.59, 0.79),
+        "meta-llama/llama-4-scout-17b-16e-instruct": (0.11, 0.34), "openai/gpt-oss-20b": (0.075, 0.3),
+        "openai/gpt-oss-safeguard-20b": (0.075, 0.3), "openai/gpt-oss-120b": (0.15, 0.6),
+        "qwen/qwen3-32b": (0.29, 0.59), "qwen/qwen3.6-27b": (0.6, 3),
+        "moonshotai/kimi-k2-instruct-0905": (1, 3),
         // Mistral
-        "mistral-small-latest": (0.15, 0.6), "mistral-medium-latest": (1.5, 7.5),
-        "mistral-large-latest": (0.5, 1.5), "magistral-medium-latest": (2, 5), "magistral-small-latest": (0.5, 1.5),
+        "mistral-large-latest": (0.5, 1.5), "mistral-medium-latest": (1.5, 7.5),
+        "mistral-small-latest": (0.15, 0.6), "magistral-medium-latest": (2, 5),
+        "magistral-small-latest": (0.5, 1.5), "ministral-3b-latest": (0.1, 0.1),
+        "ministral-8b-latest": (0.15, 0.15), "ministral-14b-latest": (0.2, 0.2),
+        "codestral-latest": (0.3, 0.9), "devstral-medium-latest": (0.4, 2),
+        "devstral-small-latest": (0.1, 0.3), "open-mistral-nemo": (0.15, 0.15), "open-mixtral-8x22b": (2, 6),
+        "open-mixtral-8x7b": (0.7, 0.7), "labs-leanstral-2603": (0, 0),
         // DeepSeek
-        "deepseek-chat": (0.14, 0.28), "deepseek-reasoner": (0.14, 0.28), "deepseek-v4-flash": (0.14, 0.28),
+        "deepseek-v4-flash": (0.14, 0.28), "deepseek-v4-pro": (0.435, 0.87), "deepseek-chat": (0.14, 0.28),
+        "deepseek-reasoner": (0.14, 0.28),
         // xAI (Grok)
         "grok-4.5": (2, 6), "grok-4.3": (1.25, 2.5), "grok-4.20-0309-reasoning": (1.25, 2.5),
-        "grok-4.20-0309-non-reasoning": (1.25, 2.5), "grok-3": (2, 10), "grok-3-mini": (0.3, 0.5),
-        "grok-2-latest": (2, 10),
+        "grok-4.20-0309-non-reasoning": (1.25, 2.5), "grok-4.20-multi-agent-0309": (1.25, 2.5),
+        "grok-build-0.1": (1, 2), "grok-3": (2, 10), "grok-3-mini": (0.3, 0.5), "grok-2-latest": (2, 10),
     ]
 
     static func etiquetaPrecioDe(_ inp: Double, _ out: Double, aprox: Bool = false) -> String {
