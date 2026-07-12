@@ -119,6 +119,32 @@ struct NovedadesView: View {
     }
 }
 
+// MARK: - Render simple de Markdown (para "Ver novedades" del release)
+
+struct MarkdownSimple: View {
+    let texto: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(Array(texto.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, raw in
+                linea(String(raw))
+            }
+        }
+    }
+    @ViewBuilder private func linea(_ l: String) -> some View {
+        let t = l.trimmingCharacters(in: .whitespaces)
+        if t.hasPrefix("### ") { Text(inline(String(t.dropFirst(4)))).font(.subheadline).bold().padding(.top, 4) }
+        else if t.hasPrefix("## ") { Text(inline(String(t.dropFirst(3)))).font(.headline).bold().padding(.top, 4) }
+        else if t.hasPrefix("# ") { Text(inline(String(t.dropFirst(2)))).font(.title3).bold() }
+        else if t.hasPrefix("- ") || t.hasPrefix("* ") {
+            HStack(alignment: .top, spacing: 6) { Text("•").foregroundStyle(.secondary); Text(inline(String(t.dropFirst(2)))) }
+        } else if t.isEmpty { Color.clear.frame(height: 3) }
+        else { Text(inline(t)) }
+    }
+    private func inline(_ s: String) -> AttributedString {
+        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+    }
+}
+
 // MARK: - Opción de modelo local (unifica tcpp / whisper / exótico)
 
 private struct LocalOpt: Identifiable {

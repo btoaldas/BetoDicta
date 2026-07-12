@@ -305,6 +305,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 editor == "reemplazos" ? EditorWindows.showRules() : EditorWindows.showKeyterms()
             }
         }
+        if ProcessInfo.processInfo.environment["BETODICTA_IAPERSONALIZADA"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { IAPersonalizadaWindow.show() }
+        }
 
         // ── Primer arranque vs actualización ──
         // Señal capturada ANTES de tocar nada: ¿ya se usó la app aquí?

@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.0"
+    static let numero = "0.20.1"
     static let fecha = "2026-07-12"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.1", "2026-07-12", [
+            "Más IAs para pulir/traducir: DeepSeek, xAI (Grok), y GATEWAYS personalizados (tu propia URL base, API key, esquema de auth Bearer/X-API-Key/encabezado propio, encabezados extra y descubrimiento de modelos)",
+            "Las novedades de la actualización ahora se ven bien formateadas (ya no en texto plano)",
+        ]),
         ("0.20.0", "2026-07-12", [
             "Pulido y traducción con CUALQUIER IA conectada: Groq, OpenAI, Mistral, OpenRouter — y hasta LOCAL (LM Studio, Ollama), que se detectan solos si están corriendo. Elige cuál en Ajustes → Pulido",
             "El pulido ya no se cae por cortes de red (reintenta solo) y su espera es ajustable (Avanzado), más larga para textos largos",

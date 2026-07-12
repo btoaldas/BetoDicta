@@ -1,0 +1,178 @@
+import AppKit
+import SwiftUI
+
+// MARK: - Editor de IAs personalizadas (gateways propios)
+//
+// Base URL + API key + esquema de auth (Bearer / X-API-Key / encabezado
+// propio) + encabezados extra + modelo (manual o descubierto) + para qué
+// sirve (pulir / reconocer voz). Prueba de conexión y descubrimiento.
+
+private let acentoIA = Color(red: 0.36, green: 0.28, blue: 0.62)
+
+final class IAPersonalizadasStore: ObservableObject {
+    @Published var items: [IAPersonalizada] = PersonalizadaStore.cargar()
+    func guardar() { PersonalizadaStore.guardar(items) }
+    func add() { items.append(IAPersonalizada(nombre: "Mi gateway")); guardar() }
+    func remove(_ id: String) { items.removeAll { $0.id == id }; guardar() }
+}
+
+struct IAPersonalizadaEditor: View {
+    @StateObject private var store = IAPersonalizadasStore()
+    @State private var seleccion: String?
+    @State private var descubiertos: [String] = []
+    @State private var estadoPrueba: String?
+    @State private var probando = false
+    @State private var nuevoHeaderN = ""
+    @State private var nuevoHeaderV = ""
+
+    private var idx: Int? { store.items.firstIndex { $0.id == seleccion } }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Lista
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("IAs personalizadas").font(.headline)
+                    Spacer()
+                    Button { store.add(); seleccion = store.items.last?.id } label: { Image(systemName: "plus") }
+                }
+                List(selection: $seleccion) {
+                    ForEach(store.items) { p in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(p.nombre.isEmpty ? "(sin nombre)" : p.nombre).font(.subheadline)
+                                Text(p.modelo.isEmpty ? "sin modelo" : p.modelo).font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if p.paraPulido { Text("pulir").font(.system(size: 8)).padding(.horizontal, 4).background(acentoIA.opacity(0.3)).clipShape(Capsule()) }
+                            if p.paraVoz { Text("voz").font(.system(size: 8)).padding(.horizontal, 4).background(.green.opacity(0.3)).clipShape(Capsule()) }
+                        }.tag(p.id)
+                    }
+                }.frame(width: 220)
+            }.padding(12)
+            Divider()
+            // Detalle
+            if let i = idx {
+                formulario(i).padding(16).frame(maxWidth: .infinity, alignment: .topLeading)
+            } else {
+                VStack { Spacer(); Text("Elige o crea un gateway →").foregroundStyle(.secondary); Spacer() }
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(width: 700, height: 560)
+    }
+
+    @ViewBuilder private func formulario(_ i: Int) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                campo("Nombre") { TextField("Mi gateway", text: $store.items[i].nombre, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
+                campo("URL base") { TextField("https://gateway.tuempresa.com/v1", text: $store.items[i].base, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
+                campo("API key") { SecureField("clave del gateway", text: $store.items[i].apiKey, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
+                // Esquema de auth
+                campo("Autenticación") {
+                    Picker("", selection: Binding(
+                        get: { esquemaActual(store.items[i]) },
+                        set: { aplicarEsquema($0, a: i) })) {
+                        Text("Bearer (Authorization)").tag("bearer")
+                        Text("X-API-Key").tag("xapikey")
+                        Text("Encabezado propio").tag("custom")
+                    }.labelsHidden().frame(width: 220)
+                }
+                if esquemaActual(store.items[i]) == "custom" {
+                    campo("Nombre del encabezado") { TextField("X-Mi-Auth", text: $store.items[i].authHeader, onCommit: store.guardar).textFieldStyle(.roundedBorder).frame(width: 220) }
+                    campo("Prefijo (opcional)") { TextField("ej: Bearer ", text: $store.items[i].authPrefix, onCommit: store.guardar).textFieldStyle(.roundedBorder).frame(width: 120) }
+                }
+                // Encabezados extra
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Encabezados extra").font(.subheadline).bold()
+                    ForEach(Array(store.items[i].headers.keys.sorted()), id: \.self) { k in
+                        HStack {
+                            Text(k).font(.caption).frame(width: 140, alignment: .leading)
+                            Text(store.items[i].headers[k] ?? "").font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            Button { store.items[i].headers[k] = nil; store.guardar() } label: { Image(systemName: "minus.circle").foregroundStyle(.red) }.buttonStyle(.borderless)
+                        }
+                    }
+                    HStack {
+                        TextField("X-Nombre", text: $nuevoHeaderN).textFieldStyle(.roundedBorder).frame(width: 140)
+                        TextField("valor", text: $nuevoHeaderV).textFieldStyle(.roundedBorder)
+                        Button("Agregar") {
+                            let n = nuevoHeaderN.trimmingCharacters(in: .whitespaces)
+                            guard !n.isEmpty else { return }
+                            store.items[i].headers[n] = nuevoHeaderV; nuevoHeaderN = ""; nuevoHeaderV = ""; store.guardar()
+                        }.controlSize(.small)
+                    }
+                }
+                Divider()
+                // Modelo (manual o descubierto)
+                campo("Modelo (ID)") { TextField("gpt-4o-mini · llama-3.3-70b · …", text: $store.items[i].modelo, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
+                HStack(spacing: 8) {
+                    Button("Descubrir modelos") {
+                        PersonalizadaStore.descubrirModelos(store.items[i]) { descubiertos = $0 }
+                    }.controlSize(.small)
+                    if !descubiertos.isEmpty {
+                        Menu("Elegir (\(descubiertos.count))") {
+                            ForEach(descubiertos, id: \.self) { m in
+                                Button(m) { store.items[i].modelo = m; store.guardar() }
+                            }
+                        }.frame(width: 130)
+                    }
+                }
+                // Para qué sirve
+                Toggle("Usar para PULIR / traducir el texto", isOn: $store.items[i].paraPulido).onChange(of: store.items[i].paraPulido) { _, _ in store.guardar() }
+                Toggle("Usar para RECONOCER voz (transcripción) — próximamente", isOn: $store.items[i].paraVoz).disabled(true)
+                Divider()
+                // Probar / borrar
+                HStack(spacing: 10) {
+                    Button {
+                        probando = true; estadoPrueba = nil
+                        PersonalizadaStore.probar(store.items[i]) { ok, msg in
+                            probando = false; estadoPrueba = ok ? "✅ Conecta (\(msg))" : "❌ \(msg)"
+                        }
+                    } label: { Label(probando ? "Probando…" : "Probar conexión", systemImage: "bolt.horizontal") }
+                    if let e = estadoPrueba { Text(e).font(.caption).foregroundStyle(e.hasPrefix("✅") ? .green : .orange) }
+                    Spacer()
+                    Button(role: .destructive) { let id = store.items[i].id; seleccion = nil; store.remove(id) } label: { Label("Borrar", systemImage: "trash") }
+                }
+            }
+        }
+    }
+
+    private func campo<V: View>(_ t: String, @ViewBuilder _ c: () -> V) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(t).font(.subheadline).frame(width: 160, alignment: .leading)
+            c()
+        }
+    }
+    private func esquemaActual(_ p: IAPersonalizada) -> String {
+        let h = p.authHeader.lowercased()
+        if h == "authorization" { return "bearer" }
+        if h == "x-api-key" { return "xapikey" }
+        return "custom"
+    }
+    private func aplicarEsquema(_ e: String, a i: Int) {
+        switch e {
+        case "bearer":  store.items[i].authHeader = "Authorization"; store.items[i].authPrefix = "Bearer "
+        case "xapikey": store.items[i].authHeader = "x-api-key";     store.items[i].authPrefix = ""
+        default:        if esquemaActual(store.items[i]) != "custom" { store.items[i].authHeader = "X-Mi-Auth"; store.items[i].authPrefix = "" }
+        }
+        store.guardar()
+    }
+}
+
+enum IAPersonalizadaWindow {
+    private static var win: NSWindow?
+    static func show() {
+        if win == nil {
+            let h = NSHostingController(rootView: IAPersonalizadaEditor())
+            let w = NSWindow(contentViewController: h)
+            w.title = "IAs personalizadas · BetoDicta"
+            w.styleMask = [.titled, .closable]
+            w.setContentSize(NSSize(width: 700, height: 560))
+            w.isReleasedWhenClosed = false
+            win = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        win?.center(); win?.makeKeyAndOrderFront(nil)
+    }
+}

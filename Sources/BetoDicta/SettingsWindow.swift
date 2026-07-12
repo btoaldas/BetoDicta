@@ -324,7 +324,7 @@ struct SettingsView: View {
     @State private var estadoUpdate: Updater.Estado = .reposo
     @State private var mostrarNotas = false
     @State private var avanzadoAbierto = false
-    @State private var openrouterKey = ""
+    @State private var keyInputs: [String: String] = [:]
     @State private var detectTrigger = 0
 
     private var pieActualizacion: some View {
@@ -359,9 +359,9 @@ struct SettingsView: View {
                             .buttonStyle(.plain).font(.caption2).foregroundStyle(acento)
                             .popover(isPresented: $mostrarNotas, arrowEdge: .trailing) {
                                 ScrollView {
-                                    Text(notas).font(.caption).textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                                }.frame(width: 320, height: 260)
+                                    MarkdownSimple(texto: notas).textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                                }.frame(width: 360, height: 300)
                             }
                     }
                 }
@@ -440,48 +440,58 @@ struct SettingsView: View {
             tarjeta("Pulido con IA", "waveform") {
                 Toggle("Pulir el texto con IA", isOn: $m.postProceso)
                 if m.postProceso {
-                    let _ = detectTrigger        // re-render tras detectar locales
-                    let conectadas = ChatIA.conectadas
+                    let _ = detectTrigger        // re-render tras detectar/conectar
+                    let conectadas = ChatIA.conectadasPulido
                     if conectadas.isEmpty {
-                        Text("Conecta una IA de chat (abajo o en Modelos) para usar el pulido.")
+                        Text("Conecta una IA de chat (abajo) para usar el pulido.")
                             .font(.caption).foregroundStyle(.orange)
                     } else {
                         fila("IA para pulido y traducción") {
                             Picker("", selection: $m.pulidoProveedor) {
                                 ForEach(conectadas, id: \.id) { Text($0.nombre).tag($0.id) }
-                            }.labelsHidden().frame(width: 240)
+                            }.labelsHidden().frame(width: 260)
                         }
-                        Text("Cualquier IA conectada — nube o local. Se usa para pulir y traducir.")
+                        Text("Cualquier IA conectada — nube, local o personalizada. Se usa para pulir y traducir.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    // OpenRouter (nube, con key)
-                    if ApiKeys.get("OPENROUTER_API_KEY").isEmpty {
-                        HStack(spacing: 8) {
-                            SecureField("API key de OpenRouter", text: $openrouterKey).textFieldStyle(.roundedBorder)
-                            Button("Conectar") {
-                                ApiKeys.set("OPENROUTER_API_KEY", openrouterKey); openrouterKey = ""; detectTrigger += 1
-                            }.disabled(openrouterKey.trimmingCharacters(in: .whitespaces).isEmpty)
-                        }
-                    } else {
-                        HStack {
-                            Label("OpenRouter conectado", systemImage: "checkmark.circle.fill")
-                                .font(.caption).foregroundStyle(.green)
-                            Spacer()
-                            Button("Quitar") { ApiKeys.set("OPENROUTER_API_KEY", ""); detectTrigger += 1 }.controlSize(.small)
-                        }
-                    }
-                    // Locales (LM Studio / Ollama)
-                    HStack(spacing: 8) {
-                        Text("Locales: LM Studio / Ollama se detectan solos si están corriendo.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Button("Buscar") { ChatIA.detectarLocales { detectTrigger += 1 } }.controlSize(.small)
-                    }
-                    ForEach(["lmstudio", "ollama"], id: \.self) { lid in
-                        if let mod = ChatIA.modelosLocales[lid] {
-                            Text("• \(lid == "lmstudio" ? "LM Studio" : "Ollama") ✓ (\(mod))")
-                                .font(.caption2).foregroundStyle(.green)
-                        }
-                    }
+                    // Conectar IAs de nube por key (OpenRouter, DeepSeek, xAI…)
+                    DisclosureGroup("Conectar más IAs de chat") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach([("OPENROUTER_API_KEY", "OpenRouter"), ("DEEPSEEK_API_KEY", "DeepSeek"),
+                                     ("XAI_API_KEY", "xAI (Grok)"), ("OPENAI_API_KEY", "OpenAI"),
+                                     ("MISTRAL_API_KEY", "Mistral")], id: \.0) { env, nombre in
+                                if ApiKeys.get(env).isEmpty {
+                                    HStack(spacing: 8) {
+                                        SecureField("API key de \(nombre)", text: Binding(
+                                            get: { keyInputs[env] ?? "" }, set: { keyInputs[env] = $0 }))
+                                            .textFieldStyle(.roundedBorder)
+                                        Button("Conectar") {
+                                            ApiKeys.set(env, keyInputs[env] ?? ""); keyInputs[env] = ""; detectTrigger += 1
+                                        }.disabled((keyInputs[env] ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
+                                    }
+                                } else {
+                                    HStack {
+                                        Label("\(nombre) conectado", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                                        Spacer()
+                                        Button("Quitar") { ApiKeys.set(env, ""); detectTrigger += 1 }.controlSize(.small)
+                                    }
+                                }
+                            }
+                            Divider()
+                            Button("IA personalizada (gateway propio)…") { IAPersonalizadaWindow.show() }
+                            HStack(spacing: 8) {
+                                Text("Locales: LM Studio / Ollama se detectan solos si están corriendo.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                Button("Buscar") { ChatIA.detectarLocales { detectTrigger += 1 } }.controlSize(.small)
+                            }
+                            ForEach(["lmstudio", "ollama"], id: \.self) { lid in
+                                if let mod = ChatIA.modelosLocales[lid] {
+                                    Text("• \(lid == "lmstudio" ? "LM Studio" : "Ollama") ✓ (\(mod))")
+                                        .font(.caption2).foregroundStyle(.green)
+                                }
+                            }
+                        }.padding(.top, 6)
+                    }.font(.subheadline)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Estilo del pulido (opcional)").font(.subheadline)
                         TextField("ej: trato formal de usted", text: $m.promptPulido, axis: .vertical)

@@ -28,7 +28,7 @@ enum Translate {
         request.httpMethod = "POST"
         request.timeoutInterval = min(120, Config.pulidoTimeout() + Double(text.count) / 40)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(ia.key ?? "")", forHTTPHeaderField: "Authorization")
+        ia.aplicarAuth(&request)
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "model": ia.modeloEfectivo,
             "messages": [["role": "user", "content": prompt]],
