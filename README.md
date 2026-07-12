@@ -114,8 +114,11 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 
 - **Tu voz solo viaja a ElevenLabs** (cifrada: HTTPS/WSS a `api.elevenlabs.io`) — no hay analítica, ni telemetría, ni terceros
 - **Tu API key jamás se escribe en logs** ni en el código — vive en tu `~/.betodicta/.env` (bloqueado por `.gitignore`)
-- **Tus dictados nunca salen de tu Mac**: `historial/` y `uso.jsonl` son archivos locales tuyos; la carpeta `~/.betodicta` se recomienda con permisos `700` (`chmod 700 ~/.betodicta`)
+- **Tus dictados nunca salen de tu Mac**: `historial/` y `uso.jsonl` son archivos locales tuyos; la carpeta `~/.betodicta` queda en `700` y los archivos con secretos (`.env`, gateways) en `600`
+- **Actualizaciones verificadas por firma**: antes de instalar una actualización, la app comprueba que el nuevo bundle esté firmado con el **mismo certificado** que tu copia — un DMG manipulado o firmado por otro se rechaza (la clave privada del certificado nunca sale del Mac del autor)
+- **Gateways propios**: la API key no se envía si el gateway usa `http://` sin cifrar
 - El portapapeles se restaura tras cada pegado — lo que tenías copiado no se pierde
+- Cada release pasa por **revisión de código y de seguridad** antes de publicarse
 
 ## Hoja de ruta
 

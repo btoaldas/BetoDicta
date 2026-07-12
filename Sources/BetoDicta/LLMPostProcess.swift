@@ -21,8 +21,16 @@ struct ChatIA {
         let k = ApiKeys.get(keyEnv); return k.isEmpty ? nil : k
     }
     /// Aplica auth + encabezados extra a la request.
+    /// ¿La base cifra el tráfico? (https, o localhost donde no sale a la red).
+    /// No mandamos la API key en claro por http público — fail-closed.
+    var baseSegura: Bool {
+        let b = base.lowercased()
+        return b.hasPrefix("https://") || b.contains("://localhost") || b.contains("://127.0.0.1") || b.contains("://[::1]")
+    }
     func aplicarAuth(_ req: inout URLRequest) {
-        if !local, let k = key { req.setValue(authPrefix + k, forHTTPHeaderField: authHeader) }
+        // Solo adjunta la key si el canal es seguro: evita filtrar el secreto
+        // en claro si un gateway se configuró con http://.
+        if !local, baseSegura, let k = key { req.setValue(authPrefix + k, forHTTPHeaderField: authHeader) }
         for (h, v) in headersExtra { req.setValue(v, forHTTPHeaderField: h) }
     }
     /// Modelo a usar: local usa el que tenga cargado el servidor (detectado).
@@ -137,7 +145,11 @@ enum PersonalizadaStore {
         (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([IAPersonalizada].self, from: $0) } ?? []
     }
     static func guardar(_ arr: [IAPersonalizada]) {
-        if let d = try? JSONEncoder().encode(arr) { try? d.write(to: url) }
+        if let d = try? JSONEncoder().encode(arr) {
+            Config.asegurarDirSeguro()
+            try? d.write(to: url)
+            Config.protegerSecreto(url)   // 0600: guarda las API keys de los gateways
+        }
     }
     /// Las personalizadas como ChatIA (para el catálogo y el selector).
     static func comoChatIA() -> [ChatIA] {

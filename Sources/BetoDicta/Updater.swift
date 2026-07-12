@@ -1,5 +1,7 @@
 import AppKit
+import CryptoKit
 import Foundation
+import Security
 
 // MARK: - Actualización desde la app (GitHub Releases)
 //
@@ -112,29 +114,45 @@ enum Updater {
                     completion(.error("no pude guardar el DMG")); return
                 }
 
-                // Script que corre DESPUÉS de que la app se cierre.
+                // SEGURIDAD (revisión adversarial): antes de instalar, montar el
+                // DMG y VERIFICAR que la app venga firmada con el MISMO
+                // certificado que esta app. Como la clave privada de ese cert
+                // NO está en GitHub, un release troyanizado (cuenta/CI
+                // comprometidos) no puede firmarse igual y se rechaza aquí.
+                guard let vol = montarDMG(dmgLocal) else {
+                    instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
+                    completion(.error("no pude montar el DMG")); return
+                }
+                let appNueva = URL(fileURLWithPath: vol).appendingPathComponent("BetoDicta.app")
+                guard firmaConfiable(appNueva) else {
+                    desmontarDMG(vol)
+                    instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
+                    Log.log(.sistema, "actualización RECHAZADA: la firma del DMG no coincide con la de esta app (posible manipulación del release)")
+                    completion(.error("firma no válida — actualización cancelada por seguridad")); return
+                }
+
+                // Firma OK: copia desde el volumen YA montado y verificado (sin
+                // re-montar y sin quitar quarantine). Rutas por argv (no
+                // interpolación en el shell).
                 let script = """
                 sleep 1.5
-                VOL=$(hdiutil attach -nobrowse -readonly "\(dmgLocal.path)" | tail -1 | awk -F'\\t' '{print $NF}')
-                if [ -d "$VOL/BetoDicta.app" ]; then
-                    rm -rf /Applications/BetoDicta.app
-                    ditto "$VOL/BetoDicta.app" /Applications/BetoDicta.app
-                    xattr -dr com.apple.quarantine /Applications/BetoDicta.app 2>/dev/null
-                fi
-                hdiutil detach "$VOL" >/dev/null 2>&1
-                rm -f "\(dmgLocal.path)"
+                rm -rf /Applications/BetoDicta.app
+                ditto "$1/BetoDicta.app" /Applications/BetoDicta.app
+                hdiutil detach "$1" >/dev/null 2>&1
+                rm -f "$2"
                 open /Applications/BetoDicta.app
                 """
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: "/bin/bash")
-                p.arguments = ["-c", script]
+                p.arguments = ["-c", script, "betodicta-update", vol, dmgLocal.path]
                 do {
                     try p.run()
-                    Log.log(.sistema, "actualización: instalando y reiniciando…")
+                    Log.log(.sistema, "actualización: firma verificada ✓ — instalando y reiniciando…")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         NSApp.terminate(nil)
                     }
                 } catch {
+                    desmontarDMG(vol)
                     instalando = false
                     completion(.error("no pude lanzar el instalador"))
                 }
@@ -157,5 +175,75 @@ enum Updater {
             if x != y { return x > y }
         }
         return false
+    }
+
+    // MARK: - Verificación de firma e integridad del DMG
+
+    /// Monta un DMG de solo lectura y devuelve su punto de montaje (o nil).
+    private static func montarDMG(_ dmg: URL) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        p.arguments = ["attach", "-nobrowse", "-readonly", "-plist", dmg.path]
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+              let ents = plist["system-entities"] as? [[String: Any]] else { return nil }
+        return ents.compactMap { $0["mount-point"] as? String }.first
+    }
+
+    private static func desmontarDMG(_ vol: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        p.arguments = ["detach", vol]
+        try? p.run(); p.waitUntilExit()
+    }
+
+    /// SHA-256 del certificado LÍDER (hoja) que firma un bundle. Anclar por el
+    /// SHA del cert (no por su Common Name, que es falsificable) es lo que da
+    /// la garantía: solo quien tiene la clave privada puede producir una firma
+    /// válida contra ese certificado.
+    private static func certLiderSHA(_ code: SecStaticCode) -> Data? {
+        var infoCF: CFDictionary?
+        let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
+        guard SecCodeCopySigningInformation(code, flags, &infoCF) == errSecSuccess,
+              let info = infoCF as? [String: Any],
+              let certs = info[kSecCodeInfoCertificates as String] as? [SecCertificate],
+              let leaf = certs.first else { return nil }
+        let der = SecCertificateCopyData(leaf) as Data
+        return Data(SHA256.hash(data: der))
+    }
+
+    private static func staticCodeDeMiApp() -> SecStaticCode? {
+        var me: SecCode?
+        guard SecCodeCopySelf([], &me) == errSecSuccess, let me else { return nil }
+        var st: SecStaticCode?
+        guard SecCodeCopyStaticCode(me, [], &st) == errSecSuccess else { return nil }
+        return st
+    }
+
+    /// ¿El bundle está firmado de forma VÁLIDA (no manipulado) y con el MISMO
+    /// certificado que esta app? Si esta app es ad-hoc (sin cert, no debería en
+    /// releases) cae a un chequeo más débil: firma válida + mismo bundle id.
+    static func firmaConfiable(_ app: URL) -> Bool {
+        var nuevoCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &nuevoCode) == errSecSuccess,
+              let nuevo = nuevoCode else { return false }
+        // 1) Firma íntegra (código no manipulado tras firmar).
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode)
+        guard SecStaticCodeCheckValidity(nuevo, flags, nil) == errSecSuccess else { return false }
+        // 2) Mismo certificado líder que esta app.
+        if let mio = staticCodeDeMiApp(), let shaMio = certLiderSHA(mio) {
+            guard let shaNuevo = certLiderSHA(nuevo) else { return false }
+            return shaMio == shaNuevo
+        }
+        // Fallback (esta app ad-hoc, sin cert): al menos exige el bundle id.
+        let req = "identifier \"ec.bto.betodicta\""
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(req as CFString, [], &requirement) == errSecSuccess,
+              let requirement else { return false }
+        return SecStaticCodeCheckValidity(nuevo, flags, requirement) == errSecSuccess
     }
 }

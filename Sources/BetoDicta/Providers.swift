@@ -131,7 +131,9 @@ enum ApiKeys {
             lineas.append("\(envName)=\(value.trimmingCharacters(in: .whitespaces))")
         }
         let out = lineas.filter { !$0.isEmpty }.joined(separator: "\n") + "\n"
+        Config.asegurarDirSeguro()
         try? out.write(to: envURL, atomically: true, encoding: .utf8)
+        Config.protegerSecreto(envURL)   // 0600: el .env guarda las API keys
         Log.log(.config, "API key actualizada: \(envName)")
     }
 }

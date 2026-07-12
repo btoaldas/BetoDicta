@@ -80,7 +80,30 @@ struct Config {
         lock.unlock()
         Log.log(.config, "cambio: \(key) = \(value)")
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
-            try? data.write(to: dir.appendingPathComponent("config.json"), options: .atomic)
+            let cfg = dir.appendingPathComponent("config.json")
+            try? data.write(to: cfg, options: .atomic)
+            protegerSecreto(cfg)
+        }
+    }
+
+    /// Fija permisos 0600 a un archivo que puede contener secretos (claves,
+    /// gateways). Defensa en profundidad además del ~/.betodicta a 0700.
+    static func protegerSecreto(_ url: URL) {
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+    /// Asegura que ~/.betodicta exista y quede en 0700 (solo el dueño).
+    static func asegurarDirSeguro() {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
+    }
+    /// Al arrancar: baja a 0600 los archivos con secretos que ya existan
+    /// (para quien actualiza desde una versión que los dejaba en 0644).
+    static func endurecerSecretosExistentes() {
+        asegurarDirSeguro()
+        for f in [".env", "config.json", "ia_personalizadas.json"] {
+            let u = dir.appendingPathComponent(f)
+            if FileManager.default.fileExists(atPath: u.path) { protegerSecreto(u) }
         }
     }
     static func model() -> String { (json()["modelo"] as? String) ?? "scribe_v2_realtime" }

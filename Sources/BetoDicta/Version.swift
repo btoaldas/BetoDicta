@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.4"
+    static let numero = "0.20.5"
     static let fecha = "2026-07-12"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.5", "2026-07-12", [
+            "SEGURIDAD: la actualización ahora VERIFICA la firma del DMG antes de instalar — solo se instala si viene firmado con el mismo certificado de la app; un release manipulado se rechaza. Se quitó el borrado a ciegas de la cuarentena.",
+            "SEGURIDAD: las API keys y los gateways (.env, config, personalizadas) se guardan con permisos 0600 (solo tú), y la key no se manda si el gateway usa http sin cifrar.",
+            "Auditoría de seguridad completa del sistema (revisión adversarial) — sin puertas traseras ni fugas; correcciones aplicadas.",
+        ]),
         ("0.20.4", "2026-07-12", [
             "La app avisa sola: al abrir revisa si hay versión nueva y te lo muestra abajo-izquierda ('Actualización disponible') y en el menú de la barra — puedes ver las novedades antes de actualizar",
             "Nuevo en Avanzado: 'Autoactualizar' (baja e instala sola la versión nueva) y 'Buscar actualización al abrir' (ambos parametrizables)",

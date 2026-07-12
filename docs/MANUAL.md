@@ -440,11 +440,17 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 | `reemplazos.json` | Tus reglas de corrección (incluido el marcado 🔊 por sonido) |
 | `aprendizajes.jsonl` | La bitácora de lo que la app aprendió de tus correcciones |
 | `uso.jsonl` | El odómetro de uso (minutos y modelo por dictado) para las estadísticas |
-| `.env` | Tus API keys (solo en tu Mac) |
+| `.env` | Tus API keys (solo en tu Mac, permisos `0600`) |
+| `ia_personalizadas.json` | Tus gateways propios (URL, key, modelos) — permisos `0600` |
 | `models/` | Los modelos de IA descargados |
-| `betodicta.log` | El registro de todo (se rota y comprime solo) |
+| `betodicta.log` | El registro de todo (se rota y comprime solo). Las API keys **nunca** se escriben aquí |
 
 **Privacidad**: con motores locales, tu voz **jamás sale de tu Mac**. Con motores de nube, el audio va al proveedor que elegiste (ElevenLabs/Groq/OpenAI/Mistral) bajo sus términos. El pulido y la traducción mandan el TEXTO a la IA que elijas — o **no salen de tu Mac** si usas una IA local (LM Studio / Ollama). El aprendizaje y la coincidencia por audio son 100% locales. Tú controlas qué usas.
+
+**Seguridad**:
+- Tus **API keys** y gateways se guardan con permisos `0600` (solo tu usuario) y la carpeta `~/.betodicta` en `0700`. La key **no se envía** si un gateway se configuró con `http://` sin cifrar.
+- Las **actualizaciones se verifican por firma**: antes de instalar, la app comprueba que el nuevo BetoDicta.app venga firmado con **el mismo certificado** que tu copia actual. Un instalador manipulado o firmado por otro se **rechaza** — así, aunque alguien alterara un release, no se instalaría.
+- El código es **abierto** ([GPL-3.0](https://github.com/btoaldas/BetoDicta)): cualquiera puede auditarlo. Cada release pasa por revisión de código y de seguridad antes de publicarse.
 
 ## 23. Solución de problemas
 
