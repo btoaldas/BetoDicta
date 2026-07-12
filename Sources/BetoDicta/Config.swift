@@ -95,6 +95,9 @@ struct Config {
     static func matchPorAudio() -> Bool { (json()["match_por_audio"] as? Bool) ?? false }
     /// Umbral de distancia para el match por audio (nil = usar el default).
     static func umbralAudio() -> Double? { json()["umbral_audio"] as? Double }
+    /// Umbral SEPARADO para el dictado real (spotting corre en otra escala que
+    /// "probar por voz"). nil = cae al de probar hasta calibrarlo.
+    static func umbralAudioDictado() -> Double? { json()["umbral_audio_dictado"] as? Double }
 
     static func wizardCompletado() -> Bool { (json()["wizard_completado"] as? Bool) ?? false }
     /// ¿Existe ya la decisión del wizard? (ausente = nunca se ha decidido;

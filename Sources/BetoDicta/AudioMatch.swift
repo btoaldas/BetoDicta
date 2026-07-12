@@ -211,8 +211,27 @@ enum AudioMatch {
         return refs.map { dtw(test, $0) }.min()
     }
 
-    /// Umbral efectivo (el que puso el usuario, o el default).
+    /// Umbral efectivo de "probar por voz" (palabra aislada).
     static func umbral() -> Float { Float(Config.umbralAudio() ?? Double(umbralDefecto)) }
+    /// Umbral del DICTADO real (spotting). Escala distinta a la de probar: cae
+    /// al de probar hasta que se calibre con dictados reales.
+    static func umbralDictado() -> Float { Float(Config.umbralAudioDictado() ?? Double(umbral())) }
+
+    // ---- Bitácora del DICTADO real (para calibrar la raya del dictado) ----
+    static var dictadoURL: URL { dir.appendingPathComponent("dictado.jsonl") }
+    static func registrarDictado(termino: String, dist: Float, corrigio: Bool, texto: String) {
+        let iso = ISO8601DateFormatter().string(from: Date())
+        let obj: [String: Any] = ["ts": iso, "termino": termino, "dist": Double(dist),
+                                  "corrigio": corrigio, "raya": Double(umbralDictado()),
+                                  "texto": String(texto.prefix(120))]
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              var line = String(data: data, encoding: .utf8) else { return }
+        line += "\n"
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        if let h = FileHandle(forWritingAtPath: dictadoURL.path) {
+            h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+        } else { try? line.write(to: dictadoURL, atomically: true, encoding: .utf8) }
+    }
 
     // ---- Bitácora de pruebas (para afinar el umbral con datos reales) ----
     // tipo: "correcta" = dijiste la palabra buena · "falsa" = dijiste algo
@@ -324,28 +343,28 @@ enum AudioMatch {
     /// corregido y un registro de lo que hizo.
     static func corregirConAudio(texto: String, wav: Data, terminos: [String]) -> (texto: String, cambios: [String]) {
         guard let dict = rasgosDeWav(wav) else { return (texto, []) }
-        let u = umbral()
+        let u = umbralDictado()
         var resultado = texto
         var cambios: [String] = []
         for termino in terminos where tieneMuestras(termino) {
-            // ¿ya está escrito? entonces nada que hacer.
-            if resultado.range(of: termino, options: .caseInsensitive) != nil { continue }
             guard let d = spotMin(refs: muestras(termino).compactMap { rasgos($0) }, dictado: dict) else { continue }
-            // Registrar SIEMPRE los que suenan cerca (para calibrar la raya del
-            // dictado, que corre en otra escala que "probar por voz").
             let ds = String(format: "%.2f", d)
-            guard d <= u else {
-                if d <= u * 1.6 { cambios.append("· \(termino) sonó a \(ds) (raya \(String(format: "%.2f", u)) → no corrige)") }
-                continue
+            // Si ya está escrito, NO se corrige — pero SÍ se registra (para
+            // tener el caso "lo dijiste y el motor acertó" en la calibración).
+            let yaEscrito = resultado.range(of: termino, options: .caseInsensitive) != nil
+            var corrigio = false
+            if !yaEscrito {
+                if d <= u, let mala = palabraMasParecida(en: resultado, a: termino) {
+                    resultado = reemplazarPalabra(mala, por: termino, en: resultado)
+                    corrigio = true
+                    cambios.append("🔊 \(termino) (audio \(ds)): '\(mala)' → '\(termino)'")
+                } else if d <= u {
+                    cambios.append("🔊 \(termino) sonó a \(ds) pero no hallé palabra que reemplazar")
+                } else if d <= u * 1.6 {
+                    cambios.append("· \(termino) sonó a \(ds) (raya \(String(format: "%.2f", u)) → no corrige)")
+                }
             }
-            // Está en el audio y bajo la raya: buscar la palabra más parecida
-            // fonéticamente (la mal reconocida) y cambiarla.
-            guard let mala = palabraMasParecida(en: resultado, a: termino) else {
-                cambios.append("🔊 \(termino) sonó a \(ds) pero no hallé palabra que reemplazar")
-                continue
-            }
-            resultado = reemplazarPalabra(mala, por: termino, en: resultado)
-            cambios.append("🔊 \(termino) (audio \(ds)): '\(mala)' → '\(termino)'")
+            registrarDictado(termino: termino, dist: d, corrigio: corrigio, texto: texto)
         }
         return (resultado, cambios)
     }
