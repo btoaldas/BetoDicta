@@ -5,6 +5,10 @@ import Foundation
 /// Proveedores de chat compatibles con la API de OpenAI (mismo /chat/completions).
 /// Nube (con key), LOCAL (LM Studio/Ollama autodetectados) o PERSONALIZADA
 /// (gateway propio con esquema de auth y encabezados a medida).
+/// Formato de la API de chat. La mayoría son OpenAI-compatibles; Anthropic usa
+/// /v1/messages con otra forma de request/response.
+enum FormatoIA { case openai, anthropic }
+
 struct ChatIA {
     let id: String, nombre: String, base: String, modelo: String, keyEnv: String, local: Bool
     // Auth flexible (para gateways): encabezado, prefijo y extras.
@@ -13,6 +17,7 @@ struct ChatIA {
     var headersExtra: [String: String] = [:]
     var keyDirecta: String? = nil                 // personalizadas guardan su key aparte
     var paraPulido: Bool = true
+    var formato: FormatoIA = .openai
 
     var key: String? {
         if let d = keyDirecta { return d.isEmpty ? nil : d }
@@ -52,6 +57,41 @@ struct ChatIA {
     /// Etiqueta para el selector: "Proveedor · modelo-activo".
     var etiqueta: String { "\(proveedorCorto) · \(modeloEfectivo)" }
 
+    /// Construye la request de chat según el formato del proveedor (OpenAI o
+    /// Anthropic). Así pulido y traducción sirven con cualquiera.
+    func requestChat(prompt: String, temperatura: Double, textLen: Int) -> URLRequest? {
+        let urlStr: String
+        var body: [String: Any]
+        switch formato {
+        case .openai:
+            urlStr = "\(base)/chat/completions"
+            body = ["model": modeloEfectivo, "messages": [["role": "user", "content": prompt]], "temperature": temperatura]
+        case .anthropic:
+            urlStr = "\(base)/v1/messages"
+            body = ["model": modeloEfectivo, "max_tokens": 4096,
+                    "messages": [["role": "user", "content": prompt]], "temperature": temperatura]
+        }
+        guard let url = URL(string: urlStr) else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = min(120, Config.pulidoTimeout() + Double(textLen) / 40)
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        aplicarAuth(&req)
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        return req
+    }
+    /// Extrae el texto de la respuesta según el formato.
+    func extraerContenido(_ data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        switch formato {
+        case .openai:
+            return (json["choices"] as? [[String: Any]])?.first
+                .flatMap { $0["message"] as? [String: Any] }?["content"] as? String
+        case .anthropic:
+            return (json["content"] as? [[String: Any]])?.first?["text"] as? String
+        }
+    }
+
     /// Proveedores fijos (nube + locales). Constantes.
     static let fijos: [ChatIA] = [
         ChatIA(id: "groq",       nombre: "Groq · Llama 3.3 70B", base: "https://api.groq.com/openai/v1", modelo: "llama-3.3-70b-versatile", keyEnv: "GROQ_API_KEY",       local: false),
@@ -60,6 +100,9 @@ struct ChatIA {
         ChatIA(id: "openrouter", nombre: "OpenRouter",           base: "https://openrouter.ai/api/v1",   modelo: "openai/gpt-4o-mini",      keyEnv: "OPENROUTER_API_KEY", local: false),
         ChatIA(id: "deepseek",   nombre: "DeepSeek · chat",      base: "https://api.deepseek.com",       modelo: "deepseek-chat",           keyEnv: "DEEPSEEK_API_KEY",   local: false),
         ChatIA(id: "xai",        nombre: "xAI · Grok",           base: "https://api.x.ai/v1",            modelo: "grok-2-latest",           keyEnv: "XAI_API_KEY",        local: false),
+        ChatIA(id: "gemini",     nombre: "Gemini · Flash",       base: "https://generativelanguage.googleapis.com/v1beta/openai", modelo: "gemini-2.5-flash", keyEnv: "GEMINI_API_KEY", local: false),
+        ChatIA(id: "anthropic",  nombre: "Anthropic · Claude",   base: "https://api.anthropic.com",      modelo: "claude-haiku-4-5",        keyEnv: "ANTHROPIC_API_KEY",  local: false,
+               authHeader: "x-api-key", authPrefix: "", headersExtra: ["anthropic-version": "2023-06-01"], formato: .anthropic),
         ChatIA(id: "lmstudio",   nombre: "LM Studio (local)",    base: "http://localhost:1234/v1",       modelo: "local",                   keyEnv: "",                   local: true),
         ChatIA(id: "ollama",     nombre: "Ollama (local)",       base: "http://localhost:11434/v1",      modelo: "local",                   keyEnv: "",                   local: true),
     ]
@@ -386,33 +429,21 @@ enum LLMPostProcess {
         \(text)
         """
 
-        var request = URLRequest(url: URL(string: "\(ia.base)/chat/completions")!)
-        request.httpMethod = "POST"
-        // Timeout DINÁMICO: base configurable (Avanzado) + extra por largo del
-        // texto (más texto = la IA genera más = tarda más). Tope 120s.
-        request.timeoutInterval = min(120, Config.pulidoTimeout() + Double(text.count) / 40)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        ia.aplicarAuth(&request)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "model": ia.modeloEfectivo,
-            "messages": [["role": "user", "content": prompt]],
-            "temperature": 0,
-        ])
-        hacer(request, textoOriginal: text, inicio: inicio, intento: 1, completion: completion)
+        guard let request = ia.requestChat(prompt: prompt, temperatura: 0, textLen: text.count) else {
+            Log.write("pulido: no pude armar la request — texto original"); completion(text); return
+        }
+        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1, completion: completion)
     }
 
     /// Ejecuta la llamada con hasta 1 REINTENTO ante fallos de red/timeout
     /// (transitorios). En error de servidor (HTTP 4xx/5xx) no reintenta.
-    private static func hacer(_ request: URLRequest, textoOriginal text: String,
+    private static func hacer(_ request: URLRequest, ia: ChatIA, textoOriginal text: String,
                               inicio: Date, intento: Int, completion: @escaping (String) -> Void) {
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let data,
                    let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let choices = json["choices"] as? [[String: Any]],
-                   let message = choices.first?["message"] as? [String: Any],
-                   let pulido = (message["content"] as? String)?
+                   let pulido = ia.extraerContenido(data)?
                        .trimmingCharacters(in: .whitespacesAndNewlines),
                    !pulido.isEmpty {
                     let ms = Int(Date().timeIntervalSince(inicio) * 1000)
@@ -428,7 +459,7 @@ enum LLMPostProcess {
                 if esRed, intento < 2 {
                     Log.write("pulido: fallo de red (\(motivo)) — reintento…")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        hacer(request, textoOriginal: text, inicio: inicio, intento: intento + 1, completion: completion)
+                        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento + 1, completion: completion)
                     }
                     return
                 }

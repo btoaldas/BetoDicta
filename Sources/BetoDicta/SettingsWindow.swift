@@ -537,7 +537,8 @@ struct SettingsView: View {
                     // Conectar IAs de nube por key (OpenRouter, DeepSeek, xAI…)
                     SeccionPlegable("Conectar más IAs de chat") {
                         VStack(alignment: .leading, spacing: 8) {
-                            ForEach([("OPENROUTER_API_KEY", "OpenRouter"), ("DEEPSEEK_API_KEY", "DeepSeek"),
+                            ForEach([("OPENROUTER_API_KEY", "OpenRouter"), ("GEMINI_API_KEY", "Gemini (Google)"),
+                                     ("ANTHROPIC_API_KEY", "Anthropic (Claude)"), ("DEEPSEEK_API_KEY", "DeepSeek"),
                                      ("XAI_API_KEY", "xAI (Grok)"), ("OPENAI_API_KEY", "OpenAI"),
                                      ("MISTRAL_API_KEY", "Mistral")], id: \.0) { env, nombre in
                                 if ApiKeys.get(env).isEmpty {

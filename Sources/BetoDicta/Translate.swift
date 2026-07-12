@@ -24,26 +24,16 @@ enum Translate {
         \(text)
         """
 
-        var request = URLRequest(url: URL(string: "\(ia.base)/chat/completions")!)
-        request.httpMethod = "POST"
-        request.timeoutInterval = min(120, Config.pulidoTimeout() + Double(text.count) / 40)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        ia.aplicarAuth(&request)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "model": ia.modeloEfectivo,
-            "messages": [["role": "user", "content": prompt]],
-            "temperature": 0.2,
-        ])
+        guard let request = ia.requestChat(prompt: prompt, temperatura: 0.2, textLen: text.count) else {
+            Log.log(.ia, "traducir: no pude armar la request, texto sin traducir"); completion(text); return
+        }
 
         let inicio = Date()
         URLSession.shared.dataTask(with: request) { data, response, _ in
             DispatchQueue.main.async {
                 guard let data,
                       let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code),
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let choices = json["choices"] as? [[String: Any]],
-                      let message = choices.first?["message"] as? [String: Any],
-                      let out = (message["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      let out = ia.extraerContenido(data)?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !out.isEmpty else {
                     Log.log(.ia, "traducir: falló, texto sin traducir")
                     completion(text); return
