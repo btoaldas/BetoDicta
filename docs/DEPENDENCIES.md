@@ -27,5 +27,18 @@ cópialo al bundle (`make bundle`) y **prueba de punta a punta** antes de public
 El manifiesto de componentes está en [`scripts/deps.tsv`](../scripts/deps.tsv) (agrega
 filas ahí si sumas un motor nuevo).
 
-> Se puede correr al empezar a trabajar en BetoDicta, o programarlo con `launchd`/`cron`.
-> No instala ni modifica nada; solo lee.
+## Que avise SOLO (para no olvidarse)
+
+Hay tres formas, y conviene tener la automática puesta:
+
+1. **A mano**, al empezar a trabajar: `scripts/check-deps.sh`.
+2. **Automática (recomendada)** — un LaunchAgent que revisa **al iniciar sesión y cada lunes 10:00**, y si hay novedades lanza una **notificación de macOS**:
+   ```bash
+   scripts/install-checkdeps-agent.sh            # activar
+   scripts/install-checkdeps-agent.sh uninstall  # quitar
+   ```
+   Log en `~/Library/Logs/betodicta-checkdeps.log`. Nunca actualiza solo.
+3. **En cada release** — `scripts/release.sh` corre el checker como **recordatorio** (no bloquea) antes de publicar, para que no se te pase que hay motores nuevos.
+
+> Todo esto solo LEE (git fetch + API pública de GitHub) y avisa. Actualizar un
+> motor es siempre decisión manual + recompilar + probar de punta a punta.

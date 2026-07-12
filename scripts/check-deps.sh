@@ -15,10 +15,16 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="/opt/homebrew/bin:$PATH"
 
+# --notify: además de imprimir, lanza una notificación de macOS si hay algo
+# nuevo (para el LaunchAgent programado).
+NOTIFY=0
+[ "${1:-}" = "--notify" ] && NOTIFY=1
+
 MAN="scripts/deps.tsv"
 [ -f "$MAN" ] || { echo "falta $MAN"; exit 1; }
 
 hay_update=0
+con_update=""   # nombres de componentes con novedades (para la notificación)
 printf "\n\033[1mComponentes de terceros — ¿hay actualizaciones?\033[0m\n"
 printf "%s\n" "------------------------------------------------------------"
 
@@ -51,7 +57,7 @@ while IFS=$'\t' read -r nombre repo local || [ -n "$nombre" ]; do
     behind=$(git -C "$local" rev-list --count "HEAD..origin/$def" 2>/dev/null || echo "?")
     rel=$(latest_ref "$repo")
     if [ "${behind:-0}" != "0" ] && [ "${behind:-?}" != "?" ]; then
-      hay_update=1
+      hay_update=1; con_update="$con_update $nombre"
       printf "  \033[33m⬆ %s commits nuevos\033[0m en origin/%s (tienes @%s)\n" "$behind" "$def" "$cur"
       printf "    último release: %s\n" "${rel:-—}"
       printf "    ver:  git -C %s log --oneline HEAD..origin/%s\n" "$local" "$def"
@@ -69,6 +75,10 @@ printf "\n------------------------------------------------------------\n"
 if [ "$hay_update" = 1 ]; then
   printf "\033[33mHay actualizaciones de terceros.\033[0m Revísalas ANTES de traerlas\n"
   printf "(pueden romper la build). Recompila y prueba de punta a punta si actualizas.\n"
+  if [ "$NOTIFY" = 1 ]; then
+    msg="Motores con novedades:${con_update:- (ver detalle)}. Revisa antes de actualizar."
+    osascript -e "display notification \"$msg\" with title \"BetoDicta · dependencias\" sound name \"Ping\"" >/dev/null 2>&1 || true
+  fi
 else
   printf "\033[32mTodo al día (o sin cambios detectables).\033[0m\n"
 fi

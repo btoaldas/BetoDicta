@@ -41,6 +41,11 @@ ok()   { echo "✅ $1"; }
 [ "$SEC_OK" = 1 ]  || fail "Falta security review. Córrela (workflow) y pasa --security-review-ok."
 ok "Reviews confirmadas (código + seguridad)"
 
+# Recordatorio (no bloquea): ¿los motores de terceros tienen versión nueva?
+echo ""; echo "── Recordatorio: motores de terceros ──"
+bash scripts/check-deps.sh 2>/dev/null || true
+echo ""
+
 # ── Versión coherente (Version.swift == Info.plist) ────────────────────────
 VSWIFT=$(grep -Eo 'static let numero = "[^"]+"' Sources/BetoDicta/Version.swift | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+')
 VPLIST=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
