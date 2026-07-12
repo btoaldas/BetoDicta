@@ -114,7 +114,21 @@ enum Providers {
         if !faltantes.isEmpty {
             list.append(contentsOf: faltantes)
         }
-        if migrado || !faltantes.isEmpty {
+        // Sincroniza los GATEWAYS marcados "para voz" como filas de la cascada
+        // (id "gw:<uuid>"): agrega los que falten (apagados, al final) y quita
+        // los de gateways borrados o que ya no son de voz. Su orden/estado sí
+        // se persisten; su config vive en el editor de IAs personalizadas.
+        let vozGateways = PersonalizadaStore.cargar().filter { $0.paraVoz && !$0.base.isEmpty }
+        let vozIds = Set(vozGateways.map { "gw:\($0.id)" })
+        let sobran = list.filter { $0.id.hasPrefix("gw:") && !vozIds.contains($0.id) }
+        if !sobran.isEmpty { list.removeAll { p in sobran.contains { $0.id == p.id } } }
+        var nuevosGw = false
+        for g in vozGateways where !list.contains(where: { $0.id == "gw:\(g.id)" }) {
+            list.append(Provider(id: "gw:\(g.id)", nombre: g.nombre.isEmpty ? "Gateway de voz" : g.nombre,
+                                 tipo: "nube", activo: false, orden: list.count, modelo: g.modelo))
+            nuevosGw = true
+        }
+        if migrado || !faltantes.isEmpty || !sobran.isEmpty || nuevosGw {
             list.sort { $0.orden < $1.orden }
             save(list)
         }

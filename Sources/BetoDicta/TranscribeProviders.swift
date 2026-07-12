@@ -569,6 +569,51 @@ enum SpeechmaticsTranscribe {
     }
 }
 
+/// Transcribe con un GATEWAY personalizado marcado "para voz". Asume que expone
+/// /audio/transcriptions estilo OpenAI (multipart). Respeta su esquema de auth
+/// (Authorization / x-api-key / encabezado propio + headers extra) y es
+/// FAIL-CLOSED: no manda la key ni los headers por http sin cifrar.
+enum GatewayTranscribe {
+    static func run(gw: IAPersonalizada, wav: Data, completion: @escaping (Result<String, Error>) -> Void) {
+        guard !gw.base.isEmpty else { completion(.failure(ScribeError.ws("Gateway sin URL base"))); return }
+        let endpoint = (gw.base.hasSuffix("/") ? gw.base : gw.base + "/") + "audio/transcriptions"
+        guard let u = URL(string: endpoint) else { completion(.failure(ScribeError.ws("URL inválida"))); return }
+        // Fail-closed: solo mandar secretos por https o a localhost.
+        let segura = (u.scheme == "https") || ["localhost", "127.0.0.1", "::1"].contains(u.host ?? "")
+        let boundary = "BetoDicta-\(UUID().uuidString)"
+        var body = Data()
+        func field(_ n: String, _ v: String) {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(n)\"\r\n\r\n\(v)\r\n".data(using: .utf8)!)
+        }
+        if !gw.modelo.isEmpty { field("model", gw.modelo) }
+        field("language", "es"); field("response_format", "json")
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 20
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if segura {
+            if !gw.apiKey.isEmpty {
+                req.setValue(gw.authPrefix + gw.apiKey, forHTTPHeaderField: gw.authHeader.isEmpty ? "Authorization" : gw.authHeader)
+            }
+            for (h, v) in gw.headers { req.setValue(v, forHTTPHeaderField: h) }
+        }
+        URLSession.shared.uploadTask(with: req, from: body) { data, resp, err in
+            DispatchQueue.main.async {
+                if let err { completion(.failure(err)); return }
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data, (200..<300).contains(code) else {
+                    completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                    return
+                }
+                guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let t = j["text"] as? String else { completion(.failure(ScribeError.sinTexto)); return }
+                completion(.success(t.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+        }.resume()
+    }
+}
+
 /// Transcribe con un servidor LOCAL (Ollama/LM Studio) que tenga un modelo
 /// whisper — vía /v1/audio/transcriptions (OpenAI-compat, sin auth). El modelo
 /// lo detecta ChatIA.sttLocalModelo (detección INTELIGENTE): si el local no
@@ -702,6 +747,7 @@ enum Failover {
         case "azure": modeloUsado = p.modelo ?? "azure-fast"
         case "ollama_stt": modeloUsado = ChatIA.sttLocalModelo["ollama"] ?? ""
         case "lmstudio_stt": modeloUsado = ChatIA.sttLocalModelo["lmstudio"] ?? ""
+        case let g where g.hasPrefix("gw:"): modeloUsado = p.modelo ?? ""
         default: modeloUsado = p.modelo ?? ""
         }
 
@@ -766,6 +812,12 @@ enum Failover {
             if let m = ChatIA.sttLocalModelo["lmstudio"] {
                 LocalTranscribe.run(base: "http://localhost:1234/v1", model: m, wav: wav) { siguiente($0) }
             } else { siguiente(.failure(ScribeError.ws("LM Studio no tiene un modelo whisper cargado"))) }
+        case let g where g.hasPrefix("gw:"):
+            // Gateway personalizado marcado "para voz": busca su config y transcribe.
+            let uuid = String(g.dropFirst(3))
+            if let gw = PersonalizadaStore.cargar().first(where: { $0.id == uuid }) {
+                GatewayTranscribe.run(gw: gw, wav: wav) { siguiente($0) }
+            } else { siguiente(.failure(ScribeError.ws("El gateway de voz ya no existe"))) }
         default: siguiente(.failure(ScribeError.sinTexto))
         }
     }

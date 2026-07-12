@@ -171,7 +171,12 @@ struct IAPersonalizadaEditor: View {
                 }
                 // Para qué sirve
                 Toggle("Usar para PULIR / traducir el texto", isOn: $store.items[i].paraPulido).onChange(of: store.items[i].paraPulido) { _, _ in store.guardar() }
-                Toggle("Usar para RECONOCER voz (transcripción) — próximamente", isOn: $store.items[i].paraVoz).disabled(true)
+                Toggle("Usar para RECONOCER voz (transcripción)", isOn: $store.items[i].paraVoz)
+                    .onChange(of: store.items[i].paraVoz) { _, _ in store.guardar() }
+                if store.items[i].paraVoz {
+                    Text("Aparecerá en la cascada de Modelos (apagado). El gateway debe exponer /audio/transcriptions estilo OpenAI. Actívalo y ordénalo ahí.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 Divider()
                 // Probar / borrar
                 HStack(spacing: 10) {

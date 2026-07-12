@@ -196,6 +196,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("PRICETEST \(base > 0 ? "OK" : "✗") long-tail 'base'=$\(base)/h (relleno del archivo, no curado)")
             exit(0)
         }
+        // Prueba de gateways de voz: BETODICTA_GWVOZTEST=1 imprime la cascada
+        // (marcando las filas gw:<uuid> sincronizadas de gateways "para voz") y sale.
+        if ProcessInfo.processInfo.environment["BETODICTA_GWVOZTEST"] == "1" {
+            for p in Providers.load() {
+                let esGw = p.id.hasPrefix("gw:")
+                print("GWVOZTEST \(esGw ? "★GATEWAY" : "       ") #\(p.orden) \(p.id) | \(p.nombre) | modelo=\(p.modelo ?? "-") | activo=\(p.activo)")
+            }
+            exit(0)
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
