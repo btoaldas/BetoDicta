@@ -61,3 +61,12 @@ install: bundle
 
 clean:
 	rm -rf build
+
+# Publica release en GitHub con DMG versionado + estable (para el tap Homebrew:
+# releases/latest/download/BetoDicta.dmg). Uso: make release
+release: dmg
+	@V=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist); \
+	cp "build/BetoDicta-$$V.dmg" "build/BetoDicta.dmg"; \
+	gh release create "v$$V" --title "BetoDicta $$V" \
+		"build/BetoDicta-$$V.dmg" "build/BetoDicta.dmg" && \
+	echo "Release v$$V publicado (con DMG estable para brew)"

@@ -55,6 +55,15 @@ Sus cuatro superpoderes:
 
 ## 3. Instalación
 
+**Con Homebrew** (lo más rápido, siempre el último release):
+```bash
+brew install --cask btoaldas/tap/betodicta
+# o, para saltar el aviso de Gatekeeper (firma propia):
+brew install --cask --no-quarantine btoaldas/tap/betodicta
+```
+
+**Manual (DMG):**
+
 1. Descarga el DMG desde [GitHub Releases](https://github.com/btoaldas/BetoDicta/releases/latest).
 2. Abre el DMG y **arrastra BetoDicta.app a la carpeta Aplicaciones**.
 3. **Primera apertura** — macOS mostrará *"Apple no pudo verificar que BetoDicta no contenga software malicioso"*. Es normal: la app es open source y no viene de la App Store. Haz esto:
