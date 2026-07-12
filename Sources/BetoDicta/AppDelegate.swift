@@ -87,7 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let recorder = Recorder()
     private let panel = DictationPanel()
     private var stream: StreamClient?
-    private var dgStream: DeepgramStreamClient?   // Deepgram en vivo (opt-in)
+    private var liveNube: LiveNubeSTT?   // STT nube en vivo (Deepgram/Soniox/… opt-in)
     private var history: HistoryWriter?
     private let media = MediaControl()
     private var hotKeyRef: EventHotKeyRef?
@@ -252,7 +252,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ok = ok && bien
                 print("DGTEST \(bien ? "OK" : "✗") \(etq): \(r.map { "(\"\($0.0)\", \($0.1))" } ?? "nil")")
             }
-            print("DGTEST \(ok ? "TODO OK — parseo correcto" : "✗ FALLA")")
+            // Parseo de los otros motores en vivo nuevos.
+            let sx = SonioxStreamClient.parse(#"{"tokens":[{"text":"hola","is_final":true},{"text":" mundo","is_final":false}]}"#)
+            ok = ok && (sx?.0 == "hola" && sx?.1 == " mundo")
+            print("SONIOXPARSE \(sx.map { "fin=\"\($0.0)\" inter=\"\($0.1)\"" } ?? "nil")")
+            let aa = AssemblyAIStreamClient.parse(#"{"type":"Turn","transcript":"hola qué tal","end_of_turn":true}"#)
+            ok = ok && (aa?.0 == "hola qué tal" && aa?.1 == true)
+            print("AAIPARSE \(aa.map { "\"\($0.0)\" fin=\($0.1)" } ?? "nil")")
+            let sm = SpeechmaticsStreamClient.parse(#"{"message":"AddTranscript","metadata":{"transcript":"buenos días"}}"#)
+            ok = ok && (sm?.0 == "buenos días" && sm?.1 == true)
+            print("SMPARSE \(sm.map { "\"\($0.0)\" fin=\($0.1)" } ?? "nil")")
+            let gl = GladiaLiveClient.parse(#"{"type":"transcript","data":{"is_final":true,"utterance":{"text":"prueba gladia"}}}"#)
+            ok = ok && (gl?.0 == "prueba gladia" && gl?.1 == true)
+            print("GLADIAPARSE \(gl.map { "\"\($0.0)\" fin=\($0.1)" } ?? "nil")")
+            print("DGTEST \(ok ? "TODO OK — parseo de los 5 motores en vivo correcto" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
         // Prueba de detección de motores de embeddings: BETODICTA_EMBENGTEST=1
@@ -1063,8 +1076,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let id = primero?.id, ["nemotron_local", "voxtral_local", "canary_local"].contains(id),
            TcppStreamClient.disponible(proveedor: id) {
             arrancarTcppVivo(proveedor: id, history: history)
-        } else if puedeDeepgramVivo(primero) {
-            conectarDeepgramVivo(model: primero?.modelo ?? "nova-3", history: history)
+        } else if let id = primero?.id, LiveNube.disponible(id) {
+            conectarNubeVivo(id: id, model: primero?.modelo ?? "", history: history)
         } else if isStreamingModel {
             if StreamClient.enCuarentena {
                 // Red recién caída: ni intentar la nube — plan B directo.
@@ -1076,14 +1089,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.setMotor(Self.nombreMotor(primero), enVivo: false)
             startLiveLocal(history: history)
         }
-    }
-
-    /// ¿El #1 es Deepgram y el STT en vivo está activado (opt-in) con key y sin
-    /// cuarentena? Additivo: si NO, Deepgram sigue siendo por lotes como siempre.
-    private func puedeDeepgramVivo(_ p: Provider?) -> Bool {
-        Config.sttStreaming() && p?.id == "deepgram"
-            && !ApiKeys.get("DEEPGRAM_API_KEY").isEmpty
-            && !DeepgramStreamClient.enCuarentena
     }
 
     /// Nombre corto del motor para el letrero del notch y las estadísticas.
@@ -1101,6 +1106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "canary_local": return "Canary"
         case "openai": return "OpenAI"
         case "mistral": return "Mistral"
+        case "deepgram": return "Deepgram"
+        case "soniox": return "Soniox"
+        case "assemblyai": return "AssemblyAI"
+        case "speechmatics": return "Speechmatics"
+        case "gladia": return "Gladia"
+        case "fireworks": return "Fireworks"
+        case "azure": return "Azure"
         default: return respaldo
         }
     }
@@ -1135,7 +1147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         liveTimer?.invalidate(); liveTimer = nil
         entregaVivo = nil
         stream?.disconnect(); stream = nil
-        dgStream?.disconnect(); dgStream = nil
+        liveNube?.disconnect(); liveNube = nil
         tcppStream?.cancel(); tcppStream = nil
 
         let primero = Providers.cadena().first
@@ -1143,8 +1155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let id = primero?.id, ["nemotron_local", "voxtral_local", "canary_local"].contains(id),
            TcppStreamClient.disponible(proveedor: id) {
             arrancarTcppVivo(proveedor: id, history: history)
-        } else if puedeDeepgramVivo(primero) {
-            conectarDeepgramVivo(model: primero?.modelo ?? "nova-3", history: history)
+        } else if let id = primero?.id, LiveNube.disponible(id) {
+            conectarNubeVivo(id: id, model: primero?.modelo ?? "", history: history)
         } else if primero?.id == "elevenlabs", (primero?.modelo ?? "") == "scribe_v2_realtime",
                   !StreamClient.enCuarentena {
             conectarScribeVivo(history: history)
@@ -1221,31 +1233,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Deepgram en vivo (WebSocket). Si no conecta → plan B transparente (igual
-    /// que ElevenLabs). El texto final se cierra en stopAndTranscribe.
-    private func conectarDeepgramVivo(model: String, history: HistoryWriter) {
-        panel.setMotor("Deepgram…", enVivo: false)
-        let dg = DeepgramStreamClient()
-        self.dgStream = dg
-        dg.onPartial = { [weak self, weak dg] text in
-            guard let self, let dg, self.dgStream === dg, self.recorder.isRecording else { return }
+    /// STT nube en vivo (WebSocket) genérico para cualquier proveedor que lo
+    /// soporte (Deepgram/Soniox/AssemblyAI/Speechmatics/Gladia). Si no conecta →
+    /// plan B transparente. El texto final se cierra en stopAndTranscribe.
+    private func conectarNubeVivo(id: String, model: String, history: HistoryWriter) {
+        guard let cliente = LiveNube.cliente(id) else { planBVivo(history: history); return }
+        let nombre = Self.nombreMotor(id: id, respaldo: id.capitalized)
+        panel.setMotor("\(nombre)…", enVivo: false)
+        self.liveNube = cliente
+        cliente.onPartial = { [weak self, weak cliente] text in
+            guard let self, let cliente, self.liveNube === cliente, self.recorder.isRecording else { return }
             self.lastPartial = text
             self.panel.update(text)
             history.savePartial(text)
         }
-        dg.onError = { message in Log.write("deepgram-stream: \(message)") }
-        dg.connect(model: model) { [weak self] result in
+        cliente.onError = { message in Log.write("\(id)-stream: \(message)") }
+        cliente.connect(model: model) { [weak self, weak cliente] result in
             guard let self, self.recorder.isRecording else { return }
             switch result {
             case .failure(let error):
-                Log.log(.ia, "Deepgram vivo no conectó (\(error.localizedDescription)) → plan B")
-                DeepgramStreamClient.registrarFallo()
-                self.dgStream = nil
+                Log.log(.ia, "\(nombre) vivo no conectó (\(error.localizedDescription)) → plan B")
+                self.liveNube = nil
                 self.planBVivo(history: history)
             case .success:
-                self.fijarMotorVivo { [weak dg] chunk in dg?.send(chunk: chunk) }
-                self.panel.setMotor("Deepgram", enVivo: true)
-                self.panel.update("Escuchando (Deepgram en vivo)… (\(self.tecla) termina)")
+                self.fijarMotorVivo { [weak cliente] chunk in cliente?.send(chunk: chunk) }
+                self.panel.setMotor(nombre, enVivo: true)
+                self.panel.update("Escuchando (\(nombre) en vivo)… (\(self.tecla) termina)")
             }
         }
     }
@@ -1381,26 +1394,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
 
-        // Deepgram en vivo: cerrar el stream y esperar los finales pendientes.
-        if let dg = dgStream, dg.conectado {
-            self.dgStream = nil
+        // STT nube en vivo: cerrar el stream y esperar los finales pendientes.
+        if let live = liveNube, live.conectado {
+            self.liveNube = nil
+            let idVivo = Providers.cadena().first(where: { LiveNube.soportan[$0.id] != nil })?.id ?? ""
+            let nombreVivo = Self.nombreMotor(id: idVivo, respaldo: "Nube")
             guard seconds > 0.4 else {
-                dg.disconnect(); historyActual?.discard()
+                live.disconnect(); historyActual?.discard()
                 panel.update("Muy corto — nada que transcribir"); panel.hide(after: 1.2)
                 return
             }
             panel.update("⏳ Cerrando dictado…")
-            dg.finalizar()
-            // Tras CloseStream, Deepgram finaliza lo pendiente y cierra; damos
-            // una gracia y entregamos el texto (o cascada con el wav si vacío).
+            live.finalizar()
+            // Tras el cierre, el motor finaliza lo pendiente; damos una gracia y
+            // entregamos el texto (o cascada con el wav si quedó vacío).
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                let full = dg.fullText()
-                dg.disconnect()
+                let full = live.fullText()
+                live.disconnect()
                 if full.isEmpty {
-                    rescatarConCascada("Deepgram sin texto")
+                    rescatarConCascada("\(nombreVivo) sin texto")
                 } else {
-                    let mod = Providers.modelo(de: "deepgram") ?? "nova-3"
-                    self?.deliver(raw: full, wav: wav, via: "Deepgram (en vivo)", modelo: mod, history: historyActual)
+                    let mod = Providers.modelo(de: idVivo) ?? ""
+                    self?.deliver(raw: full, wav: wav, via: "\(nombreVivo) (en vivo)", modelo: mod, history: historyActual)
                 }
             }
             return

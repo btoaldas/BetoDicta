@@ -8,7 +8,7 @@ import Foundation
 // acumulan. Opt-in (Config.sttStreaming), additivo: si está apagado, el motor
 // nube sigue siendo por lotes como siempre.
 
-final class DeepgramStreamClient: NSObject {
+final class DeepgramStreamClient: NSObject, LiveNubeSTT {
     private var task: URLSessionWebSocketTask?
     private var session: URLSession?
     private var finales: [String] = []        // segmentos ya finalizados (is_final)
