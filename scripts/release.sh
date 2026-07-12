@@ -65,11 +65,15 @@ grep -q "$V" Sources/BetoDicta/Version.swift || fail "El historial de Version.sw
 ok "Historial de novedades incluye $V"
 
 # ── Gate 4: build + verificar firma del bundle ─────────────────────────────
-git tag | grep -qx "v$V" && fail "El tag v$V ya existe (¿versión sin subir?)"
+# Sin pipe (evita el problema SIGPIPE+pipefail): consulta directa del tag.
+git rev-parse -q --verify "refs/tags/v$V" >/dev/null 2>&1 && fail "El tag v$V ya existe (¿versión sin subir?)"
 make dmg >/tmp/bd-release.log 2>&1 || { tail -20 /tmp/bd-release.log; fail "make dmg falló"; }
 DMG="build/BetoDicta-$V.dmg"
 [ -f "$DMG" ] || fail "No se generó $DMG"
-codesign -dvvv build/BetoDicta.app 2>&1 | grep -q "Authority=BetoDicta Self Signed" \
+# Capturamos a variable: con pipefail, `codesign … | grep -q` haría que grep
+# cierre el pipe temprano → codesign recibe SIGPIPE (141) → falso fallo.
+SIG=$(codesign -dvvv build/BetoDicta.app 2>&1 || true)
+echo "$SIG" | grep -q "Authority=BetoDicta Self Signed" \
   || fail "El bundle NO quedó firmado con 'BetoDicta Self Signed' (revisa el certificado)"
 ok "Bundle firmado con el certificado propio"
 
