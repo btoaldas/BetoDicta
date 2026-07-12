@@ -107,6 +107,15 @@ struct ChatIA {
             return (json["stop_reason"] as? String) == "max_tokens"
         }
     }
+    /// Tokens (entrada, salida) que reportó la respuesta — para el costo.
+    func tokensUsados(_ data: Data) -> (Int, Int)? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let u = json["usage"] as? [String: Any] else { return nil }
+        switch formato {
+        case .openai:    return ((u["prompt_tokens"] as? Int) ?? 0, (u["completion_tokens"] as? Int) ?? 0)
+        case .anthropic: return ((u["input_tokens"] as? Int) ?? 0, (u["output_tokens"] as? Int) ?? 0)
+        }
+    }
 
     /// Proveedores fijos (nube + locales). Constantes.
     static let fijos: [ChatIA] = [
@@ -182,6 +191,27 @@ struct ChatIA {
         if let pub = precios[proveedorId]?[modelo] { return pub }
         if let cur = preciosConocidos[modelo] { return etiquetaPrecioDe(cur.0, cur.1, aprox: true) }
         return nil
+    }
+    /// Precio NUMÉRICO (entrada, salida) $ por 1M tokens — para calcular costo.
+    /// manual > curado > publicado (parseado del label). nil si desconocido.
+    static func precioNum(_ proveedorId: String, _ modelo: String) -> (Double, Double)? {
+        if let m = Config.precioManual("\(proveedorId)::\(modelo)") { return m }
+        if let cur = preciosConocidos[modelo] { return cur }
+        if let pub = precios[proveedorId]?[modelo] {
+            if pub.lowercased().contains("gratis") { return (0, 0) }
+            let ns = numerosDe(pub)
+            if ns.count >= 2 { return (ns[0], ns[1]) }
+        }
+        return nil
+    }
+    private static func numerosDe(_ s: String) -> [Double] {
+        var out: [Double] = []; var cur = ""
+        for ch in s {
+            if ch.isNumber || ch == "." { cur.append(ch) }
+            else { if let d = Double(cur) { out.append(d) }; cur = "" }
+        }
+        if let d = Double(cur) { out.append(d) }
+        return out
     }
 
     /// Descubre los modelos de un proveedor conectado (fijo o local) usando su
@@ -536,6 +566,9 @@ enum LLMPostProcess {
                         .trimmingCharacters(in: .whitespacesAndNewlines), !pulido.isEmpty {
                         let ms = Int(Date().timeIntervalSince(inicio) * 1000)
                         Log.write("pulido: OK en \(ms)ms — \(text.count)→\(pulido.count) chars\(intento > 1 ? " (reintento)" : "")")
+                        if let (tin, tout) = ia.tokensUsados(data) {
+                            PulidoLog.record(provider: ia.id, modelo: ia.modeloEfectivo, tin: tin, tout: tout)
+                        }
                         completion(pulido)
                         return
                     }

@@ -910,6 +910,7 @@ struct SettingsView: View {
 
 struct StatsView: View {
     private let t = UsageLog.totales()
+    private let tp = PulidoLog.totales()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -939,11 +940,54 @@ struct StatsView: View {
             Text(UsageLog.referenciaPrecios)
                 .font(.caption).foregroundStyle(.secondary)
 
+            // Gasto de PULIDO/traducción con IA (tokens → costo estimado).
+            if tp.mesCosto > 0 || tp.pulidosMes > 0 {
+                Label("Gasto de pulido con IA", systemImage: "sparkles").font(.headline).foregroundStyle(acento)
+                HStack(spacing: 10) {
+                    kpi("Hoy", String(format: "$%.3f", tp.hoyCosto), "dollarsign.circle")
+                    kpi("Semana", String(format: "$%.3f", tp.semanaCosto), "calendar")
+                    kpi("Mes", String(format: "$%.2f", tp.mesCosto), "calendar.badge.clock")
+                }
+                HStack(spacing: 10) {
+                    kpi("Pulidos hoy", "\(tp.pulidosHoy)", "sparkles")
+                    kpi("Tokens hoy", "\(tp.tokensHoy)", "number")
+                    kpi("Pulidos mes", "\(tp.pulidosMes)", "sum")
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Gasto de pulido — últimos 7 días").font(.subheadline).bold()
+                    barrasCosto
+                }
+                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                Text("Estimado con el precio (manual/publicado/curado ~) del modelo que se usó. Con IA LOCAL el costo es $0.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             // Bitácora de aprendizajes — solo con Modo desarrollo activo.
             if Config.devMode() {
                 AprendizajesDebugView()
             }
         }
+    }
+
+    private var barrasCosto: some View {
+        let maxV = max(tp.costoPorDia.max() ?? 0.001, 0.0001)
+        let dias = diasEtiquetas()
+        return HStack(alignment: .bottom, spacing: 8) {
+            ForEach(0..<7, id: \.self) { i in
+                VStack(spacing: 4) {
+                    Text(tp.costoPorDia[i] >= 0.0005 ? String(format: "$%.3f", tp.costoPorDia[i]) : "")
+                        .font(.system(size: 8)).foregroundStyle(.secondary)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.green.opacity(i == 6 ? 1 : 0.55))
+                        .frame(height: max(4, CGFloat(tp.costoPorDia[i] / maxV) * 90))
+                    Text(dias[i]).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: 130)
     }
 
     private var barras: some View {
