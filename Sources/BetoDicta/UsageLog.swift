@@ -41,10 +41,25 @@ struct UsageLog {
         "ElevenLabs": 0.39, "Groq": 0.04, "OpenAI": 0.18, "Mistral": 0.18,
     ]
 
-    /// Tarifa efectiva de un MODELO: la que tú pusiste, o la de referencia.
-    /// Modelos locales no están → gratis ($0).
+    /// Tarifas de STT (USD/hora) desde ~/.betodicta/precios_stt.json — fuente
+    /// mantenida (LiteLLM para los que cubre: OpenAI/Groq/Deepgram/…),
+    /// refrescada por scripts/update-prices.sh SIN gastar IA. Igual que el
+    /// precios_ia.json del pulido, pero para audio. Fresca > curado del código.
+    static var tarifasArchivo: [String: Double] = [:]
+    static func cargarTarifasArchivo() {
+        let url = Config.dir.appendingPathComponent("precios_stt.json")
+        guard let data = try? Data(contentsOf: url),
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Double] else { return }
+        if !j.isEmpty { tarifasArchivo = j }
+    }
+
+    /// Tarifa efectiva de un MODELO (USD/hora). Precedencia: la que TÚ pusiste a
+    /// mano > el archivo mantenido (LiteLLM) > el curado del código. Modelos
+    /// locales no están en ninguno → gratis ($0).
     static func tarifaModelo(_ modelo: String) -> Double {
-        Config.tarifa(modelo) ?? tarifasDefecto[modelo] ?? 0
+        if let manual = Config.tarifa(modelo) { return manual }   // tu valor manda
+        if let archivo = tarifasArchivo[modelo] { return archivo } // LiteLLM real, auto
+        return tarifasDefecto[modelo] ?? 0                         // curado baked
     }
 
     /// Tarifa de un registro: por su modelo si lo tiene; si no (registro

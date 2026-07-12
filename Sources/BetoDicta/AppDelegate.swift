@@ -327,7 +327,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             VoxtralServer.limpiarHuerfanos()
         }
         Config.endurecerSecretosExistentes()   // 0600 a .env/gateways/config si venían 0644
-        ChatIA.cargarPreciosArchivo()  // precios reales desde precios_ia.json (LiteLLM)
+        ChatIA.cargarPreciosArchivo()  // precios reales de CHAT desde precios_ia.json (LiteLLM)
+        UsageLog.cargarTarifasArchivo()  // precios reales de STT/audio desde precios_stt.json (LiteLLM)
         ChatIA.detectarLocales()   // ¿LM Studio / Ollama corriendo? (pulido local)
         ChatIA.detectarSTTLocales()  // ¿algún local puede TRANSCRIBIR? (whisper/asr)
         Updater.estaGrabando = { [weak self] in self?.recorder.isRecording ?? false }
