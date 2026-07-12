@@ -235,6 +235,7 @@ Tres formas, de la más rápida a la más completa:
 
 **General**
 - **Tecla de dictado**: clic en el botón y pulsa la tecla o combinación que quieras (fn, F1–F12, ⌘⇧D…). Esc cancela la grabación del atajo.
+- **Mantener presionado para hablar (push-to-talk)**: si lo activas, grabas **mientras tengas la tecla presionada** y al **soltarla** termina y transcribe — en vez del modo toque (un toque empieza, otro termina). Funciona con **fn** o combinaciones de modificadores (ctrl+opt…); no con F1–F12. Por defecto está apagado.
 - **Micrófono**: por defecto usa el **integrado del Mac** — así tu iPhone cercano no "roba" la entrada por Continuity y te deja dictando al aire. Puedes elegir cualquier otro o el automático del sistema.
 - **Sonidos de inicio y fin**: el "tink" al empezar y el "glass" al entregar.
 - **Cancelar con Esc**: Esc a mitad del dictado descarta todo.
@@ -250,7 +251,7 @@ Tres formas, de la más rápida a la más completa:
 
 **Pulido con IA**
 - Pasa el texto por una IA que corrige puntuación y quita muletillas ("eh", "este…").
-- **Elige la IA**: no tiene que ser Groq. Cualquiera conectada — **Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI (Grok)** (nube) o **LM Studio / Ollama** (local, se detectan solos si están corriendo). El selector muestra **"proveedor · modelo activo"** y solo lista las conectadas; la misma IA pule y traduce.
+- **Elige la IA**: no tiene que ser Groq. Cualquiera conectada — **Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI (Grok), Anthropic (Claude), Gemini (Google)** (nube) o **LM Studio / Ollama** (local, se detectan solos si están corriendo, incluso recién abiertos). El selector muestra **"proveedor · modelo activo"** y solo lista las conectadas; la misma IA pule y traduce.
 - **Elige el modelo de CUALQUIER proveedor** (no solo gateways): al elegir una IA aparece una fila **"Modelo"** con un botón **"Descubrir"** que trae su lista completa; eliges cuál usar al vuelo y se guarda por proveedor. Si el proveedor publica precios (ej. **OpenRouter**), cada modelo muestra su costo: **`$entrada/$salida por millón de tokens`** o **`gratis`** — así ves cuánto te costará antes de usarlo.
 - **Aviso de privacidad**: al pulir con una IA de **nube** o un **gateway de terceros**, la app te recuerda que **tu texto sale de tu Mac** — no dictes datos sensibles (claves, tarjetas). Para que **nada** salga, usa una IA **local**. El aviso se puede ocultar en *Ajustes → Avanzado*. Si un gateway usa **http sin cifrar**, la API key **no se envía** (protección).
 - **Conectar más IAs de chat** (despliega la sección): pega la API key de la que quieras (OpenRouter/DeepSeek/xAI…). Para los locales, pulsa **"Buscar"** (o préndelos y reabre) — la app encuentra el modelo cargado.

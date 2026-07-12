@@ -42,7 +42,8 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 - **Tecla `fn`** (o F1–F12, configurable) — toque limpio para empezar/terminar, las combinaciones fn+otra-tecla no lo disparan
 - **Keyterms**: tu vocabulario personal viaja al modelo — nombres propios y términos técnicos salen bien a la primera
 - **Reemplazos**: correcciones automáticas post-transcripción (palabra completa, sin distinguir mayúsculas)
-- **Pulido con cualquier IA + elige el modelo**: pule/traduce con Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI o tu gateway propio — o **local** (LM Studio/Ollama, sin que nada salga de tu Mac). Eliges el **modelo** de cada proveedor al vuelo y, si publica precios (OpenRouter), ves el **costo por modelo** (`$in/$out` o `gratis`). Aviso de privacidad al usar nube/terceros
+- **Pulido con cualquier IA + elige el modelo**: pule/traduce con Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI, **Anthropic (Claude)**, **Gemini (Google)** o tu gateway propio — o **local** (LM Studio/Ollama, sin que nada salga de tu Mac). Eliges el **modelo** de cada proveedor al vuelo y, si publica precios (OpenRouter), ves el **costo por modelo** (`$in/$out` o `gratis`). Aviso de privacidad al usar nube/terceros
+- **Push-to-talk opcional**: graba mientras mantienes la tecla y termina al soltarla (o el modo toque de siempre)
 - **Caja negra**: cada dictado guarda audio y texto en `historial/año/mes/día/` — el audio se escribe a disco EN VIVO chunk a chunk; un crash no te roba ni un segundo
 - **Pausa real de multimedia**: al dictar pausa lo que suene (Edge, Chrome, Music, Spotify, YouTube…) y lo reanuda al terminar, además de bajar el volumen; usa el estado real de reproducción, sin bug de toggle
 - **Guardián del silencio**: si te olvidas la tecla abierta, se cierra solo tras N segundos sin voz (no le regalas plata a la nube)

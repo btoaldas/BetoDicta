@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.6"
+    static let numero = "0.20.7"
     static let fecha = "2026-07-12"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.7", "2026-07-12", [
+            "Pulir/traducir con Anthropic (Claude) y Gemini (Google) — se suman a Groq, OpenAI, Mistral, OpenRouter, DeepSeek y xAI. Pon tu key en 'Conectar más IAs'",
+            "Push-to-talk: opción para grabar mientras MANTIENES la tecla y terminar al soltarla (Ajustes → General). El modo toque sigue de default",
+            "Detección de IA local EN VIVO: LM Studio / Ollama recién abiertos ya se detectan sin reiniciar la app; y elige un modelo de CHAT por defecto (no uno de embeddings)",
+        ]),
         ("0.20.6", "2026-07-12", [
             "El selector de pulido muestra 'proveedor · modelo', y puedes elegir el modelo de CUALQUIER IA (nube, local o gateway) al vuelo con el botón 'Descubrir', no solo de los gateways",
             "Descubrir modelos trae el PRECIO por modelo cuando el proveedor lo publica (ej. OpenRouter): '$in/$out por millón de tokens' o 'gratis'",
