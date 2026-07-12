@@ -87,6 +87,7 @@ final class SettingsModel: ObservableObject {
     @Published var avisoNube: Bool { didSet { Config.set("aviso_privacidad_nube", to: avisoNube) } }
     @Published var salvaguardaInyeccion: Bool { didSet { Config.set("salvaguarda_inyeccion", to: salvaguardaInyeccion) } }
     @Published var sttStreaming: Bool { didSet { Config.set("stt_streaming", to: sttStreaming) } }
+    @Published var busquedaSemantica: Bool { didSet { Config.set("busqueda_semantica", to: busquedaSemantica) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -121,6 +122,7 @@ final class SettingsModel: ObservableObject {
         avisoNube = Config.avisoNube()
         salvaguardaInyeccion = Config.salvaguardaInyeccion()
         sttStreaming = Config.sttStreaming()
+        busquedaSemantica = Config.busquedaSemantica()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -657,6 +659,11 @@ struct SettingsView: View {
                         Text("Si tu motor #1 es Deepgram, transcribe EN VIVO por WebSocket (ves el texto mientras hablas) en vez de esperar al soltar la tecla. Necesita tu key de Deepgram. Si está apagado, Deepgram transcribe por lotes como el resto. Default apagado.")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
+                        Toggle("Búsqueda por significado en el Historial (semántica)", isOn: $m.busquedaSemantica)
+                        Text("Activa el modo de buscar por IDEA (no por palabra exacta) en el Historial, con embeddings. Elige con cuál IA se calculan:")
+                            .font(.caption).foregroundStyle(.secondary)
+                        EmbeddingMotorPicker().disabled(!m.busquedaSemantica)
+                        Divider()
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Espera del pulido con IA: \(Int(m.pulidoTimeout)) s").font(.subheadline)
                             Slider(value: $m.pulidoTimeout, in: 10...60, step: 5).tint(acento)
@@ -1133,5 +1140,58 @@ final class SettingsWindowController {
     func show(irA seccion: String) {
         show()
         NavAjustes.shared.ir = seccion
+    }
+}
+
+// MARK: - Selector del motor de embeddings (con cuál IA se calculan)
+//
+// NO se hardcodea Ollama: se detecta qué motores están listos (Ollama corriendo
+// con un modelo de embeddings, o una key de nube puesta) y se ofrecen. El
+// usuario elige; los inactivos se muestran con la pista de cómo activarlos.
+struct EmbeddingMotorPicker: View {
+    @State private var estado: [String: Bool] = [:]   // id → disponible
+    @State private var sel = Config.embeddingProveedor()
+    private let acento = Color(red: 0.36, green: 0.28, blue: 0.62)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Motor de embeddings:").font(.caption)
+                Picker("", selection: $sel) {
+                    ForEach(EmbeddingSearch.motores) { m in
+                        Text(etiqueta(m)).tag(m.id)
+                    }
+                    Text("Personalizado (avanzado)").tag("custom")
+                }
+                .labelsHidden().frame(width: 280)
+                .onChange(of: sel) { _, nuevo in Config.set("embedding_proveedor", to: nuevo) }
+            }
+            pista
+        }
+        .onAppear {
+            EmbeddingSearch.detectar { res in
+                estado = Dictionary(uniqueKeysWithValues: res.map { ($0.0.id, $0.1) })
+            }
+        }
+    }
+
+    private func etiqueta(_ m: EmbeddingSearch.Motor) -> String {
+        guard let ok = estado[m.id] else { return m.nombre }
+        return "\(ok ? "✓" : "○") \(m.nombre)\(ok ? "" : (m.local ? " — sin modelo" : " — sin key"))"
+    }
+
+    @ViewBuilder private var pista: some View {
+        if sel == "custom" {
+            Text("Personalizado: se usa la base/modelo/key de embeddings que configures (avanzado).")
+                .font(.caption2).foregroundStyle(.secondary)
+        } else if let m = EmbeddingSearch.motores.first(where: { $0.id == sel }), estado[m.id] == false {
+            Text(m.local
+                 ? "Ollama no tiene un modelo de embeddings. Corre Ollama y haz: ollama pull \(m.modelo)"
+                 : "Falta la key de \(m.nombre). Ponla en Modelos → Proveedores en la nube (\(m.keyEnv)).")
+                .font(.caption2).foregroundStyle(.orange)
+        } else {
+            Text("El elegido usa \(EmbeddingSearch.motorActual.modelo). Cambiar de motor re-indexa (los vectores no son compatibles entre motores).")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
     }
 }

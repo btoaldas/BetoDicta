@@ -15,11 +15,17 @@ import Foundation
 // se embebe UNA vez; las siguientes búsquedas reusan el vector.
 
 enum EmbeddingSearch {
-    struct Entrada { let vec: [Double]; let mtime: Double }
-    /// path del .txt → vector cacheado (+ mtime para invalidar si cambió).
+    // Vectores de DISTINTOS motores no son comparables (dimensión/espacio
+    // distintos). Cada entrada guarda con qué motor se calculó y solo se reusa
+    // si coincide con el motor actual — cambiar de motor NO da cosenos basura.
+    struct Entrada { let vec: [Double]; let mtime: Double; let motor: String }
+    /// path del .txt → vector cacheado (+ mtime + motor).
     private static var cache: [String: Entrada] = [:]
     private static var cargado = false
     private static var cacheURL: URL { Config.dir.appendingPathComponent("embeddings.json") }
+
+    /// Firma del motor actual (id:modelo) — clave de compatibilidad de la caché.
+    static var firmaMotor: String { "\(motorActual.id):\(motorActual.modelo)" }
 
     static func cargarCache() {
         guard !cargado else { return }
@@ -28,49 +34,105 @@ enum EmbeddingSearch {
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return }
         for (k, v) in j {
             if let vec = v["v"] as? [Double], let m = v["m"] as? Double {
-                cache[k] = Entrada(vec: vec, mtime: m)
+                cache[k] = Entrada(vec: vec, mtime: m, motor: (v["e"] as? String) ?? "")
             }
         }
     }
 
     private static func guardarCache() {
         var out: [String: [String: Any]] = [:]
-        for (k, e) in cache { out[k] = ["v": e.vec, "m": e.mtime] }
+        for (k, e) in cache { out[k] = ["v": e.vec, "m": e.mtime, "e": e.motor] }
         if let d = try? JSONSerialization.data(withJSONObject: out) {
             Config.asegurarDirSeguro()
             try? d.write(to: cacheURL, options: .atomic)
         }
     }
 
-    // MARK: Motor (parametrizable)
-    private static var base: String {
-        let b = Config.embeddingBase()
-        return b.isEmpty ? "http://localhost:11434" : b
+    // MARK: Motor (elegible — NO hardcodeado a Ollama)
+
+    /// Un motor de embeddings. Ollama es local (sin key); los demás son de nube
+    /// OpenAI-compat (/v1/embeddings). El usuario elige cuál en Ajustes→Avanzado.
+    struct Motor: Identifiable {
+        let id: String        // "ollama", "openai", "gemini", "mistral", "custom"
+        let nombre: String
+        let base: String
+        let modelo: String
+        let keyEnv: String    // "" = local (Ollama), sin auth
+        var esOpenAICompat: Bool { base.contains("/v1") }
+        var local: Bool { keyEnv.isEmpty }
     }
-    private static var modelo: String {
-        let m = Config.embeddingModelo()
-        return m.isEmpty ? "bge-m3" : m
+
+    /// Motores preconfigurados. El usuario solo pone la key (o tiene Ollama).
+    static let motores: [Motor] = [
+        Motor(id: "ollama", nombre: "Ollama (local, gratis)", base: "http://localhost:11434", modelo: "bge-m3", keyEnv: ""),
+        Motor(id: "openai", nombre: "OpenAI (text-embedding-3-small)", base: "https://api.openai.com/v1", modelo: "text-embedding-3-small", keyEnv: "OPENAI_API_KEY"),
+        Motor(id: "gemini", nombre: "Google Gemini (text-embedding-004)", base: "https://generativelanguage.googleapis.com/v1beta/openai", modelo: "text-embedding-004", keyEnv: "GEMINI_API_KEY"),
+        Motor(id: "mistral", nombre: "Mistral (mistral-embed)", base: "https://api.mistral.ai/v1", modelo: "mistral-embed", keyEnv: "MISTRAL_API_KEY"),
+    ]
+
+    /// El motor elegido (Config.embeddingProveedor). "custom" usa base/modelo/key
+    /// libres; si no hay elección, Ollama por defecto.
+    static var motorActual: Motor {
+        let id = Config.embeddingProveedor()
+        if id == "custom" {
+            return Motor(id: "custom", nombre: "Personalizado", base: Config.embeddingBase(),
+                         modelo: Config.embeddingModelo(), keyEnv: Config.embeddingKeyEnv())
+        }
+        return motores.first { $0.id == id } ?? motores[0]
     }
+
     /// http/localhost permitido (Ollama local); nube exige https (fail-closed).
     private static func esSeguro(_ url: URL) -> Bool {
         if url.scheme == "https" { return true }
         return ["localhost", "127.0.0.1", "::1"].contains(url.host ?? "")
     }
 
-    /// Embebe un texto. Detecta el formato por la base: si contiene "/v1" usa
-    /// OpenAI-compat (/embeddings, {model,input}→data[0].embedding); si no, usa
-    /// Ollama (/api/embeddings, {model,prompt}→embedding).
+    /// ¿Está disponible cada motor? Ollama: sondea /api/tags por un modelo de
+    /// embeddings; nube: hay key. Para ofrecer los activos y marcar los inactivos.
+    static func detectar(_ done: @escaping ([(Motor, Bool)]) -> Void) {
+        var res: [(Motor, Bool)] = []
+        let grupo = DispatchGroup()
+        for m in motores {
+            if m.local {
+                grupo.enter()
+                probarOllamaEmb(base: m.base) { ok in res.append((m, ok)); grupo.leave() }
+            } else {
+                res.append((m, !ApiKeys.get(m.keyEnv).isEmpty))
+            }
+        }
+        grupo.notify(queue: .main) {
+            done(motores.compactMap { m in res.first { $0.0.id == m.id } })
+        }
+    }
+
+    private static func probarOllamaEmb(base: String, _ done: @escaping (Bool) -> Void) {
+        guard let u = URL(string: "\(base)/api/tags") else { done(false); return }
+        var req = URLRequest(url: u); req.timeoutInterval = 3
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            let ok: Bool = {
+                guard let data, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let ms = j["models"] as? [[String: Any]] else { return false }
+                let nombres = ms.compactMap { $0["name"] as? String }.map { $0.lowercased() }
+                return nombres.contains { n in ["embed", "bge", "nomic", "mxbai", "minilm"].contains { n.contains($0) } }
+            }()
+            DispatchQueue.main.async { done(ok) }
+        }.resume()
+    }
+
+    /// Embebe un texto con el MOTOR ELEGIDO. Ollama: /api/embeddings
+    /// ({model,prompt}→embedding). Nube OpenAI-compat: /v1/embeddings
+    /// ({model,input}→data[0].embedding), con Bearer key.
     static func embed(_ texto: String, completion: @escaping (Result<[Double], Error>) -> Void) {
-        let openai = base.contains("/v1")
-        let endpoint = openai ? "\(base)/embeddings" : "\(base)/api/embeddings"
+        let m = motorActual
+        let openai = m.esOpenAICompat
+        let endpoint = openai ? "\(m.base)/embeddings" : "\(m.base)/api/embeddings"
         guard let url = URL(string: endpoint) else { completion(.failure(ScribeError.ws("URL de embeddings inválida"))); return }
         guard esSeguro(url) else { completion(.failure(ScribeError.ws("Embeddings en la nube exige https"))); return }
         var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 30
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Auth solo para nube OpenAI-compat (Ollama local no la necesita).
-        let key = ApiKeys.get(Config.embeddingKeyEnv())
+        let key = m.keyEnv.isEmpty ? "" : ApiKeys.get(m.keyEnv)
         if openai, !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
-        let cuerpo: [String: Any] = openai ? ["model": modelo, "input": texto] : ["model": modelo, "prompt": texto]
+        let cuerpo: [String: Any] = openai ? ["model": m.modelo, "input": texto] : ["model": m.modelo, "prompt": texto]
         req.httpBody = try? JSONSerialization.data(withJSONObject: cuerpo)
         URLSession.shared.dataTask(with: req) { data, resp, err in
             if let err { completion(.failure(err)); return }
@@ -99,11 +161,11 @@ enum EmbeddingSearch {
     /// el vector por el callback (desde caché o recién calculado).
     static func vectorDe(path: String, mtime: Double, texto: String,
                          completion: @escaping ([Double]?) -> Void) {
-        if let e = cache[path], e.mtime == mtime { completion(e.vec); return }
+        if let e = cache[path], e.mtime == mtime, e.motor == firmaMotor { completion(e.vec); return }
         embed(texto) { r in
             switch r {
             case .success(let v):
-                cache[path] = Entrada(vec: v, mtime: mtime)
+                cache[path] = Entrada(vec: v, mtime: mtime, motor: firmaMotor)
                 completion(v)
             case .failure:
                 completion(nil)
@@ -139,9 +201,10 @@ enum EmbeddingSearch {
                         lock.lock(); hechos += 1; let h = hechos; lock.unlock()
                         DispatchQueue.main.async { progreso(h, total) }
                     }
+                    let firma = firmaMotor
                     for it in items {
                         lock.lock(); let cacheado = cache[it.path]; lock.unlock()
-                        if let e = cacheado, e.mtime == it.mtime {
+                        if let e = cacheado, e.mtime == it.mtime, e.motor == firma {
                             let s = coseno(qv, e.vec)
                             lock.lock(); resultados.append(Resultado(path: it.path, score: s)); lock.unlock()
                             avanzar(); continue
@@ -151,7 +214,7 @@ enum EmbeddingSearch {
                             if case .success(let v) = r {
                                 let s = coseno(qv, v)
                                 lock.lock()
-                                cache[it.path] = Entrada(vec: v, mtime: it.mtime)
+                                cache[it.path] = Entrada(vec: v, mtime: it.mtime, motor: firma)
                                 resultados.append(Resultado(path: it.path, score: s))
                                 lock.unlock()
                             }

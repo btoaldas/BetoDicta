@@ -93,6 +93,9 @@ struct Config {
     /// transcriben por LOTES al soltar la tecla (como siempre). Additivo: no
     /// cambia el comportamiento del resto de la cascada.
     static func sttStreaming() -> Bool { (json()["stt_streaming"] as? Bool) ?? false }
+    /// Motor de embeddings elegido ("ollama"|"openai"|"gemini"|"mistral"|"custom").
+    /// Default Ollama (local), pero el usuario elige en Avanzado según lo que tenga.
+    static func embeddingProveedor() -> String { (json()["embedding_proveedor"] as? String) ?? "ollama" }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

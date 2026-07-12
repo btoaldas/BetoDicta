@@ -255,6 +255,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("DGTEST \(ok ? "TODO OK — parseo correcto" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba de detección de motores de embeddings: BETODICTA_EMBENGTEST=1
+        // imprime cuáles están disponibles (Ollama con modelo / nube con key).
+        if ProcessInfo.processInfo.environment["BETODICTA_EMBENGTEST"] == "1" {
+            EmbeddingSearch.detectar { res in
+                for (m, ok) in res {
+                    print("EMBENGTEST \(ok ? "✓ ACTIVO  " : "○ inactivo") \(m.id) (\(m.nombre)) modelo=\(m.modelo)\(m.local ? " [local]" : " key=\(m.keyEnv)")")
+                }
+                print("EMBENGTEST motor elegido = \(EmbeddingSearch.motorActual.id) (\(EmbeddingSearch.firmaMotor))")
+                exit(0)
+            }
+            return
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
