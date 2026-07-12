@@ -32,6 +32,7 @@ enum EmbeddingSearch {
         cargado = true
         guard let data = try? Data(contentsOf: cacheURL),
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return }
+        lock.lock(); defer { lock.unlock() }
         for (k, v) in j {
             if let vec = v["v"] as? [Double], let m = v["m"] as? Double {
                 cache[k] = Entrada(vec: vec, mtime: m, motor: (v["e"] as? String) ?? "")
@@ -40,11 +41,16 @@ enum EmbeddingSearch {
     }
 
     private static func guardarCache() {
+        // Snapshot BAJO lock (dos búsquedas solapadas mutan `cache` a la vez).
+        lock.lock()
         var out: [String: [String: Any]] = [:]
         for (k, e) in cache { out[k] = ["v": e.vec, "m": e.mtime, "e": e.motor] }
+        lock.unlock()
         if let d = try? JSONSerialization.data(withJSONObject: out) {
             Config.asegurarDirSeguro()
-            try? d.write(to: cacheURL, options: .atomic)
+            if (try? d.write(to: cacheURL, options: .atomic)) != nil {
+                Config.protegerSecreto(cacheURL)   // 0600: son vectores de tus dictados
+            }
         }
     }
 
@@ -161,11 +167,12 @@ enum EmbeddingSearch {
     /// el vector por el callback (desde caché o recién calculado).
     static func vectorDe(path: String, mtime: Double, texto: String,
                          completion: @escaping ([Double]?) -> Void) {
-        if let e = cache[path], e.mtime == mtime, e.motor == firmaMotor { completion(e.vec); return }
+        lock.lock(); let e = cache[path]; lock.unlock()
+        if let e, e.mtime == mtime, e.motor == firmaMotor { completion(e.vec); return }
         embed(texto) { r in
             switch r {
             case .success(let v):
-                cache[path] = Entrada(vec: v, mtime: mtime, motor: firmaMotor)
+                lock.lock(); cache[path] = Entrada(vec: v, mtime: mtime, motor: firmaMotor); lock.unlock()
                 completion(v)
             case .failure:
                 completion(nil)

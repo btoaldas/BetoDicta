@@ -116,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         audioDictado = Data()
         stream?.disconnect()
         stream = nil
+        liveNube?.disconnect()   // sin esto, el WS de un dictado CANCELADO seguía
+        liveNube = nil           // vivo y su texto reaparecía en el siguiente dictado
         tcppStream?.cancel()
         tcppStream = nil
         history?.discard()
@@ -256,9 +258,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let sx = SonioxStreamClient.parse(#"{"tokens":[{"text":"hola","is_final":true},{"text":" mundo","is_final":false}]}"#)
             ok = ok && (sx?.0 == "hola" && sx?.1 == " mundo")
             print("SONIOXPARSE \(sx.map { "fin=\"\($0.0)\" inter=\"\($0.1)\"" } ?? "nil")")
-            let aa = AssemblyAIStreamClient.parse(#"{"type":"Turn","transcript":"hola qué tal","end_of_turn":true}"#)
-            ok = ok && (aa?.0 == "hola qué tal" && aa?.1 == true)
-            print("AAIPARSE \(aa.map { "\"\($0.0)\" fin=\($0.1)" } ?? "nil")")
+            let aa = AssemblyAIStreamClient.parse(#"{"type":"Turn","transcript":"Hola, qué tal.","end_of_turn":true,"turn_is_formatted":true}"#)
+            ok = ok && (aa?.0 == "Hola, qué tal." && aa?.1 == true && aa?.2 == true)
+            let aaRaw = AssemblyAIStreamClient.parse(#"{"type":"Turn","transcript":"hola que tal","end_of_turn":true,"turn_is_formatted":false}"#)
+            ok = ok && (aaRaw?.2 == false)   // crudo: NO se anexa (evita duplicado)
+            print("AAIPARSE formateado=\(aa.map { "\"\($0.0)\" fin=\($0.1) fmt=\($0.2)" } ?? "nil") | crudo fmt=\(aaRaw?.2 ?? true)")
             let sm = SpeechmaticsStreamClient.parse(#"{"message":"AddTranscript","metadata":{"transcript":"buenos días"}}"#)
             ok = ok && (sm?.0 == "buenos días" && sm?.1 == true)
             print("SMPARSE \(sm.map { "\"\($0.0)\" fin=\($0.1)" } ?? "nil")")
@@ -1249,16 +1253,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         cliente.onError = { message in Log.write("\(id)-stream: \(message)") }
         cliente.connect(model: model) { [weak self, weak cliente] result in
-            guard let self, self.recorder.isRecording else { return }
-            switch result {
-            case .failure(let error):
-                Log.log(.ia, "\(nombre) vivo no conectó (\(error.localizedDescription)) → plan B")
-                self.liveNube = nil
-                self.planBVivo(history: history)
-            case .success:
-                self.fijarMotorVivo { [weak cliente] chunk in cliente?.send(chunk: chunk) }
-                self.panel.setMotor(nombre, enVivo: true)
-                self.panel.update("Escuchando (\(nombre) en vivo)… (\(self.tecla) termina)")
+            // Algunos clientes confirman desde el hilo del WebSocket (no main).
+            // Forzamos main: fijarMotorVivo toca audioDictado/entregaVivo, que
+            // el carril de dictado usa en main — off-main sería un data race.
+            DispatchQueue.main.async {
+                guard let self, self.recorder.isRecording else { return }
+                switch result {
+                case .failure(let error):
+                    Log.log(.ia, "\(nombre) vivo no conectó (\(error.localizedDescription)) → plan B")
+                    self.liveNube = nil
+                    self.planBVivo(history: history)
+                case .success:
+                    self.fijarMotorVivo { [weak cliente] chunk in cliente?.send(chunk: chunk) }
+                    self.panel.setMotor(nombre, enVivo: true)
+                    self.panel.update("Escuchando (\(nombre) en vivo)… (\(self.tecla) termina)")
+                }
             }
         }
     }
@@ -1407,15 +1416,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.update("⏳ Cerrando dictado…")
             live.finalizar()
             // Tras el cierre, el motor finaliza lo pendiente; damos una gracia y
-            // entregamos el texto (o cascada con el wav si quedó vacío).
+            // entregamos. Usamos el MÁS COMPLETO entre el texto final del motor y
+            // el último parcial mostrado: si el server no alcanzó a finalizar las
+            // últimas palabras (interim), el parcial las conserva — no se pierden.
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
                 let full = live.fullText()
                 live.disconnect()
-                if full.isEmpty {
+                let mejor = full.count >= ultimoParcial.count ? full : ultimoParcial
+                if mejor.isEmpty {
                     rescatarConCascada("\(nombreVivo) sin texto")
                 } else {
                     let mod = Providers.modelo(de: idVivo) ?? ""
-                    self?.deliver(raw: full, wav: wav, via: "\(nombreVivo) (en vivo)", modelo: mod, history: historyActual)
+                    self?.deliver(raw: mejor, wav: wav, via: "\(nombreVivo) (en vivo)", modelo: mod, history: historyActual)
                 }
             }
             return
@@ -1461,6 +1473,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // completo está en el wav y la cascada batch lo resuelve.
             stream?.disconnect()
             stream = nil
+            liveNube?.disconnect()   // un WS nube que nunca confirmó: cerrarlo (no filtrar la sesión)
+            liveNube = nil
             guard seconds > 0.4 else {
                 historyActual?.discard()
                 panel.update("Muy corto — nada que transcribir")

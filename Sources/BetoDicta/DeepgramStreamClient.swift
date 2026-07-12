@@ -41,10 +41,10 @@ final class DeepgramStreamClient: NSObject, LiveNubeSTT {
             URLQueryItem(name: "smart_format", value: "true"),
             URLQueryItem(name: "interim_results", value: "true"),
         ]
-        // Glosario → keywords (sesga el vocabulario, como el prompt de Whisper).
+        // Glosario → keyterm (Nova-3 usa "keyterm"; "keywords" era de Nova-2).
         for term in Config.keyterms().prefix(50) {
             let t = term.trimmingCharacters(in: .whitespaces)
-            if !t.isEmpty { comp.queryItems?.append(URLQueryItem(name: "keywords", value: t)) }
+            if !t.isEmpty { comp.queryItems?.append(URLQueryItem(name: "keyterm", value: t)) }
         }
         var req = URLRequest(url: comp.url!)
         req.setValue("Token \(key)", forHTTPHeaderField: "Authorization")

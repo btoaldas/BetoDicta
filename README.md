@@ -35,8 +35,9 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 ## Características
 
 - **Texto en vivo 100% LOCAL**: Voxtral Realtime 4B o Nemotron 3.5 Streaming (motor [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)) — ves lo que dices mientras lo dices, sin internet
-- **Texto en vivo en la nube**: streaming con ElevenLabs Scribe v2 Realtime
-- **Failover multi-motor**: cascada arrastrable ElevenLabs → Voxtral → Whisper → Groq → Nemotron → Canary; si uno falla, salta al siguiente solo
+- **Texto en vivo en la nube**: streaming por WebSocket con ElevenLabs Scribe v2 Realtime y (opt-in) **Deepgram, Soniox, AssemblyAI, Speechmatics, Gladia**
+- **Muchos motores de transcripción, varios GRATIS y otros premium**: nube compatible-OpenAI (ElevenLabs, Groq Whisper gratis, OpenAI, Mistral Voxtral, Fireworks) · API propia (Hugging Face gratis, Deepgram, AssemblyAI, Gladia, Speechmatics, Cloudflare, **Soniox**, **Azure con es-EC de Ecuador**) · locales con detección inteligente (Ollama/LM Studio solo si tienen whisper). Precios por hora **se actualizan solos** desde LiteLLM
+- **Failover multi-motor**: cascada arrastrable; si uno falla, salta al siguiente solo. Un gateway propio también puede transcribir (no solo pulir)
 - **Modelos locales descargables desde la app**: Whisper (tiny→large-v3), Voxtral Mini 3B y Realtime 4B, Nemotron 3.5, Canary 1B Flash
 - **Panel abraza-notch**: latido de voz a la izquierda del notch, tecla a la derecha, teleprompter de una línea debajo — negro puro, como si fuera parte del hardware
 - **Tecla `fn`** (o F1–F12, configurable) — toque limpio para empezar/terminar, las combinaciones fn+otra-tecla no lo disparan
@@ -47,7 +48,9 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 - **Caja negra**: cada dictado guarda audio y texto en `historial/año/mes/día/` — el audio se escribe a disco EN VIVO chunk a chunk; un crash no te roba ni un segundo
 - **Pausa real de multimedia**: al dictar pausa lo que suene (Edge, Chrome, Music, Spotify, YouTube…) y lo reanuda al terminar, además de bajar el volumen; usa el estado real de reproducción, sin bug de toggle
 - **Guardián del silencio**: si te olvidas la tecla abierta, se cierra solo tras N segundos sin voz (no le regalas plata a la nube)
-- **Odómetro**: minutos dictados por día/semana/mes/año y costo estimado, en el menú
+- **Odómetro + gasto de pulido**: minutos dictados por día/semana/mes/año y costo estimado, más KPIs de gasto de pulido con IA (tokens→costo) con gráfica, en Estadísticas
+- **Búsqueda por significado en el historial** (semántica, opt-in): encuentra dictados por IDEA, no por palabra exacta, con embeddings — motor a elegir (Ollama local gratis, OpenAI, Gemini, Mistral)
+- **Salvaguarda anti-inyección** (opt-in): si un gateway de terceros devuelve texto anómalo (comandos shell que no dictaste), pega tu dictado original
 - **Copiar último dictado**: rescate en un clic desde el menú
 
 ## Requisitos

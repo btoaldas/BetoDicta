@@ -153,23 +153,26 @@ final class AssemblyAIStreamClient: NSObject, LiveNubeSTT {
         }
     }
 
-    /// (transcript, endOfTurn) de un mensaje "Turn", o nil.
-    static func parse(_ text: String) -> (String, Bool)? {
+    /// (transcript, endOfTurn, formateado) de un mensaje "Turn", o nil. Con
+    /// format_turns=true, el fin de turno llega DOS veces (crudo y formateado):
+    /// hay que anexar solo el formateado para no duplicar.
+    static func parse(_ text: String) -> (String, Bool, Bool)? {
         guard let data = text.data(using: .utf8),
               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (j["type"] as? String) == "Turn",
               let t = j["transcript"] as? String else { return nil }
-        return (t, (j["end_of_turn"] as? Bool) ?? false)
+        return (t, (j["end_of_turn"] as? Bool) ?? false, (j["turn_is_formatted"] as? Bool) ?? false)
     }
 
     private func handle(_ text: String) {
-        guard let (t, fin) = Self.parse(text) else { return }
+        guard let (t, fin, formateado) = Self.parse(text) else { return }
         DispatchQueue.main.async {
-            if fin {
+            if fin && formateado {
+                // Fin de turno DEFINITIVO (formateado): se anexa una sola vez.
                 if !t.isEmpty { self.finales.append(t) }
                 self.turnoActual = ""
             } else {
-                self.turnoActual = t   // el transcript del turno es acumulativo
+                self.turnoActual = t   // crudo o parcial: transcript acumulativo del turno
             }
             self.onPartial?(self.fullText())
         }

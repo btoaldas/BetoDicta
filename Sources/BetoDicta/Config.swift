@@ -131,13 +131,16 @@ struct Config {
         }()
         obj[key] = value
         cache = obj
-        lock.unlock()
-        Log.log(.config, "cambio: \(key) = \(value)")
+        // Escribir DENTRO del lock: dos set() concurrentes escribían snapshots
+        // viejos tras soltar el lock → se perdía una actualización EN DISCO
+        // (la memoria quedaba bien, pero el próximo arranque la perdía).
         if let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
             let cfg = dir.appendingPathComponent("config.json")
             try? data.write(to: cfg, options: .atomic)
             protegerSecreto(cfg)
         }
+        lock.unlock()
+        Log.log(.config, "cambio: \(key) = \(value)")
     }
 
     /// Fija permisos 0600 a un archivo que puede contener secretos (claves,

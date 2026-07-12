@@ -25,7 +25,7 @@ for i in 1 2 3; do
 done
 [ "$ok" = 1 ] || { echo "❌ no pude bajar/parsear la fuente de precios"; rm -f "$TMP"; exit 1; }
 
-mkdir -p "$HOME/.betodicta"
+mkdir -p "$HOME/.betodicta" && chmod 700 "$HOME/.betodicta" 2>/dev/null || true
 python3 - "$TMP" "$DEST" <<'PY'
 import json, sys, os
 src = json.load(open(sys.argv[1]))
@@ -38,9 +38,12 @@ for key, v in src.items():
     # id "desnudo" (quita SOLO el prefijo del proveedor: "groq/openai/gpt-oss-120b" → "openai/gpt-oss-120b")
     bare = key[len(prov) + 1:] if prov and key.startswith(prov + "/") else key
     # $ por 1M tokens (LiteLLM da $ por token)
-    out[bare] = [round(inp * 1_000_000, 4), round(o * 1_000_000, 4)]
-    # también guarda la clave completa por si el app usa el id con prefijo
-    if bare != key: out.setdefault(key, out[bare])
+    par = [round(inp * 1_000_000, 4), round(o * 1_000_000, 4)]
+    # Colisión de nombre "desnudo" entre proveedores (p.ej. openai/gpt-4o-mini vs
+    # azure/gpt-4o-mini): quedarse con el de MENOR (entrada+salida) — determinista,
+    # conservador — en vez del último iterado (que elegía un proveedor al azar).
+    if bare not in out or sum(par) < sum(out[bare]): out[bare] = par
+    if bare != key and (key not in out or sum(par) < sum(out[key])): out[key] = par
 json.dump(out, open(sys.argv[2], "w"))
 os.chmod(sys.argv[2], 0o600)
 print(f"✅ {len(out)} precios de modelos → {sys.argv[2]}")
