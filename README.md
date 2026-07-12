@@ -35,7 +35,7 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 ## Características
 
 - **Texto en vivo 100% LOCAL**: Voxtral Realtime 4B o Nemotron 3.5 Streaming (motor [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp)) — ves lo que dices mientras lo dices, sin internet. Los motores locales (whisper.cpp, llama.cpp, transcribe.cpp) se mantienen **al día** con sus proyectos base en cada versión
-- **Texto en vivo en la nube**: streaming por WebSocket con ElevenLabs Scribe v2 Realtime y (opt-in) **Deepgram, Soniox, AssemblyAI, Speechmatics, Gladia**
+- **Texto en vivo en la nube**: streaming por WebSocket con ElevenLabs Scribe v2 Realtime y (opt-in) **Deepgram, Soniox, AssemblyAI, Speechmatics, Gladia** — marcados con etiqueta **"EN VIVO"** en la lista de motores
 - **Muchos motores de transcripción, varios GRATIS y otros premium**: nube compatible-OpenAI (ElevenLabs, Groq Whisper gratis, OpenAI, Mistral Voxtral, Fireworks) · API propia (Hugging Face gratis, Deepgram, AssemblyAI, Gladia, Speechmatics, Cloudflare, **Soniox**, **Azure con es-EC de Ecuador**) · locales con detección inteligente (Ollama/LM Studio solo si tienen whisper). Precios por hora **se actualizan solos** desde LiteLLM
 - **Failover multi-motor**: cascada arrastrable; si uno falla, salta al siguiente solo. Un gateway propio también puede transcribir (no solo pulir)
 - **Modelos locales descargables desde la app**: Whisper (tiny→large-v3), Voxtral Mini 3B y Realtime 4B, Nemotron 3.5, Canary 1B Flash

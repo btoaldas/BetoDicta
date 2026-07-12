@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.10"
+    static let numero = "0.20.11"
     static let fecha = "2026-07-13"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.11", "2026-07-13", [
+            "En Modelos, los motores que transcriben EN VIVO (texto mientras hablas) llevan ahora una etiqueta 'EN VIVO': locales Nemotron/Voxtral Realtime, ElevenLabs realtime, y los de nube por WebSocket (Deepgram, Soniox, AssemblyAI, Speechmatics, Gladia). Verde = activo; gris = lo soporta, actívalo en Avanzado",
+            "Speechmatics en vivo más robusto: si su conexión falla, ahora cae al plan B al instante y con el motivo en el registro (antes se demoraba y no decía por qué)",
+        ]),
         ("0.20.10", "2026-07-13", [
             "Ayuda por proveedor: cada IA de nube (chat y voz) tiene ahora un icono ⓘ con una explicación INSTANTÁNEA (qué es, si es gratis, si va en vivo) y un enlace 'Conseguir clave' que abre la página oficial donde sacas tu API key — sin perder tiempo buscándola",
         ]),
