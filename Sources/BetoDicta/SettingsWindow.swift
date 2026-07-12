@@ -324,6 +324,8 @@ struct SettingsView: View {
     @State private var estadoUpdate: Updater.Estado = .reposo
     @State private var mostrarNotas = false
     @State private var avanzadoAbierto = false
+    @State private var openrouterKey = ""
+    @State private var detectTrigger = 0
 
     private var pieActualizacion: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -438,18 +440,47 @@ struct SettingsView: View {
             tarjeta("Pulido con IA", "waveform") {
                 Toggle("Pulir el texto con IA", isOn: $m.postProceso)
                 if m.postProceso {
+                    let _ = detectTrigger        // re-render tras detectar locales
                     let conectadas = ChatIA.conectadas
                     if conectadas.isEmpty {
-                        Text("Conecta una IA de chat en Modelos (Groq, OpenAI o Mistral) para usar el pulido.")
+                        Text("Conecta una IA de chat (abajo o en Modelos) para usar el pulido.")
                             .font(.caption).foregroundStyle(.orange)
                     } else {
                         fila("IA para pulido y traducción") {
                             Picker("", selection: $m.pulidoProveedor) {
                                 ForEach(conectadas, id: \.id) { Text($0.nombre).tag($0.id) }
-                            }.labelsHidden().frame(width: 230)
+                            }.labelsHidden().frame(width: 240)
                         }
-                        Text("Cualquier IA conectada, no solo Groq. Se usa para pulir y traducir.")
+                        Text("Cualquier IA conectada — nube o local. Se usa para pulir y traducir.")
                             .font(.caption).foregroundStyle(.secondary)
+                    }
+                    // OpenRouter (nube, con key)
+                    if ApiKeys.get("OPENROUTER_API_KEY").isEmpty {
+                        HStack(spacing: 8) {
+                            SecureField("API key de OpenRouter", text: $openrouterKey).textFieldStyle(.roundedBorder)
+                            Button("Conectar") {
+                                ApiKeys.set("OPENROUTER_API_KEY", openrouterKey); openrouterKey = ""; detectTrigger += 1
+                            }.disabled(openrouterKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    } else {
+                        HStack {
+                            Label("OpenRouter conectado", systemImage: "checkmark.circle.fill")
+                                .font(.caption).foregroundStyle(.green)
+                            Spacer()
+                            Button("Quitar") { ApiKeys.set("OPENROUTER_API_KEY", ""); detectTrigger += 1 }.controlSize(.small)
+                        }
+                    }
+                    // Locales (LM Studio / Ollama)
+                    HStack(spacing: 8) {
+                        Text("Locales: LM Studio / Ollama se detectan solos si están corriendo.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("Buscar") { ChatIA.detectarLocales { detectTrigger += 1 } }.controlSize(.small)
+                    }
+                    ForEach(["lmstudio", "ollama"], id: \.self) { lid in
+                        if let mod = ChatIA.modelosLocales[lid] {
+                            Text("• \(lid == "lmstudio" ? "LM Studio" : "Ollama") ✓ (\(mod))")
+                                .font(.caption2).foregroundStyle(.green)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Estilo del pulido (opcional)").font(.subheadline)

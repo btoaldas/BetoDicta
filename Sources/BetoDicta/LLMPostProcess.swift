@@ -3,23 +3,54 @@ import Foundation
 // MARK: - IA de chat para pulido y traducción (cualquier proveedor conectado)
 
 /// Proveedores de chat compatibles con la API de OpenAI (mismo /chat/completions).
+/// Nube (con key) o LOCAL (LM Studio / Ollama, autodetectados si están arriba).
 struct ChatIA {
-    let id: String, nombre: String, base: String, modelo: String, keyEnv: String
+    let id: String, nombre: String, base: String, modelo: String, keyEnv: String, local: Bool
+
     var key: String? {
-        if id == "groq", let g = Config.groqKey() { return g }   // groq también por env
+        if local { return "local" }                               // servidores locales: sin auth
+        if id == "groq", let g = Config.groqKey() { return g }    // groq también por env
         let k = ApiKeys.get(keyEnv); return k.isEmpty ? nil : k
     }
+    /// Modelo a usar: local usa el que tenga cargado el servidor (detectado).
+    var modeloEfectivo: String { local ? (Self.modelosLocales[id] ?? modelo) : modelo }
+
     static let catalogo: [ChatIA] = [
-        ChatIA(id: "groq",    nombre: "Groq · Llama 3.3 70B",  base: "https://api.groq.com/openai/v1", modelo: "llama-3.3-70b-versatile", keyEnv: "GROQ_API_KEY"),
-        ChatIA(id: "openai",  nombre: "OpenAI · gpt-4o-mini",  base: "https://api.openai.com/v1",      modelo: "gpt-4o-mini",             keyEnv: "OPENAI_API_KEY"),
-        ChatIA(id: "mistral", nombre: "Mistral · small",       base: "https://api.mistral.ai/v1",      modelo: "mistral-small-latest",    keyEnv: "MISTRAL_API_KEY"),
+        ChatIA(id: "groq",       nombre: "Groq · Llama 3.3 70B", base: "https://api.groq.com/openai/v1", modelo: "llama-3.3-70b-versatile", keyEnv: "GROQ_API_KEY",       local: false),
+        ChatIA(id: "openai",     nombre: "OpenAI · gpt-4o-mini", base: "https://api.openai.com/v1",      modelo: "gpt-4o-mini",             keyEnv: "OPENAI_API_KEY",     local: false),
+        ChatIA(id: "mistral",    nombre: "Mistral · small",      base: "https://api.mistral.ai/v1",      modelo: "mistral-small-latest",    keyEnv: "MISTRAL_API_KEY",    local: false),
+        ChatIA(id: "openrouter", nombre: "OpenRouter",           base: "https://openrouter.ai/api/v1",   modelo: "openai/gpt-4o-mini",      keyEnv: "OPENROUTER_API_KEY", local: false),
+        ChatIA(id: "lmstudio",   nombre: "LM Studio (local)",    base: "http://localhost:1234/v1",       modelo: "local",                   keyEnv: "",                   local: true),
+        ChatIA(id: "ollama",     nombre: "Ollama (local)",       base: "http://localhost:11434/v1",      modelo: "local",                   keyEnv: "",                   local: true),
     ]
-    /// Las que tienen key puesta (para el selector).
-    static var conectadas: [ChatIA] { catalogo.filter { $0.key != nil } }
-    /// La elegida por el usuario; si esa no tiene key, la primera que sí.
+    /// Modelo detectado de cada servidor local (vacío si no está corriendo).
+    static var modelosLocales: [String: String] = [:]
+
+    /// Conectadas: nube con key + locales detectados corriendo.
+    static var conectadas: [ChatIA] {
+        catalogo.filter { $0.local ? (modelosLocales[$0.id] != nil) : ($0.key != nil) }
+    }
+    /// La elegida por el usuario; si esa no está disponible, la primera que sí.
     static func seleccionada() -> ChatIA? {
-        if let c = catalogo.first(where: { $0.id == Config.pulidoProveedor() }), c.key != nil { return c }
+        if let c = catalogo.first(where: { $0.id == Config.pulidoProveedor() }),
+           conectadas.contains(where: { $0.id == c.id }) { return c }
         return conectadas.first
+    }
+    /// Sondea LM Studio / Ollama y cachea su modelo cargado (si responden).
+    static func detectarLocales(_ done: (() -> Void)? = nil) {
+        let grupo = DispatchGroup()
+        for c in catalogo where c.local {
+            guard let url = URL(string: "\(c.base)/models") else { continue }
+            grupo.enter()
+            var req = URLRequest(url: url); req.timeoutInterval = 1.2
+            URLSession.shared.dataTask(with: req) { data, _, _ in
+                defer { grupo.leave() }
+                let modelo = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?
+                    .flatMap { ($0["data"] as? [[String: Any]])?.first?["id"] as? String }
+                DispatchQueue.main.async { modelosLocales[c.id] = modelo }
+            }.resume()
+        }
+        grupo.notify(queue: .main) { done?() }
     }
 }
 
@@ -70,7 +101,7 @@ enum LLMPostProcess {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(ia.key ?? "")", forHTTPHeaderField: "Authorization")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "model": ia.modelo,
+            "model": ia.modeloEfectivo,
             "messages": [["role": "user", "content": prompt]],
             "temperature": 0,
         ])

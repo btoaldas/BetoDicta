@@ -278,6 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             WhisperServer.limpiarHuerfanos()
             VoxtralServer.limpiarHuerfanos()
         }
+        ChatIA.detectarLocales()   // ¿LM Studio / Ollama corriendo? (pulido local)
 
 
         recorder.onLevel = { [weak self] level in

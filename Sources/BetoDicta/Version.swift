@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.19.1"
-    static let fecha = "2026-07-11"
+    static let numero = "0.20.0"
+    static let fecha = "2026-07-12"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.0", "2026-07-12", [
+            "Pulido y traducción con CUALQUIER IA conectada: Groq, OpenAI, Mistral, OpenRouter — y hasta LOCAL (LM Studio, Ollama), que se detectan solos si están corriendo. Elige cuál en Ajustes → Pulido",
+            "El pulido ya no se cae por cortes de red (reintenta solo) y su espera es ajustable (Avanzado), más larga para textos largos",
+            "Al terminar un dictado, opcional: añadir un espacio, pulsar Enter (enviar en chats) o Shift+Enter (salto de línea)",
+            "Reemplazos: botón 'probar' (ver qué caza la fonética) y 'escuchar' la pronunciación; y coincidencia por AUDIO experimental (reconoce tus términos por tu propia voz grabada, con soporte de siglas)",
+        ]),
         ("0.19.1", "2026-07-11", [
             "Asistente de primer arranque: te guía en 8 pasos por permisos, IA de nube y local, el orden del failover, aprendizaje y preferencias — con check en vivo de los permisos",
             "La app aprende de ti: corriges una palabra donde la pegaste (Kipux → Quipux) y la recuerda sola. En la terminal o Claude Code, selecciónala y pulsa ⌘⇧L",

@@ -30,7 +30,7 @@ enum Translate {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(ia.key ?? "")", forHTTPHeaderField: "Authorization")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "model": ia.modelo,
+            "model": ia.modeloEfectivo,
             "messages": [["role": "user", "content": prompt]],
             "temperature": 0.2,
         ])
