@@ -277,14 +277,27 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 16) {
             encabezado("Inteligencia en la nube (opcional)",
                        "BetoDicta funciona GRATIS y sin internet con motores locales (siguiente paso). Si quieres la máxima calidad en vivo, conecta un servicio. Pega la clave o deja en blanco para saltar.")
+            // Accesibilidad: para máquinas sin fuerza o sin plata para tokens,
+            // hay nube GRATIS de verdad (sin tarjeta). Se resalta aquí.
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "gift.fill").foregroundStyle(.green)
+                Text("¿Máquina sin fuerza o sin presupuesto? Hay nube GRATIS: **Groq Whisper** (2000 transcripciones/día) y **Hugging Face** para voz; para pulido, modelos **:free** de OpenRouter. Sin tarjeta.")
+                    .font(.caption)
+            }
+            .padding(10)
+            .background(Color.green.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    ClaveNubeRow(id: "groq", env: "GROQ_API_KEY",
+                                 titulo: "Groq Whisper (gratis)", nota: "Muy rápido, 2000/día gratis sin tarjeta. También potencia el pulido y la traducción.",
+                                 enlace: "https://console.groq.com/keys", activarPrimero: false, pm: pm)
+                    ClaveNubeRow(id: "hf", env: "HF_API_KEY",
+                                 titulo: "Hugging Face (Whisper, gratis)", nota: "Transcripción con Whisper en la capa gratuita. Ideal si no tienes máquina potente.",
+                                 enlace: "https://huggingface.co/settings/tokens", activarPrimero: false, pm: pm)
                     ClaveNubeRow(id: "elevenlabs", env: "ELEVENLABS_API_KEY",
                                  titulo: "ElevenLabs Scribe", nota: "La mejor calidad, texto EN VIVO. De pago (~$0.22–0.39/h).",
                                  enlace: "https://elevenlabs.io/app/settings/api-keys", activarPrimero: false, pm: pm)
-                    ClaveNubeRow(id: "groq", env: "GROQ_API_KEY",
-                                 titulo: "Groq Whisper", nota: "Muy rápido, capa gratis generosa. También potencia el pulido y la traducción.",
-                                 enlace: "https://console.groq.com/keys", activarPrimero: false, pm: pm)
                     DisclosureGroup("Más servicios (OpenAI, Mistral)") {
                         VStack(alignment: .leading, spacing: 14) {
                             ClaveNubeRow(id: "openai", env: "OPENAI_API_KEY",
