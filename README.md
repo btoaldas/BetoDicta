@@ -113,12 +113,12 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 - **macOS 14+** en Apple Silicon · **Xcode 26+** (Swift 6) · sin dependencias externas: Swift puro + AppKit/AVFoundation
 - `make install` compila (Swift Package Manager) y arma el bundle firmado con certificado propio en /Applications
 - Código modular en `Sources/BetoDicta/` (Config, Recorder, HistoryWriter, MediaControl, clientes Scribe, panel, AppDelegate…)
-- Copia `.env.example`, `config.example.json`, `keyterms.example.txt` y `reemplazos.example.json` a `~/.betodicta/` como punto de partida
+- Los usuarios normales NO tocan archivos: el asistente de configuración (y Ajustes → Modelos) guarda las claves y ajustes solos en `~/.betodicta/`. Los `*.example` (`.env.example`, `config.example.json`, `keyterms.example.txt`, `reemplazos.example.json`) son solo **referencia del formato** para desarrolladores o para pre-cargar valores a mano — opcionales
 - Este entorno se actualiza con el proyecto: si algo no compila en una versión nueva de Xcode, abre un issue
 
 ## Privacidad y seguridad de datos
 
-- **Tu voz solo viaja a ElevenLabs** (cifrada: HTTPS/WSS a `api.elevenlabs.io`) — no hay analítica, ni telemetría, ni terceros
+- **Tu voz solo viaja al motor que TÚ elijas** (cifrada: HTTPS/WSS) — o a **ningún lado** si usas un motor local (Whisper/Voxtral/Nemotron/Canary, 100% offline). No hay analítica, ni telemetría, ni terceros ocultos
 - **Tu API key jamás se escribe en logs** ni en el código — vive en tu `~/.betodicta/.env` (bloqueado por `.gitignore`)
 - **Tus dictados nunca salen de tu Mac**: `historial/` y `uso.jsonl` son archivos locales tuyos; la carpeta `~/.betodicta` queda en `700` y los archivos con secretos (`.env`, gateways) en `600`
 - **Actualizaciones verificadas por firma**: antes de instalar una actualización, la app comprueba que el nuevo bundle esté firmado con el **mismo certificado** que tu copia — un DMG manipulado o firmado por otro se rechaza (la clave privada del certificado nunca sale del Mac del autor)
