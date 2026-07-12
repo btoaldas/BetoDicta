@@ -13,7 +13,22 @@ final class IAPersonalizadasStore: ObservableObject {
     @Published var items: [IAPersonalizada] = PersonalizadaStore.cargar()
     func guardar() { PersonalizadaStore.guardar(items) }
     func add() { items.append(IAPersonalizada(nombre: "Mi gateway")); guardar() }
+    /// Agrega una plantilla PRECONFIGURADA (id fresco) — el usuario solo termina
+    /// de llenar (ej. Cloudflare: reemplazar el account-id y poner la key).
+    func addPlantilla(_ tpl: IAPersonalizada) {
+        var p = tpl; p.id = UUID().uuidString
+        items.append(p); guardar()
+    }
     func remove(_ id: String) { items.removeAll { $0.id == id }; guardar() }
+
+    /// Plantillas de gateways que necesitan un dato del usuario en la URL base.
+    static let plantillas: [(nombre: String, tpl: IAPersonalizada, ayuda: String)] = [
+        ("Cloudflare Workers AI",
+         IAPersonalizada(nombre: "Cloudflare Workers AI",
+                         base: "https://api.cloudflare.com/client/v4/accounts/TU-ACCOUNT-ID/ai/v1",
+                         modelo: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"),
+         "Reemplaza TU-ACCOUNT-ID en la URL base por tu Account ID de Cloudflare y pon tu API token. 10.000 llamadas/día gratis."),
+    ]
 }
 
 struct IAPersonalizadaEditor: View {
@@ -36,7 +51,14 @@ struct IAPersonalizadaEditor: View {
                 HStack {
                     Text("IAs personalizadas").font(.headline)
                     Spacer()
-                    Button { store.add(); seleccion = store.items.last?.id } label: { Image(systemName: "plus") }
+                    Menu {
+                        Button("Gateway en blanco") { store.add(); seleccion = store.items.last?.id }
+                        Divider()
+                        Text("Plantillas (solo termina de llenar)")
+                        ForEach(IAPersonalizadasStore.plantillas, id: \.nombre) { pl in
+                            Button(pl.nombre) { store.addPlantilla(pl.tpl); seleccion = store.items.last?.id }
+                        }
+                    } label: { Image(systemName: "plus") }
                 }
                 List(selection: $seleccion) {
                     ForEach(store.items) { p in
@@ -69,6 +91,10 @@ struct IAPersonalizadaEditor: View {
             VStack(alignment: .leading, spacing: 12) {
                 campo("Nombre") { TextField("Mi gateway", text: $store.items[i].nombre, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
                 campo("URL base") { TextField("https://gateway.tuempresa.com/v1", text: $store.items[i].base, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
+                if store.items[i].base.contains("TU-ACCOUNT-ID") {
+                    Text("⚠️ Reemplaza TU-ACCOUNT-ID en la URL por tu Account ID de Cloudflare (Dashboard → Workers AI) y pon tu API token abajo. 10.000 llamadas/día gratis.")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
                 campo("API key") { SecureField("clave del gateway", text: $store.items[i].apiKey, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
                 // Esquema de auth
                 campo("Autenticación") {
