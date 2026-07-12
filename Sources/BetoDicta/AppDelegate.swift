@@ -205,6 +205,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             exit(0)
         }
+        // Prueba de búsqueda semántica (embeddings): BETODICTA_EMBTEST=1 embebe
+        // una consulta y 3 textos, imprime la afinidad coseno y verifica que el
+        // texto RELACIONADO (aunque sin palabras en común) gane. Necesita Ollama.
+        if ProcessInfo.processInfo.environment["BETODICTA_EMBTEST"] == "1" {
+            // En un hilo de fondo (semáforos planos, sin anidar en callbacks de
+            // URLSession → sin deadlock). El hilo llama exit() al terminar.
+            DispatchQueue.global().async {
+                func emb(_ t: String) -> [Double]? {
+                    let sem = DispatchSemaphore(value: 0); var out: [Double]? = nil
+                    EmbeddingSearch.embed(t) { r in if case .success(let v) = r { out = v }; sem.signal() }
+                    _ = sem.wait(timeout: .now() + 30); return out
+                }
+                guard let qv = emb("reunión sobre el presupuesto del municipio") else {
+                    print("EMBTEST ✗ no pude embeber la consulta (¿Ollama con bge-m3 corriendo?)"); exit(3)
+                }
+                let textos = [
+                    ("AFÍN", "hoy hablamos del dinero y las cuentas del GAD para el próximo año"),
+                    ("MEDIO", "revisé los correos y contesté a varios compañeros de la oficina"),
+                    ("LEJANO", "el clima estuvo soleado y fuimos a caminar por el parque"),
+                ]
+                var puntajes = textos.map { ($0.0, EmbeddingSearch.coseno(qv, emb($0.1) ?? [])) }
+                puntajes.sort { $0.1 > $1.1 }
+                for (etq, s) in puntajes { print(String(format: "EMBTEST %@  afinidad %.3f", etq, s)) }
+                print("EMBTEST \(puntajes.first?.0 == "AFÍN" ? "OK — el texto AFÍN quedó primero (semántica funciona)" : "✗ FALLA — el afín no ganó")")
+                exit(0)
+            }
+            return
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.

@@ -84,6 +84,13 @@ struct Config {
     static func cloudflareAccountId() -> String { (json()["cloudflare_account_id"] as? String) ?? "" }
     /// Región de Azure AI Speech (ej. eastus) — va en la URL del endpoint.
     static func azureSpeechRegion() -> String { (json()["azure_speech_region"] as? String) ?? "" }
+    /// Búsqueda SEMÁNTICA del historial (por significado, con embeddings). Opt-in
+    /// (default OFF: necesita Ollama u otro motor de embeddings). Parametrizable:
+    /// base + modelo + key. Default = Ollama local bge-m3 (gratis, privado).
+    static func busquedaSemantica() -> Bool { (json()["busqueda_semantica"] as? Bool) ?? false }
+    static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
+    static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
+    static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }

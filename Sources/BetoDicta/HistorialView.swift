@@ -55,9 +55,22 @@ struct HistorialView: View {
     @ObservedObject private var preview = AudioPreview.shared
     @State private var busqueda = ""
     @State private var copiado: URL?
+    // Búsqueda semántica (por significado, con embeddings)
+    @State private var semantica = Config.busquedaSemantica()
+    @State private var buscandoSem = false
+    @State private var progresoSem = (0, 0)
+    @State private var rank: [String: Double] = [:]   // path del .txt → score coseno
+    @State private var ordenSem: [URL] = []            // orden por cercanía
+    @State private var errorSem: String?
 
     /// Búsqueda insensible a mayúsculas y tildes ("aldas" encuentra "Aldás").
     private var filtradas: [EntradaHistorial] {
+        // Modo SEMÁNTICO: ya ordenado por cercanía (top primero), con score. Se
+        // muestran los 40 más afines (el resto sería ruido de baja relevancia).
+        if semantica, !rank.isEmpty {
+            let porPath = Dictionary(uniqueKeysWithValues: m.entradas.map { ($0.id.path, $0) })
+            return ordenSem.prefix(40).compactMap { porPath[$0.path] }
+        }
         let q = busqueda.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es"))
             .trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return m.entradas }
@@ -67,17 +80,41 @@ struct HistorialView: View {
         }
     }
 
+    /// Lanza la búsqueda semántica: embebe la consulta y ordena por cercanía.
+    private func buscarSemantica() {
+        let q = busqueda.trimmingCharacters(in: .whitespaces)
+        guard semantica, !q.isEmpty else { rank = [:]; ordenSem = []; return }
+        buscandoSem = true; errorSem = nil; progresoSem = (0, m.entradas.count)
+        let items = m.entradas.map { (path: $0.id.path, mtime: $0.fecha.timeIntervalSince1970, texto: $0.texto) }
+        EmbeddingSearch.buscar(consulta: q, items: items,
+                               progreso: { hechos, total in progresoSem = (hechos, total) },
+                               done: { r in
+            buscandoSem = false
+            switch r {
+            case .failure(let e):
+                errorSem = "No pude buscar por significado: \(e.localizedDescription). ¿Está corriendo Ollama (bge-m3)?"
+                rank = [:]; ordenSem = []
+            case .success(let res):
+                rank = Dictionary(uniqueKeysWithValues: res.map { ($0.path, $0.score) })
+                ordenSem = res.map { URL(fileURLWithPath: $0.path) }
+            }
+        })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Historial de dictados", systemImage: "clock.arrow.circlepath")
                 .font(.headline).foregroundStyle(acentoH)
 
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Buscar en todos tus dictados…", text: $busqueda)
+                Image(systemName: semantica ? "brain" : "magnifyingglass").foregroundStyle(semantica ? acentoH : .secondary)
+                TextField(semantica ? "Buscar por SIGNIFICADO… (Enter para buscar)" : "Buscar en todos tus dictados…", text: $busqueda)
                     .textFieldStyle(.plain)
+                    .onSubmit { if semantica { buscarSemantica() } }
+                    .onChange(of: busqueda) { _, nuevo in if nuevo.isEmpty { rank = [:]; ordenSem = [] } }
+                if buscandoSem { ProgressView().controlSize(.small) }
                 if !busqueda.isEmpty {
-                    Button { busqueda = "" } label: {
+                    Button { busqueda = ""; rank = [:]; ordenSem = [] } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                     }.buttonStyle(.plain)
                 }
@@ -85,6 +122,28 @@ struct HistorialView: View {
             .padding(8)
             .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            HStack(spacing: 8) {
+                Toggle(isOn: $semantica) {
+                    Label("Buscar por significado (semántica)", systemImage: "brain")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch).controlSize(.mini)
+                .onChange(of: semantica) { _, on in
+                    Config.set("busqueda_semantica", to: on)
+                    rank = [:]; ordenSem = []; errorSem = nil
+                    if on, !busqueda.trimmingCharacters(in: .whitespaces).isEmpty { buscarSemantica() }
+                }
+                if semantica {
+                    Text(buscandoSem ? "Indexando \(progresoSem.0)/\(progresoSem.1)…"
+                                     : "Encuentra por idea, no por palabra exacta. Motor: \(Config.embeddingModelo()) (local).")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            if let e = errorSem {
+                Text(e).font(.caption2).foregroundStyle(.orange)
+            }
 
             if m.cargando {
                 ProgressView("Leyendo historial…").frame(maxWidth: .infinity)
@@ -117,6 +176,12 @@ struct HistorialView: View {
                     .font(.caption).bold().foregroundStyle(acentoH)
                 if let d = e.duracion {
                     Text(d).font(.caption2).foregroundStyle(.secondary)
+                }
+                if semantica, let s = rank[e.id.path] {
+                    Text("\(Int(max(0, s) * 100))% afín")
+                        .font(.system(size: 9)).bold()
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(acentoH.opacity(0.25)).clipShape(Capsule())
                 }
                 Spacer()
                 if let wav = e.wav {
