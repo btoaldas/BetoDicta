@@ -30,11 +30,13 @@ enum Providers {
         ("mistral", "Mistral (Voxtral)", ["voxtral-mini-latest", "voxtral-small-latest"], "MISTRAL_API_KEY"),
         ("fireworks", "Fireworks (Whisper)", ["whisper-v3", "whisper-v3-turbo"], "FIREWORKS_API_KEY"),
         ("hf", "Hugging Face (Whisper, gratis)", ["openai/whisper-large-v3", "openai/whisper-large-v3-turbo", "distil-whisper/distil-large-v3"], "HF_API_KEY"),
-        ("deepgram", "Deepgram (Nova)", ["nova-3", "nova-2"], "DEEPGRAM_API_KEY"),
-        ("assemblyai", "AssemblyAI", ["best", "nano"], "ASSEMBLYAI_API_KEY"),
+        ("deepgram", "Deepgram (Nova)", ["nova-3", "nova-2", "nova-3-medical"], "DEEPGRAM_API_KEY"),
+        ("assemblyai", "AssemblyAI (Universal)", ["universal-3-pro", "universal-2"], "ASSEMBLYAI_API_KEY"),
+        ("soniox", "Soniox (premium, ES latino)", ["stt-async-v5", "stt-async-v4"], "SONIOX_API_KEY"),
+        ("azure", "Azure AI Speech (es-EC)", ["azure-fast"], "AZURE_SPEECH_KEY"),
         ("gladia", "Gladia (gratis 10h/mes)", ["default"], "GLADIA_API_KEY"),
         ("speechmatics", "Speechmatics (gratis 480min/mes)", ["standard", "enhanced"], "SPEECHMATICS_API_KEY"),
-        ("cloudflare_stt", "Cloudflare Workers AI (Whisper)", ["@cf/openai/whisper"], "CLOUDFLARE_API_KEY"),
+        ("cloudflare_stt", "Cloudflare Workers AI (Whisper)", ["@cf/openai/whisper", "@cf/openai/whisper-large-v3-turbo"], "CLOUDFLARE_API_KEY"),
     ]
 
     /// Proveedores que se agregan a configs existentes cuando salen en una
@@ -58,8 +60,14 @@ enum Providers {
                  orden: 107, modelo: "openai/whisper-large-v3"),
         Provider(id: "deepgram", nombre: "Deepgram (Nova)", tipo: "nube", activo: false,
                  orden: 108, modelo: "nova-3"),
-        Provider(id: "assemblyai", nombre: "AssemblyAI", tipo: "nube", activo: false,
-                 orden: 109, modelo: "best"),
+        Provider(id: "assemblyai", nombre: "AssemblyAI (Universal)", tipo: "nube", activo: false,
+                 orden: 109, modelo: "universal-3-pro"),
+        // STT de PAGO premium (investigados jul-2026): Soniox = mejor valor +
+        // español latino; Azure = único con es-EC (Ecuador).
+        Provider(id: "soniox", nombre: "Soniox (ES latino)", tipo: "nube", activo: false,
+                 orden: 113, modelo: "stt-async-v5"),
+        Provider(id: "azure", nombre: "Azure AI Speech (es-EC)", tipo: "nube", activo: false,
+                 orden: 114, modelo: "azure-fast"),
         Provider(id: "gladia", nombre: "Gladia", tipo: "nube", activo: false,
                  orden: 110, modelo: "default"),
         Provider(id: "speechmatics", nombre: "Speechmatics", tipo: "nube", activo: false,

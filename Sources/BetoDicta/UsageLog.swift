@@ -9,30 +9,39 @@ struct UsageLog {
     /// Tarifas por defecto (USD/hora de audio, 2026), por MODELO exacto.
     /// Refs: elevenlabs.io/pricing/api · openai.com/api/pricing · mistral.ai/pricing · groq.com/pricing
     static let tarifasDefecto: [String: Double] = [
+        // Precios VERIFICADOS jul-2026 (workflow con fuentes + verificación
+        // adversarial). USD/hora de audio. Ajustables por "Poner valor".
         // ElevenLabs
         "scribe_v2_realtime": 0.39, "scribe_v2": 0.22, "scribe_v1": 0.22,
-        // Groq
-        "whisper-large-v3": 0.11, "whisper-large-v3-turbo": 0.04,
+        // Groq — whisper-large-v3 subió a $0.111; distil solo-inglés $0.02
+        "whisper-large-v3": 0.111, "whisper-large-v3-turbo": 0.04, "distil-whisper-large-v3-en": 0.02,
         // OpenAI
         "whisper-1": 0.36, "gpt-4o-transcribe": 0.36, "gpt-4o-mini-transcribe": 0.18,
         // Mistral (Voxtral nube)
         "voxtral-mini-latest": 0.18, "voxtral-small-latest": 0.24,
         "voxtral-mini-transcribe": 0.18, "voxtral-realtime": 0.36,
-        // Fireworks (Whisper) — $0.0015/min v3, $0.0009/min turbo
-        "whisper-v3": 0.09, "whisper-v3-turbo": 0.05,
-        // Hugging Face Inference (Whisper) — capa GRATIS (por eso $0)
-        "openai/whisper-large-v3": 0, "openai/whisper-large-v3-turbo": 0,
-        "distil-whisper/distil-large-v3": 0,
-        // Deepgram Nova — ~$0.0043/min lotes
-        "nova-3": 0.26, "nova-2": 0.26,
-        // AssemblyAI — best (Universal) ~$0.0062/min, nano ~$0.002/min
-        "best": 0.37, "nano": 0.12,
+        // Fireworks (Whisper) — $0.0015/min v3, $0.0009/min turbo ($0.054/h)
+        "whisper-v3": 0.09, "whisper-v3-turbo": 0.054,
+        // Hugging Face Inference (Whisper) — capa gratis DEPRECADA (2025); ahora
+        // pass-through a Groq: large-v3 $0.111, turbo $0.04, distil $0.02.
+        "openai/whisper-large-v3": 0.111, "openai/whisper-large-v3-turbo": 0.04,
+        "distil-whisper/distil-large-v3": 0.02,
+        // Deepgram Nova — $0.0043/min (~$0.258/h)
+        "nova-3": 0.258, "nova-2": 0.258, "nova-3-medical": 0.312, "flux": 0.46,
+        // AssemblyAI — best/nano son ALIAS deprecados (→ universal-3-pro/universal-2)
+        "best": 0.21, "nano": 0.15, "universal-3-pro": 0.21, "universal-2": 0.15,
+        // Soniox — todo incluido (diarización/LID/formato); capa gratis
+        "stt-rt-v5": 0.12, "stt-async-v5": 0.10, "stt-async-v4": 0.10,
+        // Google Cloud STT v2 (Chirp) — streaming $0.96/h, batch dinámico $0.24/h
+        "chirp_3": 0.96, "chirp_2": 0.96,
+        // Azure AI Speech — batch $0.18/h, fast $0.36/h, real-time $1.00/h; es-EC
+        "azure-fast": 0.36, "azure-batch": 0.18, "azure-realtime": 1.00,
         // Gladia — ~$0.0102/min (10 h/mes gratis)
         "default": 0.61,
         // Speechmatics — batch (480 min/mes gratis)
         "standard": 0.30, "enhanced": 0.40,
-        // Cloudflare Workers AI (Whisper) — 10k neuronas/día gratis → $0
-        "@cf/openai/whisper": 0,
+        // Cloudflare Workers AI (Whisper) — 10k neuronas/día gratis, luego $0.03/h
+        "@cf/openai/whisper": 0.03, "@cf/openai/whisper-large-v3-turbo": 0.03,
         // (modelos locales / GGUF → no listados → $0, gratis)
     ]
 
@@ -54,12 +63,16 @@ struct UsageLog {
     }
 
     /// Tarifa efectiva de un MODELO (USD/hora). Precedencia: la que TÚ pusiste a
-    /// mano > el archivo mantenido (LiteLLM) > el curado del código. Modelos
-    /// locales no están en ninguno → gratis ($0).
+    /// mano > el curado VERIFICADO del código > el archivo mantenido (LiteLLM).
+    /// OJO: aquí el curado va ANTES que el archivo (al revés que en el chat)
+    /// porque los datos de audio de LiteLLM tienen colisiones de nombre entre
+    /// proveedores (whisper-large-v3-turbo groq $0.04 vs watsonx $0.36) y algunos
+    /// precios viejos; nuestro curado está verificado por proveedor. El archivo
+    /// solo rellena el long-tail de modelos que no curamos. Locales → $0.
     static func tarifaModelo(_ modelo: String) -> Double {
-        if let manual = Config.tarifa(modelo) { return manual }   // tu valor manda
-        if let archivo = tarifasArchivo[modelo] { return archivo } // LiteLLM real, auto
-        return tarifasDefecto[modelo] ?? 0                         // curado baked
+        if let manual = Config.tarifa(modelo) { return manual }    // tu valor manda
+        if let curado = tarifasDefecto[modelo] { return curado }   // curado verificado (provider-correcto)
+        return tarifasArchivo[modelo] ?? 0                         // LiteLLM: rellena huecos
     }
 
     /// Tarifa de un registro: por su modelo si lo tiene; si no (registro
@@ -70,7 +83,7 @@ struct UsageLog {
     }
 
     /// Texto de referencia de precios para mostrar en la app.
-    static let referenciaPrecios = "Precios aprox. por hora de audio (2026): ElevenLabs ~$0.39 (en vivo) / $0.22 (lotes) · OpenAI ~$0.18–0.36 · Mistral Voxtral ~$0.18–0.36 · Groq ~$0.04–0.11 · motores locales GRATIS. Ajústalos por modelo en Modelos."
+    static let referenciaPrecios = "Precios aprox. por hora de audio (2026): Groq $0.04–0.11 · Fireworks $0.05–0.09 · Soniox $0.10 · Cloudflare $0.03 · Azure $0.18–1.00 (es-EC) · Deepgram $0.26 · Speechmatics $0.30–0.40 · AssemblyAI $0.15–0.21 · OpenAI $0.18–0.36 · ElevenLabs $0.22–0.39 · Gladia $0.61 · Google Chirp $0.96 · Hugging Face $0.02–0.11 · motores locales GRATIS. Se actualizan solos desde LiteLLM; ajústalos por modelo en Modelos."
 
     /// Consolida las MUCHAS etiquetas históricas ("scribe_v2_realtime",
     /// "ElevenLabs (en vivo)", "ElevenLabs Scribe"…) en un motor único —

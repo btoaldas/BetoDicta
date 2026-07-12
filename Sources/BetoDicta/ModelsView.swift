@@ -441,6 +441,7 @@ struct CloudRow: View {
     @State private var mostrarKey = false
     @State private var reciénGuardado = false
     @State private var accountId = ""   // solo Cloudflare (va en la URL)
+    @State private var azureRegion = "" // solo Azure (va en la URL)
 
     /// Precio aproximado por hora de audio (2026), por proveedor de nube.
     static let precios: [String: String] = [
@@ -503,6 +504,17 @@ struct CloudRow: View {
                 Text("10.000 llamadas/día gratis. Pega tu Account ID y el token de API arriba.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
+            // Azure AI Speech necesita la REGIÓN en la URL (ej. eastus).
+            if id == "azure" {
+                HStack {
+                    TextField("Región de Azure (ej. eastus, brazilsouth)", text: $azureRegion)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { Config.set("azure_speech_region", to: azureRegion); onChange() }
+                    Button("Guardar región") { Config.set("azure_speech_region", to: azureRegion); onChange() }
+                }
+                Text("Muy buen español, con locale es-EC (Ecuador). Pon la región de tu recurso de Speech y la key arriba.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
             Picker("Modelo:", selection: $modelo) {
                 ForEach(modelos, id: \.self) { Text($0).tag($0) }
             }
@@ -532,6 +544,7 @@ struct CloudRow: View {
             modelo = Providers.modelo(de: id) ?? modelos.first ?? ""
             tarifa = String(format: "%.2f", UsageLog.tarifaModelo(modelo))
             if id == "cloudflare_stt" { accountId = Config.cloudflareAccountId() }
+            if id == "azure" { azureRegion = Config.azureSpeechRegion() }
         }
     }
 

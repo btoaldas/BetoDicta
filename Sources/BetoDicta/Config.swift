@@ -82,6 +82,8 @@ struct Config {
     /// Account ID de Cloudflare (va en la URL de Workers AI, como el chat).
     /// Sin él, el motor STT de Cloudflare no puede llamar (avisa en la UI).
     static func cloudflareAccountId() -> String { (json()["cloudflare_account_id"] as? String) ?? "" }
+    /// Región de Azure AI Speech (ej. eastus) — va en la URL del endpoint.
+    static func azureSpeechRegion() -> String { (json()["azure_speech_region"] as? String) ?? "" }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }

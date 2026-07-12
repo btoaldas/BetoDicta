@@ -172,6 +172,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             exit(0)
         }
+        // Prueba de precios STT inteligentes: BETODICTA_PRICETEST=1 carga
+        // precios_stt.json y comprueba la precedencia curado>archivo y el
+        // relleno del long-tail; sale.
+        if ProcessInfo.processInfo.environment["BETODICTA_PRICETEST"] == "1" {
+            UsageLog.cargarTarifasArchivo()
+            let casos: [(String, Double, String)] = [
+                ("best", 0.21, "curado gana al archivo viejo (0.12)"),
+                ("nano", 0.15, "curado gana al archivo viejo (0.37)"),
+                ("whisper-large-v3-turbo", 0.04, "curado (archivo tenía colisión watsonx)"),
+                ("whisper-large-v3", 0.111, "curado corregido"),
+                ("@cf/openai/whisper", 0.03, "curado corregido (ya no $0)"),
+                ("stt-async-v5", 0.10, "Soniox curado"),
+                ("azure-fast", 0.36, "Azure curado"),
+            ]
+            for (m, esperado, nota) in casos {
+                let real = UsageLog.tarifaModelo(m)
+                let ok = abs(real - esperado) < 0.001 ? "OK" : "✗ FALLA"
+                print("PRICETEST \(ok) \(m)=$\(real)/h (esperado $\(esperado)) — \(nota)")
+            }
+            // Long-tail: modelo que SOLO está en el archivo (no curado).
+            let base = UsageLog.tarifaModelo("base")   // deepgram/base → $0.75 del archivo
+            print("PRICETEST \(base > 0 ? "OK" : "✗") long-tail 'base'=$\(base)/h (relleno del archivo, no curado)")
+            exit(0)
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.

@@ -289,6 +289,125 @@ enum CloudflareTranscribe {
     }
 }
 
+/// Soniox — STT premium multilingüe (excelente español latino + code-switching
+/// es/en), el más barato del tier de pago ($0.10/h async), capa gratis. Por
+/// lotes: subir archivo → crear transcripción → sondear → bajar el texto.
+enum SonioxTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("SONIOX_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de Soniox — ponla en Configuración → Modelos"))); return
+        }
+        let auth = ["Authorization": "Bearer \(key)"]
+        let modelo = model.isEmpty ? "stt-async-v5" : model
+        // 1) subir el audio (multipart, campo "file")
+        let boundary = "BetoDicta-\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        var up = URLRequest(url: URL(string: "https://api.soniox.com/v1/files")!)
+        up.httpMethod = "POST"; up.timeoutInterval = 30
+        up.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        up.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        URLSession.shared.uploadTask(with: up, from: body) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard err == nil, let data, (200..<300).contains(code),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let fileId = json["id"] as? String else {
+                DispatchQueue.main.async {
+                    completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                }
+                return
+            }
+            // 2) crear la transcripción (sesga a español/inglés)
+            postJSON(url: "https://api.soniox.com/v1/transcriptions", headers: auth,
+                     cuerpo: ["file_id": fileId, "model": modelo, "language_hints": ["es", "en"]]) { r2 in
+                switch r2 {
+                case .failure(let e): DispatchQueue.main.async { completion(.failure(e)) }
+                case .success(let j):
+                    guard let id = j["id"] as? String else {
+                        DispatchQueue.main.async { completion(.failure(ScribeError.sinTexto)) }; return
+                    }
+                    // 3) sondear estado
+                    STTPoll.sondear(url: "https://api.soniox.com/v1/transcriptions/\(id)", headers: auth, evaluar: { jj in
+                        switch jj["status"] as? String {
+                        case "completed": return .listo("__LISTO__")   // señal: bajar transcript
+                        case "error":     return .error((jj["error_message"] as? String) ?? "Soniox falló")
+                        default:          return .esperar
+                        }
+                    }) { r in
+                        switch r {
+                        case .failure(let e): completion(.failure(e))
+                        case .success:
+                            // 4) bajar el texto
+                            var t = URLRequest(url: URL(string: "https://api.soniox.com/v1/transcriptions/\(id)/transcript")!)
+                            t.timeoutInterval = 15
+                            t.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+                            URLSession.shared.dataTask(with: t) { d, rp, e in
+                                DispatchQueue.main.async {
+                                    let c = (rp as? HTTPURLResponse)?.statusCode ?? 0
+                                    guard e == nil, let d, (200..<300).contains(c),
+                                          let jt = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                                          let texto = jt["text"] as? String else {
+                                        completion(.failure(ScribeError.sinTexto)); return
+                                    }
+                                    completion(.success(texto.trimmingCharacters(in: .whitespacesAndNewlines)))
+                                }
+                            }.resume()
+                        }
+                    }
+                }
+            }
+        }.resume()
+    }
+}
+
+/// Azure AI Speech — Fast Transcription (un solo POST). Muy buen español, único
+/// con locale es-EC (Ecuador) nativo. Necesita la key y la REGIÓN (va en la URL,
+/// como el Account ID de Cloudflare). Respuesta: combinedPhrases[].text.
+enum AzureTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("AZURE_SPEECH_KEY")
+        let region = Config.azureSpeechRegion()
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la key de Azure Speech — ponla en Configuración → Modelos"))); return
+        }
+        guard !region.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la región de Azure (ej. eastus) — ponla en Configuración → Modelos"))); return
+        }
+        let url = "https://\(region).api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2024-11-15"
+        let boundary = "BetoDicta-\(UUID().uuidString)"
+        // Prioriza español de Ecuador y variantes LATAM (deja que Azure elija).
+        let definition = "{\"locales\":[\"es-EC\",\"es-MX\",\"es-CO\",\"es-ES\"],\"profanityFilterMode\":\"None\"}"
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav)
+        body.append("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"definition\"\r\nContent-Type: application/json\r\n\r\n\(definition)\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        var req = URLRequest(url: URL(string: url)!)
+        req.httpMethod = "POST"; req.timeoutInterval = 20
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue(key, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+        URLSession.shared.uploadTask(with: req, from: body) { data, resp, err in
+            DispatchQueue.main.async {
+                if let err { completion(.failure(err)); return }
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data, (200..<300).contains(code) else {
+                    completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                    return
+                }
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let frases = json["combinedPhrases"] as? [[String: Any]] else {
+                    completion(.failure(ScribeError.sinTexto)); return
+                }
+                let texto = frases.compactMap { $0["text"] as? String }.joined(separator: " ")
+                texto.isEmpty ? completion(.failure(ScribeError.sinTexto))
+                              : completion(.success(texto.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+        }.resume()
+    }
+}
+
 /// AssemblyAI — free credits. Por lotes: subir bytes → crear transcript →
 /// sondear /transcript/{id} hasta status=completed.
 enum AssemblyAITranscribe {
@@ -579,6 +698,8 @@ enum Failover {
         case "gladia": modeloUsado = p.modelo ?? "default"
         case "speechmatics": modeloUsado = p.modelo ?? "standard"
         case "cloudflare_stt": modeloUsado = p.modelo ?? "@cf/openai/whisper"
+        case "soniox": modeloUsado = p.modelo ?? "stt-async-v5"
+        case "azure": modeloUsado = p.modelo ?? "azure-fast"
         case "ollama_stt": modeloUsado = ChatIA.sttLocalModelo["ollama"] ?? ""
         case "lmstudio_stt": modeloUsado = ChatIA.sttLocalModelo["lmstudio"] ?? ""
         default: modeloUsado = p.modelo ?? ""
@@ -632,6 +753,10 @@ enum Failover {
             SpeechmaticsTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
         case "cloudflare_stt":
             CloudflareTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
+        case "soniox":
+            SonioxTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
+        case "azure":
+            AzureTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
         case "ollama_stt":
             // Detección inteligente: solo si Ollama tiene un modelo que escuche.
             if let m = ChatIA.sttLocalModelo["ollama"] {
