@@ -67,13 +67,16 @@ struct ChatIA {
     /// modelo de CUALQUIER proveedor (no solo gateways). Se llena al pulsar
     /// "Descubrir" en Ajustes → Pulido.
     static var modelosPorProveedor: [String: [String]] = [:]
+    /// Precio por modelo si el proveedor lo expone (proveedorId → modeloId →
+    /// etiqueta, ej. "gratis" o "$0.15/$0.60 1M"). OpenRouter lo trae; otros no.
+    static var precios: [String: [String: String]] = [:]
 
     /// Descubre los modelos de un proveedor conectado (fijo o local) usando su
     /// base + key, y los cachea en modelosPorProveedor[id].
     static func descubrirProveedor(_ ia: ChatIA, _ done: @escaping ([String], String) -> Void) {
         PersonalizadaStore.descubrirEn(base: ia.base, apiKey: ia.key ?? "",
                                        authHeader: ia.authHeader, authPrefix: ia.authPrefix,
-                                       headers: ia.headersExtra) { ids, msg in
+                                       headers: ia.headersExtra, proveedorId: ia.id) { ids, msg in
             if !ids.isEmpty { modelosPorProveedor[ia.id] = ids }
             done(ids, msg)
         }
@@ -188,12 +191,28 @@ enum PersonalizadaStore {
     }
     /// Extrae ids de modelos de las formas comunes: {data:[{id}]}, {models:
     /// [{id|name}]}, arreglo de strings, o arreglo de objetos.
-    static func extraerModelos(_ j: Any) -> [String] {
-        func deArreglo(_ a: [Any]) -> [String] {
+    static func extraerModelos(_ j: Any) -> [String] { extraerModelosPreciados(j).map { $0.0 } }
+
+    /// Como extraerModelos pero además saca el PRECIO si viene (campo `pricing`
+    /// de OpenRouter y compatibles): (id, etiqueta-de-precio?).
+    static func extraerModelosPreciados(_ j: Any) -> [(String, String?)] {
+        func etiquetaPrecio(_ d: [String: Any]) -> String? {
+            guard let p = d["pricing"] as? [String: Any] else { return nil }
+            func num(_ k: String) -> Double? {
+                if let s = p[k] as? String { return Double(s) }
+                if let n = p[k] as? Double { return n }
+                return nil
+            }
+            guard let inp = num("prompt"), let out = num("completion") else { return nil }
+            if inp == 0 && out == 0 { return "gratis" }
+            return String(format: "$%.2f/$%.2f 1M", inp * 1_000_000, out * 1_000_000)
+        }
+        func deArreglo(_ a: [Any]) -> [(String, String?)] {
             a.compactMap { el in
-                if let s = el as? String { return s }
-                if let d = el as? [String: Any] {
-                    return (d["id"] as? String) ?? (d["name"] as? String) ?? (d["model"] as? String)
+                if let s = el as? String { return (s, nil) }
+                if let d = el as? [String: Any],
+                   let id = (d["id"] as? String) ?? (d["name"] as? String) ?? (d["model"] as? String) {
+                    return (id, etiquetaPrecio(d))
                 }
                 return nil
             }
@@ -212,15 +231,18 @@ enum PersonalizadaStore {
     static func descubrirModelos(_ ia: IAPersonalizada, rutaManual: String? = nil,
                                  _ done: @escaping ([String], String) -> Void) {
         descubrirEn(base: ia.base, apiKey: ia.apiKey, authHeader: ia.authHeader,
-                    authPrefix: ia.authPrefix, headers: ia.headers, rutaManual: rutaManual, done)
+                    authPrefix: ia.authPrefix, headers: ia.headers, rutaManual: rutaManual,
+                    proveedorId: "custom:\(ia.id)", done)
     }
 
     /// Núcleo de descubrimiento (OpenAI-compat). Prueba varias formas de ruta
     /// porque cada proveedor/gateway sirve la lista distinto: /models, /v1/models,
     /// /openai/v1/models, /api/v1/models. `rutaManual` (URL completa o ruta) se
-    /// prueba PRIMERO — para "con esta URL, probar el descubrimiento".
+    /// prueba PRIMERO — para "con esta URL, probar el descubrimiento". Si se pasa
+    /// `proveedorId`, cachea los PRECIOS descubiertos en ChatIA.precios[id].
     static func descubrirEn(base: String, apiKey: String, authHeader: String, authPrefix: String,
                             headers: [String: String], rutaManual: String? = nil,
+                            proveedorId: String? = nil,
                             _ done: @escaping ([String], String) -> Void) {
         var b = base.trimmingCharacters(in: .whitespaces)
         while b.hasSuffix("/") { b = String(b.dropLast()) }
@@ -248,13 +270,21 @@ enum PersonalizadaStore {
             if !apiKey.isEmpty { req.setValue(authPrefix + apiKey, forHTTPHeaderField: authHeader.isEmpty ? "Authorization" : authHeader) }
             for (h, v) in headers { req.setValue(v, forHTTPHeaderField: h) }
             URLSession.shared.dataTask(with: req) { data, resp, e in
-                var ids: [String] = []
+                var preciados: [(String, String?)] = []
                 let c = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                if e == nil, let data, let j = try? JSONSerialization.jsonObject(with: data) { ids = extraerModelos(j) }
-                if !ids.isEmpty {
+                if e == nil, let data, let j = try? JSONSerialization.jsonObject(with: data) { preciados = extraerModelosPreciados(j) }
+                if !preciados.isEmpty {
+                    let ids = preciados.map { $0.0 }
                     let ruta = URL(string: rutas[i])?.path ?? rutas[i]
                     let via = rutas[i] == "\(b)/models" ? "" : " (\(ruta))"
-                    DispatchQueue.main.async { done(ids, "\(ids.count) modelos\(via)") }
+                    DispatchQueue.main.async {
+                        if let pid = proveedorId {
+                            var mp: [String: String] = [:]
+                            for (id, pr) in preciados { if let pr { mp[id] = pr } }
+                            if !mp.isEmpty { ChatIA.precios[pid] = mp }
+                        }
+                        done(ids, "\(ids.count) modelos\(via)")
+                    }
                 } else {
                     intentar(i + 1, c, e?.localizedDescription)
                 }

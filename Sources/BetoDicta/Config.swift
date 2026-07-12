@@ -57,6 +57,9 @@ struct Config {
     /// Si encuentra actualización al abrir, la instala sola (sin pedir). OFF
     /// por defecto: reinstalar+reiniciar es una acción grande, es opt-in.
     static func autoactualizar() -> Bool { (json()["autoactualizar"] as? Bool) ?? false }
+    /// Muestra el aviso de privacidad cuando el pulido usa una IA de NUBE o un
+    /// gateway de terceros (tu texto sale de tu Mac). Default ON. Parametrizable.
+    static func avisoNube() -> Bool { (json()["aviso_privacidad_nube"] as? Bool) ?? true }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }

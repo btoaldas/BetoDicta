@@ -84,6 +84,7 @@ final class SettingsModel: ObservableObject {
     @Published var pulidoTimeout: Double { didSet { Config.set("pulido_timeout_seg", to: pulidoTimeout) } }
     @Published var buscarUpdateAlAbrir: Bool { didSet { Config.set("buscar_update_al_abrir", to: buscarUpdateAlAbrir) } }
     @Published var autoactualizar: Bool { didSet { Config.set("autoactualizar", to: autoactualizar) } }
+    @Published var avisoNube: Bool { didSet { Config.set("aviso_privacidad_nube", to: avisoNube) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
         didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }
@@ -114,6 +115,7 @@ final class SettingsModel: ObservableObject {
         pulidoTimeout = Config.pulidoTimeout()
         buscarUpdateAlAbrir = Config.buscarUpdateAlAbrir()
         autoactualizar = Config.autoactualizar()
+        avisoNube = Config.avisoNube()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
         shiftEnterAlTerminar = Config.shiftEnterAlTerminar()
@@ -613,6 +615,10 @@ struct SettingsView: View {
                         Text("Si encuentra una actualización al abrir, la baja e instala sola (la app se reinicia). Si está apagado, solo te avisa y tú decides.")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
+                        Toggle("Avisos de privacidad al pulir con IA de nube/terceros", isOn: $m.avisoNube)
+                        Text("Muestra un recordatorio cuando el pulido usa una IA de nube o un gateway de terceros (tu texto sale de tu Mac). Apágalo si ya lo tienes claro.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Espera del pulido con IA: \(Int(m.pulidoTimeout)) s").font(.subheadline)
                             Slider(value: $m.pulidoTimeout, in: 10...60, step: 5).tint(acento)
@@ -732,6 +738,11 @@ struct SettingsView: View {
         }
         return ChatIA.modelosPorProveedor[sel.id] ?? []
     }
+    /// "modelo · precio" si el proveedor expuso el costo (ej. OpenRouter).
+    private func conPrecio(_ sel: ChatIA, _ modelo: String) -> String {
+        if let p = ChatIA.precios[sel.id]?[modelo] { return "\(modelo) · \(p)" }
+        return modelo
+    }
     @ViewBuilder private func selectorModelo(_ sel: ChatIA) -> some View {
         let _ = detectTrigger
         let lista = modelosDe(sel)
@@ -745,10 +756,12 @@ struct SettingsView: View {
                         Picker("", selection: Binding(
                             get: { activo },
                             set: { elegirModelo(sel, $0); detectTrigger += 1 })) {
-                            ForEach(opciones, id: \.self) { Text($0).tag($0) }
-                        }.labelsHidden().frame(width: 220)
+                            ForEach(opciones, id: \.self) { m in
+                                Text(conPrecio(sel, m)).tag(m)
+                            }
+                        }.labelsHidden().frame(width: 300)
                     } else {
-                        Text(activo.isEmpty ? "—" : activo).font(.caption).foregroundStyle(.secondary)
+                        Text(activo.isEmpty ? "—" : conPrecio(sel, activo)).font(.caption).foregroundStyle(.secondary)
                     }
                     Button(descubriendoMod && msgModId == sel.id ? "Buscando…" : "Descubrir") {
                         descubriendoMod = true; msgMod = nil; msgModId = sel.id
@@ -761,8 +774,32 @@ struct SettingsView: View {
             }
             Text(sel.id.hasPrefix("custom:")
                  ? "Modelos del gateway. Cambia el activo cuando quieras, aquí mismo."
-                 : "Elige el modelo de este proveedor. 'Descubrir' trae la lista completa.")
+                 : "Elige el modelo de este proveedor. 'Descubrir' trae la lista completa (con precio si el proveedor lo publica).")
                 .font(.caption).foregroundStyle(.secondary)
+            // Aviso de privacidad: al usar nube/gateway, el texto SALE de tu Mac.
+            avisoPrivacidad(sel)
+        }
+    }
+    /// Aviso de privacidad/seguridad al pulir con una IA que NO es local.
+    @ViewBuilder private func avisoPrivacidad(_ sel: ChatIA) -> some View {
+        if !sel.local && Config.avisoNube() {
+            let esGateway = sel.id.hasPrefix("custom:")
+            let inseguro = esGateway && !sel.baseSegura   // gateway por http://
+            VStack(alignment: .leading, spacing: 2) {
+                if inseguro {
+                    Label("Este gateway usa http SIN cifrar: por seguridad NO se envía tu API key (el pulido no funcionará hasta que uses https).",
+                          systemImage: "lock.open.trianglebadge.exclamationmark")
+                        .font(.caption2).foregroundStyle(.red)
+                } else {
+                    Label("Tu texto dictado se ENVÍA a \(sel.proveedorCorto)\(esGateway ? " (gateway de terceros)" : " (nube)") para pulir/traducir. No dictes datos sensibles (claves, tarjetas) con un proveedor de terceros.",
+                          systemImage: "exclamationmark.shield")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+                Text("Para que NADA salga de tu Mac, usa una IA local (LM Studio / Ollama). Puedes ocultar este aviso en Avanzado.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.08)))
         }
     }
     private func elegirModelo(_ sel: ChatIA, _ nuevo: String) {
