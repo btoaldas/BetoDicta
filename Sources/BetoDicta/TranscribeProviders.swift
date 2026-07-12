@@ -267,6 +267,28 @@ enum DeepgramTranscribe {
     }
 }
 
+/// Cloudflare Workers AI (Whisper) — 10k neuronas/día gratis. Necesita el
+/// Account ID en la URL (igual que el chat). Un POST del audio crudo →
+/// result.text. El token va como Bearer; el Account ID lo pone el usuario.
+enum CloudflareTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("CLOUDFLARE_API_KEY")
+        let acct = Config.cloudflareAccountId()
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta el token de Cloudflare — ponlo en Configuración → Modelos"))); return
+        }
+        guard !acct.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta el Account ID de Cloudflare — ponlo en Configuración → Modelos"))); return
+        }
+        let m = model.isEmpty ? "@cf/openai/whisper" : model
+        RawAudioSTT.run(url: "https://api.cloudflare.com/client/v4/accounts/\(acct)/ai/run/\(m)",
+                        headers: ["Authorization": "Bearer \(key)"],
+                        contentType: "application/octet-stream", wav: wav,
+                        extraer: { json in (json["result"] as? [String: Any])?["text"] as? String },
+                        completion: completion)
+    }
+}
+
 /// AssemblyAI — free credits. Por lotes: subir bytes → crear transcript →
 /// sondear /transcript/{id} hasta status=completed.
 enum AssemblyAITranscribe {
@@ -556,6 +578,7 @@ enum Failover {
         case "assemblyai": modeloUsado = p.modelo ?? "best"
         case "gladia": modeloUsado = p.modelo ?? "default"
         case "speechmatics": modeloUsado = p.modelo ?? "standard"
+        case "cloudflare_stt": modeloUsado = p.modelo ?? "@cf/openai/whisper"
         case "ollama_stt": modeloUsado = ChatIA.sttLocalModelo["ollama"] ?? ""
         case "lmstudio_stt": modeloUsado = ChatIA.sttLocalModelo["lmstudio"] ?? ""
         default: modeloUsado = p.modelo ?? ""
@@ -607,6 +630,8 @@ enum Failover {
             GladiaTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
         case "speechmatics":
             SpeechmaticsTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
+        case "cloudflare_stt":
+            CloudflareTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
         case "ollama_stt":
             // Detección inteligente: solo si Ollama tiene un modelo que escuche.
             if let m = ChatIA.sttLocalModelo["ollama"] {

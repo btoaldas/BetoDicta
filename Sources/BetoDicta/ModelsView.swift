@@ -440,6 +440,7 @@ struct CloudRow: View {
     @State private var modelo = ""
     @State private var mostrarKey = false
     @State private var reciénGuardado = false
+    @State private var accountId = ""   // solo Cloudflare (va en la URL)
 
     /// Precio aproximado por hora de audio (2026), por proveedor de nube.
     static let precios: [String: String] = [
@@ -491,6 +492,17 @@ struct CloudRow: View {
                 }.buttonStyle(.plain)
                 Button("Guardar") { guardar() }
             }
+            // Cloudflare Workers AI necesita el Account ID en la URL (como el chat).
+            if id == "cloudflare_stt" {
+                HStack {
+                    TextField("Account ID de Cloudflare (Dashboard → Workers AI)", text: $accountId)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { Config.set("cloudflare_account_id", to: accountId); onChange() }
+                    Button("Guardar ID") { Config.set("cloudflare_account_id", to: accountId); onChange() }
+                }
+                Text("10.000 llamadas/día gratis. Pega tu Account ID y el token de API arriba.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
             Picker("Modelo:", selection: $modelo) {
                 ForEach(modelos, id: \.self) { Text($0).tag($0) }
             }
@@ -519,6 +531,7 @@ struct CloudRow: View {
             key = ApiKeys.get(keyEnv)
             modelo = Providers.modelo(de: id) ?? modelos.first ?? ""
             tarifa = String(format: "%.2f", UsageLog.tarifaModelo(modelo))
+            if id == "cloudflare_stt" { accountId = Config.cloudflareAccountId() }
         }
     }
 

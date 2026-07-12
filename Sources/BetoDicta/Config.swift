@@ -79,6 +79,9 @@ struct Config {
     /// original no tenía), entrega el ORIGINAL. NUNCA bloquea, solo cae a tus
     /// palabras. Opt-in (default OFF) para no estorbar el uso normal.
     static func salvaguardaInyeccion() -> Bool { (json()["salvaguarda_inyeccion"] as? Bool) ?? false }
+    /// Account ID de Cloudflare (va en la URL de Workers AI, como el chat).
+    /// Sin él, el motor STT de Cloudflare no puede llamar (avisa en la UI).
+    static func cloudflareAccountId() -> String { (json()["cloudflare_account_id"] as? String) ?? "" }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }

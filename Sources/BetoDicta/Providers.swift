@@ -34,6 +34,7 @@ enum Providers {
         ("assemblyai", "AssemblyAI", ["best", "nano"], "ASSEMBLYAI_API_KEY"),
         ("gladia", "Gladia (gratis 10h/mes)", ["default"], "GLADIA_API_KEY"),
         ("speechmatics", "Speechmatics (gratis 480min/mes)", ["standard", "enhanced"], "SPEECHMATICS_API_KEY"),
+        ("cloudflare_stt", "Cloudflare Workers AI (Whisper)", ["@cf/openai/whisper"], "CLOUDFLARE_API_KEY"),
     ]
 
     /// Proveedores que se agregan a configs existentes cuando salen en una
@@ -63,6 +64,8 @@ enum Providers {
                  orden: 110, modelo: "default"),
         Provider(id: "speechmatics", nombre: "Speechmatics", tipo: "nube", activo: false,
                  orden: 111, modelo: "standard"),
+        Provider(id: "cloudflare_stt", nombre: "Cloudflare (Whisper)", tipo: "nube", activo: false,
+                 orden: 112, modelo: "@cf/openai/whisper"),
         // Locales STT: solo transcriben si tienen un modelo whisper (detección
         // inteligente: se ocultan/desactivan en Modelos si no lo tienen).
         Provider(id: "ollama_stt", nombre: "Ollama (local, whisper)", tipo: "local", activo: false,

@@ -31,6 +31,8 @@ struct UsageLog {
         "default": 0.61,
         // Speechmatics — batch (480 min/mes gratis)
         "standard": 0.30, "enhanced": 0.40,
+        // Cloudflare Workers AI (Whisper) — 10k neuronas/día gratis → $0
+        "@cf/openai/whisper": 0,
         // (modelos locales / GGUF → no listados → $0, gratis)
     ]
 
