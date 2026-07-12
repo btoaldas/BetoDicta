@@ -57,8 +57,9 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 ## Requisitos
 
 - macOS 14+ (Apple Silicon)
-- Xcode (para compilar)
-- Una API key de [ElevenLabs](https://elevenlabs.io) (Scribe se cobra por hora de audio: ~$0.22–0.39/h)
+- **Nada más para empezar**: los motores **locales** (Whisper, Voxtral, Nemotron, Canary) corren 100% offline, gratis y **sin ninguna API key**
+- *(Opcional)* la API key de un servicio de **nube** si quieres máxima calidad o texto en vivo — varios con capa **GRATIS** (Groq Whisper 2000/día, Hugging Face…). El asistente te lo pone fácil y cada proveedor tiene un botón "Conseguir clave"
+- *(Solo para compilar desde el código)* Xcode 26+
 
 ## Instalación
 
@@ -128,9 +129,13 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 
 ## Hoja de ruta
 
-- [ ] Failover multi-proveedor: ElevenLabs → Groq → Whisper local (¡gratis y sin internet!)
-- [ ] UI de configuración (sin editar JSON)
-- [ ] Re-transcribir desde el historial
+Lo que estaba en la lista original ya está **hecho**:
+
+- [x] Failover multi-proveedor (cascada arrastrable; con motores locales gratis y sin internet)
+- [x] UI de configuración completa + asistente de arranque (sin editar JSON)
+- [x] Re-transcribir desde el historial (pestaña **Transcribir**)
+
+Y bastante más desde entonces: ~25 motores de transcripción (muchos gratis), texto en vivo también en la nube, pulido con cualquier IA, búsqueda semántica del historial, precios que se actualizan solos… ¿Se te ocurre algo? Abre un issue.
 
 ## Créditos
 
