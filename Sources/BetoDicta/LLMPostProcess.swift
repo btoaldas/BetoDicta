@@ -1,5 +1,28 @@
 import Foundation
 
+// MARK: - IA de chat para pulido y traducción (cualquier proveedor conectado)
+
+/// Proveedores de chat compatibles con la API de OpenAI (mismo /chat/completions).
+struct ChatIA {
+    let id: String, nombre: String, base: String, modelo: String, keyEnv: String
+    var key: String? {
+        if id == "groq", let g = Config.groqKey() { return g }   // groq también por env
+        let k = ApiKeys.get(keyEnv); return k.isEmpty ? nil : k
+    }
+    static let catalogo: [ChatIA] = [
+        ChatIA(id: "groq",    nombre: "Groq · Llama 3.3 70B",  base: "https://api.groq.com/openai/v1", modelo: "llama-3.3-70b-versatile", keyEnv: "GROQ_API_KEY"),
+        ChatIA(id: "openai",  nombre: "OpenAI · gpt-4o-mini",  base: "https://api.openai.com/v1",      modelo: "gpt-4o-mini",             keyEnv: "OPENAI_API_KEY"),
+        ChatIA(id: "mistral", nombre: "Mistral · small",       base: "https://api.mistral.ai/v1",      modelo: "mistral-small-latest",    keyEnv: "MISTRAL_API_KEY"),
+    ]
+    /// Las que tienen key puesta (para el selector).
+    static var conectadas: [ChatIA] { catalogo.filter { $0.key != nil } }
+    /// La elegida por el usuario; si esa no tiene key, la primera que sí.
+    static func seleccionada() -> ChatIA? {
+        if let c = catalogo.first(where: { $0.id == Config.pulidoProveedor() }), c.key != nil { return c }
+        return conectadas.first
+    }
+}
+
 // MARK: - Post-proceso con IA (opcional): pule puntuación y nombres por contexto
 
 /// Manda el texto a Groq (llama-3.3-70b) con el glosario del usuario.
@@ -8,8 +31,8 @@ import Foundation
 enum LLMPostProcess {
 
     static func enhance(_ text: String, completion: @escaping (String) -> Void) {
-        guard let key = Config.groqKey() else {
-            Log.write("pulido: SIN GROQ_API_KEY — texto original")
+        guard let ia = ChatIA.seleccionada() else {
+            Log.write("pulido: SIN IA de chat conectada (pon una key en Modelos) — texto original")
             completion(text)
             return
         }
@@ -39,15 +62,15 @@ enum LLMPostProcess {
         \(text)
         """
 
-        var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
+        var request = URLRequest(url: URL(string: "\(ia.base)/chat/completions")!)
         request.httpMethod = "POST"
         // Timeout DINÁMICO: base configurable (Avanzado) + extra por largo del
         // texto (más texto = la IA genera más = tarda más). Tope 120s.
         request.timeoutInterval = min(120, Config.pulidoTimeout() + Double(text.count) / 40)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(ia.key ?? "")", forHTTPHeaderField: "Authorization")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "model": "llama-3.3-70b-versatile",
+            "model": ia.modelo,
             "messages": [["role": "user", "content": prompt]],
             "temperature": 0,
         ])

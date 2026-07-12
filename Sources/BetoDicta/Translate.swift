@@ -8,8 +8,8 @@ import Foundation
 enum Translate {
 
     static func to(_ idioma: String, text: String, completion: @escaping (String) -> Void) {
-        guard let key = Config.groqKey() else {
-            Log.log(.ia, "traducir: sin GROQ_API_KEY, texto sin traducir")
+        guard let ia = ChatIA.seleccionada() else {
+            Log.log(.ia, "traducir: sin IA de chat conectada, texto sin traducir")
             completion(text); return
         }
         let glosario = Config.keyterms().prefix(80).joined(separator: ", ")
@@ -24,13 +24,13 @@ enum Translate {
         \(text)
         """
 
-        var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
+        var request = URLRequest(url: URL(string: "\(ia.base)/chat/completions")!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 15
+        request.timeoutInterval = min(120, Config.pulidoTimeout() + Double(text.count) / 40)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(ia.key ?? "")", forHTTPHeaderField: "Authorization")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
-            "model": "llama-3.3-70b-versatile",
+            "model": ia.modelo,
             "messages": [["role": "user", "content": prompt]],
             "temperature": 0.2,
         ])

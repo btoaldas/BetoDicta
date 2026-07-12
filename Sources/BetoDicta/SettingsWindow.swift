@@ -34,6 +34,7 @@ final class SettingsModel: ObservableObject {
     @Published var pausarMultimedia: Bool { didSet { Config.set("atenuar_multimedia", to: pausarMultimedia) } }
     @Published var bajarVolumen: Bool { didSet { Config.set("silenciar_ademas", to: bajarVolumen) } }
     @Published var postProceso: Bool { didSet { Config.set("post_proceso", to: postProceso) } }
+    @Published var pulidoProveedor: String { didSet { Config.set("pulido_proveedor", to: pulidoProveedor) } }
     @Published var promptPulido: String { didSet { Config.set("prompt_pulido", to: promptPulido) } }
     @Published var panelVisible: Bool { didSet { Config.set("panel_visible", to: panelVisible) } }
     @Published var mostrarEnDock: Bool {
@@ -71,6 +72,7 @@ final class SettingsModel: ObservableObject {
         pausarMultimedia = Config.duckMedia()
         bajarVolumen = Config.muteToo()
         postProceso = Config.postProcess()
+        pulidoProveedor = Config.pulidoProveedor()
         promptPulido = Config.customPrompt() ?? ""
         panelVisible = Config.panelVisible()
         mostrarEnDock = Config.showInDock()
@@ -434,8 +436,21 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Pulido con IA", "waveform") {
-                Toggle("Pulir el texto con IA (Groq)", isOn: $m.postProceso)
+                Toggle("Pulir el texto con IA", isOn: $m.postProceso)
                 if m.postProceso {
+                    let conectadas = ChatIA.conectadas
+                    if conectadas.isEmpty {
+                        Text("Conecta una IA de chat en Modelos (Groq, OpenAI o Mistral) para usar el pulido.")
+                            .font(.caption).foregroundStyle(.orange)
+                    } else {
+                        fila("IA para pulido y traducción") {
+                            Picker("", selection: $m.pulidoProveedor) {
+                                ForEach(conectadas, id: \.id) { Text($0.nombre).tag($0.id) }
+                            }.labelsHidden().frame(width: 230)
+                        }
+                        Text("Cualquier IA conectada, no solo Groq. Se usa para pulir y traducir.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Estilo del pulido (opcional)").font(.subheadline)
                         TextField("ej: trato formal de usted", text: $m.promptPulido, axis: .vertical)

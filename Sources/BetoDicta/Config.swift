@@ -26,6 +26,9 @@ struct Config {
     static func duckMedia() -> Bool { (json()["atenuar_multimedia"] as? Bool) ?? true }
     static func duckVolume() -> Int { (json()["volumen_dictado"] as? Int) ?? 1 }
     static func postProcess() -> Bool { (json()["post_proceso"] as? Bool) ?? false }
+    /// Qué IA hace el pulido (y la traducción). Cualquier proveedor de chat
+    /// conectado, no solo Groq. Default "groq".
+    static func pulidoProveedor() -> String { (json()["pulido_proveedor"] as? String) ?? "groq" }
     static func customPrompt() -> String? {
         guard let s = json()["prompt_pulido"] as? String, !s.isEmpty else { return nil }
         return s
