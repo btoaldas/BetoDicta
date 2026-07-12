@@ -318,6 +318,7 @@ struct RulesEditor: View {
     @State private var probarID: UUID?     // fila con el popover "probar" abierto
     @State private var vozID: UUID?        // fila con el popover de voz abierto
     @State private var porAudio = Config.matchPorAudio()
+    @State private var umbral = Double(AudioMatch.umbral())   // raya de sensibilidad
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -345,6 +346,19 @@ struct RulesEditor: View {
             if porAudio {
                 Text("Graba tu voz diciendo el término (botón 🎙 de cada fila) y, al dictar, se reconoce por cómo suena — además del texto. Apagado no cambia nada.")
                     .font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text("Sensibilidad (raya): \(String(format: "%.1f", umbral))")
+                        .font(.caption).frame(width: 155, alignment: .leading)
+                    Slider(value: Binding(get: { umbral },
+                                          set: { umbral = $0; Config.set("umbral_audio", to: $0) }),
+                           in: 2.0...7.0, step: 0.1).tint(acentoEd)
+                    Button("Restablecer") {
+                        umbral = Double(AudioMatch.umbralDefecto)
+                        Config.set("umbral_audio", to: umbral)
+                    }.controlSize(.small)
+                }
+                Text("Es la distancia máxima para dar por buena una palabra. Más ALTA = más permisivo: reconoce aunque lo digas distinto, pero puede confundir palabras parecidas (falsos positivos). Más BAJA = más estricto: casi no confunde, pero puede no reconocer tu propia palabra. Recomendado ~\(String(format: "%.1f", Double(AudioMatch.umbralDefecto))) (misma palabra ≈2.6, distintas ≈5.5+). Usa 🎙 → “probar por voz” para calibrar.")
+                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 Text("").frame(width: 22)
@@ -418,7 +432,7 @@ struct RulesEditor: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(20).frame(width: 660, height: 540)
+        .padding(20).frame(width: 660, height: porAudio ? 600 : 540)
         .onDisappear { store.purgarVacias() }   // al cerrar, limpia filas en blanco
     }
 
