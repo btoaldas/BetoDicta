@@ -49,6 +49,7 @@ final class SettingsModel: ObservableObject {
         }
     }
     @Published var modoDesarrollo: Bool { didSet { Config.set("modo_desarrollo", to: modoDesarrollo) } }
+    @Published var pulidoTimeout: Double { didSet { Config.set("pulido_timeout_seg", to: pulidoTimeout) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
         didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }
@@ -75,6 +76,7 @@ final class SettingsModel: ObservableObject {
         mostrarEnDock = Config.showInDock()
         arrancarInicio = SMAppService.mainApp.status == .enabled
         modoDesarrollo = Config.devMode()
+        pulidoTimeout = Config.pulidoTimeout()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
         shiftEnterAlTerminar = Config.shiftEnterAlTerminar()
@@ -319,6 +321,7 @@ struct SettingsView: View {
     // ---- Pie del sidebar: versión + actualización con un clic ----
     @State private var estadoUpdate: Updater.Estado = .reposo
     @State private var mostrarNotas = false
+    @State private var avanzadoAbierto = false
 
     private var pieActualizacion: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -464,9 +467,25 @@ struct SettingsView: View {
                 Text("Al terminar, todo se reanuda y el volumen vuelve exacto.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            tarjeta("Avanzado", "wrench.and.screwdriver") {
-                Toggle("Modo desarrollo (notas de depuración)", isOn: $m.modoDesarrollo)
+            // Avanzado: plegado por defecto (cosas de poder-usuario).
+            VStack(alignment: .leading, spacing: 10) {
+                DisclosureGroup(isExpanded: $avanzadoAbierto) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Modo desarrollo (notas de depuración)", isOn: $m.modoDesarrollo)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Espera del pulido con IA: \(Int(m.pulidoTimeout)) s").font(.subheadline)
+                            Slider(value: $m.pulidoTimeout, in: 10...60, step: 5).tint(acento)
+                            Text("Cuánto esperar la respuesta de Groq antes de rendirse (y pegar el texto original). Súbelo si tu red es lenta.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.padding(.top, 8)
+                } label: {
+                    Label("Avanzado", systemImage: "wrench.and.screwdriver").font(.headline).foregroundStyle(acento)
+                }
             }
+            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 

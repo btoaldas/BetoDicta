@@ -41,7 +41,7 @@ enum LLMPostProcess {
 
         var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/chat/completions")!)
         request.httpMethod = "POST"
-        request.timeoutInterval = 20                      // Groq a veces tarda bajo carga
+        request.timeoutInterval = Config.pulidoTimeout()  // parametrizable (Avanzado)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.httpBody = try? JSONSerialization.data(withJSONObject: [

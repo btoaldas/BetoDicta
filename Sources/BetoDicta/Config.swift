@@ -32,6 +32,9 @@ struct Config {
     }
     static func pausePlayback() -> Bool { (json()["pausar_multimedia"] as? Bool) ?? true }
     static func devMode() -> Bool { (json()["modo_desarrollo"] as? Bool) ?? false }
+    /// Segundos a esperar la respuesta del pulido con IA (Groq) antes de
+    /// rendirse. Parametrizable (Avanzado). Default 20, hasta 60.
+    static func pulidoTimeout() -> Double { min(60, max(5, (json()["pulido_timeout_seg"] as? Double) ?? 20)) }
     static func showInDock() -> Bool { (json()["mostrar_en_dock"] as? Bool) ?? false }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
