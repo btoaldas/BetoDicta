@@ -6,11 +6,14 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.8"
+    static let numero = "0.20.9"
     static let fecha = "2026-07-13"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.9", "2026-07-13", [
+            "Motores locales de transcripción al día: whisper.cpp (ggml 0.16.0, más allá de v1.9.1), llama.cpp (build 9976) y transcribe.cpp (v0.1.3) — mejoras de rendimiento y correcciones de los proyectos base, sin tocar tu configuración ni tus modelos",
+        ]),
         ("0.20.8", "2026-07-13", [
             "MUCHOS motores de transcripción nuevos, varios GRATIS: Groq Whisper, Hugging Face y Cloudflare (gratis), Fireworks, Deepgram, AssemblyAI, Gladia y Speechmatics; y de pago premium Soniox (mejor español latino) y Azure AI Speech (con locale es-EC de Ecuador). Ollama y LM Studio locales se ofrecen solo si tienen un modelo whisper (detección inteligente)",
             "TEXTO EN VIVO también en la nube: Deepgram, Soniox, AssemblyAI, Speechmatics y Gladia pueden transcribir por WebSocket mientras hablas (actívalo en Avanzado → 'STT en vivo para la nube')",

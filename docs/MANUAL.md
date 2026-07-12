@@ -204,6 +204,8 @@ Ejemplos de comportamiento:
 
 Todo el control de motores vive aquí:
 
+> Los motores locales (whisper.cpp, llama.cpp, transcribe.cpp) se mantienen **al día** con sus proyectos base: cada versión de BetoDicta trae las últimas mejoras de rendimiento y correcciones, sin que tengas que hacer nada ni volver a descargar tus modelos.
+
 **Descargar modelos locales**
 - Cada familia tiene su sección: Whisper / Voxtral / Nemotron / Canary.
 - Clic en el botón de descarga (⬇) → verás la barra de progreso.
