@@ -188,6 +188,7 @@ final class SpeechmaticsStreamClient: NSObject, LiveNubeSTT {
     private var parcial = ""
     private var seq = 0
     private var cerrando = false
+    private var pendingResponder: ((Result<Void, Error>) -> Void)?   // resuelve RecognitionStarted/Error
     var onPartial: ((String) -> Void)?
     var onError: ((String) -> Void)?
     private(set) var conectado = false
@@ -199,14 +200,17 @@ final class SpeechmaticsStreamClient: NSObject, LiveNubeSTT {
         guard let url = URL(string: "wss://eu2.rt.speechmatics.com/v2") else { completion(.failure(ScribeError.ws("URL inválida"))); return }
         var req = URLRequest(url: url)
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        // Responder persistente: se resuelve en RecognitionStarted (éxito) o en el
+        // mensaje Error (falla con la razón), venga en el mensaje que venga — no
+        // solo el primero. Así no se pierde y no espera el timeout en vano.
         var respondido = false
-        let responder: (Result<Void, Error>) -> Void = { [weak self] r in
+        pendingResponder = { [weak self] r in
             guard !respondido else { return }; respondido = true
             if case .success = r { self?.conectado = true }; completion(r)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-            guard !respondido else { return }
-            self?.disconnect(); responder(.failure(ScribeError.ws("Speechmatics: conexión tardó más de 4 s")))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            guard let self, !respondido else { return }
+            self.disconnect(); self.pendingResponder?(.failure(ScribeError.ws("Speechmatics: no confirmó (RecognitionStarted) en 6 s")))
         }
         let session = URLSession(configuration: .default)
         let task = session.webSocketTask(with: req)
@@ -221,8 +225,7 @@ final class SpeechmaticsStreamClient: NSObject, LiveNubeSTT {
         if let d = try? JSONSerialization.data(withJSONObject: start), let s = String(data: d, encoding: .utf8) {
             task.send(.string(s)) { _ in }
         }
-        // Espera RecognitionStarted (o el timeout). El primer receive lo confirma.
-        receiveLoop(responder: responder)
+        receiveLoop()
     }
 
     func send(chunk: Data) {
@@ -236,17 +239,21 @@ final class SpeechmaticsStreamClient: NSObject, LiveNubeSTT {
     func fullText() -> String { finales.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines) }
     func disconnect() { cerrando = true; task?.cancel(with: .normalClosure, reason: nil); task = nil; session?.invalidateAndCancel(); session = nil }
 
-    private func receiveLoop(responder: ((Result<Void, Error>) -> Void)? = nil) {
+    private func receiveLoop() {
         task?.receive { [weak self] result in
             guard let self else { return }
             switch result {
             case .failure:
-                DispatchQueue.main.async { guard !self.cerrando else { return }; self.conectado = false; self.onError?("Speechmatics: conexión cerrada") }
-            case .success(let m):
-                if case .string(let t) = m {
-                    if let r = responder, t.contains("RecognitionStarted") { r(.success(())) }
-                    self.handle(t)
+                DispatchQueue.main.async {
+                    guard !self.cerrando else { return }
+                    self.conectado = false
+                    // Si aún no confirmó, esto ES el fallo de conexión (auth, red).
+                    self.pendingResponder?(.failure(ScribeError.ws("Speechmatics: conexión cerrada")))
+                    self.pendingResponder = nil
+                    self.onError?("Speechmatics: conexión cerrada")
                 }
+            case .success(let m):
+                if case .string(let t) = m { self.handle(t) }
                 self.receiveLoop()
             }
         }
@@ -265,6 +272,23 @@ final class SpeechmaticsStreamClient: NSObject, LiveNubeSTT {
     }
 
     private func handle(_ text: String) {
+        // Confirmación / error de la sesión (resuelven la conexión).
+        if let data = text.data(using: .utf8),
+           let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let msg = j["message"] as? String {
+            if msg == "RecognitionStarted" {
+                DispatchQueue.main.async { self.pendingResponder?(.success(())); self.pendingResponder = nil }
+                return
+            }
+            if msg == "Error" {
+                let razon = (j["reason"] as? String) ?? (j["type"] as? String) ?? "error"
+                DispatchQueue.main.async {
+                    self.pendingResponder?(.failure(ScribeError.ws("Speechmatics: \(razon)"))); self.pendingResponder = nil
+                    self.onError?("Speechmatics: \(razon)")
+                }
+                return
+            }
+        }
         guard let (t, fin) = Self.parse(text) else { return }
         DispatchQueue.main.async {
             if fin { if !t.isEmpty { self.finales.append(t) }; self.parcial = "" }
