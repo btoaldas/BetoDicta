@@ -1,0 +1,7 @@
+# Componentes de TERCEROS que usa BetoDicta. Columnas (tab):
+#   nombre <TAB> repo_github(owner/name) <TAB> carpeta_local(opcional, ~ ok)
+# El checker (scripts/check-deps.sh) avisa si hay versión nueva; NO actualiza.
+transcribe.cpp	handy-computer/transcribe.cpp	~/transcribe.cpp
+whisper.cpp	ggml-org/whisper.cpp	~/whisper.cpp
+llama.cpp	ggml-org/llama.cpp	~/llama.cpp-static
+mediaremote-adapter	ungive/mediaremote-adapter
