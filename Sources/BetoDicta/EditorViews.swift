@@ -1,8 +1,50 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import AVFoundation
 
 private let acentoEd = Color(red: 0.36, green: 0.28, blue: 0.62)
+
+// Voz de la Mac para el botón "escuchar" (solo pronuncia el término; la
+// corrección por sonido NO usa audio, trabaja con el texto).
+private let ttsSintetizador = AVSpeechSynthesizer()
+private func hablarTermino(_ texto: String) {
+    let s = texto.trimmingCharacters(in: .whitespaces)
+    guard !s.isEmpty else { return }
+    let u = AVSpeechUtterance(string: s)
+    u.voice = AVSpeechSynthesisVoice(language: "es-MX") ?? AVSpeechSynthesisVoice(language: "es-ES")
+    u.rate = 0.42
+    ttsSintetizador.stopSpeaking(at: .immediate)
+    ttsSintetizador.speak(u)
+}
+
+// Popover "probar": escribes una palabra y te dice si la fonética la cazaría.
+// Usa EXACTAMENTE el mismo triple candado que la corrección real.
+struct ProbarSonidoView: View {
+    let termino: String
+    @State private var palabra = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Probar fonética → \(termino)").font(.headline)
+            Text("Escribe una palabra y te digo si la corregiría a «\(termino)». Sin audio: compara cómo se escriben.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextField("ej: Guipux, Kipux, kilos…", text: $palabra).textFieldStyle(.roundedBorder)
+            let p = palabra.trimmingCharacters(in: .whitespaces)
+            if !p.isEmpty {
+                let caza = p.count >= 3 && !Aprendizaje.esComun(p) && Fonetica.coincide(palabra: p, termino: termino)
+                HStack(spacing: 6) {
+                    Image(systemName: caza ? "checkmark.circle.fill" : "xmark.circle")
+                        .foregroundStyle(caza ? .green : .secondary)
+                    Text(caza ? "sí → se cambia a «\(termino)»" : "no → se deja igual").bold().font(.subheadline)
+                }
+                Text("código  \(Fonetica.codigo(p))  vs  \(Fonetica.codigo(termino))")
+                    .font(.system(.caption2, design: .monospaced)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(14).frame(width: 280)
+    }
+}
 
 // MARK: - Editor visual de keyterms (CRUD completo + activar/desactivar + import/export)
 
@@ -191,6 +233,7 @@ final class RulesStore: ObservableObject {
 
 struct RulesEditor: View {
     @StateObject private var store = RulesStore()
+    @State private var probarID: UUID?     // fila con el popover "probar" abierto
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -224,11 +267,32 @@ struct RulesEditor: View {
                         Image(systemName: "arrow.right").foregroundStyle(.secondary)
                         TextField("Quipux", text: $rule.replacement, onCommit: { store.save() })
                             .textFieldStyle(.roundedBorder).frame(width: 110)
+                        // Escuchar (TTS): solo pronuncia el término. NO es cómo
+                        // funciona la corrección (esa es por texto) — es comodidad.
+                        Button { hablarTermino(rule.replacement) } label: {
+                            Image(systemName: "speaker.wave.2.fill")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(rule.replacement.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .help("Escuchar la pronunciación (voz de la Mac). Solo para oírlo — la corrección no usa audio.")
+                        // Probar: ¿qué palabras cazaría la fonética de este término?
+                        Button { probarID = (probarID == rule.id ? nil : rule.id) } label: {
+                            Image(systemName: "sparkle.magnifyingglass")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(rule.replacement.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .help("Probar: escribe una palabra y te digo si la fonética la corregiría.")
+                        .popover(isPresented: Binding(get: { probarID == rule.id },
+                                                      set: { if !$0 { probarID = nil } })) {
+                            ProbarSonidoView(termino: rule.replacement)
+                        }
+                        // Interruptor de la corrección por sonido (fonética).
                         Toggle(isOn: Binding(get: { rule.porSonido },
                                              set: { rule.porSonido = $0; store.save() })) {
                             Image(systemName: "waveform")
                         }
-                        .toggleStyle(.checkbox).help("Corregir también por SONIDO (lo que suene como este término)")
+                        .toggleStyle(.checkbox)
+                        .help("Corrección por SONIDO (fonética): además de las variantes exactas de la izquierda, corrige palabras cuyo TEXTO se escribe/suena parecido a «\(rule.replacement)». Se deduce de las letras, no del audio.")
                         Button { store.remove(rule.id) } label: {
                             Image(systemName: "trash").foregroundStyle(.red)
                         }.buttonStyle(.plain).frame(width: 22)
@@ -237,8 +301,14 @@ struct RulesEditor: View {
                 }
             }
             .frame(minHeight: 300)
+            // Leyenda: aclara que NADA de esto es audio.
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "info.circle").font(.caption2).foregroundStyle(.secondary)
+                Text("\(Image(systemName: "speaker.wave.2.fill")) escuchar la pronunciación · \(Image(systemName: "sparkle.magnifyingglass")) probar qué caza · \(Image(systemName: "waveform")) corregir por sonido (fonética de las LETRAS, no audio).")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
-        .padding(20).frame(width: 580, height: 520)
+        .padding(20).frame(width: 660, height: 540)
         .onDisappear { store.purgarVacias() }   // al cerrar, limpia filas en blanco
     }
 
