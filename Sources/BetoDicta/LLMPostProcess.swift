@@ -104,17 +104,60 @@ enum PersonalizadaStore {
                    keyDirecta: p.apiKey, paraPulido: p.paraPulido)
         }
     }
-    /// Descubre modelos de un gateway (GET base/models con la auth dada).
-    static func descubrirModelos(_ ia: IAPersonalizada, _ done: @escaping ([String]) -> Void) {
-        guard let url = URL(string: "\(ia.base)/models") else { done([]); return }
-        var req = URLRequest(url: url); req.timeoutInterval = 8
-        if !ia.apiKey.isEmpty { req.setValue(ia.authPrefix + ia.apiKey, forHTTPHeaderField: ia.authHeader.isEmpty ? "Authorization" : ia.authHeader) }
-        for (h, v) in ia.headers { req.setValue(v, forHTTPHeaderField: h) }
-        URLSession.shared.dataTask(with: req) { data, _, _ in
-            let ids = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
-                .flatMap { $0["data"] as? [[String: Any]] }?.compactMap { $0["id"] as? String } ?? []
-            DispatchQueue.main.async { done(ids) }
-        }.resume()
+    /// Extrae ids de modelos de las formas comunes: {data:[{id}]}, {models:
+    /// [{id|name}]}, arreglo de strings, o arreglo de objetos.
+    static func extraerModelos(_ j: Any) -> [String] {
+        func deArreglo(_ a: [Any]) -> [String] {
+            a.compactMap { el in
+                if let s = el as? String { return s }
+                if let d = el as? [String: Any] {
+                    return (d["id"] as? String) ?? (d["name"] as? String) ?? (d["model"] as? String)
+                }
+                return nil
+            }
+        }
+        if let d = j as? [String: Any] {
+            if let a = d["data"] as? [Any] { return deArreglo(a) }
+            if let a = d["models"] as? [Any] { return deArreglo(a) }
+        }
+        if let a = j as? [Any] { return deArreglo(a) }
+        return []
+    }
+    /// Descubre modelos de un gateway. Prueba base/models y, si la base no
+    /// trae /v1 y ahí no hay lista JSON (muchos gateways sirven una PÁGINA en
+    /// /models y la API real bajo /v1), reintenta en base/v1/models.
+    /// Devuelve (ids, mensaje).
+    static func descubrirModelos(_ ia: IAPersonalizada, _ done: @escaping ([String], String) -> Void) {
+        var base = ia.base.trimmingCharacters(in: .whitespaces)
+        while base.hasSuffix("/") { base = String(base.dropLast()) }
+        var rutas = ["\(base)/models"]
+        let baseLower = base.lowercased()
+        if !baseLower.contains("/v1") && !baseLower.contains("/v2") && !baseLower.contains("/openai") {
+            rutas.append("\(base)/v1/models")
+        }
+        func intentar(_ i: Int, _ ultimoCode: Int, _ ultimoErr: String?) {
+            guard i < rutas.count, let url = URL(string: rutas[i]) else {
+                let m = ultimoErr ?? (ultimoCode >= 400
+                    ? "HTTP \(ultimoCode): revisa URL o auth"
+                    : "sin lista de modelos (prueba agregar /v1 a la URL base)")
+                DispatchQueue.main.async { done([], m) }; return
+            }
+            var req = URLRequest(url: url); req.timeoutInterval = 10
+            if !ia.apiKey.isEmpty { req.setValue(ia.authPrefix + ia.apiKey, forHTTPHeaderField: ia.authHeader.isEmpty ? "Authorization" : ia.authHeader) }
+            for (h, v) in ia.headers { req.setValue(v, forHTTPHeaderField: h) }
+            URLSession.shared.dataTask(with: req) { data, resp, err in
+                var ids: [String] = []
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if err == nil, let data, let j = try? JSONSerialization.jsonObject(with: data) { ids = extraerModelos(j) }
+                if !ids.isEmpty {
+                    let via = rutas[i].hasSuffix("/v1/models") ? " (la API está bajo /v1)" : ""
+                    DispatchQueue.main.async { done(ids, "\(ids.count) modelos\(via)") }
+                } else {
+                    intentar(i + 1, code, err?.localizedDescription)
+                }
+            }.resume()
+        }
+        intentar(0, 0, nil)
     }
     /// Prueba la conexión (descubre modelos; ok si responde algo o 200).
     static func probar(_ ia: IAPersonalizada, _ done: @escaping (Bool, String) -> Void) {

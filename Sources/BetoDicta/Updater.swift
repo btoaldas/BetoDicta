@@ -15,7 +15,7 @@ enum Updater {
         case buscando
         case alDia
         case disponible(version: String, dmg: URL, notas: String)
-        case descargando
+        case descargando(Double)     // 0..1
         case error(String)
     }
 
@@ -52,8 +52,9 @@ enum Updater {
     /// Descarga el DMG y se auto-reemplaza: monta, copia a /Applications,
     /// desmonta y relanza. El último paso lo hace un script externo que
     /// sobrevive al cierre de la app.
+    private static var obsDescarga: NSKeyValueObservation?
     static func actualizar(dmg: URL, completion: @escaping (Estado) -> Void) {
-        URLSession.shared.downloadTask(with: dmg) { tmp, _, err in
+        let task = URLSession.shared.downloadTask(with: dmg) { tmp, _, err in
             DispatchQueue.main.async {
                 guard let tmp, err == nil else {
                     completion(.error("descarga falló: \(err?.localizedDescription ?? "")")); return
@@ -91,7 +92,12 @@ enum Updater {
                     completion(.error("no pude lanzar el instalador"))
                 }
             }
-        }.resume()
+        }
+        // Progreso de descarga → % en la UI ("Descargando 42%").
+        obsDescarga = task.progress.observe(\.fractionCompleted) { prog, _ in
+            DispatchQueue.main.async { completion(.descargando(prog.fractionCompleted)) }
+        }
+        task.resume()
     }
 
     /// Comparación de versiones numéricas ("0.16.0" > "0.15.0").

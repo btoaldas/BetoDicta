@@ -20,6 +20,8 @@ struct IAPersonalizadaEditor: View {
     @StateObject private var store = IAPersonalizadasStore()
     @State private var seleccion: String?
     @State private var descubiertos: [String] = []
+    @State private var descubriendo = false
+    @State private var msgDescubrir: String?
     @State private var estadoPrueba: String?
     @State private var probando = false
     @State private var nuevoHeaderN = ""
@@ -107,15 +109,21 @@ struct IAPersonalizadaEditor: View {
                 // Modelo (manual o descubierto)
                 campo("Modelo (ID)") { TextField("gpt-4o-mini · llama-3.3-70b · …", text: $store.items[i].modelo, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
                 HStack(spacing: 8) {
-                    Button("Descubrir modelos") {
-                        PersonalizadaStore.descubrirModelos(store.items[i]) { descubiertos = $0 }
-                    }.controlSize(.small)
+                    Button(descubriendo ? "Buscando…" : "Descubrir modelos") {
+                        descubriendo = true; msgDescubrir = nil; descubiertos = []
+                        PersonalizadaStore.descubrirModelos(store.items[i]) { ids, msg in
+                            descubriendo = false; descubiertos = ids; msgDescubrir = msg
+                        }
+                    }.controlSize(.small).disabled(descubriendo || store.items[i].base.isEmpty)
+                    if let m = msgDescubrir {
+                        Text(m).font(.caption).foregroundStyle(descubiertos.isEmpty ? .orange : .green)
+                    }
                     if !descubiertos.isEmpty {
                         Menu("Elegir (\(descubiertos.count))") {
                             ForEach(descubiertos, id: \.self) { m in
                                 Button(m) { store.items[i].modelo = m; store.guardar() }
                             }
-                        }.frame(width: 130)
+                        }.frame(width: 150)
                     }
                 }
                 // Para qué sirve

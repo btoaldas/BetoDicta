@@ -9,6 +9,37 @@ extension Notification.Name {
 
 private let acento = Color(red: 0.36, green: 0.28, blue: 0.62)  // púrpura sobrio del logo
 
+// MARK: - Sección plegable cuyo TÍTULO completo (no solo la flechita) abre/cierra
+
+struct SeccionPlegable<Content: View>: View {
+    let titulo: String
+    var icono: String?
+    @State private var abierto: Bool
+    let content: () -> Content
+
+    init(_ titulo: String, icono: String? = nil, abierto: Bool = false,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.titulo = titulo; self.icono = icono; self.content = content
+        _abierto = State(initialValue: abierto)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { abierto.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: abierto ? "chevron.down" : "chevron.right")
+                        .font(.caption).foregroundStyle(.secondary).frame(width: 12)
+                    if let icono { Image(systemName: icono).foregroundStyle(acento) }
+                    Text(titulo).font(.headline).foregroundStyle(acento)
+                    Spacer()
+                }.contentShape(Rectangle())   // toda la fila es clicable
+            }.buttonStyle(.plain)
+            if abierto { content() }
+        }
+    }
+}
+
 // MARK: - Modelo observable (lee/escribe ~/.betodicta/config.json)
 
 final class SettingsModel: ObservableObject {
@@ -333,7 +364,6 @@ struct SettingsView: View {
     // ---- Pie del sidebar: versión + actualización con un clic ----
     @State private var estadoUpdate: Updater.Estado = .reposo
     @State private var mostrarNotas = false
-    @State private var avanzadoAbierto = false
     @State private var keyInputs: [String: String] = [:]
     @State private var detectTrigger = 0
 
@@ -357,7 +387,7 @@ struct SettingsView: View {
             case .disponible(let v, let dmg, let notas):
                 VStack(alignment: .leading, spacing: 4) {
                     Button {
-                        estadoUpdate = .descargando
+                        estadoUpdate = .descargando(0)
                         Updater.actualizar(dmg: dmg) { estadoUpdate = $0 }
                     } label: {
                         Label("Actualizar a v\(v)", systemImage: "arrow.down.circle.fill")
@@ -375,9 +405,13 @@ struct SettingsView: View {
                             }
                     }
                 }
-            case .descargando:
-                Label("Descargando… se reiniciará sola", systemImage: "arrow.down.circle")
-                    .font(.caption2).foregroundStyle(.secondary)
+            case .descargando(let p):
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(p >= 0.99 ? "Instalando… se reiniciará sola" : "Descargando… \(Int(p * 100))%",
+                          systemImage: "arrow.down.circle")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    ProgressView(value: p).frame(width: 140).tint(acento)
+                }
             case .error(let msg):
                 Button {
                     estadoUpdate = .buscando
@@ -465,7 +499,7 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     // Conectar IAs de nube por key (OpenRouter, DeepSeek, xAI…)
-                    DisclosureGroup("Conectar más IAs de chat") {
+                    SeccionPlegable("Conectar más IAs de chat") {
                         VStack(alignment: .leading, spacing: 8) {
                             ForEach([("OPENROUTER_API_KEY", "OpenRouter"), ("DEEPSEEK_API_KEY", "DeepSeek"),
                                      ("XAI_API_KEY", "xAI (Grok)"), ("OPENAI_API_KEY", "OpenAI"),
@@ -501,7 +535,7 @@ struct SettingsView: View {
                                 }
                             }
                         }.padding(.top, 6)
-                    }.font(.subheadline)
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Estilo del pulido (opcional)").font(.subheadline)
                         TextField("ej: trato formal de usted", text: $m.promptPulido, axis: .vertical)
@@ -533,20 +567,18 @@ struct SettingsView: View {
                 Text("Al terminar, todo se reanuda y el volumen vuelve exacto.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            // Avanzado: plegado por defecto (cosas de poder-usuario).
+            // Avanzado: plegado por defecto; el TÍTULO completo abre/cierra.
             VStack(alignment: .leading, spacing: 10) {
-                DisclosureGroup(isExpanded: $avanzadoAbierto) {
+                SeccionPlegable("Avanzado", icono: "wrench.and.screwdriver") {
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle("Modo desarrollo (notas de depuración)", isOn: $m.modoDesarrollo)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Espera del pulido con IA: \(Int(m.pulidoTimeout)) s").font(.subheadline)
                             Slider(value: $m.pulidoTimeout, in: 10...60, step: 5).tint(acento)
-                            Text("Cuánto esperar la respuesta de Groq antes de rendirse (y pegar el texto original). Súbelo si tu red es lenta.")
+                            Text("Cuánto esperar la respuesta de la IA antes de rendirse (y pegar el texto original). Súbelo si tu red es lenta.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                    }.padding(.top, 8)
-                } label: {
-                    Label("Avanzado", systemImage: "wrench.and.screwdriver").font(.headline).foregroundStyle(acento)
+                    }
                 }
             }
             .padding(14).frame(maxWidth: .infinity, alignment: .leading)

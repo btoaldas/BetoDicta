@@ -55,14 +55,17 @@ Sus cuatro superpoderes:
 
 ## 3. Instalación
 
-**Con Homebrew** (lo más rápido, siempre el último release):
+Hay dos formas. Cualquiera te deja la app lista; los permisos y ajustes se configuran igual (el [asistente](#31-el-asistente-de-primer-arranque) te guía).
+
+**Opción A — Homebrew** (lo más rápido):
 ```bash
 brew install --cask btoaldas/tap/betodicta
 # o, para saltar el aviso de Gatekeeper (firma propia):
 brew install --cask --no-quarantine btoaldas/tap/betodicta
 ```
+> **Gobernanza — siempre la última**: el tap está configurado con `version :latest`, así que `brew install` **siempre baja el último release** publicado. Para volver a instalar la más nueva: `brew reinstall --cask btoaldas/tap/betodicta` (o `brew upgrade --greedy`). Y de todos modos, la app **se actualiza sola desde dentro** ("Verificar actualización"), mostrándote las novedades.
 
-**Manual (DMG):**
+**Opción B — Manual (DMG):**
 
 1. Descarga el DMG desde [GitHub Releases](https://github.com/btoaldas/BetoDicta/releases/latest).
 2. Abre el DMG y **arrastra BetoDicta.app a la carpeta Aplicaciones**.
