@@ -46,30 +46,31 @@ enum AyudaIA {
     }
 }
 
-/// Icono de ayuda (?) que abre un POPOVER con la explicación al hacer clic
-/// (fiable, a diferencia de .help() sobre un Image en SwiftUI hospedado) +
-/// enlace "Conseguir clave". Se muestra solo si el env está en AyudaIA.
+/// Icono de ayuda (?) con tooltip INSTANTÁNEO: aparece apenas pasas el mouse
+/// (via onHover + popover), sin el retardo de ~1-2 s del .help() del sistema —
+/// que daba la sensación de que no funcionaba. Además clic = fija/quita el
+/// popover (por si prefieres clic). El enlace "Conseguir clave" va aparte.
 struct AyudaKey: View {
     let env: String
     var soloIcono = false
-    @State private var mostrar = false
+    @State private var hover = false
+    @State private var fijado = false   // clic lo deja abierto aunque salgas
     var body: some View {
         if let info = AyudaIA.info[env] {
             HStack(spacing: 5) {
-                Button { mostrar.toggle() } label: {
-                    Image(systemName: "questionmark.circle")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(info.ayuda)   // tooltip al pasar el mouse (bonus)
-                .popover(isPresented: $mostrar, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(info.ayuda).font(.callout).fixedSize(horizontal: false, vertical: true)
-                        Button("Conseguir clave →") { AyudaIA.abrir(env); mostrar = false }
-                            .buttonStyle(.link)
+                Image(systemName: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(hover || fijado ? Color.accentColor : .secondary)
+                    .onHover { h in hover = h }
+                    .onTapGesture { fijado.toggle() }
+                    .popover(isPresented: Binding(get: { hover || fijado },
+                                                  set: { if !$0 { fijado = false } }),
+                             arrowEdge: .bottom) {
+                        Text(info.ayuda)
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(12).frame(width: 260)
                     }
-                    .padding(12).frame(width: 280)
-                }
                 if !soloIcono {
                     Button("Conseguir clave") { AyudaIA.abrir(env) }
                         .buttonStyle(.link).font(.caption2)
