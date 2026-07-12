@@ -145,6 +145,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Prueba de la detección STT local: BETODICTA_STTTEST=1 imprime qué
+        // servidores locales pueden transcribir (whisper) y sale.
+        if ProcessInfo.processInfo.environment["BETODICTA_STTTEST"] == "1" {
+            ChatIA.detectarSTTLocales {
+                for id in ["lmstudio", "ollama"] {
+                    print("STTTEST \(id): \(ChatIA.sttLocalModelo[id].map { "PUEDE transcribir con \($0)" } ?? "NO transcribe (sin modelo whisper) → se oculta")")
+                }
+                exit(0)
+            }
+            return
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
@@ -302,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Config.endurecerSecretosExistentes()   // 0600 a .env/gateways/config si venían 0644
         ChatIA.cargarPreciosArchivo()  // precios reales desde precios_ia.json (LiteLLM)
         ChatIA.detectarLocales()   // ¿LM Studio / Ollama corriendo? (pulido local)
+        ChatIA.detectarSTTLocales()  // ¿algún local puede TRANSCRIBIR? (whisper/asr)
         Updater.estaGrabando = { [weak self] in self?.recorder.isRecording ?? false }
         Updater.buscarAlArrancar() // ¿versión nueva? avisa abajo-izq (o instala si Autoactualizar)
 

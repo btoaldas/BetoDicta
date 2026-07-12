@@ -312,6 +312,40 @@ struct ChatIA {
             || n.contains("mxbai") || n.hasPrefix("gte") || n.hasPrefix("e5-")
             || n.contains("all-minilm")
     }
+    /// ¿El id parece un modelo de VOZ→TEXTO (STT)? — whisper, voxtral, asr…
+    static func esSTT(_ id: String) -> Bool {
+        let n = id.lowercased()
+        return n.contains("whisper") || n.contains("voxtral") || n.contains("asr")
+            || n.contains("transcrib") || n.contains("speech-to-text") || n.contains("parakeet")
+            || n.contains("canary") || n.contains("moonshine")
+    }
+
+    /// Modelo STT disponible en cada servidor local (id → modelo, o AUSENTE si
+    /// no puede transcribir). DETECCIÓN INTELIGENTE: un local (Ollama/LM Studio)
+    /// solo se ofrece como motor de transcripción si REALMENTE tiene un modelo
+    /// que escuche (whisper/asr). Sin él, no se muestra ni se activa.
+    static var sttLocalModelo: [String: String] = [:]
+    static func detectarSTTLocales(_ done: (() -> Void)? = nil) {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        cfg.timeoutIntervalForRequest = 2
+        let sesion = URLSession(configuration: cfg)
+        let grupo = DispatchGroup()
+        for c in fijos where c.local {   // lmstudio, ollama
+            guard let url = URL(string: "\(c.base)/models") else { continue }
+            grupo.enter()
+            sesion.dataTask(with: URLRequest(url: url)) { data, _, _ in
+                defer { grupo.leave() }
+                let ids = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+                    .flatMap { $0["data"] as? [[String: Any]] }?.compactMap { $0["id"] as? String } ?? []
+                let stt = ids.first { esSTT($0) }   // el primer modelo que escucha, si hay
+                DispatchQueue.main.async {
+                    if let stt { sttLocalModelo[c.id] = stt } else { sttLocalModelo[c.id] = nil }
+                }
+            }.resume()
+        }
+        grupo.notify(queue: .main) { sesion.finishTasksAndInvalidate(); done?() }
+    }
 }
 
 // MARK: - IAs personalizadas (gateways propios: base URL, auth y encabezados a medida)
