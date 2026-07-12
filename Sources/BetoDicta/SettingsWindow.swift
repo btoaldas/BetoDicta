@@ -956,7 +956,7 @@ struct StatsView: View {
                 HStack(spacing: 10) {
                     kpi("Hoy", String(format: "$%.3f", tp.hoyCosto), "dollarsign.circle")
                     kpi("Semana", String(format: "$%.3f", tp.semanaCosto), "calendar")
-                    kpi("Mes", String(format: "$%.2f", tp.mesCosto), "calendar.badge.clock")
+                    kpi("Mes", String(format: "$%.3f", tp.mesCosto), "calendar.badge.clock")
                 }
                 HStack(spacing: 10) {
                     kpi("Pulidos hoy", "\(tp.pulidosHoy)", "sparkles")
