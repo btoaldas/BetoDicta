@@ -135,6 +135,54 @@ struct ChatIA {
     /// Precio por modelo si el proveedor lo expone (proveedorId → modeloId →
     /// etiqueta, ej. "gratis" o "$0.15/$0.60 1M"). OpenRouter lo trae; otros no.
     static var precios: [String: [String: String]] = [:]
+    /// Precios CURADOS (aprox., investigados) por id de modelo: USD por 1M
+    /// tokens (entrada, salida). Se usan si el proveedor no publica precio y el
+    /// usuario no puso uno manual. Pueden quedar desactualizados → el usuario
+    /// puede sobrescribir a mano.
+    static let preciosConocidos: [String: (Double, Double)] = [
+        // Investigado jul-2026 (fuentes: pricing oficial de cada proveedor). Aprox.
+        // OpenAI
+        "gpt-4o": (2.5, 10), "gpt-4o-mini": (0.15, 0.6), "gpt-4.1": (2, 8),
+        "gpt-4.1-mini": (0.4, 1.6), "gpt-4.1-nano": (0.1, 0.4), "o3": (2, 8),
+        "o3-mini": (1.1, 4.4), "o4-mini": (1.1, 4.4),
+        "gpt-5.4": (2.5, 15), "gpt-5.4-mini": (0.75, 4.5), "gpt-5.4-nano": (0.2, 1.25),
+        "gpt-5.4-pro": (30, 180), "gpt-5.5": (5, 30), "gpt-5.5-pro": (30, 180),
+        "gpt-5.6-sol": (5, 30), "gpt-5.6-terra": (2.5, 15), "gpt-5.6-luna": (1, 6),
+        // Anthropic
+        "claude-haiku-4-5": (1, 5), "claude-sonnet-4-5": (3, 15), "claude-sonnet-4-6": (3, 15),
+        "claude-sonnet-5": (2, 10), "claude-opus-4-5": (5, 25), "claude-opus-4-6": (5, 25),
+        "claude-opus-4-7": (5, 25), "claude-opus-4-8": (5, 25),
+        // Gemini
+        "gemini-2.5-flash-lite": (0.1, 0.4), "gemini-2.5-flash": (0.3, 2.5), "gemini-2.5-pro": (1.25, 10),
+        "gemini-3-flash-preview": (0.5, 3), "gemini-3-pro": (2, 12), "gemini-3.5-flash": (1.5, 9),
+        // Groq
+        "llama-3.3-70b-versatile": (0.59, 0.79), "llama-3.1-8b-instant": (0.05, 0.08),
+        "openai/gpt-oss-20b": (0.075, 0.3), "openai/gpt-oss-120b": (0.15, 0.6),
+        "meta-llama/llama-4-scout-17b-16e-instruct": (0.11, 0.34), "qwen/qwen3-32b": (0.29, 0.59),
+        // Mistral
+        "mistral-small-latest": (0.15, 0.6), "mistral-medium-latest": (1.5, 7.5),
+        "mistral-large-latest": (0.5, 1.5), "magistral-medium-latest": (2, 5), "magistral-small-latest": (0.5, 1.5),
+        // DeepSeek
+        "deepseek-chat": (0.14, 0.28), "deepseek-reasoner": (0.14, 0.28), "deepseek-v4-flash": (0.14, 0.28),
+        // xAI (Grok)
+        "grok-4.5": (2, 6), "grok-4.3": (1.25, 2.5), "grok-4.20-0309-reasoning": (1.25, 2.5),
+        "grok-4.20-0309-non-reasoning": (1.25, 2.5), "grok-3": (2, 10), "grok-3-mini": (0.3, 0.5),
+        "grok-2-latest": (2, 10),
+    ]
+
+    static func etiquetaPrecioDe(_ inp: Double, _ out: Double, aprox: Bool = false) -> String {
+        if inp <= 0 && out <= 0 { return "gratis" }
+        return String(format: "$%.2f/$%.2f 1M", inp, out) + (aprox ? " ~" : "")
+    }
+    /// Precio a MOSTRAR para (proveedor, modelo). Prioridad: manual del usuario >
+    /// publicado por el proveedor (OpenRouter) > curado (aprox.). nil si nada.
+    static func precioDe(_ proveedorId: String, _ modelo: String) -> String? {
+        let key = "\(proveedorId)::\(modelo)"
+        if let m = Config.precioManual(key) { return etiquetaPrecioDe(m.0, m.1) }
+        if let pub = precios[proveedorId]?[modelo] { return pub }
+        if let cur = preciosConocidos[modelo] { return etiquetaPrecioDe(cur.0, cur.1, aprox: true) }
+        return nil
+    }
 
     /// Descubre los modelos de un proveedor conectado (fijo o local) usando su
     /// base + key, y los cachea en modelosPorProveedor[id].
@@ -344,19 +392,18 @@ enum PersonalizadaStore {
         if !bl.contains("/openai") { rutas.append("\(b)/openai/v1/models") }
         rutas.append("\(b)/api/v1/models")
         var vistos = Set<String>(); rutas = rutas.filter { vistos.insert($0).inserted }   // dedup, mantiene orden
-        func intentar(_ i: Int, _ code: Int, _ err: String?) {
+        // Guarda el error MÁS informativo entre los candidatos (no el último, que
+        // suele ser un 404 de una ruta especulativa que enmascara el 401/403 real).
+        func intentar(_ i: Int, _ mejor: (rank: Int, msg: String)?) {
             guard i < rutas.count else {
-                let m = err ?? (code >= 400
-                    ? "HTTP \(code): revisa URL o auth"
-                    : "sin lista de modelos (prueba una ruta manual, ej: /v1/models)")
-                DispatchQueue.main.async { done([], m) }; return
+                DispatchQueue.main.async {
+                    done([], mejor?.msg ?? "sin lista de modelos (prueba una ruta manual, ej: /v1/models)")
+                }; return
             }
-            // URL candidata inválida (ej: ruta manual con espacio): salta a la
-            // siguiente, no abortes todo el descubrimiento.
-            guard let url = URL(string: rutas[i]) else { intentar(i + 1, code, err); return }
+            // URL candidata inválida (ej: ruta manual con espacio): salta a la siguiente.
+            guard let url = URL(string: rutas[i]) else { intentar(i + 1, mejor); return }
             var req = URLRequest(url: url); req.timeoutInterval = 10
-            // Fail-closed: no adjuntes secretos si la ruta candidata no cifra
-            // (misma garantía que el pulido; soporta rutaManual con http).
+            // Fail-closed: no adjuntes secretos si la ruta candidata no cifra.
             let h0 = url.host?.lowercased() ?? ""
             let segura = url.scheme?.lowercased() == "https" || h0 == "localhost" || h0 == "127.0.0.1" || h0 == "::1"
             if segura {
@@ -380,11 +427,33 @@ enum PersonalizadaStore {
                         done(ids, "\(ids.count) modelos\(via)")
                     }
                 } else {
-                    intentar(i + 1, c, e?.localizedDescription)
+                    // Rango de "informatividad": auth (401/403) > otros 4xx/5xx/red > 404.
+                    let detalle = detalleError(data)
+                    let msg: String
+                    let rank: Int
+                    if let e { msg = e.localizedDescription; rank = 2 }
+                    else if c == 401 || c == 403 { msg = "HTTP \(c): \(detalle ?? "sin permiso — revisa la key o créditos")"; rank = 3 }
+                    else if c == 404 { msg = "HTTP 404: \(detalle ?? "endpoint no encontrado — revisa la URL")"; rank = 1 }
+                    else if c >= 400 { msg = "HTTP \(c): \(detalle ?? "revisa URL o auth")"; rank = 2 }
+                    else { msg = detalle ?? "sin lista de modelos"; rank = 0 }
+                    let nuevo = (mejor == nil || rank > mejor!.rank) ? (rank, msg) : mejor!
+                    intentar(i + 1, nuevo)
                 }
             }.resume()
         }
-        intentar(0, 0, nil)
+        intentar(0, nil)
+    }
+    /// Extrae el mensaje de error del cuerpo JSON del proveedor ({error:{message}},
+    /// {error:"…"} o {message:"…"}), o un recorte del texto crudo.
+    static func detalleError(_ data: Data?) -> String? {
+        guard let data else { return nil }
+        if let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let e = j["error"] as? [String: Any] { return (e["message"] as? String) ?? (e["error"] as? String) }
+            if let e = j["error"] as? String { return e }
+            if let m = j["message"] as? String { return m }
+        }
+        let s = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (s?.isEmpty == false) ? String(s!.prefix(140)) : nil
     }
     /// Prueba la conexión (descubre modelos; ok si responde algo o 200).
     static func probar(_ ia: IAPersonalizada, _ done: @escaping (Bool, String) -> Void) {

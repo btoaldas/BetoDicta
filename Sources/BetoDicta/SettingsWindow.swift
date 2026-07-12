@@ -380,6 +380,8 @@ struct SettingsView: View {
     @State private var msgModOK = false
     @State private var buscandoLocales = false
     @State private var buscoLocales = false
+    @State private var precioIn = ""
+    @State private var precioOut = ""
 
     private var pieActualizacion: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -758,9 +760,10 @@ struct SettingsView: View {
         }
         return ChatIA.modelosPorProveedor[sel.id] ?? []
     }
-    /// "modelo · precio" si el proveedor expuso el costo (ej. OpenRouter).
+    /// "modelo · precio" — precio manual del usuario, o el publicado por el
+    /// proveedor, o el curado (aprox.).
     private func conPrecio(_ sel: ChatIA, _ modelo: String) -> String {
-        if let p = ChatIA.precios[sel.id]?[modelo] { return "\(modelo) · \(p)" }
+        if let p = ChatIA.precioDe(sel.id, modelo) { return "\(modelo) · \(p)" }
         return modelo
     }
     @ViewBuilder private func selectorModelo(_ sel: ChatIA) -> some View {
@@ -796,8 +799,40 @@ struct SettingsView: View {
                  ? "Modelos del gateway. Cambia el activo cuando quieras, aquí mismo."
                  : "Elige el modelo de este proveedor. 'Descubrir' trae la lista completa (con precio si el proveedor lo publica).")
                 .font(.caption).foregroundStyle(.secondary)
+            // Precio del modelo activo + editor manual (por si el proveedor no lo
+            // publica, o para poner el tuyo). Prioridad: manual > publicado > curado.
+            if !activo.isEmpty { precioManual(sel, activo) }
             // Aviso de privacidad: al usar nube/gateway, el texto SALE de tu Mac.
             avisoPrivacidad(sel)
+        }
+    }
+    @ViewBuilder private func precioManual(_ sel: ChatIA, _ modelo: String) -> some View {
+        let _ = detectTrigger
+        let key = "\(sel.id)::\(modelo)"
+        let actual = ChatIA.precioDe(sel.id, modelo)
+        let esManual = Config.precioManual(key) != nil
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text("Precio \(esManual ? "(tuyo)" : "($/1M):")").font(.caption2).foregroundStyle(.secondary)
+                Text(actual ?? "sin dato").font(.caption2)
+                    .foregroundStyle(actual == nil ? .orange : .secondary)
+                Spacer()
+            }
+            HStack(spacing: 6) {
+                Text("Poner a mano:").font(.caption2).foregroundStyle(.secondary)
+                TextField("entrada", text: $precioIn).frame(width: 60).textFieldStyle(.roundedBorder)
+                Text("/").font(.caption2)
+                TextField("salida", text: $precioOut).frame(width: 60).textFieldStyle(.roundedBorder)
+                Button("Guardar") {
+                    if let i = Double(precioIn.replacingOccurrences(of: ",", with: ".")),
+                       let o = Double(precioOut.replacingOccurrences(of: ",", with: ".")) {
+                        Config.setPrecioManual(key, (i, o)); precioIn = ""; precioOut = ""; detectTrigger += 1
+                    }
+                }.controlSize(.small)
+                if esManual {
+                    Button("Quitar") { Config.setPrecioManual(key, nil); detectTrigger += 1 }.controlSize(.small)
+                }
+            }
         }
     }
     /// Aviso de privacidad/seguridad al pulir con una IA que NO es local.

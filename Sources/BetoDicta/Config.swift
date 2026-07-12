@@ -41,6 +41,17 @@ struct Config {
         if let modelo, !modelo.isEmpty { d[id] = modelo } else { d[id] = nil }
         set("pulido_modelos", to: d)
     }
+    /// Precio MANUAL puesto por el usuario para un (proveedor::modelo): USD por
+    /// 1M tokens (entrada, salida). Tiene prioridad sobre el publicado/curado.
+    static func precioManual(_ key: String) -> (Double, Double)? {
+        guard let arr = (json()["precios_manuales"] as? [String: Any])?[key] as? [Double], arr.count == 2 else { return nil }
+        return (arr[0], arr[1])
+    }
+    static func setPrecioManual(_ key: String, _ inOut: (Double, Double)?) {
+        var d = (json()["precios_manuales"] as? [String: Any]) ?? [:]
+        if let io = inOut { d[key] = [io.0, io.1] } else { d[key] = nil }
+        set("precios_manuales", to: d)
+    }
     static func customPrompt() -> String? {
         guard let s = json()["prompt_pulido"] as? String, !s.isEmpty else { return nil }
         return s
