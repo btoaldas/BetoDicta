@@ -39,6 +39,12 @@ struct Config {
     /// rendirse. Parametrizable (Avanzado). Default 20, hasta 60.
     static func pulidoTimeout() -> Double { min(60, max(5, (json()["pulido_timeout_seg"] as? Double) ?? 20)) }
     static func showInDock() -> Bool { (json()["mostrar_en_dock"] as? Bool) ?? false }
+    /// Al abrir la app, busca en silencio si hay versión nueva (GitHub) y la
+    /// muestra abajo-izquierda ("Actualización disponible"). Parametrizable.
+    static func buscarUpdateAlAbrir() -> Bool { (json()["buscar_update_al_abrir"] as? Bool) ?? true }
+    /// Si encuentra actualización al abrir, la instala sola (sin pedir). OFF
+    /// por defecto: reinstalar+reiniciar es una acción grande, es opt-in.
+    static func autoactualizar() -> Bool { (json()["autoactualizar"] as? Bool) ?? false }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }

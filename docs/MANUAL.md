@@ -63,7 +63,11 @@ brew install --cask btoaldas/tap/betodicta
 # o, para saltar el aviso de Gatekeeper (firma propia):
 brew install --cask --no-quarantine btoaldas/tap/betodicta
 ```
-> **Gobernanza — siempre la última**: el tap está configurado con `version :latest`, así que `brew install` **siempre baja el último release** publicado. Para volver a instalar la más nueva: `brew reinstall --cask btoaldas/tap/betodicta` (o `brew upgrade --greedy`). Y de todos modos, la app **se actualiza sola desde dentro** ("Verificar actualización"), mostrándote las novedades.
+> **¿Ya tenías BetoDicta instalada a mano?** Si brew se queja con `Error: It seems there is already an App at '/Applications/BetoDicta.app'`, adóptala con `--force` (una sola vez):
+> ```bash
+> brew install --cask --force btoaldas/tap/betodicta
+> ```
+> **Gobernanza — siempre la última**: el tap usa `version :latest`, así que `brew install` **siempre baja el último release**. Como `:latest` no "sube" solo, para traer la más nueva por brew usa `brew upgrade --cask --greedy` (o `brew reinstall --cask btoaldas/tap/betodicta`). De todos modos, la app **se actualiza sola desde dentro** (ver §20): te avisa al abrir y, si activas *Autoactualizar*, se instala sola.
 
 **Opción B — Manual (DMG):**
 
@@ -249,6 +253,7 @@ Tres formas, de la más rápida a la más completa:
 - **Elige la IA**: no tiene que ser Groq. Cualquiera conectada — **Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI (Grok)** (nube) o **LM Studio / Ollama** (local, se detectan solos si están corriendo). El selector solo lista las conectadas; la misma IA pule y traduce.
 - **Conectar más IAs de chat** (despliega la sección): pega la API key de la que quieras (OpenRouter/DeepSeek/xAI…). Para los locales, pulsa **"Buscar"** (o préndelos y reabre) — la app encuentra el modelo cargado.
 - **IA personalizada (gateway propio)**: para servidores/gateways que no están en la lista. Pones tu **URL base**, **API key**, el **esquema de autenticación** (Bearer, X-API-Key o un encabezado propio), **encabezados extra**, y el **modelo** (a mano o con "Descubrir modelos"). Botón **"Probar conexión"** y marcas si sirve **para pulir** (reconocer voz llega pronto). Cada gateway aparece luego en el selector.
+  - **"Descubrir modelos"** trae **todos** los modelos del gateway de una vez (si tu URL base no lleva `/v1`, lo prueba solo y te avisa que la API está bajo `/v1` — súbelo a la URL para que el pulido funcione). Ya no eliges uno solo y listo: **cambia el modelo activo cuando quieras** desde *Ajustes → Pulido*, con el selector **"Modelo del gateway"** que aparece al elegir ese gateway — sin volver a abrir el editor.
 - El **estilo del pulido** es una instrucción tuya opcional: "trato formal de usted", "estilo técnico", etc.
 
 **Aprendizaje** — que la app aprenda de tus correcciones y (opcional) corrija por sonido. Es tan importante que tiene sus propias secciones: [14](#14-que-la-app-aprenda-de-ti-aprendizaje) y [15](#15-corrección-por-sonido-fonética).
@@ -257,8 +262,10 @@ Tres formas, de la más rápida a la más completa:
 - **Pausar música y videos al dictar**: pausa Spotify, YouTube, Music… y los reanuda al terminar.
 - **Bajar el volumen al dictar**: además baja el volumen del sistema y lo restaura exacto.
 
-**Avanzado** (plegado por defecto; se despliega al clic)
+**Avanzado** (plegado por defecto; se despliega al clic en **todo el título**)
 - **Modo desarrollo**: anota detalles técnicos extra en el registro (para diagnosticar) y **desbloquea la bitácora de aprendizajes** en Estadísticas.
+- **Buscar actualización al abrir** (encendido por defecto): al arrancar revisa en silencio si hay versión nueva y te lo muestra abajo-izquierda. Nunca instala nada sin permiso.
+- **Autoactualizar** (apagado por defecto): si encuentra actualización al abrir, la baja e instala sola (la app se reinicia). Ver §20.
 - **Espera del pulido con IA**: cuánto esperar la respuesta antes de rendirse (10–60 s). La app ya reintenta sola ante cortes de red, y espera más para textos largos. Súbelo si tu conexión es lenta.
 
 ## 12. Pestaña Acciones
@@ -393,11 +400,19 @@ Todos tus dictados, buscables:
 
 ## 20. Actualizar la app
 
-En el pie de la barra lateral de Configuración: **"Verificar actualización"**.
+La app **te avisa sola**. Al abrirla revisa en silencio si hay versión nueva (esto se puede apagar en *Ajustes → Avanzado → "Buscar actualización al abrir"*). Si la hay, lo ves en dos lugares:
 
-- Si hay versión nueva: botón **"Actualizar a vX"** → la app la descarga, se reinstala y se reabre sola. Un clic, cero pasos manuales.
-- Si no: "Ya estás en la última versión".
-- El historial de cambios de cada versión está en **Créditos**.
+- **Abajo a la izquierda** del panel de Configuración: botón **"Actualizar a vX"** y un enlace **"Ver novedades"** (para leer los cambios *antes* de actualizar).
+- En el **menú de la barra**: un ítem **"⬆︎ Actualización disponible…"** que abre Configuración.
+
+Al pulsar **"Actualizar a vX"** la app descarga el DMG (con **barra de porcentaje**), se reinstala y se reabre sola. Un clic, cero pasos manuales. Al terminar te muestra las **novedades** de la versión.
+
+Si prefieres no revisar nada a mano, activa **Autoactualizar** (*Ajustes → Avanzado*): cuando encuentre una versión nueva al abrir, la baja e instala sola. Y siempre puedes forzar la búsqueda con **"Verificar actualización"** en el pie.
+
+- Si no hay nada: "Ya estás en la última versión".
+- El historial completo de cambios de cada versión está en **Créditos**.
+
+> **Gobernanza — todo parametrizable**: "Buscar actualización al abrir" (por defecto **encendido**) y "Autoactualizar" (por defecto **apagado**, porque reinstala y reinicia) viven en *Ajustes → Avanzado*. Nada se instala sin tu permiso salvo que actives Autoactualizar.
 
 ## 21. Apoya el proyecto
 

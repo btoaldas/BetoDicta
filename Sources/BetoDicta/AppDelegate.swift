@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        menu.items.first(where: { $0.tag == 84 })?.isHidden = Updater.disponibleAlArrancar == nil
         menu.items.first(where: { $0.tag == 77 })?.state =
             SMAppService.mainApp.status == .enabled ? .on : .off
         menu.items.first(where: { $0.tag == 78 })?.state = Config.postProcess() ? .on : .off
@@ -199,6 +200,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "BetoDicta v\(Version.numero) — \(tecla) para dictar", action: nil, keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
+        // Solo visible cuando la búsqueda de arranque halló versión nueva.
+        let update = NSMenuItem(title: "⬆︎ Actualización disponible…", action: #selector(openSettings), keyEquivalent: "")
+        update.tag = 84
+        update.isHidden = Updater.disponibleAlArrancar == nil
+        menu.addItem(update)
         menu.addItem(withTitle: "Configuración…", action: #selector(openSettings), keyEquivalent: ",")
         let prov = NSMenuItem(title: "Proveedor principal", action: nil, keyEquivalent: "")
         prov.tag = 83
@@ -280,6 +286,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             VoxtralServer.limpiarHuerfanos()
         }
         ChatIA.detectarLocales()   // ¿LM Studio / Ollama corriendo? (pulido local)
+        Updater.estaGrabando = { [weak self] in self?.recorder.isRecording ?? false }
+        Updater.buscarAlArrancar() // ¿versión nueva? avisa abajo-izq (o instala si Autoactualizar)
 
 
         recorder.onLevel = { [weak self] level in

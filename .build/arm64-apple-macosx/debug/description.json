@@ -1,0 +1,935 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.BetoDicta-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/sources",
+      "importPath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AppDelegate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Aprendizaje.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AudioMatch.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Config.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/DictationPanel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/EditorViews.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Fonetica.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistorialView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistoryWriter.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/IAPersonalizadaView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LLMPostProcess.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LevelMeterView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Log.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/MediaControl.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Microfono.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelCatalog.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/OnboardingWizard.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Paste.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Providers.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Recorder.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Replacements.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeBatchClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeError.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeStreamClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/SettingsWindow.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TcppStreamClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeCpp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeProviders.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Translate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Updater.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/UsageLog.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Version.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/VoxtralServer.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/WhisperServer.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/main.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "BetoDicta",
+      "moduleOutputPath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/Modules/BetoDicta.swiftmodule",
+      "objects" : [
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/AppDelegate.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Aprendizaje.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/AudioMatch.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Config.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/DictationPanel.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/EditorViews.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Fonetica.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/HistorialView.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/HistoryWriter.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/IAPersonalizadaView.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/LLMPostProcess.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/LevelMeterView.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Log.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/MediaControl.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Microfono.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ModelCatalog.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ModelsView.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/OnboardingWizard.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Paste.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Providers.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Recorder.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Replacements.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeBatchClient.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeError.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeStreamClient.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/SettingsWindow.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TcppStreamClient.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeCpp.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeProviders.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeView.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Translate.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Updater.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/UsageLog.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Version.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/VoxtralServer.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/WhisperServer.swift.o",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/main.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j18",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "BetoDicta_main",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "betodicta"
+      ],
+      "outputFileMapPath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/AppDelegate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Aprendizaje.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/AudioMatch.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Config.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/DictationPanel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/EditorViews.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Fonetica.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/HistorialView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/HistoryWriter.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/IAPersonalizadaView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/LLMPostProcess.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/LevelMeterView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Log.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/MediaControl.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Microfono.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ModelCatalog.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ModelsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/OnboardingWizard.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Paste.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Providers.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Recorder.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Replacements.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeBatchClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeError.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeStreamClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/SettingsWindow.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TcppStreamClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeCpp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeProviders.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Translate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Updater.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/UsageLog.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Version.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/VoxtralServer.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/WhisperServer.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/main.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/Modules/BetoDicta.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AppDelegate.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Aprendizaje.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AudioMatch.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Config.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/DictationPanel.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/EditorViews.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Fonetica.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistorialView.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistoryWriter.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/IAPersonalizadaView.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LLMPostProcess.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LevelMeterView.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Log.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/MediaControl.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Microfono.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelCatalog.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelsView.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/OnboardingWizard.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Paste.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Providers.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Recorder.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Replacements.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeBatchClient.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeError.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeStreamClient.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/SettingsWindow.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TcppStreamClient.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeCpp.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeProviders.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeView.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Translate.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Updater.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/UsageLog.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Version.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/VoxtralServer.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/WhisperServer.swift",
+        "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/main.swift"
+      ],
+      "tempsPath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "BetoDicta" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "BetoDicta",
+      "-package-name",
+      "betodicta",
+      "-c",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AppDelegate.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Aprendizaje.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AudioMatch.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Config.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/DictationPanel.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/EditorViews.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Fonetica.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistorialView.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistoryWriter.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/IAPersonalizadaView.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LLMPostProcess.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LevelMeterView.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Log.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/MediaControl.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Microfono.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelCatalog.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelsView.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/OnboardingWizard.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Paste.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Providers.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Recorder.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Replacements.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeBatchClient.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeError.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeStreamClient.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/SettingsWindow.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TcppStreamClient.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeCpp.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeProviders.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeView.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Translate.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Updater.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/UsageLog.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Version.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/VoxtralServer.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/WhisperServer.swift",
+      "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/main.swift",
+      "-I",
+      "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j18",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "BetoDicta_main",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "betodicta",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "BetoDicta" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta-entitlement.plist" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<entitlement-plist>"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<com.apple.security.get-task-allow>"
+        }
+      ],
+      "outputFilePath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta-entitlement.plist"
+    },
+    "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AppDelegate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Aprendizaje.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/AudioMatch.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Config.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/DictationPanel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/EditorViews.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Fonetica.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistorialView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/HistoryWriter.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/IAPersonalizadaView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LLMPostProcess.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/LevelMeterView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Log.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/MediaControl.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Microfono.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelCatalog.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ModelsView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/OnboardingWizard.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Paste.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Providers.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Recorder.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Replacements.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeBatchClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeError.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/ScribeStreamClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/SettingsWindow.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TcppStreamClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeCpp.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeProviders.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/TranscribeView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Translate.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Updater.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/UsageLog.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/Version.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/VoxtralServer.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/WhisperServer.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/Sources/BetoDicta/main.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/sources"
+    },
+    "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/AppDelegate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Aprendizaje.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/AudioMatch.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Config.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/DictationPanel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/EditorViews.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Fonetica.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/HistorialView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/HistoryWriter.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/IAPersonalizadaView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/LLMPostProcess.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/LevelMeterView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Log.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/MediaControl.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Microfono.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ModelCatalog.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ModelsView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/OnboardingWizard.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Paste.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Providers.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Recorder.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Replacements.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeBatchClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeError.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/ScribeStreamClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/SettingsWindow.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TcppStreamClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeCpp.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeProviders.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/TranscribeView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Translate.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Updater.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/UsageLog.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/Version.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/VoxtralServer.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/WhisperServer.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.build/main.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/BetoDicta.product/Objects.LinkFileList"
+    },
+    "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/bto/Developer/BetoDicta/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

@@ -19,7 +19,6 @@ final class IAPersonalizadasStore: ObservableObject {
 struct IAPersonalizadaEditor: View {
     @StateObject private var store = IAPersonalizadasStore()
     @State private var seleccion: String?
-    @State private var descubiertos: [String] = []
     @State private var descubriendo = false
     @State private var msgDescubrir: String?
     @State private var estadoPrueba: String?
@@ -110,21 +109,32 @@ struct IAPersonalizadaEditor: View {
                 campo("Modelo (ID)") { TextField("gpt-4o-mini · llama-3.3-70b · …", text: $store.items[i].modelo, onCommit: store.guardar).textFieldStyle(.roundedBorder) }
                 HStack(spacing: 8) {
                     Button(descubriendo ? "Buscando…" : "Descubrir modelos") {
-                        descubriendo = true; msgDescubrir = nil; descubiertos = []
+                        descubriendo = true; msgDescubrir = nil
                         PersonalizadaStore.descubrirModelos(store.items[i]) { ids, msg in
-                            descubriendo = false; descubiertos = ids; msgDescubrir = msg
+                            descubriendo = false; msgDescubrir = msg
+                            if !ids.isEmpty {
+                                // Guarda TODO el catálogo; el usuario elige cualquiera
+                                // luego, incluso desde Ajustes → Pulido (sin volver aquí).
+                                store.items[i].modelos = ids
+                                if store.items[i].modelo.isEmpty { store.items[i].modelo = ids[0] }
+                                store.guardar()
+                            }
                         }
                     }.controlSize(.small).disabled(descubriendo || store.items[i].base.isEmpty)
                     if let m = msgDescubrir {
-                        Text(m).font(.caption).foregroundStyle(descubiertos.isEmpty ? .orange : .green)
+                        Text(m).font(.caption).foregroundStyle(store.items[i].modelos.isEmpty ? .orange : .green)
                     }
-                    if !descubiertos.isEmpty {
-                        Menu("Elegir (\(descubiertos.count))") {
-                            ForEach(descubiertos, id: \.self) { m in
+                    if !store.items[i].modelos.isEmpty {
+                        Menu("Elegir (\(store.items[i].modelos.count))") {
+                            ForEach(store.items[i].modelos, id: \.self) { m in
                                 Button(m) { store.items[i].modelo = m; store.guardar() }
                             }
                         }.frame(width: 150)
                     }
+                }
+                if !store.items[i].modelos.isEmpty {
+                    Text("Se guardaron \(store.items[i].modelos.count) modelos. Puedes cambiar el activo aquí o en Ajustes → Pulido, cuando quieras.")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 // Para qué sirve
                 Toggle("Usar para PULIR / traducir el texto", isOn: $store.items[i].paraPulido).onChange(of: store.items[i].paraPulido) { _, _ in store.guardar() }

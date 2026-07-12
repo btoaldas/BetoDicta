@@ -82,6 +82,8 @@ final class SettingsModel: ObservableObject {
     }
     @Published var modoDesarrollo: Bool { didSet { Config.set("modo_desarrollo", to: modoDesarrollo) } }
     @Published var pulidoTimeout: Double { didSet { Config.set("pulido_timeout_seg", to: pulidoTimeout) } }
+    @Published var buscarUpdateAlAbrir: Bool { didSet { Config.set("buscar_update_al_abrir", to: buscarUpdateAlAbrir) } }
+    @Published var autoactualizar: Bool { didSet { Config.set("autoactualizar", to: autoactualizar) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
         didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }
@@ -110,6 +112,8 @@ final class SettingsModel: ObservableObject {
         arrancarInicio = SMAppService.mainApp.status == .enabled
         modoDesarrollo = Config.devMode()
         pulidoTimeout = Config.pulidoTimeout()
+        buscarUpdateAlAbrir = Config.buscarUpdateAlAbrir()
+        autoactualizar = Config.autoactualizar()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
         shiftEnterAlTerminar = Config.shiftEnterAlTerminar()
@@ -362,7 +366,7 @@ struct SettingsView: View {
     }
 
     // ---- Pie del sidebar: versión + actualización con un clic ----
-    @State private var estadoUpdate: Updater.Estado = .reposo
+    @State private var estadoUpdate: Updater.Estado = Updater.disponibleAlArrancar ?? .reposo
     @State private var mostrarNotas = false
     @State private var keyInputs: [String: String] = [:]
     @State private var detectTrigger = 0
@@ -382,8 +386,16 @@ struct SettingsView: View {
                 Label("Buscando…", systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption2).foregroundStyle(.secondary)
             case .alDia:
-                Label("Ya estás en la última versión", systemImage: "checkmark.circle.fill")
-                    .font(.caption2).foregroundStyle(.green)
+                // Clicable: permite volver a verificar aunque el auto-check haya
+                // dado "al día" (si no, .onAppear solo re-verifica desde .reposo).
+                Button {
+                    estadoUpdate = .buscando
+                    Updater.verificar { estadoUpdate = $0 }
+                } label: {
+                    Label("Ya estás en la última versión", systemImage: "checkmark.circle.fill")
+                        .font(.caption2).foregroundStyle(.green)
+                }
+                .buttonStyle(.plain).help("Volver a verificar")
             case .disponible(let v, let dmg, let notas):
                 VStack(alignment: .leading, spacing: 4) {
                     Button {
@@ -424,6 +436,17 @@ struct SettingsView: View {
             }
         }
         .padding(.horizontal, 16).padding(.bottom, 12)
+        .onAppear {
+            // "Apenas se abre": si está activado y aún no buscamos, revisa solo.
+            if case .reposo = estadoUpdate, Config.buscarUpdateAlAbrir() {
+                estadoUpdate = .buscando
+                Updater.verificar { estadoUpdate = $0 }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Updater.notificacion)) { _ in
+            // La búsqueda de arranque terminó con el panel ya abierto.
+            if let e = Updater.disponibleAlArrancar { estadoUpdate = e }
+        }
     }
 
     private var encabezado: some View {
@@ -497,6 +520,33 @@ struct SettingsView: View {
                         }
                         Text("Cualquier IA conectada — nube, local o personalizada. Se usa para pulir y traducir.")
                             .font(.caption).foregroundStyle(.secondary)
+                        // Gateway con varios modelos descubiertos: elige cualquiera
+                        // al vuelo, sin abrir el editor.
+                        if m.pulidoProveedor.hasPrefix("custom:") {
+                            let gid = String(m.pulidoProveedor.dropFirst(7))
+                            let gws = PersonalizadaStore.cargar()
+                            if let g = gws.first(where: { $0.id == gid }), g.modelos.count > 1 {
+                                // El activo puede ser un ID escrito a mano que no
+                                // esté en la lista descubierta: inclúyelo para que
+                                // el Picker siempre tenga un tag que casar.
+                                let opciones = g.modelos.contains(g.modelo) || g.modelo.isEmpty
+                                    ? g.modelos : [g.modelo] + g.modelos
+                                fila("Modelo del gateway") {
+                                    Picker("", selection: Binding(
+                                        get: { g.modelo },
+                                        set: { nuevo in
+                                            var a = PersonalizadaStore.cargar()
+                                            if let k = a.firstIndex(where: { $0.id == gid }) {
+                                                a[k].modelo = nuevo; PersonalizadaStore.guardar(a); detectTrigger += 1
+                                            }
+                                        })) {
+                                        ForEach(opciones, id: \.self) { Text($0).tag($0) }
+                                    }.labelsHidden().frame(width: 260)
+                                }
+                                Text("\(g.modelos.count) modelos descubiertos. Cambia el activo cuando quieras, aquí mismo.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     // Conectar IAs de nube por key (OpenRouter, DeepSeek, xAI…)
                     SeccionPlegable("Conectar más IAs de chat") {
@@ -572,6 +622,15 @@ struct SettingsView: View {
                 SeccionPlegable("Avanzado", icono: "wrench.and.screwdriver") {
                     VStack(alignment: .leading, spacing: 12) {
                         Toggle("Modo desarrollo (notas de depuración)", isOn: $m.modoDesarrollo)
+                        Divider()
+                        Toggle("Buscar actualización al abrir", isOn: $m.buscarUpdateAlAbrir)
+                        Text("Al arrancar, revisa en silencio si hay versión nueva y te lo muestra aquí abajo. Nunca instala nada sin permiso.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Autoactualizar (instalar sola la versión nueva)", isOn: $m.autoactualizar)
+                            .disabled(!m.buscarUpdateAlAbrir)
+                        Text("Si encuentra una actualización al abrir, la baja e instala sola (la app se reinicia). Si está apagado, solo te avisa y tú decides.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Espera del pulido con IA: \(Int(m.pulidoTimeout)) s").font(.subheadline)
                             Slider(value: $m.pulidoTimeout, in: 10...60, step: 5).tint(acento)

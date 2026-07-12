@@ -19,6 +19,44 @@ enum Updater {
         case error(String)
     }
 
+    /// Resultado de la búsqueda al arrancar (si hubo). Lo lee el pie del panel
+    /// de Ajustes (para mostrar "Actualización disponible" sin volver a buscar)
+    /// y el menú de la barra (para el ítem "Actualización disponible"). Se
+    /// setea solo cuando hay versión nueva.
+    static var disponibleAlArrancar: Estado?
+    /// Aviso a la UI de que cambió `disponibleAlArrancar` (menú/panel refrescan).
+    static let notificacion = Notification.Name("betoUpdateDisponible")
+    /// ¿Hay un dictado en curso? Lo inyecta AppDelegate. Sirve para NO
+    /// auto-instalar (que reinicia la app) a mitad de una grabación.
+    static var estaGrabando: () -> Bool = { false }
+
+    /// Búsqueda al abrir la app (silenciosa). Todo esto corre en el hilo main
+    /// (verificar completa en main), así que `disponibleAlArrancar` no compite
+    /// con las lecturas de la UI/menú.
+    static func buscarAlArrancar() {
+        guard Config.buscarUpdateAlAbrir() else { return }
+        verificar { estado in
+            guard case .disponible(let v, let dmg, _) = estado else { return }
+            // Autoactualizar: instala sola, PERO nunca a mitad de un dictado
+            // (cortaría la grabación). Si está grabando, difiere y avisa.
+            if Config.autoactualizar() && !estaGrabando() {
+                Log.log(.sistema, "autoactualizar: bajando e instalando v\(v)…")
+                actualizar(dmg: dmg) { _ in }
+                return
+            }
+            // Cachea + avisa para que el usuario actualice a mano (botón abajo-izq
+            // y ítem del menú). Al auto-instalar no cachea, para no ofrecer un
+            // botón redundante mientras ya se instala.
+            disponibleAlArrancar = estado
+            NotificationCenter.default.post(name: notificacion, object: nil)
+            if Config.autoactualizar() {
+                Log.log(.sistema, "autoactualizar diferido: hay un dictado en curso; te aviso para instalar al terminar")
+            } else {
+                Log.log(.sistema, "actualización v\(v) disponible (activa Autoactualizar para instalarla sola)")
+            }
+        }
+    }
+
     /// Consulta el último release publicado.
     static func verificar(completion: @escaping (Estado) -> Void) {
         var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
@@ -53,16 +91,24 @@ enum Updater {
     /// desmonta y relanza. El último paso lo hace un script externo que
     /// sobrevive al cierre de la app.
     private static var obsDescarga: NSKeyValueObservation?
+    /// Candado de reentrancia: si ya hay una descarga/instalación en curso,
+    /// una segunda llamada (p.ej. clic manual mientras autoactualizar baja) no
+    /// arranca otra (evita dos scripts y sobrescribir obsDescarga).
+    private static var instalando = false
     static func actualizar(dmg: URL, completion: @escaping (Estado) -> Void) {
+        guard !instalando else { return }
+        instalando = true
         let task = URLSession.shared.downloadTask(with: dmg) { tmp, _, err in
             DispatchQueue.main.async {
                 guard let tmp, err == nil else {
+                    instalando = false
                     completion(.error("descarga falló: \(err?.localizedDescription ?? "")")); return
                 }
                 let dmgLocal = FileManager.default.temporaryDirectory
                     .appendingPathComponent("BetoDicta-update.dmg")
                 try? FileManager.default.removeItem(at: dmgLocal)
                 do { try FileManager.default.moveItem(at: tmp, to: dmgLocal) } catch {
+                    instalando = false
                     completion(.error("no pude guardar el DMG")); return
                 }
 
@@ -89,6 +135,7 @@ enum Updater {
                         NSApp.terminate(nil)
                     }
                 } catch {
+                    instalando = false
                     completion(.error("no pude lanzar el instalador"))
                 }
             }

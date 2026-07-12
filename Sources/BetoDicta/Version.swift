@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.3"
+    static let numero = "0.20.4"
     static let fecha = "2026-07-12"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.4", "2026-07-12", [
+            "La app avisa sola: al abrir revisa si hay versión nueva y te lo muestra abajo-izquierda ('Actualización disponible') y en el menú de la barra — puedes ver las novedades antes de actualizar",
+            "Nuevo en Avanzado: 'Autoactualizar' (baja e instala sola la versión nueva) y 'Buscar actualización al abrir' (ambos parametrizables)",
+            "Gateways propios: 'Descubrir modelos' ahora guarda TODOS los modelos y puedes elegir cualquiera al vuelo desde Ajustes → Pulido, sin abrir el editor",
+            "Se puede instalar/actualizar por Homebrew: 'brew install --cask --force' para adoptar una instalación previa; 'brew upgrade --greedy' para traer la última",
+        ]),
         ("0.20.3", "2026-07-12", [
             "Descubrir modelos en gateways propios ahora SÍ encuentra la lista aunque tu URL base no lleve /v1: lo prueba solo y te avisa que la API está bajo /v1",
             "El actualizador muestra el PORCENTAJE de descarga con barra de progreso (antes solo decía 'descargando')",

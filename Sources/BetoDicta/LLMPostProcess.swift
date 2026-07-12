@@ -28,7 +28,8 @@ struct ChatIA {
     /// Modelo a usar: local usa el que tenga cargado el servidor (detectado).
     var modeloEfectivo: String { local ? (Self.modelosLocales[id] ?? modelo) : modelo }
 
-    static let catalogo: [ChatIA] = [
+    /// Proveedores fijos (nube + locales). Constantes.
+    static let fijos: [ChatIA] = [
         ChatIA(id: "groq",       nombre: "Groq · Llama 3.3 70B", base: "https://api.groq.com/openai/v1", modelo: "llama-3.3-70b-versatile", keyEnv: "GROQ_API_KEY",       local: false),
         ChatIA(id: "openai",     nombre: "OpenAI · gpt-4o-mini", base: "https://api.openai.com/v1",      modelo: "gpt-4o-mini",             keyEnv: "OPENAI_API_KEY",     local: false),
         ChatIA(id: "mistral",    nombre: "Mistral · small",      base: "https://api.mistral.ai/v1",      modelo: "mistral-small-latest",    keyEnv: "MISTRAL_API_KEY",    local: false),
@@ -37,7 +38,11 @@ struct ChatIA {
         ChatIA(id: "xai",        nombre: "xAI · Grok",           base: "https://api.x.ai/v1",            modelo: "grok-2-latest",           keyEnv: "XAI_API_KEY",        local: false),
         ChatIA(id: "lmstudio",   nombre: "LM Studio (local)",    base: "http://localhost:1234/v1",       modelo: "local",                   keyEnv: "",                   local: true),
         ChatIA(id: "ollama",     nombre: "Ollama (local)",       base: "http://localhost:11434/v1",      modelo: "local",                   keyEnv: "",                   local: true),
-    ] + PersonalizadaStore.comoChatIA()
+    ]
+    /// Catálogo COMPUTADO: relee las personalizadas del disco en cada acceso,
+    /// para que cambiar el modelo/URL de un gateway (o agregar/quitar uno)
+    /// tenga efecto AL VUELO en el pulido, sin reiniciar la app.
+    static var catalogo: [ChatIA] { fijos + PersonalizadaStore.comoChatIA() }
     /// Modelo detectado de cada servidor local (vacío si no está corriendo).
     static var modelosLocales: [String: String] = [:]
 
@@ -81,9 +86,49 @@ struct IAPersonalizada: Codable, Identifiable {
     var authHeader = "Authorization"   // "Authorization" | "x-api-key" | cualquiera
     var authPrefix = "Bearer "         // "Bearer " o "" (X-API-Key va sin prefijo)
     var headers: [String: String] = [:]   // encabezados extra
-    var modelo = ""               // ID del modelo (manual o descubierto)
+    var modelo = ""               // ID del modelo ACTIVO (manual o elegido)
+    var modelos: [String] = []    // catálogo descubierto: se elige cualquiera "afuera"
     var paraPulido = true
     var paraVoz = false           // reconocer voz (transcripción) — pendiente de cablear
+}
+
+// Decodificación TOLERANTE: Swift no aplica los valores por defecto a claves
+// ausentes en Codable sintetizado, así que un JSON viejo (sin `modelos`, por
+// ej.) reventaba TODO el decode y "perdía" los gateways. Con decodeIfPresent,
+// cada campo nuevo simplemente cae a su default y nada se pierde.
+extension IAPersonalizada {
+    private enum CK: String, CodingKey {
+        case id, nombre, base, apiKey, authHeader, authPrefix, headers, modelo, modelos, paraPulido, paraVoz
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CK.self)
+        self.init()   // arranca con todos los defaults
+        if let v = try? c.decode(String.self, forKey: .id), !v.isEmpty { id = v }
+        nombre     = (try? c.decode(String.self, forKey: .nombre)) ?? nombre
+        base       = (try? c.decode(String.self, forKey: .base)) ?? base
+        apiKey     = (try? c.decode(String.self, forKey: .apiKey)) ?? apiKey
+        authHeader = (try? c.decode(String.self, forKey: .authHeader)) ?? authHeader
+        authPrefix = (try? c.decode(String.self, forKey: .authPrefix)) ?? authPrefix
+        headers    = (try? c.decode([String: String].self, forKey: .headers)) ?? headers
+        modelo     = (try? c.decode(String.self, forKey: .modelo)) ?? modelo
+        modelos    = (try? c.decode([String].self, forKey: .modelos)) ?? modelos
+        paraPulido = (try? c.decode(Bool.self, forKey: .paraPulido)) ?? paraPulido
+        paraVoz    = (try? c.decode(Bool.self, forKey: .paraVoz)) ?? paraVoz
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CK.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(nombre, forKey: .nombre)
+        try c.encode(base, forKey: .base)
+        try c.encode(apiKey, forKey: .apiKey)
+        try c.encode(authHeader, forKey: .authHeader)
+        try c.encode(authPrefix, forKey: .authPrefix)
+        try c.encode(headers, forKey: .headers)
+        try c.encode(modelo, forKey: .modelo)
+        try c.encode(modelos, forKey: .modelos)
+        try c.encode(paraPulido, forKey: .paraPulido)
+        try c.encode(paraVoz, forKey: .paraVoz)
+    }
 }
 
 enum PersonalizadaStore {
