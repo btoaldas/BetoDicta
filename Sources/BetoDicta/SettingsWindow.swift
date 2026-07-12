@@ -568,10 +568,12 @@ struct SettingsView: View {
                                         Button("Conectar") {
                                             ApiKeys.set(env, keyInputs[env] ?? ""); keyInputs[env] = ""; detectTrigger += 1
                                         }.disabled((keyInputs[env] ?? "").trimmingCharacters(in: .whitespaces).isEmpty)
+                                        AyudaKey(env: env)   // ayuda (tooltip) + "Conseguir clave"
                                     }
                                 } else {
                                     HStack {
                                         Label("\(nombre) conectado", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                                        AyudaKey(env: env, soloIcono: true)
                                         Spacer()
                                         Button("Quitar") { ApiKeys.set(env, ""); detectTrigger += 1 }.controlSize(.small)
                                     }

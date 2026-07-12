@@ -467,6 +467,7 @@ struct CloudRow: View {
                 if let precio = Self.precios[id] {
                     Text(precio).font(.caption2).foregroundStyle(.secondary)
                 }
+                AyudaKey(env: keyEnv)   // ayuda (tooltip) + "Conseguir clave" oficial
                 Spacer()
                 if reciénGuardado {
                     Label("Guardado", systemImage: "checkmark.circle.fill")
