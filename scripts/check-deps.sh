@@ -77,7 +77,13 @@ if [ "$hay_update" = 1 ]; then
   printf "(pueden romper la build). Recompila y prueba de punta a punta si actualizas.\n"
   if [ "$NOTIFY" = 1 ]; then
     msg="Motores con novedades:${con_update:- (ver detalle)}. Revisa antes de actualizar."
-    osascript -e "display notification \"$msg\" with title \"BetoDicta · dependencias\" sound name \"Ping\"" >/dev/null 2>&1 || true
+    # Pasa el mensaje como ARGUMENTO (dato), no interpolado en el código
+    # AppleScript → evita inyección si un nombre de dep trae comillas/código.
+    osascript - "$msg" >/dev/null 2>&1 <<'APPLESCRIPT' || true
+on run argv
+  display notification (item 1 of argv) with title "BetoDicta · dependencias" sound name "Ping"
+end run
+APPLESCRIPT
   fi
 else
   printf "\033[32mTodo al día (o sin cambios detectables).\033[0m\n"

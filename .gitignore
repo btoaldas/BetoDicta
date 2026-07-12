@@ -3,3 +3,6 @@ build/
 *.pcm
 .env
 config.local.json
+
+# Artefactos de compilación (no versionar)
+.build/

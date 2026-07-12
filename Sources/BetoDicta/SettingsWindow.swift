@@ -787,7 +787,7 @@ struct SettingsView: View {
             let inseguro = esGateway && !sel.baseSegura   // gateway por http://
             VStack(alignment: .leading, spacing: 2) {
                 if inseguro {
-                    Label("Este gateway usa http SIN cifrar: por seguridad NO se envía tu API key (el pulido no funcionará hasta que uses https).",
+                    Label("Este gateway usa http SIN cifrar: por seguridad NO se envían tus credenciales (ni la API key ni los encabezados). El pulido no funcionará hasta que uses https.",
                           systemImage: "lock.open.trianglebadge.exclamationmark")
                         .font(.caption2).foregroundStyle(.red)
                 } else {

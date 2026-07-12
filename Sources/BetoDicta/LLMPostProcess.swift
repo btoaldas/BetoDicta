@@ -24,13 +24,19 @@ struct ChatIA {
     /// ¿La base cifra el tráfico? (https, o localhost donde no sale a la red).
     /// No mandamos la API key en claro por http público — fail-closed.
     var baseSegura: Bool {
-        let b = base.lowercased()
-        return b.hasPrefix("https://") || b.contains("://localhost") || b.contains("://127.0.0.1") || b.contains("://[::1]")
+        if base.lowercased().hasPrefix("https://") { return true }
+        // Solo loopback REAL cuenta como seguro (el tráfico no sale de la Mac).
+        // Comparar el HOST exacto, no un substring: "localhost.attacker.com" o
+        // "127.0.0.1.evil.com" contienen "://localhost"/"://127.0.0.1" pero
+        // resuelven a un host externo y NO deben tratarse como seguros.
+        guard let host = URL(string: base)?.host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
     }
     func aplicarAuth(_ req: inout URLRequest) {
-        // Solo adjunta la key si el canal es seguro: evita filtrar el secreto
-        // en claro si un gateway se configuró con http://.
-        if !local, baseSegura, let k = key { req.setValue(authPrefix + k, forHTTPHeaderField: authHeader) }
+        // Fail-closed: no mandes NINGÚN secreto por http público — ni la API key
+        // ni los encabezados extra (suelen llevar cookies/tokens x-api-key).
+        guard local || baseSegura else { return }
+        if !local, let k = key { req.setValue(authPrefix + k, forHTTPHeaderField: authHeader) }
         for (h, v) in headersExtra { req.setValue(v, forHTTPHeaderField: h) }
     }
     /// Modelo a usar de VERDAD: local usa el que tenga cargado el servidor;
@@ -204,6 +210,7 @@ enum PersonalizadaStore {
                 return nil
             }
             guard let inp = num("prompt"), let out = num("completion") else { return nil }
+            if inp < 0 || out < 0 { return "variable" }   // OpenRouter usa -1 (auto/fusion) = precio dinámico
             if inp == 0 && out == 0 { return "gratis" }
             return String(format: "$%.2f/$%.2f 1M", inp * 1_000_000, out * 1_000_000)
         }
@@ -267,8 +274,14 @@ enum PersonalizadaStore {
             // siguiente, no abortes todo el descubrimiento.
             guard let url = URL(string: rutas[i]) else { intentar(i + 1, code, err); return }
             var req = URLRequest(url: url); req.timeoutInterval = 10
-            if !apiKey.isEmpty { req.setValue(authPrefix + apiKey, forHTTPHeaderField: authHeader.isEmpty ? "Authorization" : authHeader) }
-            for (h, v) in headers { req.setValue(v, forHTTPHeaderField: h) }
+            // Fail-closed: no adjuntes secretos si la ruta candidata no cifra
+            // (misma garantía que el pulido; soporta rutaManual con http).
+            let h0 = url.host?.lowercased() ?? ""
+            let segura = url.scheme?.lowercased() == "https" || h0 == "localhost" || h0 == "127.0.0.1" || h0 == "::1"
+            if segura {
+                if !apiKey.isEmpty { req.setValue(authPrefix + apiKey, forHTTPHeaderField: authHeader.isEmpty ? "Authorization" : authHeader) }
+                for (h, v) in headers { req.setValue(v, forHTTPHeaderField: h) }
+            }
             URLSession.shared.dataTask(with: req) { data, resp, e in
                 var preciados: [(String, String?)] = []
                 let c = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -296,8 +309,12 @@ enum PersonalizadaStore {
     static func probar(_ ia: IAPersonalizada, _ done: @escaping (Bool, String) -> Void) {
         guard let url = URL(string: "\(ia.base)/models") else { done(false, "URL inválida"); return }
         var req = URLRequest(url: url); req.timeoutInterval = 8
-        if !ia.apiKey.isEmpty { req.setValue(ia.authPrefix + ia.apiKey, forHTTPHeaderField: ia.authHeader.isEmpty ? "Authorization" : ia.authHeader) }
-        for (h, v) in ia.headers { req.setValue(v, forHTTPHeaderField: h) }
+        let h0 = url.host?.lowercased() ?? ""
+        let segura = url.scheme?.lowercased() == "https" || h0 == "localhost" || h0 == "127.0.0.1" || h0 == "::1"
+        if segura {   // fail-closed: no mandar secretos por http
+            if !ia.apiKey.isEmpty { req.setValue(ia.authPrefix + ia.apiKey, forHTTPHeaderField: ia.authHeader.isEmpty ? "Authorization" : ia.authHeader) }
+            for (h, v) in ia.headers { req.setValue(v, forHTTPHeaderField: h) }
+        }
         URLSession.shared.dataTask(with: req) { data, resp, err in
             DispatchQueue.main.async {
                 if let err { done(false, err.localizedDescription); return }
