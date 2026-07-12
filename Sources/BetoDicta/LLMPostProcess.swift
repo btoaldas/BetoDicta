@@ -649,6 +649,12 @@ enum LLMPostProcess {
                         if let (tin, tout) = ia.tokensUsados(data) {
                             PulidoLog.record(provider: ia.id, modelo: ia.modeloEfectivo, tin: tin, tout: tout)
                         }
+                        // Salvaguarda anti-inyección (opt-in): si el pulido diverge
+                        // groseramente del dictado, cae al ORIGINAL (nunca bloquea).
+                        if let motivo = razonSospecha(original: text, pulido: pulido) {
+                            Log.write("pulido: salvaguarda anti-inyección (\(motivo)) → texto original")
+                            completion(text); return
+                        }
                         completion(pulido)
                         return
                     }
@@ -670,5 +676,34 @@ enum LLMPostProcess {
                 completion(text)
             }
         }.resume()
+    }
+
+    /// Salvaguarda anti-inyección (opt-in, NUNCA bloquea). Devuelve el motivo si
+    /// el texto PULIDO diverge groseramente del dictado ORIGINAL; nil si está OK.
+    /// El pulido limpia (quita muletillas) → debería ser de largo similar o
+    /// menor y con las mismas palabras. Si en cambio CRECE desmedido o introduce
+    /// patrones de comando/shell que el original no tenía, es sospechoso (p.ej.
+    /// un gateway malicioso devolviendo texto arbitrario que se pegaría, peor con
+    /// "Enter al terminar" en una terminal). Al caer al original, en el peor caso
+    /// pierdes el pulido, no tus palabras.
+    static func razonSospecha(original: String, pulido: String) -> String? {
+        guard Config.salvaguardaInyeccion() else { return nil }
+        // 1) Crecimiento desmedido: el pulido no infla el texto.
+        if pulido.count > max(original.count * 2, original.count + 60) {
+            return "creció \(original.count)→\(pulido.count) chars"
+        }
+        // 2) Patrones de comando/shell nuevos que el dictado no tenía. (Se omiten
+        //    URLs sueltas a propósito: son comunes en dictado normal y solo
+        //    empañarían el uso legítimo. El riesgo real es shell que se pega en
+        //    una terminal.)
+        let o = original.lowercased(), p = pulido.lowercased()
+        let patrones = ["curl ", "wget ", "rm -rf", "sudo ", "chmod ", "bash -c",
+                        "sh -c", "| sh", "|sh", "eval ", "$(", "`", "powershell",
+                        "ssh ", "scp ", "nc -", " > /", "base64 -d", "; rm ",
+                        "&& rm "]
+        for pat in patrones where p.contains(pat) && !o.contains(pat) {
+            return "patrón de comando nuevo: \(pat.trimmingCharacters(in: .whitespaces))"
+        }
+        return nil
     }
 }

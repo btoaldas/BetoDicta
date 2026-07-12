@@ -74,6 +74,11 @@ struct Config {
     /// Push-to-talk: mantener la tecla presionada graba, soltarla termina
     /// (en vez del modo toque-para-empezar / toque-para-terminar). Default OFF.
     static func pushToTalk() -> Bool { (json()["hold_para_hablar"] as? Bool) ?? false }
+    /// Salvaguarda anti-inyección: si el texto PULIDO por la IA diverge
+    /// groseramente del dictado (crece desmedido o mete comandos que el
+    /// original no tenía), entrega el ORIGINAL. NUNCA bloquea, solo cae a tus
+    /// palabras. Opt-in (default OFF) para no estorbar el uso normal.
+    static func salvaguardaInyeccion() -> Bool { (json()["salvaguarda_inyeccion"] as? Bool) ?? false }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }

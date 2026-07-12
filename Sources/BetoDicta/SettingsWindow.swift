@@ -85,6 +85,7 @@ final class SettingsModel: ObservableObject {
     @Published var buscarUpdateAlAbrir: Bool { didSet { Config.set("buscar_update_al_abrir", to: buscarUpdateAlAbrir) } }
     @Published var autoactualizar: Bool { didSet { Config.set("autoactualizar", to: autoactualizar) } }
     @Published var avisoNube: Bool { didSet { Config.set("aviso_privacidad_nube", to: avisoNube) } }
+    @Published var salvaguardaInyeccion: Bool { didSet { Config.set("salvaguarda_inyeccion", to: salvaguardaInyeccion) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -117,6 +118,7 @@ final class SettingsModel: ObservableObject {
         buscarUpdateAlAbrir = Config.buscarUpdateAlAbrir()
         autoactualizar = Config.autoactualizar()
         avisoNube = Config.avisoNube()
+        salvaguardaInyeccion = Config.salvaguardaInyeccion()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -643,6 +645,10 @@ struct SettingsView: View {
                         Divider()
                         Toggle("Avisos de privacidad al pulir con IA de nube/terceros", isOn: $m.avisoNube)
                         Text("Muestra un recordatorio cuando el pulido usa una IA de nube o un gateway de terceros (tu texto sale de tu Mac). Apágalo si ya lo tienes claro.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        Toggle("Salvaguarda anti-inyección (extra, para IAs de terceros)", isOn: $m.salvaguardaInyeccion)
+                        Text("Si el texto pulido por la IA se dispara de tamaño o mete comandos de shell que tú no dictaste, pega tu dictado ORIGINAL en vez del pulido. Nunca bloquea ni borra: en el peor caso pierdes el pulido, no tus palabras. Útil si usas gateways de terceros y dictas en terminales. Default apagado.")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         VStack(alignment: .leading, spacing: 4) {
