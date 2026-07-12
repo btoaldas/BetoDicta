@@ -213,9 +213,11 @@ enum AudioMatch {
 
     /// Umbral efectivo de "probar por voz" (palabra aislada).
     static func umbral() -> Float { Float(Config.umbralAudio() ?? Double(umbralDefecto)) }
-    /// Umbral del DICTADO real (spotting). Escala distinta a la de probar: cae
-    /// al de probar hasta que se calibre con dictados reales.
-    static func umbralDictado() -> Float { Float(Config.umbralAudioDictado() ?? Double(umbral())) }
+    /// Raya del DICTADO real (subsequence DTW). Escala PROPIA (~8–13, más alta
+    /// que "probar por voz") — calibrada con audio real de Alberto: dichas
+    /// ≤10.46, no-dichas ≥10.49. Default conservador; ajustable.
+    static let umbralDictadoDefecto: Float = 10.4
+    static func umbralDictado() -> Float { Float(Config.umbralAudioDictado() ?? Double(umbralDictadoDefecto)) }
 
     // ---- Bitácora del DICTADO real (para calibrar la raya del dictado) ----
     static var dictadoURL: URL { dir.appendingPathComponent("dictado.jsonl") }
@@ -331,6 +333,45 @@ enum AudioMatch {
     /// ¿El término (por sus muestras) suena DENTRO del audio del dictado?
     /// rasgosDictado debe venir SIN CMN (rasgosDeWav lo hace así).
     static func detectadoEnDictado(termino: String, rasgosDictado: [[Float]]) -> Float? {
+        // refs crudos (sin CMN) para igualar al dictado (también crudo).
+        let refs = muestras(termino).compactMap { rasgos($0, cmn: false) }
+        guard !refs.isEmpty else { return nil }
+        return spotSubseqMin(refs: refs, dictado: rasgosDictado)
+    }
+
+    /// Subsequence DTW: alinea la referencia a la MEJOR subventana del dictado
+    /// (arranque y fin libres) — localiza la palabra sin ventana fija. Es la
+    /// idea de "encontrar dónde encaja mejor". Normaliza por largo de referencia.
+    private static func subseqDTW(ref: [[Float]], dictado: [[Float]]) -> Float {
+        let m = ref.count, n = dictado.count
+        if m == 0 || n == 0 { return .greatestFiniteMagnitude }
+        let inf = Float.greatestFiniteMagnitude
+        var prev = [Float](repeating: 0, count: n + 1)   // fila 0 = 0 en todo j (arranque libre)
+        var curr = [Float](repeating: inf, count: n + 1)
+        // ventana CMN local: normalizar el dictado por un entorno móvil ayuda,
+        // pero para subseq lo aplicamos a todo el dictado una vez (ya viene sin CMN).
+        for i in 1...m {
+            curr[0] = inf
+            for j in 1...n {
+                let d = distEuclid(ref[i-1], dictado[j-1])
+                curr[j] = d + min(prev[j-1], prev[j], curr[j-1])
+            }
+            swap(&prev, &curr)
+        }
+        var best = inf
+        for j in 1...n { best = min(best, prev[j]) }   // fin libre
+        return best / Float(m)
+    }
+    private static func spotSubseqMin(refs: [[[Float]]], dictado: [[Float]]) -> Float? {
+        guard !refs.isEmpty, !dictado.isEmpty else { return nil }
+        var mejor = Float.greatestFiniteMagnitude
+        for ref in refs where ref.count >= 4 && dictado.count >= ref.count {
+            mejor = min(mejor, subseqDTW(ref: ref, dictado: dictado))
+        }
+        return mejor == .greatestFiniteMagnitude ? nil : mejor
+    }
+    /// Método viejo (ventana fija) — para comparar en pruebas.
+    static func detectadoViejo(termino: String, rasgosDictado: [[Float]]) -> Float? {
         let refs = muestras(termino).compactMap { rasgos($0) }
         guard !refs.isEmpty else { return nil }
         return spotMin(refs: refs, dictado: rasgosDictado)
@@ -347,7 +388,7 @@ enum AudioMatch {
         var resultado = texto
         var cambios: [String] = []
         for termino in terminos where tieneMuestras(termino) {
-            guard let d = spotMin(refs: muestras(termino).compactMap { rasgos($0) }, dictado: dict) else { continue }
+            guard let d = spotSubseqMin(refs: muestras(termino).compactMap { rasgos($0, cmn: false) }, dictado: dict) else { continue }
             let ds = String(format: "%.2f", d)
             // Si ya está escrito, NO se corrige — pero SÍ se registra (para
             // tener el caso "lo dijiste y el motor acertó" en la calibración).
@@ -360,7 +401,7 @@ enum AudioMatch {
                     cambios.append("🔊 \(termino) (audio \(ds)): '\(mala)' → '\(termino)'")
                 } else if d <= u {
                     cambios.append("🔊 \(termino) sonó a \(ds) pero no hallé palabra que reemplazar")
-                } else if d <= u * 1.6 {
+                } else if d <= u * 1.12 {   // solo near-miss (cerca de la raya)
                     cambios.append("· \(termino) sonó a \(ds) (raya \(String(format: "%.2f", u)) → no corrige)")
                 }
             }
