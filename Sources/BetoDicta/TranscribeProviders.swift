@@ -131,6 +131,303 @@ enum FireworksTranscribe {
     }
 }
 
+// MARK: - STT de API propia (no compatibles con OpenAI)
+//
+// Estos proveedores NO exponen /audio/transcriptions estilo OpenAI: cada uno
+// tiene su propio shape. Se agrupan en dos patrones:
+//   • UN TIRO (HF, Deepgram): un POST con el audio crudo → JSON con el texto.
+//   • POR LOTES (Gladia, AssemblyAI, Speechmatics): subir → crear job →
+//     SONDEAR hasta que termine. Añade latencia (peor para dictado), por eso
+//     van apagados por defecto; son opción de failover que elige el usuario.
+
+/// Un POST de audio crudo (los bytes del WAV) a una API STT propia; extrae el
+/// texto con un closure. La usan HF y Deepgram (endpoints de un solo tiro).
+enum RawAudioSTT {
+    static func run(url: String, headers: [String: String], contentType: String, wav: Data,
+                    timeout: TimeInterval = 30,
+                    extraer: @escaping ([String: Any]) -> String?,
+                    completion: @escaping (Result<String, Error>) -> Void) {
+        guard let u = URL(string: url) else { completion(.failure(ScribeError.ws("URL inválida"))); return }
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = timeout
+        req.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        URLSession.shared.uploadTask(with: req, from: wav) { data, resp, err in
+            DispatchQueue.main.async {
+                if let err { completion(.failure(err)); return }
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                guard let data, (200..<300).contains(code) else {
+                    completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                    return
+                }
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let text = extraer(json), !text.isEmpty else {
+                    completion(.failure(ScribeError.sinTexto)); return
+                }
+                completion(.success(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+        }.resume()
+    }
+}
+
+/// Sondea una URL GET cada `intervalo`s hasta que `evaluar` diga listo/error, o
+/// se agote `limite`. Para las APIs por lotes (subir→crear→sondear). Acotado a
+/// propósito: mejor rendirse y pasar al siguiente de la cascada que colgar.
+enum STTPoll {
+    enum Resultado { case listo(String); case error(String); case esperar }
+    static func sondear(url: String, headers: [String: String], intervalo: TimeInterval = 1.5,
+                        limite: TimeInterval = 40, transcurrido: TimeInterval = 0,
+                        evaluar: @escaping ([String: Any]) -> Resultado,
+                        completion: @escaping (Result<String, Error>) -> Void) {
+        guard transcurrido < limite else {
+            completion(.failure(ScribeError.ws("La transcripción tardó demasiado"))); return
+        }
+        guard let u = URL(string: url) else { completion(.failure(ScribeError.ws("URL inválida"))); return }
+        var req = URLRequest(url: u); req.timeoutInterval = 15
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            if let err { DispatchQueue.main.async { completion(.failure(err)) }; return }
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard let data, (200..<300).contains(code),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                DispatchQueue.main.async {
+                    completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                }
+                return
+            }
+            switch evaluar(json) {
+            case .listo(let t):
+                DispatchQueue.main.async { completion(.success(t.trimmingCharacters(in: .whitespacesAndNewlines))) }
+            case .error(let m):
+                DispatchQueue.main.async { completion(.failure(ScribeError.ws(m))) }
+            case .esperar:
+                DispatchQueue.main.asyncAfter(deadline: .now() + intervalo) {
+                    sondear(url: url, headers: headers, intervalo: intervalo, limite: limite,
+                            transcurrido: transcurrido + intervalo, evaluar: evaluar, completion: completion)
+                }
+            }
+        }.resume()
+    }
+}
+
+/// POST de JSON que devuelve un campo string (ej. una URL o un id de job).
+private func postJSON(url: String, headers: [String: String], cuerpo: [String: Any],
+                      timeout: TimeInterval = 20,
+                      completion: @escaping (Result<[String: Any], Error>) -> Void) {
+    guard let u = URL(string: url) else { completion(.failure(ScribeError.ws("URL inválida"))); return }
+    var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = timeout
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+    req.httpBody = try? JSONSerialization.data(withJSONObject: cuerpo)
+    URLSession.shared.dataTask(with: req) { data, resp, err in
+        if let err { completion(.failure(err)); return }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard let data, (200..<300).contains(code),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+            return
+        }
+        completion(.success(json))
+    }.resume()
+}
+
+/// Hugging Face Inference (Whisper ASR) — free tier ⭐ (accesibilidad). Un POST
+/// con el audio crudo al router; responde {"text": …}.
+enum HFTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("HF_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de Hugging Face — ponla en Configuración → Modelos"))); return
+        }
+        let m = model.isEmpty ? "openai/whisper-large-v3" : model
+        RawAudioSTT.run(url: "https://router.huggingface.co/hf-inference/models/\(m)",
+                        headers: ["Authorization": "Bearer \(key)"],
+                        contentType: "audio/wav", wav: wav,
+                        extraer: { $0["text"] as? String }, completion: completion)
+    }
+}
+
+/// Deepgram (Nova) — free $200 de crédito. Un POST con el audio crudo;
+/// el texto vive en results.channels[0].alternatives[0].transcript.
+enum DeepgramTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("DEEPGRAM_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de Deepgram — ponla en Configuración → Modelos"))); return
+        }
+        let m = model.isEmpty ? "nova-3" : model
+        RawAudioSTT.run(url: "https://api.deepgram.com/v1/listen?model=\(m)&language=es&smart_format=true",
+                        headers: ["Authorization": "Token \(key)"],
+                        contentType: "audio/wav", wav: wav,
+                        extraer: { json in
+                            let results = json["results"] as? [String: Any]
+                            let channels = results?["channels"] as? [[String: Any]]
+                            let alts = channels?.first?["alternatives"] as? [[String: Any]]
+                            return alts?.first?["transcript"] as? String
+                        }, completion: completion)
+    }
+}
+
+/// AssemblyAI — free credits. Por lotes: subir bytes → crear transcript →
+/// sondear /transcript/{id} hasta status=completed.
+enum AssemblyAITranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("ASSEMBLYAI_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de AssemblyAI — ponla en Configuración → Modelos"))); return
+        }
+        let auth = ["Authorization": key]
+        // 1) subir el audio crudo
+        RawAudioSTT.run(url: "https://api.assemblyai.com/v2/upload",
+                        headers: auth, contentType: "application/octet-stream", wav: wav,
+                        timeout: 30, extraer: { $0["upload_url"] as? String }) { r in
+            switch r {
+            case .failure(let e): completion(.failure(e))
+            case .success(let uploadURL):
+                // 2) crear el job de transcripción
+                var cuerpo: [String: Any] = ["audio_url": uploadURL, "language_code": "es"]
+                if !model.isEmpty { cuerpo["speech_model"] = model }   // "best" | "nano"
+                postJSON(url: "https://api.assemblyai.com/v2/transcript",
+                         headers: auth, cuerpo: cuerpo) { r2 in
+                    switch r2 {
+                    case .failure(let e): DispatchQueue.main.async { completion(.failure(e)) }
+                    case .success(let json):
+                        guard let id = json["id"] as? String else {
+                            DispatchQueue.main.async { completion(.failure(ScribeError.sinTexto)) }; return
+                        }
+                        // 3) sondear
+                        STTPoll.sondear(url: "https://api.assemblyai.com/v2/transcript/\(id)", headers: auth,
+                                        evaluar: { j in
+                            switch j["status"] as? String {
+                            case "completed": return .listo((j["text"] as? String) ?? "")
+                            case "error":     return .error((j["error"] as? String) ?? "AssemblyAI falló")
+                            default:          return .esperar
+                            }
+                        }, completion: completion)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Gladia — 10 h/mes gratis. Por lotes: subir (multipart) → pre-recorded →
+/// sondear result_url hasta status=done.
+enum GladiaTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("GLADIA_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de Gladia — ponla en Configuración → Modelos"))); return
+        }
+        let auth = ["x-gladia-key": key]
+        // 1) subir el audio (multipart)
+        let boundary = "BetoDicta-\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        var up = URLRequest(url: URL(string: "https://api.gladia.io/v2/upload")!)
+        up.httpMethod = "POST"; up.timeoutInterval = 30
+        up.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        up.setValue(key, forHTTPHeaderField: "x-gladia-key")
+        URLSession.shared.uploadTask(with: up, from: body) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard err == nil, let data, (200..<300).contains(code),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let audioURL = json["audio_url"] as? String else {
+                DispatchQueue.main.async {
+                    completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                }
+                return
+            }
+            // 2) crear el job
+            postJSON(url: "https://api.gladia.io/v2/pre-recorded",
+                     headers: auth, cuerpo: ["audio_url": audioURL, "language": "es"]) { r2 in
+                switch r2 {
+                case .failure(let e): DispatchQueue.main.async { completion(.failure(e)) }
+                case .success(let j):
+                    guard let resultURL = j["result_url"] as? String else {
+                        DispatchQueue.main.async { completion(.failure(ScribeError.sinTexto)) }; return
+                    }
+                    // 3) sondear
+                    STTPoll.sondear(url: resultURL, headers: auth, evaluar: { jj in
+                        switch jj["status"] as? String {
+                        case "done":
+                            let result = jj["result"] as? [String: Any]
+                            let trans = result?["transcription"] as? [String: Any]
+                            return .listo((trans?["full_transcript"] as? String) ?? "")
+                        case "error": return .error("Gladia falló")
+                        default:      return .esperar
+                        }
+                    }, completion: completion)
+                }
+            }
+        }.resume()
+    }
+}
+
+/// Speechmatics — 480 min/mes gratis. Por lotes: crear job (multipart config +
+/// audio) → sondear /jobs/{id} hasta done → bajar el transcript en texto.
+enum SpeechmaticsTranscribe {
+    static func run(wav: Data, model: String, completion: @escaping (Result<String, Error>) -> Void) {
+        let key = ApiKeys.get("SPEECHMATICS_API_KEY")
+        guard !key.isEmpty else {
+            completion(.failure(ScribeError.ws("Falta la API key de Speechmatics — ponla en Configuración → Modelos"))); return
+        }
+        let punto = model.isEmpty ? "standard" : model   // "standard" | "enhanced"
+        let config = "{\"type\":\"transcription\",\"transcription_config\":{\"language\":\"es\",\"operating_point\":\"\(punto)\"}}"
+        let boundary = "BetoDicta-\(UUID().uuidString)"
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"config\"\r\n\r\n\(config)\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"data_file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
+        body.append(wav)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        var req = URLRequest(url: URL(string: "https://asr.api.speechmatics.com/v2/jobs")!)
+        req.httpMethod = "POST"; req.timeoutInterval = 30
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        URLSession.shared.uploadTask(with: req, from: body) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard err == nil, let data, (200..<300).contains(code),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let id = json["id"] as? String else {
+                DispatchQueue.main.async {
+                    completion(.failure(ScribeError.http(code, data.flatMap { String(data: $0, encoding: .utf8) } ?? "")))
+                }
+                return
+            }
+            let auth = ["Authorization": "Bearer \(key)"]
+            // sondear el estado del job
+            STTPoll.sondear(url: "https://asr.api.speechmatics.com/v2/jobs/\(id)", headers: auth, evaluar: { jj in
+                let job = jj["job"] as? [String: Any]
+                switch job?["status"] as? String {
+                case "done":    return .listo("__LISTO__")   // señal: bajar el transcript
+                case "rejected": return .error("Speechmatics rechazó el audio")
+                default:        return .esperar
+                }
+            }) { r in
+                switch r {
+                case .failure(let e): completion(.failure(e))
+                case .success:
+                    // bajar el transcript en texto plano
+                    var t = URLRequest(url: URL(string: "https://asr.api.speechmatics.com/v2/jobs/\(id)/transcript?format=txt")!)
+                    t.timeoutInterval = 15
+                    t.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+                    URLSession.shared.dataTask(with: t) { d, rp, e in
+                        DispatchQueue.main.async {
+                            let c = (rp as? HTTPURLResponse)?.statusCode ?? 0
+                            guard e == nil, let d, (200..<300).contains(c),
+                                  let texto = String(data: d, encoding: .utf8) else {
+                                completion(.failure(ScribeError.sinTexto)); return
+                            }
+                            completion(.success(texto.trimmingCharacters(in: .whitespacesAndNewlines)))
+                        }
+                    }.resume()
+                }
+            }
+        }.resume()
+    }
+}
+
 /// Transcribe con un servidor LOCAL (Ollama/LM Studio) que tenga un modelo
 /// whisper — vía /v1/audio/transcriptions (OpenAI-compat, sin auth). El modelo
 /// lo detecta ChatIA.sttLocalModelo (detección INTELIGENTE): si el local no
@@ -254,6 +551,11 @@ enum Failover {
         case "openai": modeloUsado = p.modelo ?? "gpt-4o-mini-transcribe"
         case "mistral": modeloUsado = p.modelo ?? "voxtral-mini-latest"
         case "fireworks": modeloUsado = p.modelo ?? "whisper-v3"
+        case "hf": modeloUsado = p.modelo ?? "openai/whisper-large-v3"
+        case "deepgram": modeloUsado = p.modelo ?? "nova-3"
+        case "assemblyai": modeloUsado = p.modelo ?? "best"
+        case "gladia": modeloUsado = p.modelo ?? "default"
+        case "speechmatics": modeloUsado = p.modelo ?? "standard"
         case "ollama_stt": modeloUsado = ChatIA.sttLocalModelo["ollama"] ?? ""
         case "lmstudio_stt": modeloUsado = ChatIA.sttLocalModelo["lmstudio"] ?? ""
         default: modeloUsado = p.modelo ?? ""
@@ -295,6 +597,16 @@ enum Failover {
             MistralTranscribe.run(wav: wav, model: p.modelo ?? "voxtral-mini-latest") { siguiente($0) }
         case "fireworks":
             FireworksTranscribe.run(wav: wav, model: p.modelo ?? "whisper-v3") { siguiente($0) }
+        case "hf":
+            HFTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
+        case "deepgram":
+            DeepgramTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
+        case "assemblyai":
+            AssemblyAITranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
+        case "gladia":
+            GladiaTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
+        case "speechmatics":
+            SpeechmaticsTranscribe.run(wav: wav, model: p.modelo ?? "") { siguiente($0) }
         case "ollama_stt":
             // Detección inteligente: solo si Ollama tiene un modelo que escuche.
             if let m = ChatIA.sttLocalModelo["ollama"] {

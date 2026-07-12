@@ -29,6 +29,11 @@ enum Providers {
         ("openai", "OpenAI", ["whisper-1", "gpt-4o-transcribe", "gpt-4o-mini-transcribe"], "OPENAI_API_KEY"),
         ("mistral", "Mistral (Voxtral)", ["voxtral-mini-latest", "voxtral-small-latest"], "MISTRAL_API_KEY"),
         ("fireworks", "Fireworks (Whisper)", ["whisper-v3", "whisper-v3-turbo"], "FIREWORKS_API_KEY"),
+        ("hf", "Hugging Face (Whisper, gratis)", ["openai/whisper-large-v3", "openai/whisper-large-v3-turbo", "distil-whisper/distil-large-v3"], "HF_API_KEY"),
+        ("deepgram", "Deepgram (Nova)", ["nova-3", "nova-2"], "DEEPGRAM_API_KEY"),
+        ("assemblyai", "AssemblyAI", ["best", "nano"], "ASSEMBLYAI_API_KEY"),
+        ("gladia", "Gladia (gratis 10h/mes)", ["default"], "GLADIA_API_KEY"),
+        ("speechmatics", "Speechmatics (gratis 480min/mes)", ["standard", "enhanced"], "SPEECHMATICS_API_KEY"),
     ]
 
     /// Proveedores que se agregan a configs existentes cuando salen en una
@@ -46,6 +51,18 @@ enum Providers {
                  orden: 103, modelo: "voxtral-mini-latest"),
         Provider(id: "fireworks", nombre: "Fireworks (Whisper)", tipo: "nube", activo: false,
                  orden: 104, modelo: "whisper-v3"),
+        // STT de API propia (no OpenAI-compat) — apagados; el usuario los activa.
+        // HF y Gladia/Speechmatics tienen capa gratis (accesibilidad).
+        Provider(id: "hf", nombre: "Hugging Face (Whisper)", tipo: "nube", activo: false,
+                 orden: 107, modelo: "openai/whisper-large-v3"),
+        Provider(id: "deepgram", nombre: "Deepgram (Nova)", tipo: "nube", activo: false,
+                 orden: 108, modelo: "nova-3"),
+        Provider(id: "assemblyai", nombre: "AssemblyAI", tipo: "nube", activo: false,
+                 orden: 109, modelo: "best"),
+        Provider(id: "gladia", nombre: "Gladia", tipo: "nube", activo: false,
+                 orden: 110, modelo: "default"),
+        Provider(id: "speechmatics", nombre: "Speechmatics", tipo: "nube", activo: false,
+                 orden: 111, modelo: "standard"),
         // Locales STT: solo transcriben si tienen un modelo whisper (detección
         // inteligente: se ocultan/desactivan en Modelos si no lo tienen).
         Provider(id: "ollama_stt", nombre: "Ollama (local, whisper)", tipo: "local", activo: false,

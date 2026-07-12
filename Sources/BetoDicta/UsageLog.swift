@@ -18,6 +18,19 @@ struct UsageLog {
         // Mistral (Voxtral nube)
         "voxtral-mini-latest": 0.18, "voxtral-small-latest": 0.24,
         "voxtral-mini-transcribe": 0.18, "voxtral-realtime": 0.36,
+        // Fireworks (Whisper) — $0.0015/min v3, $0.0009/min turbo
+        "whisper-v3": 0.09, "whisper-v3-turbo": 0.05,
+        // Hugging Face Inference (Whisper) — capa GRATIS (por eso $0)
+        "openai/whisper-large-v3": 0, "openai/whisper-large-v3-turbo": 0,
+        "distil-whisper/distil-large-v3": 0,
+        // Deepgram Nova — ~$0.0043/min lotes
+        "nova-3": 0.26, "nova-2": 0.26,
+        // AssemblyAI — best (Universal) ~$0.0062/min, nano ~$0.002/min
+        "best": 0.37, "nano": 0.12,
+        // Gladia — ~$0.0102/min (10 h/mes gratis)
+        "default": 0.61,
+        // Speechmatics — batch (480 min/mes gratis)
+        "standard": 0.30, "enhanced": 0.40,
         // (modelos locales / GGUF → no listados → $0, gratis)
     ]
 
