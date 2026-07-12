@@ -86,6 +86,7 @@ final class SettingsModel: ObservableObject {
     @Published var autoactualizar: Bool { didSet { Config.set("autoactualizar", to: autoactualizar) } }
     @Published var avisoNube: Bool { didSet { Config.set("aviso_privacidad_nube", to: avisoNube) } }
     @Published var salvaguardaInyeccion: Bool { didSet { Config.set("salvaguarda_inyeccion", to: salvaguardaInyeccion) } }
+    @Published var sttStreaming: Bool { didSet { Config.set("stt_streaming", to: sttStreaming) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -119,6 +120,7 @@ final class SettingsModel: ObservableObject {
         autoactualizar = Config.autoactualizar()
         avisoNube = Config.avisoNube()
         salvaguardaInyeccion = Config.salvaguardaInyeccion()
+        sttStreaming = Config.sttStreaming()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -649,6 +651,10 @@ struct SettingsView: View {
                         Divider()
                         Toggle("Salvaguarda anti-inyección (extra, para IAs de terceros)", isOn: $m.salvaguardaInyeccion)
                         Text("Si el texto pulido por la IA se dispara de tamaño o mete comandos de shell que tú no dictaste, pega tu dictado ORIGINAL en vez del pulido. Nunca bloquea ni borra: en el peor caso pierdes el pulido, no tus palabras. Útil si usas gateways de terceros y dictas en terminales. Default apagado.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        Toggle("STT en vivo para la nube (Deepgram)", isOn: $m.sttStreaming)
+                        Text("Si tu motor #1 es Deepgram, transcribe EN VIVO por WebSocket (ves el texto mientras hablas) en vez de esperar al soltar la tecla. Necesita tu key de Deepgram. Si está apagado, Deepgram transcribe por lotes como el resto. Default apagado.")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         VStack(alignment: .leading, spacing: 4) {

@@ -88,6 +88,11 @@ struct Config {
     /// (default OFF: necesita Ollama u otro motor de embeddings). Parametrizable:
     /// base + modelo + key. Default = Ollama local bge-m3 (gratis, privado).
     static func busquedaSemantica() -> Bool { (json()["busqueda_semantica"] as? Bool) ?? false }
+    /// STT en vivo/streaming para motores de NUBE que lo soportan (hoy Deepgram
+    /// por WebSocket). Opt-in (default OFF): si está apagado, esos motores
+    /// transcriben por LOTES al soltar la tecla (como siempre). Additivo: no
+    /// cambia el comportamiento del resto de la cascada.
+    static func sttStreaming() -> Bool { (json()["stt_streaming"] as? Bool) ?? false }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

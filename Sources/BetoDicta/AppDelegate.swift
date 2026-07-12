@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let recorder = Recorder()
     private let panel = DictationPanel()
     private var stream: StreamClient?
+    private var dgStream: DeepgramStreamClient?   // Deepgram en vivo (opt-in)
     private var history: HistoryWriter?
     private let media = MediaControl()
     private var hotKeyRef: EventHotKeyRef?
@@ -232,6 +233,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 exit(0)
             }
             return
+        }
+        // Prueba del parseo de Deepgram en vivo: BETODICTA_DGTEST=1 alimenta
+        // mensajes de ejemplo y verifica que extrae transcript + is_final y que
+        // ignora los que no son "Results". Sin conexión real; sale.
+        if ProcessInfo.processInfo.environment["BETODICTA_DGTEST"] == "1" {
+            let casos: [(String, String, (String, Bool)?)] = [
+                ("interim", #"{"type":"Results","is_final":false,"channel":{"alternatives":[{"transcript":"hola que"}]}}"#, ("hola que", false)),
+                ("final",   #"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":"hola qué tal"}]}}"#, ("hola qué tal", true)),
+                ("metadata (ignora)", #"{"type":"Metadata","duration":3.2}"#, nil),
+                ("speechstarted (ignora)", #"{"type":"SpeechStarted"}"#, nil),
+                ("vacío final", #"{"type":"Results","is_final":true,"channel":{"alternatives":[{"transcript":""}]}}"#, ("", true)),
+            ]
+            var ok = true
+            for (etq, msg, esperado) in casos {
+                let r = DeepgramStreamClient.parse(msg)
+                let bien = (r?.0 == esperado?.0 && r?.1 == esperado?.1)
+                ok = ok && bien
+                print("DGTEST \(bien ? "OK" : "✗") \(etq): \(r.map { "(\"\($0.0)\", \($0.1))" } ?? "nil")")
+            }
+            print("DGTEST \(ok ? "TODO OK — parseo correcto" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
         }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
@@ -1029,6 +1051,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let id = primero?.id, ["nemotron_local", "voxtral_local", "canary_local"].contains(id),
            TcppStreamClient.disponible(proveedor: id) {
             arrancarTcppVivo(proveedor: id, history: history)
+        } else if puedeDeepgramVivo(primero) {
+            conectarDeepgramVivo(model: primero?.modelo ?? "nova-3", history: history)
         } else if isStreamingModel {
             if StreamClient.enCuarentena {
                 // Red recién caída: ni intentar la nube — plan B directo.
@@ -1040,6 +1064,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.setMotor(Self.nombreMotor(primero), enVivo: false)
             startLiveLocal(history: history)
         }
+    }
+
+    /// ¿El #1 es Deepgram y el STT en vivo está activado (opt-in) con key y sin
+    /// cuarentena? Additivo: si NO, Deepgram sigue siendo por lotes como siempre.
+    private func puedeDeepgramVivo(_ p: Provider?) -> Bool {
+        Config.sttStreaming() && p?.id == "deepgram"
+            && !ApiKeys.get("DEEPGRAM_API_KEY").isEmpty
+            && !DeepgramStreamClient.enCuarentena
     }
 
     /// Nombre corto del motor para el letrero del notch y las estadísticas.
@@ -1091,6 +1123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         liveTimer?.invalidate(); liveTimer = nil
         entregaVivo = nil
         stream?.disconnect(); stream = nil
+        dgStream?.disconnect(); dgStream = nil
         tcppStream?.cancel(); tcppStream = nil
 
         let primero = Providers.cadena().first
@@ -1098,6 +1131,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let id = primero?.id, ["nemotron_local", "voxtral_local", "canary_local"].contains(id),
            TcppStreamClient.disponible(proveedor: id) {
             arrancarTcppVivo(proveedor: id, history: history)
+        } else if puedeDeepgramVivo(primero) {
+            conectarDeepgramVivo(model: primero?.modelo ?? "nova-3", history: history)
         } else if primero?.id == "elevenlabs", (primero?.modelo ?? "") == "scribe_v2_realtime",
                   !StreamClient.enCuarentena {
             conectarScribeVivo(history: history)
@@ -1170,6 +1205,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 StreamClient.registrarExito()
                 self.fijarMotorVivo { [weak stream] chunk in stream?.send(chunk: chunk) }
                 self.panel.setMotor("11Labs", enVivo: true)
+            }
+        }
+    }
+
+    /// Deepgram en vivo (WebSocket). Si no conecta → plan B transparente (igual
+    /// que ElevenLabs). El texto final se cierra en stopAndTranscribe.
+    private func conectarDeepgramVivo(model: String, history: HistoryWriter) {
+        panel.setMotor("Deepgram…", enVivo: false)
+        let dg = DeepgramStreamClient()
+        self.dgStream = dg
+        dg.onPartial = { [weak self, weak dg] text in
+            guard let self, let dg, self.dgStream === dg, self.recorder.isRecording else { return }
+            self.lastPartial = text
+            self.panel.update(text)
+            history.savePartial(text)
+        }
+        dg.onError = { message in Log.write("deepgram-stream: \(message)") }
+        dg.connect(model: model) { [weak self] result in
+            guard let self, self.recorder.isRecording else { return }
+            switch result {
+            case .failure(let error):
+                Log.log(.ia, "Deepgram vivo no conectó (\(error.localizedDescription)) → plan B")
+                DeepgramStreamClient.registrarFallo()
+                self.dgStream = nil
+                self.planBVivo(history: history)
+            case .success:
+                self.fijarMotorVivo { [weak dg] chunk in dg?.send(chunk: chunk) }
+                self.panel.setMotor("Deepgram", enVivo: true)
+                self.panel.update("Escuchando (Deepgram en vivo)… (\(self.tecla) termina)")
             }
         }
     }
@@ -1301,6 +1365,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 tcpp.cancel()
                 Log.log(.ia, "beto-stream no entregó el final → failover")
                 rescatarConCascada("Motor local no respondió")
+            }
+            return
+        }
+
+        // Deepgram en vivo: cerrar el stream y esperar los finales pendientes.
+        if let dg = dgStream, dg.conectado {
+            self.dgStream = nil
+            guard seconds > 0.4 else {
+                dg.disconnect(); historyActual?.discard()
+                panel.update("Muy corto — nada que transcribir"); panel.hide(after: 1.2)
+                return
+            }
+            panel.update("⏳ Cerrando dictado…")
+            dg.finalizar()
+            // Tras CloseStream, Deepgram finaliza lo pendiente y cierra; damos
+            // una gracia y entregamos el texto (o cascada con el wav si vacío).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                let full = dg.fullText()
+                dg.disconnect()
+                if full.isEmpty {
+                    rescatarConCascada("Deepgram sin texto")
+                } else {
+                    let mod = Providers.modelo(de: "deepgram") ?? "nova-3"
+                    self?.deliver(raw: full, wav: wav, via: "Deepgram (en vivo)", modelo: mod, history: historyActual)
+                }
             }
             return
         }
