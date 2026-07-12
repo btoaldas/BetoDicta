@@ -549,7 +549,11 @@ struct SettingsView: View {
                             ForEach([("OPENROUTER_API_KEY", "OpenRouter"), ("GEMINI_API_KEY", "Gemini (Google)"),
                                      ("ANTHROPIC_API_KEY", "Anthropic (Claude)"), ("DEEPSEEK_API_KEY", "DeepSeek"),
                                      ("XAI_API_KEY", "xAI (Grok)"), ("OPENAI_API_KEY", "OpenAI"),
-                                     ("MISTRAL_API_KEY", "Mistral")], id: \.0) { env, nombre in
+                                     ("MISTRAL_API_KEY", "Mistral"),
+                                     ("CEREBRAS_API_KEY", "Cerebras (gratis)"), ("GITHUB_MODELS_KEY", "GitHub Models (gratis)"),
+                                     ("NVIDIA_API_KEY", "NVIDIA NIM (gratis)"), ("TOGETHER_API_KEY", "Together AI"),
+                                     ("NOVITA_API_KEY", "Novita AI"), ("ZAI_CHAT_API_KEY", "Z.ai (GLM, gratis)"),
+                                     ("SILICONFLOW_API_KEY", "SiliconFlow")], id: \.0) { env, nombre in
                                 if ApiKeys.get(env).isEmpty {
                                     HStack(spacing: 8) {
                                         SecureField("API key de \(nombre)", text: Binding(

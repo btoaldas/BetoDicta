@@ -128,6 +128,15 @@ struct ChatIA {
         ChatIA(id: "gemini",     nombre: "Gemini · Flash",       base: "https://generativelanguage.googleapis.com/v1beta/openai", modelo: "gemini-2.5-flash", keyEnv: "GEMINI_API_KEY", local: false),
         ChatIA(id: "anthropic",  nombre: "Anthropic · Claude",   base: "https://api.anthropic.com",      modelo: "claude-haiku-4-5",        keyEnv: "ANTHROPIC_API_KEY",  local: false,
                authHeader: "x-api-key", authPrefix: "", headersExtra: ["anthropic-version": "2023-06-01"], formato: .anthropic),
+        // Proveedores GRATIS / open (OpenAI-compat). El usuario pone su key y
+        // puede "Descubrir" para elegir el modelo actual de cada uno.
+        ChatIA(id: "cerebras",    nombre: "Cerebras",            base: "https://api.cerebras.ai/v1",              modelo: "llama-3.3-70b",                        keyEnv: "CEREBRAS_API_KEY",    local: false),
+        ChatIA(id: "github",      nombre: "GitHub Models",       base: "https://models.github.ai/inference",      modelo: "openai/gpt-4o-mini",                   keyEnv: "GITHUB_MODELS_KEY",   local: false),
+        ChatIA(id: "nvidia",      nombre: "NVIDIA NIM",          base: "https://integrate.api.nvidia.com/v1",     modelo: "meta/llama-3.3-70b-instruct",          keyEnv: "NVIDIA_API_KEY",      local: false),
+        ChatIA(id: "together",    nombre: "Together AI",         base: "https://api.together.xyz/v1",             modelo: "meta-llama/Llama-3.3-70B-Instruct-Turbo", keyEnv: "TOGETHER_API_KEY",  local: false),
+        ChatIA(id: "novita",      nombre: "Novita AI",           base: "https://api.novita.ai/v3/openai",         modelo: "meta-llama/llama-3.3-70b-instruct",    keyEnv: "NOVITA_API_KEY",      local: false),
+        ChatIA(id: "zai",         nombre: "Z.ai (GLM)",          base: "https://api.z.ai/api/paas/v4",            modelo: "glm-4.5-flash",                        keyEnv: "ZAI_CHAT_API_KEY",    local: false),
+        ChatIA(id: "siliconflow", nombre: "SiliconFlow",         base: "https://api.siliconflow.com/v1",          modelo: "Qwen/Qwen2.5-7B-Instruct",             keyEnv: "SILICONFLOW_API_KEY", local: false),
         ChatIA(id: "lmstudio",   nombre: "LM Studio (local)",    base: "http://localhost:1234/v1",       modelo: "local",                   keyEnv: "",                   local: true),
         ChatIA(id: "ollama",     nombre: "Ollama (local)",       base: "http://localhost:11434/v1",      modelo: "local",                   keyEnv: "",                   local: true),
     ]
