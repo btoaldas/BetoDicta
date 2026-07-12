@@ -93,7 +93,9 @@ enum AudioMatch {
     }
 
     // ---- Rasgos: secuencia de vectores log-mel, con recorte de silencio y CMN ----
-    static func rasgos(_ url: URL) -> [[Float]]? {
+    // cmn=false para el audio del dictado: ahí el CMN se aplica por VENTANA
+    // local en el spotting (si no, normalizar sobre toda la frase desalinea).
+    static func rasgos(_ url: URL, cmn: Bool = true) -> [[Float]]? {
         guard let s = leerSamples(url), s.count >= frameLen else { return nil }
         let sam = recortarSilencio(s)
         guard sam.count >= frameLen else { return nil }
@@ -141,7 +143,7 @@ enum AudioMatch {
             i += hop
         }
         guard !seq.isEmpty else { return nil }
-        return normalizarCMN(seq)
+        return cmn ? normalizarCMN(seq) : seq
     }
 
     /// Cepstral mean normalization: resta la media de cada coeficiente. Ayuda a
@@ -272,6 +274,108 @@ enum AudioMatch {
         let valor = traslape ? (corrHi + falsLo) / 2 : (corrHi + falsLo) / 2
         return Sugerencia(valor: valor, corrHi: corrHi, falsLo: falsLo,
                           nCorr: corr.count, nFals: fals.count, traslape: traslape)
+    }
+
+    // ---- Spotting: ¿aparece el término DENTRO del audio del dictado? ----
+    // Sin timestamps del motor: deslizo la muestra (ventana móvil) sobre el
+    // audio completo y me quedo con el mejor calce (misma escala que probar
+    // por voz, así la raya calibrada sirve). Devuelve la menor distancia.
+    /// Rasgos del audio del dictado SIN CMN global (se normaliza por ventana).
+    static func rasgosDeWav(_ wav: Data) -> [[Float]]? {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("beto-dictado.wav")
+        try? wav.write(to: tmp)
+        return rasgos(tmp, cmn: false)
+    }
+
+    private static func spotMin(refs: [[[Float]]], dictado: [[Float]]) -> Float? {
+        guard !refs.isEmpty, !dictado.isEmpty else { return nil }
+        var mejor = Float.greatestFiniteMagnitude
+        for ref in refs {
+            let m = ref.count
+            guard m >= 4, dictado.count >= max(4, m / 2) else { continue }
+            let win = Int(Float(m) * 1.4)
+            let hop = max(3, m / 4)
+            var i = 0
+            while i < dictado.count {
+                let fin = min(dictado.count, i + win)
+                if fin - i >= max(4, m / 2) {
+                    // CMN LOCAL de la ventana → escala comparable a la referencia
+                    mejor = min(mejor, dtw(ref, normalizarCMN(Array(dictado[i..<fin]))))
+                }
+                if fin >= dictado.count { break }
+                i += hop
+            }
+        }
+        return mejor == .greatestFiniteMagnitude ? nil : mejor
+    }
+
+    /// ¿El término (por sus muestras) suena DENTRO del audio del dictado?
+    /// rasgosDictado debe venir SIN CMN (rasgosDeWav lo hace así).
+    static func detectadoEnDictado(termino: String, rasgosDictado: [[Float]]) -> Float? {
+        let refs = muestras(termino).compactMap { rasgos($0) }
+        guard !refs.isEmpty else { return nil }
+        return spotMin(refs: refs, dictado: rasgosDictado)
+    }
+
+    /// Corrección combinada AUDIO + texto (opt-in, ≤ tope de segundos):
+    /// para cada término con muestras, si su sonido aparece en el audio y NO
+    /// está ya escrito, reemplaza la palabra del texto fonéticamente más cercana
+    /// (la que el motor botó). Audio confirma, texto coloca. Devuelve el texto
+    /// corregido y un registro de lo que hizo.
+    static func corregirConAudio(texto: String, wav: Data, terminos: [String]) -> (texto: String, cambios: [String]) {
+        guard let dict = rasgosDeWav(wav) else { return (texto, []) }
+        let u = umbral()
+        var resultado = texto
+        var cambios: [String] = []
+        for termino in terminos where tieneMuestras(termino) {
+            // ¿ya está escrito? entonces nada que hacer.
+            if resultado.range(of: termino, options: .caseInsensitive) != nil { continue }
+            guard let d = spotMin(refs: muestras(termino).compactMap { rasgos($0) }, dictado: dict) else { continue }
+            // Registrar SIEMPRE los que suenan cerca (para calibrar la raya del
+            // dictado, que corre en otra escala que "probar por voz").
+            let ds = String(format: "%.2f", d)
+            guard d <= u else {
+                if d <= u * 1.6 { cambios.append("· \(termino) sonó a \(ds) (raya \(String(format: "%.2f", u)) → no corrige)") }
+                continue
+            }
+            // Está en el audio y bajo la raya: buscar la palabra más parecida
+            // fonéticamente (la mal reconocida) y cambiarla.
+            guard let mala = palabraMasParecida(en: resultado, a: termino) else {
+                cambios.append("🔊 \(termino) sonó a \(ds) pero no hallé palabra que reemplazar")
+                continue
+            }
+            resultado = reemplazarPalabra(mala, por: termino, en: resultado)
+            cambios.append("🔊 \(termino) (audio \(ds)): '\(mala)' → '\(termino)'")
+        }
+        return (resultado, cambios)
+    }
+
+    /// Palabra del texto con el sonido (Metaphone) más cercano al término,
+    /// que no sea común y esté razonablemente cerca. nil si ninguna califica.
+    private static func palabraMasParecida(en texto: String, a termino: String) -> String? {
+        let ct = Fonetica.codigo(termino)
+        var mejor: (palabra: String, d: Int)?
+        let regex = try? NSRegularExpression(pattern: "\\p{L}[\\p{L}\\p{N}]*")
+        let ns = texto as NSString
+        for m in regex?.matches(in: texto, range: NSRange(location: 0, length: ns.length)) ?? [] {
+            let w = ns.substring(with: m.range)
+            guard w.count >= 3, !Aprendizaje.esComun(w),
+                  w.caseInsensitiveCompare(termino) != .orderedSame else { continue }
+            let d = Fonetica.distancia(Fonetica.codigo(w), ct)
+            if mejor == nil || d < mejor!.d { mejor = (w, d) }
+        }
+        // solo si el sonido es de verdad cercano (evita reemplazar cualquier cosa)
+        guard let mj = mejor, mj.d <= max(2, ct.count / 2) else { return nil }
+        return mj.palabra
+    }
+    private static func reemplazarPalabra(_ vieja: String, por nueva: String, en texto: String) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: vieja)
+        let patron = "(?<![\\p{L}\\p{N}])" + escaped + "(?![\\p{L}\\p{N}])"
+        guard let regex = try? NSRegularExpression(pattern: patron, options: [.caseInsensitive]) else { return texto }
+        let ns = NSRange(texto.startIndex..., in: texto)
+        // solo la PRIMERA ocurrencia
+        guard let m = regex.firstMatch(in: texto, range: ns), let r = Range(m.range, in: texto) else { return texto }
+        return texto.replacingCharacters(in: r, with: nueva)
     }
 
     /// El término más cercano entre los que tienen muestras (para el flujo de

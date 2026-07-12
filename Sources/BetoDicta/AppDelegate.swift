@@ -153,6 +153,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             exit(0)
         }
+        // Prueba del spotting+corrección (dev): BETODICTA_SPOTTEST=<wav dictado>
+        // BETODICTA_SPOTTEXT="texto" BETODICTA_SPOTTERM="Termino" → corrige y sale.
+        if let dwav = ProcessInfo.processInfo.environment["BETODICTA_SPOTTEST"] {
+            let texto = ProcessInfo.processInfo.environment["BETODICTA_SPOTTEXT"] ?? ""
+            let term = ProcessInfo.processInfo.environment["BETODICTA_SPOTTERM"] ?? ""
+            let wav = (try? Data(contentsOf: URL(fileURLWithPath: dwav))) ?? Data()
+            if let dict = AudioMatch.rasgosDeWav(wav), let d = AudioMatch.detectadoEnDictado(termino: term, rasgosDictado: dict) {
+                print("SPOTTEST distancia spotting=\(String(format: "%.3f", d))")
+            } else { print("SPOTTEST spotting=nil (sin muestras o audio corto)") }
+            let (out, cambios) = AudioMatch.corregirConAudio(texto: texto, wav: wav, terminos: [term])
+            print("SPOTTEST term=\(term) raya=\(AudioMatch.umbral())")
+            print("  texto entrada: \(texto)")
+            print("  texto salida : \(out)")
+            print("  cambios: \(cambios.isEmpty ? "(ninguno)" : cambios.joined(separator: " · "))")
+            exit(0)
+        }
         // Menú de Edición "invisible": la app no muestra barra de menú
         // (LSUIElement), pero sin esto macOS no enruta ⌘V/⌘C/⌘X/⌘A/⌘Z en
         // los campos de texto (pegar la API key solo funcionaba con clic derecho).
@@ -1166,6 +1182,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let crudo = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let trasReglas = applyReplacements(crudo)
+        var textoFinal = trasReglas
+
+        // Coincidencia por AUDIO (experimental, opt-in, solo dictados ≤30s):
+        // confirma por sonido que dijiste un término grabado y coloca la
+        // palabra que el motor botó. Combina audio + texto. Apagado no corre.
+        if Config.matchPorAudio(), segundos <= 30 {
+            let terms = Config.replacements().map { $0.replacement }.filter { AudioMatch.tieneMuestras($0) }
+            if !terms.isEmpty {
+                let (t, cambios) = AudioMatch.corregirConAudio(texto: textoFinal, wav: wav, terminos: terms)
+                textoFinal = t
+                cambios.forEach { Log.write("  2b·audio:    \($0)") }
+            }
+        }
 
         // Pipeline de auditoría — cada paso queda registrado
         Log.write("──── dictado \(String(format: "%.1f", segundos))s · \(proveedor) ────")
@@ -1176,7 +1205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Sin contenido real (vacío o puros signos tipo "- -") = silencio:
         // no se pega nada y el audio queda guardado por si acaso.
-        let tieneContenido = trasReglas.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+        let tieneContenido = textoFinal.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
         guard tieneContenido else {
             history?.finish(wav: wav, finalText: "")
             avisarSiLibre("(silencio)")
@@ -1188,12 +1217,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if Config.postProcess(), Config.groqKey() != nil {
             if !recorder.isRecording { panel.update("🤖 Puliendo…") }
-            LLMPostProcess.enhance(trasReglas) { pulido in
-                if pulido != trasReglas { Log.write("  3·IA:         \(pulido)") }
+            LLMPostProcess.enhance(textoFinal) { pulido in
+                if pulido != textoFinal { Log.write("  3·IA:         \(pulido)") }
                 seguir(pulido)
             }
         } else {
-            seguir(trasReglas)
+            seguir(textoFinal)
         }
     }
 
