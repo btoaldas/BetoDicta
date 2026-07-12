@@ -106,15 +106,29 @@ struct ChatIA {
         for c in catalogo where c.local {
             guard let url = URL(string: "\(c.base)/models") else { continue }
             grupo.enter()
-            var req = URLRequest(url: url); req.timeoutInterval = 1.2
+            var req = URLRequest(url: url); req.timeoutInterval = 2   // tolerante con arranque en frío
             URLSession.shared.dataTask(with: req) { data, _, _ in
                 defer { grupo.leave() }
-                let modelo = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?
-                    .flatMap { ($0["data"] as? [[String: Any]])?.first?["id"] as? String }
-                DispatchQueue.main.async { modelosLocales[c.id] = modelo }
+                let ids = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+                    .flatMap { $0["data"] as? [[String: Any]] }?.compactMap { $0["id"] as? String } ?? []
+                // Modelo por defecto de CHAT: salta los de EMBEDDINGS (bge, nomic-embed…),
+                // que no sirven para pulir; cae al primero solo si no hay otro.
+                let modelo = ids.first { !esEmbedding($0) } ?? ids.first
+                DispatchQueue.main.async {
+                    modelosLocales[c.id] = modelo
+                    if !ids.isEmpty { modelosPorProveedor[c.id] = ids }   // para el selector de modelo
+                }
             }.resume()
         }
         grupo.notify(queue: .main) { done?() }
+    }
+    /// ¿El id parece un modelo de EMBEDDINGS (no de chat)? — para no elegirlo
+    /// como modelo de pulido por defecto.
+    static func esEmbedding(_ id: String) -> Bool {
+        let n = id.lowercased()
+        return n.contains("embed") || n.hasPrefix("bge") || n.contains("nomic-embed")
+            || n.contains("mxbai") || n.hasPrefix("gte") || n.hasPrefix("e5-")
+            || n.contains("all-minilm")
     }
 }
 
