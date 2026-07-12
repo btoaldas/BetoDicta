@@ -68,7 +68,11 @@ struct ChatIA {
             body = ["model": modeloEfectivo, "messages": [["role": "user", "content": prompt]], "temperature": temperatura]
         case .anthropic:
             urlStr = "\(base)/v1/messages"
-            body = ["model": modeloEfectivo, "max_tokens": 4096,
+            // Anthropic EXIGE max_tokens. Escala con la entrada (la salida del
+            // pulido ≈ entrada; la traducción puede crecer) con holgura y tope,
+            // para no truncar dictados largos.
+            let maxTok = min(max(4096, Int(Double(textLen) / 3.0) + 1024), 32000)
+            body = ["model": modeloEfectivo, "max_tokens": maxTok,
                     "messages": [["role": "user", "content": prompt]], "temperature": temperatura]
         }
         guard let url = URL(string: urlStr) else { return nil }
@@ -89,6 +93,18 @@ struct ChatIA {
                 .flatMap { $0["message"] as? [String: Any] }?["content"] as? String
         case .anthropic:
             return (json["content"] as? [[String: Any]])?.first?["text"] as? String
+        }
+    }
+    /// ¿La respuesta se cortó por el tope de tokens? (evita entregar texto
+    /// truncado — mejor devolver el original). OpenAI: finish_reason "length";
+    /// Anthropic: stop_reason "max_tokens".
+    func fueTruncado(_ data: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        switch formato {
+        case .openai:
+            return ((json["choices"] as? [[String: Any]])?.first?["finish_reason"] as? String) == "length"
+        case .anthropic:
+            return (json["stop_reason"] as? String) == "max_tokens"
         }
     }
 
@@ -442,14 +458,18 @@ enum LLMPostProcess {
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let data,
-                   let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code),
-                   let pulido = ia.extraerContenido(data)?
-                       .trimmingCharacters(in: .whitespacesAndNewlines),
-                   !pulido.isEmpty {
-                    let ms = Int(Date().timeIntervalSince(inicio) * 1000)
-                    Log.write("pulido: OK en \(ms)ms — \(text.count)→\(pulido.count) chars\(intento > 1 ? " (reintento)" : "")")
-                    completion(pulido)
-                    return
+                   let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) {
+                    if ia.fueTruncado(data) {
+                        Log.write("pulido: respuesta TRUNCADA por tope de tokens → texto original")
+                        completion(text); return
+                    }
+                    if let pulido = ia.extraerContenido(data)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines), !pulido.isEmpty {
+                        let ms = Int(Date().timeIntervalSince(inicio) * 1000)
+                        Log.write("pulido: OK en \(ms)ms — \(text.count)→\(pulido.count) chars\(intento > 1 ? " (reintento)" : "")")
+                        completion(pulido)
+                        return
+                    }
                 }
                 // Falló. ¿Es de RED (transitorio) o del servidor?
                 let esRed = error != nil                  // timeout/conexión → error != nil

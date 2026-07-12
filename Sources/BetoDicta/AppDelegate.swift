@@ -100,7 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// Esc durante un dictado: cancela todo — no transcribe, no pega.
-    private func cancelDictation() {
+    /// `silencioso`: sin sonido ni panel "✕ Cancelado" (para descartar un
+    /// arranque espurio de push-to-talk cuando fn se usó como atajo).
+    private func cancelDictation(silencioso: Bool = false) {
         guard recorder.isRecording else { return }
         disarmEsc()
         media.dictationEnded()
@@ -117,10 +119,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         tcppStream = nil
         history?.discard()
         history = nil
-        playSound("Basso")
         setIcono(.reposo)
-        panel.update("✕ Cancelado")
-        panel.hide(after: 1)
+        if silencioso {
+            panel.hide(after: 0)
+        } else {
+            playSound("Basso")
+            panel.update("✕ Cancelado")
+            panel.hide(after: 1)
+        }
     }
 
     private var tecla: String { Config.hotkey() }
@@ -793,15 +799,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if active == self.comboMods {
                 self.comboArmed = true          // combo exacto presionado
                 self.comboUsedWithKey = false
-                // Push-to-talk: al PRESIONAR ya empieza a grabar.
-                if Config.pushToTalk() && !self.recorder.isRecording {
-                    DispatchQueue.main.async { self.startDictation() }
+                // Push-to-talk: al PRESIONAR empieza a grabar. El estado se
+                // evalúa DENTRO del bloque para no encolar dobles starts ni
+                // carrera con el evento de soltar.
+                if Config.pushToTalk() {
+                    DispatchQueue.main.async {
+                        guard !self.recorder.isRecording else { return }
+                        self.startDictation()
+                    }
                 }
             } else if self.comboArmed, active.isEmpty || !self.comboMods.isSubset(of: active) {
                 self.comboArmed = false
                 if Config.pushToTalk() {
-                    // Push-to-talk: al SOLTAR, termina y transcribe.
-                    if self.recorder.isRecording { DispatchQueue.main.async { self.stopAndTranscribe() } }
+                    let usadoConTecla = self.comboUsedWithKey
+                    DispatchQueue.main.async {
+                        guard self.recorder.isRecording else { return }
+                        // Si fn se usó como modificador de atajo (fn+flecha…),
+                        // descarta en silencio; solo transcribe si fue mantener.
+                        if usadoConTecla { self.cancelDictation(silencioso: true) }
+                        else { self.stopAndTranscribe() }
+                    }
                 } else if !self.comboUsedWithKey {
                     DispatchQueue.main.async { self.toggle() }   // modo toque: dispara al soltar
                 }
@@ -809,7 +826,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let keyHandler: (NSEvent) -> Void = { [weak self] _ in
             guard let self else { return }
-            if self.comboArmed { self.comboUsedWithKey = true }
+            if self.comboArmed {
+                self.comboUsedWithKey = true
+                // Push-to-talk: si ya arrancó a grabar y resultó ser un ATAJO
+                // (fn+tecla), aborta de inmediato en silencio — no esperes al
+                // soltar ni pegues basura.
+                if Config.pushToTalk() {
+                    DispatchQueue.main.async {
+                        if self.recorder.isRecording { self.cancelDictation(silencioso: true) }
+                    }
+                }
+            }
         }
 
         NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged, handler: flagsHandler)
@@ -833,6 +860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func startDictation() {
+        guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
         lastPartial = ""
         lastVoice = Date()
         // ¿Corregiste el dictado anterior donde lo pegaste? Aprende de eso.
@@ -857,6 +885,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         silenceTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
             guard self.recorder.isRecording else { timer.invalidate(); return }
+            // Watchdog push-to-talk: si la tecla ya NO está físicamente presionada
+            // pero se perdió el flagsChanged de soltar (Mission Control, evento
+            // caído, foco perdido), cerramos igual — no dependemos solo del evento.
+            if Config.pushToTalk(), self.comboArmed, !self.comboMods.isEmpty,
+               !self.comboMods.isSubset(of: self.activeMods(NSEvent.modifierFlags)) {
+                self.comboArmed = false
+                timer.invalidate()
+                self.stopAndTranscribe()
+                return
+            }
             // Mientras grabas, los servers locales no deben apagarse (dictados largos).
             if WhisperServer.corriendo { WhisperServer.tocar() }
             if VoxtralServer.corriendo { VoxtralServer.tocar() }

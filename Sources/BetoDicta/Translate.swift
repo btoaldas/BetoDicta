@@ -31,6 +31,10 @@ enum Translate {
         let inicio = Date()
         URLSession.shared.dataTask(with: request) { data, response, _ in
             DispatchQueue.main.async {
+                if let data, ia.fueTruncado(data) {
+                    Log.log(.ia, "traducir: respuesta truncada por tope de tokens, texto sin traducir")
+                    completion(text); return
+                }
                 guard let data,
                       let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code),
                       let out = ia.extraerContenido(data)?.trimmingCharacters(in: .whitespacesAndNewlines),
