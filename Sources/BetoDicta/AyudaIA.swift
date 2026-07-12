@@ -46,17 +46,30 @@ enum AyudaIA {
     }
 }
 
-/// Icono de ayuda (tooltip) + enlace "Conseguir clave" para un proveedor.
-/// Se muestra solo si el env está en el mapa de AyudaIA.
+/// Icono de ayuda (?) que abre un POPOVER con la explicación al hacer clic
+/// (fiable, a diferencia de .help() sobre un Image en SwiftUI hospedado) +
+/// enlace "Conseguir clave". Se muestra solo si el env está en AyudaIA.
 struct AyudaKey: View {
     let env: String
     var soloIcono = false
+    @State private var mostrar = false
     var body: some View {
         if let info = AyudaIA.info[env] {
             HStack(spacing: 5) {
-                Image(systemName: "questionmark.circle")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .help(info.ayuda)
+                Button { mostrar.toggle() } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(info.ayuda)   // tooltip al pasar el mouse (bonus)
+                .popover(isPresented: $mostrar, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(info.ayuda).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Button("Conseguir clave →") { AyudaIA.abrir(env); mostrar = false }
+                            .buttonStyle(.link)
+                    }
+                    .padding(12).frame(width: 280)
+                }
                 if !soloIcono {
                     Button("Conseguir clave") { AyudaIA.abrir(env) }
                         .buttonStyle(.link).font(.caption2)
