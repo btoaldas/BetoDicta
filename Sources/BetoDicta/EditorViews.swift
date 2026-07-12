@@ -171,10 +171,11 @@ struct VozView: View {
     @StateObject private var grabador = GrabadorVoz()
     @State private var muestras: [URL] = []
     @State private var reproductor: AVAudioPlayer?
-    @State private var probando = false
+    @State private var grabandoTipo: String?      // "correcta" | "falsa" | nil
     @State private var resultado: String?
     @State private var cazaria = false
-    @State private var recientes: [Float] = []
+    @State private var correctas: [Float] = []
+    @State private var falsas: [Float] = []
 
     private var pruebaURL: URL { FileManager.default.temporaryDirectory.appendingPathComponent("beto-prueba-voz.wav") }
 
@@ -207,15 +208,22 @@ struct VozView: View {
             }.buttonStyle(.bordered)
 
             Divider()
-
-            Button {
-                if probando { evaluarPrueba() }
-                else { resultado = nil; grabador.iniciar(a: pruebaURL); probando = true }
-            } label: {
-                Label(probando ? "Detener y evaluar" : "Probar por voz",
-                      systemImage: probando ? "stop.circle.fill" : "waveform.badge.mic")
-            }.buttonStyle(.bordered).disabled(muestras.isEmpty)
-            .help("Di el término y te muestro la distancia y si lo reconocería.")
+            Text("Probar: graba, di la palabra y evalúo. Etiqueta cada prueba para que aprenda la raya.")
+                .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button { toggle("correcta") } label: {
+                    Label(grabandoTipo == "correcta" ? "Detener" : "Prueba correcta",
+                          systemImage: grabandoTipo == "correcta" ? "stop.circle.fill" : "checkmark.circle")
+                        .foregroundStyle(grabandoTipo == "correcta" ? .red : .green)
+                }.buttonStyle(.bordered).disabled(muestras.isEmpty || grabandoTipo == "falsa")
+                .help("Di la palabra CORRECTA («\(termino)»). Debe salir bajo.")
+                Button { toggle("falsa") } label: {
+                    Label(grabandoTipo == "falsa" ? "Detener" : "Prueba falsa",
+                          systemImage: grabandoTipo == "falsa" ? "stop.circle.fill" : "xmark.circle")
+                        .foregroundStyle(grabandoTipo == "falsa" ? .red : .orange)
+                }.buttonStyle(.bordered).disabled(muestras.isEmpty || grabandoTipo == "correcta")
+                .help("Di adrede una palabra PARECIDA o distinta. Debe salir alto.")
+            }
 
             if let r = resultado {
                 HStack(spacing: 6) {
@@ -224,40 +232,51 @@ struct VozView: View {
                     Text(r).font(.subheadline).bold()
                 }
             }
-            if !recientes.isEmpty {
-                let mn = recientes.min() ?? 0, mx = recientes.max() ?? 0
-                let avg = recientes.reduce(0, +) / Float(recientes.count)
+            if !correctas.isEmpty || !falsas.isEmpty {
                 Divider()
-                Text(String(format: "Pruebas (%d): mín %.2f · media %.2f · máx %.2f", recientes.count, mn, avg, mx))
-                    .font(.caption).foregroundStyle(.secondary)
-                Text(recientes.map { String(format: "%.2f", $0) }.joined(separator: ", "))
-                    .font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Repite varias veces diciendo «\(termino)» (misma palabra baja) y también otras palabras (deben salir alto). La raya va en medio.")
-                    .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                if !correctas.isEmpty {
+                    Text(String(format: "✅ Correctas (%d): %.2f–%.2f", correctas.count, correctas.min() ?? 0, correctas.max() ?? 0))
+                        .font(.caption).foregroundStyle(.green)
+                    Text(correctas.map { String(format: "%.2f", $0) }.joined(separator: ", "))
+                        .font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary)
+                }
+                if !falsas.isEmpty {
+                    Text(String(format: "✗ Falsas (%d): %.2f–%.2f", falsas.count, falsas.min() ?? 0, falsas.max() ?? 0))
+                        .font(.caption).foregroundStyle(.orange)
+                    Text(falsas.map { String(format: "%.2f", $0) }.joined(separator: ", "))
+                        .font(.system(.caption2, design: .monospaced)).foregroundStyle(.tertiary)
+                }
             }
         }
         .padding(14).frame(width: 300)
-        .onAppear { refrescar(); recientes = AudioMatch.distanciasRecientes(termino) }
+        .onAppear { refrescar(); recargarPruebas() }
     }
 
     private func refrescar() { muestras = AudioMatch.muestras(termino) }
+    private func recargarPruebas() {
+        correctas = AudioMatch.recientesPorTipo(termino, tipo: "correcta")
+        falsas = AudioMatch.recientesPorTipo(termino, tipo: "falsa")
+    }
     private func reproducir(_ url: URL) {
         reproductor = try? AVAudioPlayer(contentsOf: url); reproductor?.play()
     }
-    private func evaluarPrueba() {
-        grabador.detener(); probando = false
-        // pequeño respiro para que el archivo termine de escribirse
+    private func toggle(_ tipo: String) {
+        if grabandoTipo == tipo { evaluar(tipo: tipo) }
+        else { resultado = nil; grabador.iniciar(a: pruebaURL); grabandoTipo = tipo }
+    }
+    private func evaluar(tipo: String) {
+        grabador.detener(); grabandoTipo = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             guard let d = AudioMatch.distancia(pruebaURL: pruebaURL, termino: termino) else {
                 resultado = "no pude leer el audio"; cazaria = false; return
             }
             let u = AudioMatch.umbral()
             cazaria = d <= u
-            resultado = String(format: "distancia %.2f (raya %.2f) → %@", d, u,
-                               cazaria ? "sí, lo reconoce" : "no")
-            AudioMatch.registrarPrueba(termino: termino, dist: d, umbral: u, caza: cazaria)
-            recientes = AudioMatch.distanciasRecientes(termino)
+            resultado = String(format: "%@ · distancia %.2f (raya %.2f) → %@",
+                               tipo == "correcta" ? "correcta" : "falsa", d, u,
+                               cazaria ? "reconoce" : "no")
+            AudioMatch.registrarPrueba(termino: termino, dist: d, umbral: u, caza: cazaria, tipo: tipo)
+            recargarPruebas()
         }
     }
 }
@@ -335,6 +354,7 @@ struct RulesEditor: View {
     @State private var vozID: UUID?        // fila con el popover de voz abierto
     @State private var porAudio = Config.matchPorAudio()
     @State private var umbral = Double(AudioMatch.umbral())   // raya de sensibilidad
+    @State private var refrescarSugerido = 0                  // bump al cerrar popover de voz
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -373,8 +393,26 @@ struct RulesEditor: View {
                         Config.set("umbral_audio", to: umbral)
                     }.controlSize(.small)
                 }
-                Text("Es la distancia máxima para dar por buena una palabra. Más ALTA = más permisivo: reconoce aunque lo digas distinto, pero puede confundir palabras parecidas (falsos positivos). Más BAJA = más estricto: casi no confunde, pero puede no reconocer tu propia palabra. Recomendado ~\(String(format: "%.1f", Double(AudioMatch.umbralDefecto))) (misma palabra ≈2.6, distintas ≈5.5+). Usa 🎙 → “probar por voz” para calibrar.")
+                Text("Es la distancia máxima para dar por buena una palabra. Más ALTA = más permisivo: reconoce aunque lo digas distinto, pero puede confundir palabras parecidas (falsos positivos). Más BAJA = más estricto: casi no confunde, pero puede no reconocer tu propia palabra.")
                     .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                // Umbral SUGERIDO a partir de tus pruebas reales (todas las filas).
+                let _ = refrescarSugerido      // fuerza recálculo al cerrar un popover
+                if let s = AudioMatch.umbralSugerido() {
+                    HStack(spacing: 8) {
+                        Image(systemName: "wand.and.stars").foregroundStyle(acentoEd)
+                        Text(String(format: "Sugerido para tu voz: %.1f", s.valor)).font(.caption).bold()
+                        Text(String(format: "(correctas ≤%.1f · falsas ≥%.1f · %d+%d pruebas)", s.corrHi, s.falsLo, s.nCorr, s.nFals))
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Button("Usar") { umbral = Double(s.valor); Config.set("umbral_audio", to: umbral) }.controlSize(.small)
+                    }
+                    if s.traslape {
+                        Text("⚠️ Tus correctas y falsas se traslapan: el audio no separa limpio para tu voz. Graba más muestras limpias, o mejor quédate con el texto.")
+                            .font(.caption2).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    Text("Haz pruebas etiquetadas (🎙 → “Prueba correcta” / “Prueba falsa”) y te sugiero una raya a tu medida (necesita ≥2 de cada una).")
+                        .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             HStack(spacing: 8) {
                 Text("").frame(width: 22)
@@ -422,7 +460,7 @@ struct RulesEditor: View {
                             .disabled(rule.replacement.trimmingCharacters(in: .whitespaces).isEmpty)
                             .help("Grabar tu voz para este término y probar por voz.")
                             .popover(isPresented: Binding(get: { vozID == rule.id },
-                                                          set: { if !$0 { vozID = nil } })) {
+                                                          set: { if !$0 { vozID = nil; refrescarSugerido += 1; umbral = Double(AudioMatch.umbral()) } })) {
                                 VozView(termino: rule.replacement)
                             }
                         }

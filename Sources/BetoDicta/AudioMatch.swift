@@ -213,11 +213,13 @@ enum AudioMatch {
     static func umbral() -> Float { Float(Config.umbralAudio() ?? Double(umbralDefecto)) }
 
     // ---- Bitácora de pruebas (para afinar el umbral con datos reales) ----
+    // tipo: "correcta" = dijiste la palabra buena · "falsa" = dijiste algo
+    // parecido/mal a propósito. Con eso se calcula el umbral SUGERIDO.
     static var pruebasURL: URL { dir.appendingPathComponent("pruebas.jsonl") }
-    static func registrarPrueba(termino: String, dist: Float, umbral u: Float, caza: Bool) {
+    static func registrarPrueba(termino: String, dist: Float, umbral u: Float, caza: Bool, tipo: String) {
         let iso = ISO8601DateFormatter().string(from: Date())
         let obj: [String: Any] = ["ts": iso, "termino": termino, "dist": Double(dist),
-                                  "umbral": Double(u), "caza": caza]
+                                  "umbral": Double(u), "caza": caza, "tipo": tipo]
         guard let data = try? JSONSerialization.data(withJSONObject: obj),
               var line = String(data: data, encoding: .utf8) else { return }
         line += "\n"
@@ -227,19 +229,49 @@ enum AudioMatch {
         } else {
             try? line.write(to: pruebasURL, atomically: true, encoding: .utf8)
         }
-        Log.log(.config, "prueba voz: \(termino) dist=\(String(format: "%.2f", dist)) raya=\(String(format: "%.2f", u)) → \(caza ? "caza ✅" : "no ❌")")
+        Log.log(.config, "prueba voz [\(tipo)]: \(termino) dist=\(String(format: "%.2f", dist)) raya=\(String(format: "%.2f", u)) → \(caza ? "caza ✅" : "no ❌")")
     }
-    /// Distancias recientes registradas para un término (para el resumen en vivo).
-    static func distanciasRecientes(_ termino: String, n: Int = 15) -> [Float] {
+
+    struct Fila { let termino: String; let dist: Float; let tipo: String }
+    static func todasLasPruebas() -> [Fila] {
         guard let text = try? String(contentsOf: pruebasURL, encoding: .utf8) else { return [] }
-        var out: [Float] = []
+        var out: [Fila] = []
         for line in text.split(separator: "\n") {
             guard let d = line.data(using: .utf8),
                   let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                  (j["termino"] as? String) == termino, let dist = j["dist"] as? Double else { continue }
-            out.append(Float(dist))
+                  let t = j["termino"] as? String, let dist = j["dist"] as? Double else { continue }
+            out.append(Fila(termino: t, dist: Float(dist), tipo: (j["tipo"] as? String) ?? ""))
         }
-        return Array(out.suffix(n))
+        return out
+    }
+    /// Distancias recientes de un término, separadas por tipo (para el resumen).
+    static func recientesPorTipo(_ termino: String, tipo: String, n: Int = 15) -> [Float] {
+        Array(todasLasPruebas().filter { $0.termino == termino && $0.tipo == tipo }.map { $0.dist }.suffix(n))
+    }
+
+    private static func percentil(_ xs: [Float], _ p: Double) -> Float {
+        let s = xs.sorted(); if s.isEmpty { return 0 }
+        let idx = max(0, min(s.count - 1, Int((Double(s.count - 1) * p).rounded())))
+        return s[idx]
+    }
+
+    /// Umbral SUGERIDO a partir de TODAS las pruebas etiquetadas (todas las
+    /// filas). La raya ideal cae entre lo alto de las "correctas" y lo bajo de
+    /// las "falsas". Es distinto para cada persona: sale de TU voz.
+    struct Sugerencia { let valor: Float; let corrHi: Float; let falsLo: Float
+                        let nCorr: Int; let nFals: Int; let traslape: Bool }
+    static func umbralSugerido() -> Sugerencia? {
+        let filas = todasLasPruebas()
+        let corr = filas.filter { $0.tipo == "correcta" }.map { $0.dist }
+        let fals = filas.filter { $0.tipo == "falsa" }.map { $0.dist }
+        guard corr.count >= 2, fals.count >= 2 else { return nil }
+        let corrHi = percentil(corr, 0.85)   // casi todas las correctas por debajo
+        let falsLo = percentil(fals, 0.15)   // casi todas las falsas por encima
+        let traslape = corrHi >= falsLo
+        // en medio del hueco; si se traslapan, sesgar a estricto (menos falsos +)
+        let valor = traslape ? (corrHi + falsLo) / 2 : (corrHi + falsLo) / 2
+        return Sugerencia(valor: valor, corrHi: corrHi, falsLo: falsLo,
+                          nCorr: corr.count, nFals: fals.count, traslape: traslape)
     }
 
     /// El término más cercano entre los que tienen muestras (para el flujo de
