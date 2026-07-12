@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.5"
+    static let numero = "0.20.6"
     static let fecha = "2026-07-12"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.20.6", "2026-07-12", [
+            "El selector de pulido muestra 'proveedor · modelo', y puedes elegir el modelo de CUALQUIER IA (nube, local o gateway) al vuelo con el botón 'Descubrir', no solo de los gateways",
+            "Descubrir modelos trae el PRECIO por modelo cuando el proveedor lo publica (ej. OpenRouter): '$in/$out por millón de tokens' o 'gratis'",
+            "Aviso de privacidad al pulir con una IA de nube o gateway de terceros (tu texto sale de tu Mac) — configurable en Avanzado. Si el gateway usa http sin cifrar, la API key ya no se envía",
+            "Descubrir prueba más rutas (/v1/models, /openai/v1/models, /api/v1/models) y acepta una ruta manual para gateways raros",
+            "La app no se cuelga al abrir sin internet (el chequeo de actualización es asíncrono y falla rápido)",
+        ]),
         ("0.20.5", "2026-07-12", [
             "SEGURIDAD: la actualización ahora VERIFICA la firma del DMG antes de instalar — solo se instala si viene firmado con el mismo certificado de la app; un release manipulado se rechaza. Se quitó el borrado a ciegas de la cuarentena.",
             "SEGURIDAD: las API keys y los gateways (.env, config, personalizadas) se guardan con permisos 0600 (solo tú), y la key no se manda si el gateway usa http sin cifrar.",
