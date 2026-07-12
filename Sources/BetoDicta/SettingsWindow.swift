@@ -85,6 +85,7 @@ final class SettingsModel: ObservableObject {
     @Published var buscarUpdateAlAbrir: Bool { didSet { Config.set("buscar_update_al_abrir", to: buscarUpdateAlAbrir) } }
     @Published var autoactualizar: Bool { didSet { Config.set("autoactualizar", to: autoactualizar) } }
     @Published var avisoNube: Bool { didSet { Config.set("aviso_privacidad_nube", to: avisoNube) } }
+    @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
         didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }
@@ -116,6 +117,7 @@ final class SettingsModel: ObservableObject {
         buscarUpdateAlAbrir = Config.buscarUpdateAlAbrir()
         autoactualizar = Config.autoactualizar()
         avisoNube = Config.avisoNube()
+        pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
         shiftEnterAlTerminar = Config.shiftEnterAlTerminar()
@@ -480,6 +482,11 @@ struct SettingsView: View {
                 fila("Tecla de dictado") {
                     HotkeyRecorder(value: $m.tecla).frame(width: 120, height: 24)
                 }
+                Toggle("Mantener presionado para hablar (push-to-talk)", isOn: $m.pushToTalk)
+                Text(m.pushToTalk
+                     ? "Grabas mientras tengas la tecla presionada; al soltarla, termina y transcribe. Funciona con fn o combinaciones de modificadores (ctrl+opt…), no con F1–F12."
+                     : "Modo toque: un toque empieza, otro toque termina. Actívalo para grabar solo mientras mantienes la tecla (fn o modificadores).")
+                    .font(.caption).foregroundStyle(.secondary)
                 fila("Micrófono") {
                     Picker("", selection: $m.microfono) {
                         Text("Integrado del Mac (recomendado)").tag("")

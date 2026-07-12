@@ -60,6 +60,9 @@ struct Config {
     /// Muestra el aviso de privacidad cuando el pulido usa una IA de NUBE o un
     /// gateway de terceros (tu texto sale de tu Mac). Default ON. Parametrizable.
     static func avisoNube() -> Bool { (json()["aviso_privacidad_nube"] as? Bool) ?? true }
+    /// Push-to-talk: mantener la tecla presionada graba, soltarla termina
+    /// (en vez del modo toque-para-empezar / toque-para-terminar). Default OFF.
+    static func pushToTalk() -> Bool { (json()["hold_para_hablar"] as? Bool) ?? false }
     static func muteToo() -> Bool { (json()["silenciar_ademas"] as? Bool) ?? false }
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }

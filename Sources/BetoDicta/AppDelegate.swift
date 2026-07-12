@@ -793,10 +793,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if active == self.comboMods {
                 self.comboArmed = true          // combo exacto presionado
                 self.comboUsedWithKey = false
+                // Push-to-talk: al PRESIONAR ya empieza a grabar.
+                if Config.pushToTalk() && !self.recorder.isRecording {
+                    DispatchQueue.main.async { self.startDictation() }
+                }
             } else if self.comboArmed, active.isEmpty || !self.comboMods.isSubset(of: active) {
                 self.comboArmed = false
-                if !self.comboUsedWithKey {
-                    DispatchQueue.main.async { self.toggle() }
+                if Config.pushToTalk() {
+                    // Push-to-talk: al SOLTAR, termina y transcribe.
+                    if self.recorder.isRecording { DispatchQueue.main.async { self.stopAndTranscribe() } }
+                } else if !self.comboUsedWithKey {
+                    DispatchQueue.main.async { self.toggle() }   // modo toque: dispara al soltar
                 }
             }
         }
