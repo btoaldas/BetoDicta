@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.22.0"
+    static let numero = "0.23.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.23.0", "2026-07-14", [
+            "Tareas y notas (nueva pestaña): dicta con el modo Tarea o Nota (o \"modo tarea …\") y se guardan en una lista LOCAL en tu Mac. Marca hechas, borra, limpia o agrega a mano",
+            "Nuevo modo ACCIÓN: dicta y se abre una app o página con tu texto — Nuevo correo (mailto), Outlook, WhatsApp, o abre Notas/Recordatorios/Calendario/Finder/Mensajes (copia el texto para pegar), o TU propia URL con {q} (ej. Quipux). Sin IA — hazlo un modo propio con su frase de voz (ej. \"modo whatsapp …\")",
+        ]),
         ("0.22.0", "2026-07-14", [
             "FAILOVER de pulido: si tienes 2+ IAs de chat conectadas, ordénalas en Ajustes → Pulido (\"Failover de pulido\") y si la 1ª (ej. Groq) no responde, salta sola a la 2ª, 3ª… (ej. OpenAI → OpenRouter → local). El pulido ya no se queda sin funcionar por un proveedor caído",
             "Modos por VOZ con argumento: \"modo traducir quichua …\" traduce a quichua; \"modo buscar google …\" busca en Google — el dato ajusta el modo solo por ese dictado (sin argumento usa el idioma/buscador por defecto). Reconoce rellenos (\"al\", \"en\") y alias (ddg, yt, mapas…)",

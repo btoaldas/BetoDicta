@@ -144,6 +144,7 @@ struct ModosView: View {
                     Text("Traducir").tag("traducir")
                     Text("Responder (asistente)").tag("responder")
                     Text("Buscar (web / Spotlight)").tag("buscar")
+                    Text("Acción (abrir app/correo/web)").tag("accion")
                 }.labelsHidden().frame(width: 200)
             }
         }
@@ -214,8 +215,26 @@ struct ModosView: View {
             Text("Dictas y se abre el buscador con tu consulta (usa {q} donde va el texto). Spotlight abre ⌘Espacio en tu Mac. Sin IA.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
-        // Guardar en la lista local (Tareas/Notas) — Fase 4. No aplica a Buscar/Dictado.
-        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" {
+        // Acción: qué abrir con el texto (app/correo/web) — Fase 5. Sin IA ni prompt.
+        if b.wrappedValue.base == "accion" {
+            HStack {
+                Text("Acción:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: b.accion) {
+                    ForEach(Acciones.base, id: \.id) { item in Text(item.nombre).tag(item.id) }
+                }.labelsHidden().frame(width: 260)
+            }
+            if b.wrappedValue.accion == "url" {
+                HStack {
+                    Text("URL:").font(.caption).frame(width: 90, alignment: .leading)
+                    TextField("https://quipux.gob.ec/…?q={q}", text: b.prompt)
+                        .textFieldStyle(.roundedBorder).frame(width: 280)
+                }
+            }
+            Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Apps como Notas/Finder: copia el texto y abre la app para que pegues (⌘V). Quipux/tu web: pon la URL. Sin IA.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        // Guardar en la lista local (Tareas/Notas) — Fase 4. No aplica a Buscar/Acción/Dictado.
+        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" && b.wrappedValue.base != "accion" {
             HStack {
                 Text("Guardar en:").font(.caption).frame(width: 90, alignment: .leading)
                 Picker("", selection: b.almacen) {
@@ -225,8 +244,8 @@ struct ModosView: View {
                 }.labelsHidden().frame(width: 160)
             }
         }
-        // Prompt (salvo Dictado/Traducir/Buscar, que no usan prompt libre)
-        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" && b.wrappedValue.base != "traducir" {
+        // Prompt (salvo Dictado/Traducir/Buscar/Acción, que no usan prompt libre)
+        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" && b.wrappedValue.base != "traducir" && b.wrappedValue.base != "accion" {
             Text("Instrucción para la IA (prompt):").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: b.prompt)
                 .font(.callout).frame(height: 70)
@@ -235,8 +254,8 @@ struct ModosView: View {
             Text("El modo Dictado usa la limpieza estándar (puntuación, muletillas, glosario). Su 'estilo' se ajusta en Ajustes → Pulido.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
-        // IA propia del modo (no aplica a Buscar, que no usa IA)
-        if b.wrappedValue.base != "buscar" {
+        // IA propia del modo (no aplica a Buscar/Acción, que no usan IA)
+        if b.wrappedValue.base != "buscar" && b.wrappedValue.base != "accion" {
             HStack {
                 Text("IA de este modo:").font(.caption).frame(width: 110, alignment: .leading)
                 Picker("", selection: b.proveedorId) {

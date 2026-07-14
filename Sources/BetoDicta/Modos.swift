@@ -28,15 +28,17 @@ struct Modo: Codable, Identifiable {
     var sitios: [String]         // dominios/URLs que activan este modo (en navegador)
     var buscador: String         // solo base "buscar": google/bing/duckduckgo/…/spotlight/personalizado
     var almacen: String          // "tarea"|"nota"|"" — guarda lo procesado en la lista local
+    var accion: String           // solo base "accion": id del preset (correo/outlook/whatsapp/…/url)
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
          esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = [],
-         buscador: String = "google", almacen: String = "") {
+         buscador: String = "google", almacen: String = "", accion: String = "correo") {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
         self.apps = apps; self.sitios = sitios; self.buscador = buscador; self.almacen = almacen
+        self.accion = accion
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -55,6 +57,7 @@ struct Modo: Codable, Identifiable {
         sitios = (try? c.decode([String].self, forKey: .sitios)) ?? []
         buscador = (try? c.decode(String.self, forKey: .buscador)) ?? "google"
         almacen = (try? c.decode(String.self, forKey: .almacen)) ?? ""
+        accion = (try? c.decode(String.self, forKey: .accion)) ?? "correo"
     }
 }
 
@@ -345,6 +348,37 @@ enum Buscadores {
             : (plantilla(id) ?? "https://www.google.com/search?q={q}")
         var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
         let enc = query.addingPercentEncoding(withAllowedCharacters: cs) ?? query
+        return tpl.replacingOccurrences(of: "{q}", with: enc)
+    }
+}
+
+// MARK: - Acciones para el modo "Acción" (abrir app / correo / web con el texto)
+
+enum Acciones {
+    /// id, nombre, esquema URL con {q} ("" = solo abrir la app, sin texto en URL;
+    /// "{q}" = URL propia del usuario en `prompt`), bundle id de la app.
+    static let base: [(id: String, nombre: String, esquema: String, bundle: String)] = [
+        ("correo",        "Nuevo correo (con el texto)",     "mailto:?body={q}", ""),
+        ("outlook",       "Outlook: nuevo correo",           "ms-outlook://compose?body={q}", "com.microsoft.Outlook"),
+        ("whatsapp",      "WhatsApp (con el texto)",         "whatsapp://send?text={q}", "net.whatsapp.WhatsApp"),
+        ("notas",         "Abrir Notas (copia el texto)",    "", "com.apple.Notes"),
+        ("recordatorios", "Abrir Recordatorios",             "", "com.apple.reminders"),
+        ("calendario",    "Abrir Calendario",                "", "com.apple.iCal"),
+        ("finder",        "Abrir Finder",                    "", "com.apple.finder"),
+        ("mensajes",      "Abrir Mensajes",                  "", "com.apple.MobileSMS"),
+        ("url",           "Abrir web (tu URL con {q})",      "{q}", ""),
+    ]
+    static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
+    static func bundle(_ id: String) -> String { base.first { $0.id == id }?.bundle ?? "" }
+    /// URL/esquema final con el texto (nil = acción de SOLO abrir app, sin URL).
+    /// `custom` = plantilla del usuario cuando id=="url" (debe tener {q}).
+    static func url(_ id: String, texto: String, custom: String = "") -> String? {
+        guard let e = base.first(where: { $0.id == id }), !e.esquema.isEmpty else { return nil }
+        let tpl = id == "url"
+            ? (custom.contains("{q}") ? custom : "https://www.google.com/search?q={q}")
+            : e.esquema
+        var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
+        let enc = texto.addingPercentEncoding(withAllowedCharacters: cs) ?? texto
         return tpl.replacingOccurrences(of: "{q}", with: enc)
     }
 }

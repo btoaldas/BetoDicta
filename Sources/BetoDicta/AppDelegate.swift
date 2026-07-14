@@ -443,6 +443,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("BUSCARTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba del modo ACCIÓN: BETODICTA_ACCTEST=1 (construcción de URL, sin abrir nada).
+        if ProcessInfo.processInfo.environment["BETODICTA_ACCTEST"] == "1" {
+            let casos: [(String, String, String, String?)] = [
+                ("correo", "hola mundo", "", "mailto:?body=hola%20mundo"),
+                ("outlook", "buenos días", "", "ms-outlook://compose?body=buenos%20d%C3%ADas"),
+                ("whatsapp", "hola", "", "whatsapp://send?text=hola"),
+                ("url", "acta 5", "https://quipux.gob.ec/buscar?q={q}", "https://quipux.gob.ec/buscar?q=acta%205"),
+                ("finder", "algo", "", nil),      // solo abrir app → sin URL
+                ("notas", "x", "", nil),          // solo abrir app → sin URL
+            ]
+            var ok = true
+            for (id, t, custom, esp) in casos {
+                let r = Acciones.url(id, texto: t, custom: custom)
+                let bien = (r == esp); ok = ok && bien
+                print("ACCTEST \(bien ? "OK" : "✗") \(id) → \(r ?? "nil (abrir app: \(Acciones.bundle(id)))")")
+            }
+            print("ACCTEST \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
@@ -1781,6 +1800,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history)
             return
         }
+        // Modo ACCIÓN: abre una app/correo/web con el texto (Fase 5). No pega.
+        if modo.base == "accion" {
+            ejecutarAccion(textoFinal, modo: modo, wav: wav, history: history)
+            return
+        }
         let seguir: (String) -> Void = { [weak self] texto in
             self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)
         }
@@ -1830,6 +1854,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             Log.write("  ✓ entregado:  \(text)")
             finishDelivery(text, rawText: rawText, wav: wav, history: history)
+        }
+    }
+
+    /// Modo Acción (Fase 5): abre una app / correo / web con el texto dictado.
+    /// Con esquema (mailto/whatsapp/ms-outlook/URL) precarga el texto; sin esquema
+    /// (Notas/Finder/…) copia el texto al portapapeles y abre la app por bundle id.
+    private func ejecutarAccion(_ texto: String, modo: Modo, wav: Data, history: HistoryWriter?) {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = modo.accion.isEmpty ? "correo" : modo.accion
+        Log.write("  ▶︎ acción (\(Acciones.nombre(id))): \(t)")
+        history?.finish(wav: wav, finalText: "▶︎ \(Acciones.nombre(id)): \(t)")
+        if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
+            NSWorkspace.shared.open(url)
+        } else {
+            // Solo abrir app: deja el texto en el portapapeles para pegar + abre el bundle.
+            if !t.isEmpty {
+                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string)
+            }
+            let bid = Acciones.bundle(id)
+            if !bid.isEmpty, let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
+                NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+            }
+        }
+        playSound("Glass")
+        if !recorder.isRecording {
+            setIcono(.reposo)
+            panel.updateForzado("▶︎ " + t)
+            panel.hide(after: 1.6)
         }
     }
 

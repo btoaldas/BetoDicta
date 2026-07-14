@@ -395,12 +395,15 @@ Un **modo** decide cómo se procesa tu dictado. Se configura en **Ajustes → Mo
 Modos base:
 
 - **Dictado** (por defecto): comportamiento de siempre (pulir + traducir si los tienes activos).
-- **Correo / Oficio / Tarea / Nota**: reescriben tu dictado con ese formato.
+- **Correo / Oficio / Tarea / Nota**: reescriben tu dictado con ese formato. **Tarea** y **Nota** además **guardan** lo dictado en tu lista local (pestaña **Tareas y notas**).
 - **Traducir**: traduce a un idioma que eliges de una **lista con banderita** (y puedes **agregar** los idiomas que quieras).
 - **Asistente**: trata tu dictado como una instrucción y redacta la respuesta.
 - **Buscar**: no pega texto — **abre el buscador con tu consulta**. Eliges **Google, Bing, DuckDuckGo, YouTube, Google Maps, Spotlight (⌘Espacio en tu Mac)** o una **URL propia** (usa `{q}` donde va el texto). Sin IA.
+- **Acción**: abre una **app o página con tu texto** — **Nuevo correo** (mailto), **Outlook**, **WhatsApp**, **Notas, Recordatorios, Calendario, Finder, Mensajes** (abre la app y copia el texto para que pegues), o **tu propia URL** (ej. Quipux: pones la URL con `{q}`). Sin IA. Ideal como modo propio con su frase de voz (ej. *"modo whatsapp …"*).
 
-Cada modo (menos Dictado/Buscar) usa **su propia IA y su propio prompt** — o la IA global de Pulido. Puedes crear tus **propios** modos con el botón **+** (nombre, comportamiento, prompt, IA).
+Cada modo de texto usa **su propia IA y su propio prompt** — o la IA global de Pulido (Buscar y Acción no usan IA). Puedes crear tus **propios** modos con el botón **+** (nombre, comportamiento, prompt/IA, o acción). Los que producen texto pueden además **guardarse** en Tareas o Notas (opción *"Guardar en"*).
+
+**Tareas y notas** (pestaña propia): lo que dictas con Tarea/Nota se acumula ahí. Marca tareas como **hechas**, bórralas, **"Limpiar hechas"**, o agrega a mano. 100% local.
 
 **Un solo uso (por defecto ON):** el modo que eliges en el notch/menú se aplica **solo a ese dictado** y luego vuelve al **modo por defecto**. Marca el por defecto con **"Poner por defecto"**. Si prefieres que el modo elegido se quede fijo, apaga el interruptor *"El modo elegido al vuelo es de un solo uso"*.
 

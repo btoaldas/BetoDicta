@@ -37,7 +37,7 @@ struct TranscribeView: View {
     @State private var grabaciones: [Grabacion] = []
     // Modo a aplicar a lo transcrito (Buscar no aplica: abre navegador, no da texto).
     @State private var modoId = "dictado"
-    @State private var modos: [Modo] = ModosStore.todos().filter { $0.base != "buscar" }
+    @State private var modos: [Modo] = ModosStore.todos().filter { $0.base != "buscar" && $0.base != "accion" }
     @ObservedObject private var preview = AudioPreview.shared
 
     struct Grabacion: Identifiable {
@@ -158,7 +158,7 @@ struct TranscribeView: View {
     /// otros pasan por su IA (Correo/Oficio/…/Traducir/Asistente).
     private func aplicarModo(_ texto: String) {
         let modo = ModosStore.modo(modoId)
-        guard modo.id != "dictado", modo.base != "buscar" else {
+        guard modo.id != "dictado", modo.base != "buscar", modo.base != "accion" else {
             trabajando = false; resultado = texto
             estado = "Listo · \(texto.count) caracteres"; return
         }
