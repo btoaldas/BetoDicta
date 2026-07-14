@@ -22,7 +22,7 @@ func transcribeBatch(wav: Data, model: String, completion: @escaping (Result<Str
     body.append(wav)
     body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
-    var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
+    var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!); request.setValue("close", forHTTPHeaderField: "Connection")
     request.httpMethod = "POST"
     // Corto a propósito: con red mala es mejor saltar rápido al siguiente
     // proveedor de la cascada (Whisper local responde en <1 s) que esperar.
@@ -82,7 +82,7 @@ func transcribeFile(url: URL, model: String, completion: @escaping (Result<Strin
     body.append(fileData)
     body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
-    var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
+    var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!); request.setValue("close", forHTTPHeaderField: "Connection")
     request.httpMethod = "POST"
     request.timeoutInterval = 300   // archivos largos
     request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")

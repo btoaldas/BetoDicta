@@ -24,7 +24,7 @@ enum OpenAICompatible {
         body.append(wav)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
-        var req = URLRequest(url: URL(string: endpoint)!)
+        var req = URLRequest(url: URL(string: endpoint)!); req.setValue("close", forHTTPHeaderField: "Connection")
         req.httpMethod = "POST"
         // Corto a propósito: mejor saltar al siguiente de la cascada que colgar.
         req.timeoutInterval = 15
@@ -97,7 +97,7 @@ enum GroqTranscribe {
         body.append(wav)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
 
-        var req = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!)
+        var req = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!); req.setValue("close", forHTTPHeaderField: "Connection")
         req.httpMethod = "POST"; req.timeoutInterval = 60
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -148,7 +148,7 @@ enum RawAudioSTT {
                     extraer: @escaping ([String: Any]) -> String?,
                     completion: @escaping (Result<String, Error>) -> Void) {
         guard let u = URL(string: url) else { completion(.failure(ScribeError.ws("URL inválida"))); return }
-        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = timeout
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = timeout; req.setValue("close", forHTTPHeaderField: "Connection")
         req.setValue(contentType, forHTTPHeaderField: "Content-Type")
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         URLSession.shared.uploadTask(with: req, from: wav) { data, resp, err in
@@ -182,7 +182,7 @@ enum STTPoll {
             completion(.failure(ScribeError.ws("La transcripción tardó demasiado"))); return
         }
         guard let u = URL(string: url) else { completion(.failure(ScribeError.ws("URL inválida"))); return }
-        var req = URLRequest(url: u); req.timeoutInterval = 15
+        var req = URLRequest(url: u); req.timeoutInterval = 15; req.setValue("close", forHTTPHeaderField: "Connection")
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         URLSession.shared.dataTask(with: req) { data, resp, err in
             if let err { DispatchQueue.main.async { completion(.failure(err)) }; return }
@@ -214,7 +214,7 @@ private func postJSON(url: String, headers: [String: String], cuerpo: [String: A
                       timeout: TimeInterval = 20,
                       completion: @escaping (Result<[String: Any], Error>) -> Void) {
     guard let u = URL(string: url) else { completion(.failure(ScribeError.ws("URL inválida"))); return }
-    var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = timeout
+    var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = timeout; req.setValue("close", forHTTPHeaderField: "Connection")
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
     req.httpBody = try? JSONSerialization.data(withJSONObject: cuerpo)
@@ -306,7 +306,7 @@ enum SonioxTranscribe {
         body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(wav)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        var up = URLRequest(url: URL(string: "https://api.soniox.com/v1/files")!)
+        var up = URLRequest(url: URL(string: "https://api.soniox.com/v1/files")!); up.setValue("close", forHTTPHeaderField: "Connection")
         up.httpMethod = "POST"; up.timeoutInterval = 30
         up.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         up.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -341,7 +341,7 @@ enum SonioxTranscribe {
                         case .failure(let e): completion(.failure(e))
                         case .success:
                             // 4) bajar el texto
-                            var t = URLRequest(url: URL(string: "https://api.soniox.com/v1/transcriptions/\(id)/transcript")!)
+                            var t = URLRequest(url: URL(string: "https://api.soniox.com/v1/transcriptions/\(id)/transcript")!); t.setValue("close", forHTTPHeaderField: "Connection")
                             t.timeoutInterval = 15
                             t.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
                             URLSession.shared.dataTask(with: t) { d, rp, e in
@@ -384,7 +384,7 @@ enum AzureTranscribe {
         body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(wav)
         body.append("\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"definition\"\r\nContent-Type: application/json\r\n\r\n\(definition)\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        var req = URLRequest(url: URL(string: url)!)
+        var req = URLRequest(url: URL(string: url)!); req.setValue("close", forHTTPHeaderField: "Connection")
         req.httpMethod = "POST"; req.timeoutInterval = 20
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue(key, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
@@ -466,7 +466,7 @@ enum GladiaTranscribe {
         body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(wav)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        var up = URLRequest(url: URL(string: "https://api.gladia.io/v2/upload")!)
+        var up = URLRequest(url: URL(string: "https://api.gladia.io/v2/upload")!); up.setValue("close", forHTTPHeaderField: "Connection")
         up.httpMethod = "POST"; up.timeoutInterval = 30
         up.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         up.setValue(key, forHTTPHeaderField: "x-gladia-key")
@@ -522,7 +522,7 @@ enum SpeechmaticsTranscribe {
         body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"data_file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(wav)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        var req = URLRequest(url: URL(string: "https://asr.api.speechmatics.com/v2/jobs")!)
+        var req = URLRequest(url: URL(string: "https://asr.api.speechmatics.com/v2/jobs")!); req.setValue("close", forHTTPHeaderField: "Connection")
         req.httpMethod = "POST"; req.timeoutInterval = 30
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -550,7 +550,7 @@ enum SpeechmaticsTranscribe {
                 case .failure(let e): completion(.failure(e))
                 case .success:
                     // bajar el transcript en texto plano
-                    var t = URLRequest(url: URL(string: "https://asr.api.speechmatics.com/v2/jobs/\(id)/transcript?format=txt")!)
+                    var t = URLRequest(url: URL(string: "https://asr.api.speechmatics.com/v2/jobs/\(id)/transcript?format=txt")!); t.setValue("close", forHTTPHeaderField: "Connection")
                     t.timeoutInterval = 15
                     t.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
                     URLSession.shared.dataTask(with: t) { d, rp, e in
@@ -590,7 +590,7 @@ enum GatewayTranscribe {
         body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
         body.append(wav)
         body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 20
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 20; req.setValue("close", forHTTPHeaderField: "Connection")
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         if segura {
             if !gw.apiKey.isEmpty {
