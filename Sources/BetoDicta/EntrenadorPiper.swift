@@ -322,6 +322,16 @@ enum EntrenadorPiper {
     static func detener() { cancelado = true; proc?.terminate(); proc = nil }
     static func esActivo() -> Bool { proc?.isRunning ?? false }
 
+    /// Detiene el entrenamiento de un proyecto AUNQUE la app se haya reabierto (el proceso
+    /// quedó huérfano y `proc` es nil): lo mata por pkill sobre la ruta del proyecto.
+    static func detenerProyecto(_ proyecto: URL) {
+        detener()
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        p.arguments = ["-f", proyecto.lastPathComponent + "/run"]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        try? p.run(); p.waitUntilExit()
+    }
+
     /// Extrae una PISTA legible del dataset.log para decirle al usuario qué pasó
     /// (ffmpeg faltante, sin audios, errores por archivo). Alberto lo pidió: ver el porqué.
     static func pistaDataset(_ proyecto: URL) -> String {

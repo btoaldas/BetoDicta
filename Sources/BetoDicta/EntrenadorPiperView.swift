@@ -141,7 +141,10 @@ struct EntrenadorPiperView: View {
                         }
                         Text(faseTxt).font(.caption).monospacedDigit()
                         if entrenando {
-                            Button("Detener") { EntrenadorPiper.detener(); entrenando = false; timer?.invalidate() }.controlSize(.small)
+                            Button("Detener") {
+                                if let p = proyecto { EntrenadorPiper.detenerProyecto(p) } else { EntrenadorPiper.detener() }
+                                entrenando = false; timer?.invalidate()
+                            }.controlSize(.small)
                             Text("Puedes cerrar la ventana e incluso BetoDicta: el entrenamiento sigue en segundo plano. Al reabrir, verás el progreso otra vez (y si se apagó la compu, aparece “Reanudar”).").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
