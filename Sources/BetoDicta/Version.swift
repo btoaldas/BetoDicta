@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.24.0"
+    static let numero = "0.25.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.25.0", "2026-07-14", [
+            "WhatsApp con CONTACTOS: importa tu lista (CSV/JSON o export de Google/Gmail) o usa tus Contactos de Mac; di \"modo whatsapp, a Alberto, hola\" y abre su chat con el texto. Si hay varios, eliges en un modal. Exportar CSV/JSON te da el formato",
+            "Modos de ACCIÓN listos para las apps de Mac por defecto: Outlook, Correo, WhatsApp, Notas, Recordatorios, Calendario, Finder, Safari, Música, Terminal, Mapas, Spotlight y tu propia web (betodicta.eztic.ec). Créalos/edítalos en Ajustes → Modos",
+            "Reconocimiento por VOZ más flexible: varias frases por modo (failover ante mal-escuchas, ej. \"mudo tarea\"=\"modo tarea\") y matcheo por raíz (\"buscador\"→buscar, \"traduce\"→traducir)",
+            "Cadenas por voz más robustas: tolera comas/puntos, \"modo\" repetido por etapa, y el idioma tras \"a\" (\"modo traducir a inglés correo, …\")",
+            "Arreglos: idiomas con coma (\"modo traducir portugués, …\"), y \"modo <app>\" sin texto ya abre la app sin pedir contenido",
+        ]),
         ("0.24.0", "2026-07-14", [
             "Modos ENCADENADOS por voz: junta un paso + una acción en una frase — \"modo traducir quichua a correo, hacer la merienda\" traduce y abre un correo con el texto; \"modo traducir inglés whatsapp, nos vemos\" traduce y abre WhatsApp. Orden-independiente y con conectores (a, y, en…) que se ignoran",
             "Frases de voz MÚLTIPLES por modo (failover ante mal-escuchas del STT): cada modo acepta varias separadas por coma (ej. Tarea: \"modo tarea, mudo tarea, molde tarea\"). Añade las tuyas en Ajustes → Modos",

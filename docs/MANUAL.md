@@ -405,6 +405,10 @@ Cada modo de texto usa **su propia IA y su propio prompt** — o la IA global de
 
 **Tareas y notas** (pestaña propia): lo que dictas con Tarea/Nota se acumula ahí. Marca tareas como **hechas**, bórralas, **"Limpiar hechas"**, o agrega a mano. 100% local.
 
+**Acciones a apps de Mac:** vienen creados modos de acción para las apps por defecto (Outlook, Correo, WhatsApp, Notas, Recordatorios, Calendario, Finder, Safari, Música, Terminal, Mapas, Spotlight, tu web…). Las que llevan tu texto en la URL/esquema lo abren con el texto puesto (Correo, Outlook, WhatsApp, Mapas, tu URL con `{q}`). Para las demás, la app se abre y el texto queda en el portapapeles (pégalo con **⌘V**). *(Insertar el texto automáticamente en Notas/Recordatorios está en mejora.)*
+
+**WhatsApp con contactos:** en el modo WhatsApp puedes **importar** una lista (CSV/JSON, o el export de Google/Gmail) y/o usar tus **Contactos de Mac**. Di *"modo whatsapp, a Alberto, hola qué tal"* → busca a Alberto y abre su chat con el texto; si hay varios, eliges en un modal. **Exportar CSV/JSON** te da el formato (con ejemplo si está vacío).
+
 **Un solo uso (por defecto ON):** el modo que eliges en el notch/menú se aplica **solo a ese dictado** y luego vuelve al **modo por defecto**. Marca el por defecto con **"Poner por defecto"**. Si prefieres que el modo elegido se quede fijo, apaga el interruptor *"El modo elegido al vuelo es de un solo uso"*.
 
 **Activación automática:**
