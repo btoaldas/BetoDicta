@@ -339,6 +339,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba del recomendador de entrenamiento: BETODICTA_PLANTEST=1
+        if ProcessInfo.processInfo.environment["BETODICTA_PLANTEST"] == "1" {
+            for m in [40.0, 90, 150, 300, 480] {
+                let p = Entrenador.recomendar(minutos: m)
+                print("PLANTEST \(Int(m))min → permitido=\(p.permitido) tier=\(p.tier) etapas=\(p.etapasRecomendadas) ckpts=\(p.checkpoints) horas≈\(String(format: "%.1f", Entrenador.horasEstimadas(etapas: p.etapasRecomendadas)))")
+            }
+            exit(0)
+        }
         // Prueba de STREAMING local XTTS: BETODICTA_XTTSSTREAM=<carpeta_paquete>
         // corre inference_stream, captura los trozos a /tmp/betodicta_xtts_stream.wav.
         if let pkg = ProcessInfo.processInfo.environment["BETODICTA_XTTSSTREAM"], !pkg.isEmpty {
