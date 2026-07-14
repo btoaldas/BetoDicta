@@ -452,6 +452,36 @@ extension ModosStore {
         "duckduckgo": "buscar", "youtube": "buscar", "maps": "buscar", "mapas": "buscar",
     ]
 
+    // Capa 2 (sin IA): matcheo por RAÍZ. Tolera formas variables sin enumerar todo.
+    private static let transformStems: [(String, String)] = [
+        ("traduc", "traducir"), ("ofici", "oficio"), ("tarea", "tarea"), ("nota", "nota"),
+        ("asist", "asistente"), ("resum", "asistente"), ("respond", "asistente"),
+    ]
+    private static let accionStems: [(String, String)] = [
+        ("correo", "correo"), ("mail", "correo"), ("outlook", "outlook"),
+        ("whats", "whatsapp"), ("wasa", "whatsapp"), ("guasa", "whatsapp"),
+        ("mensaj", "mensajes"), ("imessage", "mensajes"),
+        ("recordat", "recordatorios"), ("calendar", "calendario"), ("agenda", "calendario"),
+        ("finder", "finder"), ("archivo", "finder"), ("safari", "safari"), ("navegador", "safari"),
+        ("music", "musica"), ("terminal", "terminal"), ("consola", "terminal"),
+        ("mapa", "mapas"), ("foto", "fotos"), ("contacto", "contactos"),
+        ("textedit", "textedit"), ("editor", "textedit"), ("preview", "vistaprevia"), ("vista", "vistaprevia"),
+        ("ajuste", "ajustes"), ("config", "ajustes"), ("appstore", "appstore"), ("tienda", "appstore"),
+        ("facetime", "facetime"), ("videollam", "facetime"),
+        ("spotlight", "spotlight"), ("lupa", "spotlight"),
+        ("busc", "buscar"), ("google", "buscar"), ("bing", "buscar"), ("youtube", "buscar"), ("duckduck", "buscar"),
+    ]
+    /// Resuelve un token a (tipo, id): exacto primero, luego por raíz (≥4 letras).
+    static func resolverVerbo(_ tok: String) -> (tipo: String, id: String)? {
+        let w = limpioTok(tok)
+        guard w.count >= 3 else { return nil }
+        if let t = verbosTransform[w] { return ("transform", t) }
+        if let a = verbosAccion[w] { return ("accion", a) }
+        for (s, id) in transformStems where s.count >= 4 && w.hasPrefix(s) { return ("transform", id) }
+        for (s, id) in accionStems where s.count >= 4 && w.hasPrefix(s) { return ("accion", id) }
+        return nil
+    }
+
     /// Parsea una CADENA de voz. nil si no empieza con "modo" o si hay <2 etapas.
     static func detectarCadena(_ texto: String) -> (transforms: [Modo], accion: Modo?, contenido: String)? {
         var tokens = texto.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -464,27 +494,23 @@ extension ModosStore {
         while i < tokens.count {
             let w = limpioTok(tokens[i])
             if w.isEmpty || conectores.contains(w) { i += 1; continue }
-            if let tid = verbosTransform[w] {
-                var m = modo(tid); i += 1
+            guard let v = resolverVerbo(tokens[i]) else { break }   // desconocido → contenido
+            i += 1
+            if v.tipo == "transform" {
+                var m = modo(v.id)
                 if m.base == "traducir", i < tokens.count, let idi = Idiomas.reconocer(limpioTok(tokens[i])) {
                     m.idiomaDestino = idi; i += 1
                 }
-                transforms.append(m); continue
+                transforms.append(m)
+            } else if v.id == "buscar" {
+                var b = modo("buscar")
+                if let eng = Buscadores.reconocer(w) { b.buscador = eng }
+                else if i < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[i])) { b.buscador = eng; i += 1 }
+                accion = b
+            } else {
+                accion = Modo(id: "cadena-\(v.id)", nombre: Acciones.nombre(v.id),
+                              icono: "bolt.fill", base: "accion", accion: v.id)
             }
-            if let acc = verbosAccion[w] {
-                i += 1
-                if acc == "buscar" {
-                    var b = modo("buscar")
-                    if let eng = Buscadores.reconocer(w) { b.buscador = eng }
-                    else if i < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[i])) { b.buscador = eng; i += 1 }
-                    accion = b
-                } else {
-                    accion = Modo(id: "cadena-\(acc)", nombre: Acciones.nombre(acc),
-                                  icono: "bolt.fill", base: "accion", accion: acc)
-                }
-                continue
-            }
-            break   // token desconocido → aquí empieza el contenido
         }
         guard transforms.count + (accion != nil ? 1 : 0) >= 2 else { return nil }
         let contenido = tokens[i...].joined(separator: " ")
