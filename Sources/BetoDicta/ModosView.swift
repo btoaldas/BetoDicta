@@ -149,9 +149,14 @@ struct ModosView: View {
             }
         }
         // Palabra de voz (para activar por voz)
-        HStack {
-            Text("Frase de voz:").font(.caption).frame(width: 90, alignment: .leading)
-            TextField("ej. modo tarea (vacío = sin voz)", text: b.palabraVoz).textFieldStyle(.roundedBorder).frame(width: 240)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text("Frases de voz:").font(.caption).frame(width: 90, alignment: .leading)
+                TextField("ej. modo tarea, mudo tarea (vacío = sin voz)", text: b.palabraVoz)
+                    .textFieldStyle(.roundedBorder).frame(width: 300)
+            }
+            Text("Separa VARIAS con coma (failover ante mal-escuchas del STT). La más larga que calce gana.")
+                .font(.caption2).foregroundStyle(.secondary).padding(.leading, 98)
         }
         // Triggers por contexto (app / sitio). Dictado no dispara por contexto.
         if b.wrappedValue.id != "dictado" {

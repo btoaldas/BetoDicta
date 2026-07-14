@@ -69,23 +69,23 @@ enum ModosStore {
         Modo(id: "dictado", nombre: "Dictado", icono: "mic.fill", base: "pulir", prompt: ""),
         Modo(id: "correo", nombre: "Correo", icono: "envelope.fill", base: "pulir",
              prompt: "Reescribe el dictado como un CORREO ELECTRÓNICO claro y bien estructurado: saludo, cuerpo y despedida. Conserva el significado; ajusta el tono (formal por defecto) según lo dictado. Devuelve solo el correo.",
-             palabraVoz: "modo correo"),
+             palabraVoz: "modo correo, modo correos, modo carreo"),
         Modo(id: "oficio", nombre: "Oficio", icono: "doc.text.fill", base: "pulir",
              prompt: "Reescribe el dictado como un OFICIO o memorando FORMAL e institucional, en registro correcto y respetuoso. Conserva el fondo. Devuelve solo el texto del oficio.",
-             palabraVoz: "modo oficio"),
+             palabraVoz: "modo oficio, modo oficios"),
         Modo(id: "tarea", nombre: "Tarea", icono: "checklist", base: "pulir",
              prompt: "Convierte el dictado en una TAREA breve y accionable: una sola línea, empieza con un verbo en infinitivo, sin relleno. Devuelve solo la tarea.",
-             palabraVoz: "modo tarea", almacen: "tarea"),
+             palabraVoz: "modo tarea, modo tareas, mudo tarea, molde tarea, moto tarea, modo tare", almacen: "tarea"),
         Modo(id: "nota", nombre: "Nota", icono: "note.text", base: "pulir",
              prompt: "Ordena el dictado como una NOTA clara y legible: puntuación correcta, sin muletillas; usa viñetas si hay varios puntos. Conserva todo el contenido. Devuelve solo la nota.",
-             palabraVoz: "modo nota", almacen: "nota"),
+             palabraVoz: "modo nota, modo notas, moda nota, modo note", almacen: "nota"),
         Modo(id: "traducir", nombre: "Traducir", icono: "globe", base: "traducir", idiomaDestino: "inglés",
-             palabraVoz: "modo traducir"),
+             palabraVoz: "modo traducir, modo traduce, modo traducción"),
         Modo(id: "asistente", nombre: "Asistente", icono: "sparkles", base: "responder",
              prompt: "El dictado es una instrucción o pregunta. Responde o redacta lo pedido de forma útil, directa y concisa, en español (salvo que se pida otro idioma). Devuelve solo la respuesta, sin preámbulos.",
-             palabraVoz: "modo asistente"),
+             palabraVoz: "modo asistente, modo asistentes"),
         Modo(id: "buscar", nombre: "Buscar", icono: "magnifyingglass", base: "buscar",
-             palabraVoz: "modo buscar", buscador: "google"),
+             palabraVoz: "modo buscar, modo busca, modo búsqueda, modo buscador", buscador: "google"),
     ]
 
     static func todos() -> [Modo] {
@@ -103,7 +103,14 @@ enum ModosStore {
         // tú edites) y solo la frase (prompt/IA/apps/sitios se respetan tal cual).
         for (i, m) in list.enumerated() {
             guard let b = base.first(where: { $0.id == m.id }) else { continue }
-            if m.palabraVoz.isEmpty, !b.palabraVoz.isEmpty { list[i].palabraVoz = b.palabraVoz; cambio = true }
+            // UNIÓN de frases de voz: suma las del base que falten (así los alias
+            // nuevos llegan a configs viejos) sin borrar las que el usuario agregó.
+            var frases = frasesVoz(m)
+            for f in frasesVoz(b) where !frases.contains(where: { normalizar($0) == normalizar(f) }) {
+                frases.append(f); cambio = true
+            }
+            let unido = frases.joined(separator: ", ")
+            if unido != m.palabraVoz { list[i].palabraVoz = unido; cambio = true }
             if m.almacen.isEmpty, !b.almacen.isEmpty { list[i].almacen = b.almacen; cambio = true }
         }
         if cambio { guardar(list) }
@@ -169,13 +176,21 @@ enum ModosStore {
     /// Si el dictado EMPIEZA con la palabra de voz de algún modo, devuelve ese
     /// modo y el texto SIN la frase disparadora. nil si ninguno coincide. El
     /// modo con la frase más LARGA gana (evita que "modo" choque con "modo correo").
+    /// Cada modo puede tener VARIAS frases (separadas por coma) como failover ante
+    /// mal-escuchas del STT ("mudo tarea", "molde tarea" = "modo tarea"). Gana la
+    /// frase más LARGA que haga prefijo (entre TODAS las frases de TODOS los modos).
+    static func frasesVoz(_ m: Modo) -> [String] {
+        m.palabraVoz.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
     static func detectarPorVoz(_ texto: String) -> (Modo, String)? {
         let t = normalizar(texto)
         var mejor: (Modo, Int)? = nil
-        for m in todos() where !m.palabraVoz.isEmpty {
-            let frase = normalizar(m.palabraVoz)
-            guard !frase.isEmpty, t.hasPrefix(frase) else { continue }
-            if mejor == nil || frase.count > mejor!.1 { mejor = (m, frase.count) }
+        for m in todos() {
+            for fr in frasesVoz(m) {
+                let frase = normalizar(fr)
+                guard !frase.isEmpty, t.hasPrefix(frase) else { continue }
+                if mejor == nil || frase.count > mejor!.1 { mejor = (m, frase.count) }
+            }
         }
         guard let (modo, len) = mejor else { return nil }
         // Recorta la frase del texto original (trimmeado; folding conserva el

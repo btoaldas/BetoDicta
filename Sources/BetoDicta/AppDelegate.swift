@@ -335,6 +335,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ("modo buscar google gatos en el tejado", "buscar", "gatos en el tejado", "google"),
                 ("modo buscar en bing recetas", "buscar", "recetas", "bing"),
                 ("modo buscar restaurantes cerca", "buscar", "restaurantes cerca", nil), // sin buscador → default
+                ("mudo tarea hacer la merienda", "tarea", "hacer la merienda", nil),   // alias mal-escucha
+                ("molde tarea comprar pan", "tarea", "comprar pan", nil),              // alias mal-escucha
+                ("modo tarea", "tarea", "", nil),                                       // solo comando → vacío (deliver lo filtra)
             ]
             var ok = true
             for (texto, idEsp, limpioEsp, argEsp) in casos {
@@ -1799,6 +1802,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if m.id != modo.id { Log.log(.ia, "modo por contexto → \(m.nombre) [\(ctx.nombre)]") }
             modo = m
         }
+        // Solo dijiste el COMANDO, sin contenido (ej. "modo tarea" y nada más):
+        // no guardes/proceses vacío. Avisa y no hagas nada (evita tareas vacías).
+        if modo.id != "dictado",
+           textoFinal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Log.write("  ⏭︎ modo \(modo.nombre) sin contenido — no se procesa")
+            if !recorder.isRecording { panel.flash("🎤 \"\(modo.nombre)\" sin contenido — dilo con el texto", segundos: 2) }
+            history?.finish(wav: wav, finalText: "")
+            return
+        }
         // Modo BUSCAR: no pega texto — abre el buscador con lo dictado como consulta.
         if modo.base == "buscar" {
             ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history)
@@ -1833,7 +1845,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
                 Log.write("  3·modo \(modo.nombre): \(resultado)")
                 // Fase 4: modos Tarea/Nota (o con almacén) guardan en la lista local.
-                if !almacen.isEmpty {
+                if !almacen.isEmpty, !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     NotasStore.agregar(tipo: almacen, texto: resultado)
                     if self?.recorder.isRecording == false {
                         self?.panel.flash("✓ \(almacen == "tarea" ? "Tarea" : "Nota") agregada", segundos: 2)
