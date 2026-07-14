@@ -1995,28 +1995,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if idx >= 0, idx < min(4, matches.count) { abrirWA(numero: matches[idx].numero, texto: texto, app: app) }
     }
 
-    /// Escapa texto para incrustarlo en un literal de AppleScript.
-    private func escAS(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-    }
-    /// Corre AppleScript en el hilo PRINCIPAL (así macOS SÍ muestra el prompt de
-    /// Automatización la 1ª vez). Si falta permiso, avisa y abre Ajustes.
-    private func correrAppleScript(_ src: String, app: String) {
-        DispatchQueue.main.async {
-            var err: NSDictionary?
-            NSAppleScript(source: src)?.executeAndReturnError(&err)
-            guard let err else { return }
-            let msg = (err[NSAppleScript.errorMessage] as? String) ?? "\(err)"
-            let code = (err[NSAppleScript.errorNumber] as? Int) ?? 0
-            Log.write("AppleScript acción (\(app)): \(msg)")
-            if code == -1743 || msg.localizedCaseInsensitiveContains("not authorized") {
-                if !self.recorder.isRecording {
-                    self.panel.flash("⚠️ Permite BetoDicta → \(app) en Ajustes → Privacidad → Automatización", segundos: 6)
-                }
-                if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
-                    NSWorkspace.shared.open(u)
-                }
-            }
+    /// Abre una app y CREA un ítem nuevo con el texto vía Accesibilidad (que ya
+    /// tenemos para pegar): abre → ⌘N (nuevo) → ⌘V (pega). Sin Automatización.
+    private func crearEnApp(bundle: String, texto: String) {
+        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
+            NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        }
+        // Deja tiempo a que la app tome foco (arranque en frío), luego ⌘N y ⌘V.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+            presionarNuevo()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { pasteText(texto) }
         }
     }
 
@@ -2052,16 +2040,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     panel.flash("💡 Instala WhatsApp de escritorio para abrirlo directo", segundos: 3)
                 }
             }
-        case "notas" where !t.isEmpty:
-            // AppleScript: crea una nota NUEVA con el texto (título = 1ª línea).
-            correrAppleScript("tell application \"Notes\"\nactivate\nmake new note with properties {body:\"\(escAS(t))\"}\nend tell", app: "Notas")
-        case "recordatorios" where !t.isEmpty:
-            correrAppleScript("tell application \"Reminders\"\nactivate\nmake new reminder with properties {name:\"\(escAS(t))\"}\nend tell", app: "Recordatorios")
-        case "textedit" where !t.isEmpty:
-            correrAppleScript("tell application \"TextEdit\"\nactivate\nmake new document with properties {text:\"\(escAS(t))\"}\nend tell", app: "TextEdit")
+        case "notas" where !t.isEmpty:       crearEnApp(bundle: "com.apple.Notes", texto: t)
+        case "recordatorios" where !t.isEmpty: crearEnApp(bundle: "com.apple.reminders", texto: t)
+        case "textedit" where !t.isEmpty:    crearEnApp(bundle: "com.apple.TextEdit", texto: t)
         case "outlook" where !t.isEmpty:
-            // AppleScript: nuevo correo con el texto (el esquema ms-outlook no prellena).
-            correrAppleScript("tell application \"Microsoft Outlook\"\nactivate\nset m to make new outgoing message with properties {content:\"\(escAS(t))\"}\nopen m\nend tell", app: "Microsoft Outlook")
+            // Abre un correo NUEVO en Outlook y copia el texto (pega el cuerpo con ⌘V).
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string)
+            if let u = URL(string: "ms-outlook://compose") { NSWorkspace.shared.open(u) }
         default:
             if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
                 NSWorkspace.shared.open(url)   // correo mailto, mapas, url propia

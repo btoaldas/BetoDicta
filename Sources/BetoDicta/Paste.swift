@@ -30,6 +30,16 @@ func pasteText(_ text: String) {
     }
 }
 
+/// Pulsa ⌘N (nuevo ítem) — para las acciones que crean nota/recordatorio/documento.
+func presionarNuevo() {
+    let src = CGEventSource(stateID: .combinedSessionState)
+    let down = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_N), keyDown: true)
+    let up = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_ANSI_N), keyDown: false)
+    down?.flags = .maskCommand; up?.flags = .maskCommand
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
+}
+
 /// Abre Spotlight (⌘Espacio) — para el modo Buscar en la Mac.
 func abrirSpotlight() {
     let src = CGEventSource(stateID: .combinedSessionState)
