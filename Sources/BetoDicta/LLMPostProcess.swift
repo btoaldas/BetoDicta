@@ -757,30 +757,33 @@ enum LLMPostProcess {
                         return
                     }
                 }
-                // Falló. ¿Es de RED (transitorio) o del servidor?
-                let esRed = error != nil                  // timeout/conexión → error != nil
-                let motivo = error?.localizedDescription
-                    ?? data.flatMap { String(data: $0, encoding: .utf8) }?.prefix(150).description
-                    ?? "sin respuesta"
+                // Falló. ¿Es de RED (transitorio, conexión perdida/timeout) o del servidor?
+                let esRed = error != nil
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let motivo = esRed ? (error?.localizedDescription ?? "red")
+                    : "HTTP \(code): \(data.flatMap { String(data: $0, encoding: .utf8) }?.prefix(120).description ?? "")"
+                // FAILOVER PRIMERO: ante CUALQUIER fallo, salta YA al siguiente proveedor
+                // de la cascada (más rápido que reintentar el mismo cuando la red/proveedor
+                // está caído). Cada uno se intenta una vez; la cascada es finita (no hay bucle).
+                if let siguiente = resto.first, !prompt.isEmpty,
+                   let req2 = siguiente.requestChat(prompt: prompt, temperatura: temp, textLen: text.count) {
+                    Log.write("pulido: \(ia.id) falló (\(motivo)) → failover a \(siguiente.id)")
+                    hacer(req2, ia: siguiente, textoOriginal: text, inicio: Date(), intento: 1,
+                          salvaguarda: salvaguarda, prompt: prompt, temp: temp,
+                          resto: Array(resto.dropFirst()), completion: completion)
+                    return
+                }
+                // Sin más proveedores en la cascada: si fue de RED, UN reintento (conexión
+                // fresca — vence el "connection lost" del socket reusado).
                 if esRed, intento < 2 {
-                    Log.write("pulido: fallo de red (\(motivo)) — reintento…")
+                    Log.write("pulido: fallo de red (\(motivo)) — reintento (sin más proveedores)…")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                         hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento + 1,
                               salvaguarda: salvaguarda, prompt: prompt, temp: temp, resto: resto, completion: completion)
                     }
                     return
                 }
-                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-                // FAILOVER: si este proveedor cayó y hay más en la cascada, salta al siguiente.
-                if let siguiente = resto.first, !prompt.isEmpty,
-                   let req2 = siguiente.requestChat(prompt: prompt, temperatura: temp, textLen: text.count) {
-                    Log.write("pulido: \(ia.id) FALLÓ (HTTP \(code)) → failover a \(siguiente.id)")
-                    hacer(req2, ia: siguiente, textoOriginal: text, inicio: Date(), intento: 1,
-                          salvaguarda: salvaguarda, prompt: prompt, temp: temp,
-                          resto: Array(resto.dropFirst()), completion: completion)
-                    return
-                }
-                Log.write("pulido: FALLÓ (HTTP \(code)) → texto original. Detalle: \(motivo)")
+                Log.write("pulido: FALLÓ (\(motivo)) → texto original.")
                 completion(text)
             }
         }.resume()
