@@ -339,6 +339,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de persona auto (Whisper): BETODICTA_AUTOPERSONA=<carpeta_refs>
+        if let c = ProcessInfo.processInfo.environment["BETODICTA_AUTOPERSONA"], !c.isEmpty {
+            let p = Entrenador.personaDesdeAudios(carpetaAudios: URL(fileURLWithPath: c), nombre: "Prueba", stamp: "t")
+            print("AUTOPERSONA len=\(p.count) → \(p.prefix(180))")
+            exit(p.isEmpty ? 1 : 0)
+        }
         // Prueba de duración: BETODICTA_DURTEST=<carpeta>
         if let c = ProcessInfo.processInfo.environment["BETODICTA_DURTEST"], !c.isEmpty {
             let m = Entrenador.duracionMinutos(URL(fileURLWithPath: c))

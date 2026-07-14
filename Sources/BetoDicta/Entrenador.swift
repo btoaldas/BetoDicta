@@ -247,6 +247,32 @@ enum Entrenador {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    /// Genera la PERSONA a partir de una carpeta de audios (transcribe con Whisper vía
+    /// build_ds → persona.py). Para clones de FUERA que llegan sin persona. "" si no se
+    /// puede (motor sin entrenamiento). `stamp` para el temporal.
+    static func personaDesdeAudios(carpetaAudios: URL, nombre: String, stamp: String) -> String {
+        guard VozEngine.estado() == .listo, VozEngine.entrenoListo else { return "" }
+        let clonar = VozEngine.pipelineDir.appendingPathComponent("clonar")
+        let proj = FileManager.default.temporaryDirectory.appendingPathComponent("persona_\(slug(nombre))_\(stamp)")
+        try? FileManager.default.removeItem(at: proj)
+        try? FileManager.default.createDirectory(at: proj, withIntermediateDirectories: true)
+        func py(_ script: String, _ args: [String]) {
+            let p = Process(); p.executableURL = VozEngine.pythonURL
+            p.arguments = [clonar.appendingPathComponent(script).path] + args
+            var env = ProcessInfo.processInfo.environment; env["COQUI_TOS_AGREED"] = "1"; p.environment = env
+            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+            try? p.run(); p.waitUntilExit()
+        }
+        py("build_ds.py", [carpetaAudios.path, proj.path])   // transcribe → dataset/metadata.csv
+        let meta = proj.appendingPathComponent("dataset/metadata.csv")
+        guard FileManager.default.fileExists(atPath: meta.path) else { try? FileManager.default.removeItem(at: proj); return "" }
+        py("persona.py", [meta.path, proj.path, nombre])
+        let persona = (try? String(contentsOf: proj.appendingPathComponent("persona_PROMPT.md"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        try? FileManager.default.removeItem(at: proj)
+        return persona
+    }
+
     /// Emite el PAQUETE portable de un checkpoint elegido: persona + ensamblado
     /// (reusa el import inteligente → rellena config/vocab/runner/manifest). Registra
     /// la voz. `stamp` para el temporal (los scripts no usan Date()).

@@ -78,6 +78,17 @@ struct VocesLocalesEditor: View {
         }
     }
 
+    private func generarPersona(_ v: VozLocal) {
+        estado = "Generando la persona de “\(v.nombre)” (transcribe sus muestras, tarda)…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ok = VocesLocales.autogenerarPersona(v.id, stamp: "ui")
+            DispatchQueue.main.async {
+                estado = ok ? "Persona de “\(v.nombre)” lista." : "No pude generar la persona (¿motor de entrenamiento listo? ¿tiene muestras?)."
+                refrescar()
+            }
+        }
+    }
+
     private func muestras(_ v: VozLocal) {
         let panel = NSOpenPanel()
         panel.title = "Muestras de voz para “\(v.nombre)” (wav 10-30s)"
@@ -125,6 +136,9 @@ struct VocesLocalesEditor: View {
                             estado = "Generando “\(v.nombre)”…"
                             Voz.probarVozLocal(v) { estado = "" }
                         }.controlSize(.small).help("Probar esta voz (genera en local, tarda)")
+                        if !v.paquete.isEmpty && v.persona.isEmpty {
+                            Button("🧠") { generarPersona(v) }.controlSize(.small).help("Generar la persona (cómo habla) transcribiendo sus muestras")
+                        }
                         if !v.paquete.isEmpty {
                             Toggle("stream", isOn: Binding(
                                 get: { v.streaming },

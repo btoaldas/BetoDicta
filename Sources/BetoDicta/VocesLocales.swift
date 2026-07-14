@@ -194,6 +194,21 @@ enum VocesLocales {
 
     private static func tam(_ u: URL) -> Int { (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
 
+    /// Auto-genera la PERSONA de una voz (si está vacía) transcribiendo sus refs con
+    /// Whisper. Para clones de fuera sin persona. Actualiza la voz + persona.txt.
+    @discardableResult
+    static func autogenerarPersona(_ id: String, stamp: String) -> Bool {
+        guard let v = todas().first(where: { $0.id == id }), v.persona.isEmpty, !v.paquete.isEmpty else { return false }
+        let refs = URL(fileURLWithPath: v.paquete).appendingPathComponent("refs")
+        guard FileManager.default.fileExists(atPath: refs.path) else { return false }
+        let persona = Entrenador.personaDesdeAudios(carpetaAudios: refs, nombre: v.nombre, stamp: stamp)
+        guard !persona.isEmpty else { return false }
+        var list = todas()
+        if let i = list.firstIndex(where: { $0.id == id }) { list[i].persona = persona; guardar(list) }
+        try? persona.write(to: URL(fileURLWithPath: v.paquete).appendingPathComponent("persona.txt"), atomically: true, encoding: .utf8)
+        return true
+    }
+
     /// Agrega muestras de voz (wavs) a una voz que quedó sin refs. Reconstruye ref_list.
     static func agregarMuestras(_ id: String, wavs: [URL]) {
         guard let v = todas().first(where: { $0.id == id }), !v.paquete.isEmpty else { return }
