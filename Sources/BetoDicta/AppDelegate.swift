@@ -1923,6 +1923,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if Config.modoPorVoz(), let cad = ModosStore.detectarCadena(textoFinal) {
             let etapas = cad.transforms.map { $0.nombre } + (cad.accion.map { [$0.nombre] } ?? [])
             Log.log(.ia, "cadena por voz: \(etapas.joined(separator: " → "))")
+            ModosLog.registrar("cadena", ["crudo": crudo, "transforms": cad.transforms.map { $0.id },
+                "accion": cad.accion.map { $0.base == "buscar" ? "buscar:\($0.buscador)" : $0.accion } ?? "",
+                "contenido": cad.contenido])
             if cad.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if !recorder.isRecording { panel.flash("🎤 Cadena sin contenido — dilo con el texto", segundos: 2) }
                 history?.finish(wav: wav, finalText: "")
@@ -1940,6 +1943,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var porVoz = false
         if Config.modoPorVoz(), let (m, limpio) = ModosStore.detectarPorVoz(textoFinal) {
             if m.id != modo.id { Log.log(.ia, "modo por voz → \(m.nombre)") }
+            ModosLog.registrar("voz", ["crudo": crudo, "modo": m.id, "base": m.base, "idioma": m.idiomaDestino, "buscador": m.buscador, "limpio": limpio])
             modo = m
             textoFinal = limpio
             porVoz = true
@@ -1947,6 +1951,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !porVoz, Config.modoPorContexto(), let ctx = ctxDictado,
            let m = ModosStore.detectarPorContexto(bundleId: ctx.bundleId, nombre: ctx.nombre, url: ctx.url) {
             if m.id != modo.id { Log.log(.ia, "modo por contexto → \(m.nombre) [\(ctx.nombre)]") }
+            ModosLog.registrar("contexto", ["crudo": crudo, "modo": m.id, "app": ctx.nombre])
             modo = m
         }
         // Semántico (capa 3, opt-in): la voz no reconoció pero PARECE comando
@@ -1966,6 +1971,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Ejecuta el modo ya resuelto (buscar/acción/dictado/otro). Reusable por el
     /// camino síncrono (exacto) y el asíncrono (semántico).
     private func despacharModo(_ modo: Modo, textoFinal: String, crudo: String, wav: Data, history: HistoryWriter?) {
+        ModosLog.registrar("despacho", ["modo": modo.id, "base": modo.base, "accion": modo.accion,
+            "idioma": modo.idiomaDestino, "buscador": modo.buscador, "contenido": textoFinal])
         // Solo el COMANDO, sin contenido ("modo tarea" y nada): no guardes vacío.
         // Excepción: Acción/Buscar de solo-abrir no necesitan texto ("modo calendario").
         if modo.id != "dictado", ["pulir", "traducir", "responder"].contains(modo.base),
@@ -2089,6 +2096,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = modo.accion.isEmpty ? "correo" : modo.accion
         Log.write("  ▶︎ acción (\(Acciones.nombre(id))): \(t)")
+        ModosLog.registrar("accion", ["accion": id, "texto": t])
         history?.finish(wav: wav, finalText: "▶︎ \(Acciones.nombre(id)): \(t)")
         switch id {
         case "spotlight":
@@ -2100,6 +2108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let (nombre, msg) = ContactosWA.objetivo(t)
             if let nombre {
                 ContactosWA.resolver(nombre) { [weak self] matches in
+                    ModosLog.registrar("whatsapp", ["nombre": nombre, "coincidencias": matches.count,
+                        "resultado": matches.count == 1 ? "directo" : (matches.count >= 2 ? "modal" : "sin_match"),
+                        "mensaje": msg])
                     if matches.count == 1 {
                         self?.abrirWA(numero: matches[0].numero, texto: msg, app: tieneApp)
                     } else if matches.count >= 2 {

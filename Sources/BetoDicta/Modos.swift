@@ -611,6 +611,8 @@ extension ModosStore {
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n"))
         let umbral = Config.modoSemanticoUmbral()
         EmbeddingSearch.mejorModo(comando: comando, modos: pares) { id, score in
+            ModosLog.registrar("semantico", ["comando": comando, "mejor": id ?? "-",
+                "score": score, "umbral": umbral, "aceptado": (id != nil && score >= umbral)])
             guard let id, score >= umbral, let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
             // Acciones con destinatario (whatsapp/correo): el contenido conserva TODO
             // lo dicho tras "modo" (para que "a Nombre" siga presente). Transforms:

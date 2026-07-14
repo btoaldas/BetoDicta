@@ -131,6 +131,8 @@ struct Config {
     static func modoSemanticoPalabras() -> Int { (json()["modo_sem_palabras"] as? Int) ?? 5 }
     /// Umbral de cercanía (coseno) para aceptar un modo: más alto = más estricto.
     static func modoSemanticoUmbral() -> Double { (json()["modo_sem_umbral"] as? Double) ?? 0.5 }
+    /// Registro detallado del subsistema de modos (~/.betodicta/logs/modos.jsonl). Default ON.
+    static func logModos() -> Bool { (json()["log_modos"] as? Bool) ?? true }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

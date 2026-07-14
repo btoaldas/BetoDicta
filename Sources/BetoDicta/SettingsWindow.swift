@@ -92,6 +92,7 @@ final class SettingsModel: ObservableObject {
     @Published var modoSemantico: Bool { didSet { Config.set("modo_semantico", to: modoSemantico) } }
     @Published var modoSemPalabras: Double { didSet { Config.set("modo_sem_palabras", to: Int(modoSemPalabras)) } }
     @Published var modoSemUmbral: Double { didSet { Config.set("modo_sem_umbral", to: modoSemUmbral) } }
+    @Published var logModos: Bool { didSet { Config.set("log_modos", to: logModos) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -131,6 +132,7 @@ final class SettingsModel: ObservableObject {
         modoSemantico = Config.modoSemantico()
         modoSemPalabras = Double(Config.modoSemanticoPalabras())
         modoSemUmbral = Config.modoSemanticoUmbral()
+        logModos = Config.logModos()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -700,6 +702,10 @@ struct SettingsView: View {
                         Toggle("Búsqueda por significado en el Historial (semántica)", isOn: $m.busquedaSemantica)
                         Text("Activa el modo de buscar por IDEA (no por palabra exacta) en el Historial, con embeddings. Elige con cuál IA se calculan:")
                             .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Registro detallado de modos (para analizar y mejorar)", isOn: $m.logModos)
+                        Text("Guarda cada decisión de modos/acciones (por voz/cadena/contexto/semántico, con score) en ~/.betodicta/logs/modos.jsonl — para revisar qué reconoció bien y afinar. Ábrelo desde Ajustes → Modos (icono de lupa). 100% local.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
                         EmbeddingMotorPicker().disabled(!m.busquedaSemantica && !m.glosarioInteligente)
                         Toggle("Glosario inteligente (pulido más rápido)", isOn: $m.glosarioInteligente)
                         Text("En el pulido, envía a la IA SOLO los términos del glosario afines a lo que dictaste (con embeddings), no los 80+. Prompt más corto = más rápido, y escala aunque tu glosario crezca. Usa el motor de embeddings de arriba; la 1ª vez calienta los vectores en segundo plano (mientras, usa el glosario normal).")
