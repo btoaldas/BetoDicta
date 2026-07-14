@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.35.0"
+    static let numero = "0.36.0-beta"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.36.0-beta", "2026-07-14", [
+            "BETA: el entrenamiento de voces es experimental; puede cambiar o fallar. Lo etiquetamos beta mientras lo estabilizamos",
+            "Bitácora con avance GLOBAL + avance de la FASE + subfase (época·paso / archivo), todo en vivo",
+            "CPU se muestra en NÚCLEOS reales (ej. “5.7 de 18 núcleos, 31%”) en vez del confuso 500%+",
+            "GPU e IA (Neural Engine) se muestran honestos: “sin usar (entrena en CPU)”",
+            "Velocidad (pasos/s) y ETA siempre visibles cuando entrena",
+        ]),
         ("0.35.0", "2026-07-14", [
             "Progreso del entrenamiento Piper AHORA SÍ EN VIVO: la app imprime el paso ella misma (paso a paso, con velocidad y ETA) en vez de esperar a Lightning, que no volcaba su barra al archivo. La bitácora se llena en tiempo real desde el primer paso, sin esperar al primer checkpoint",
         ]),

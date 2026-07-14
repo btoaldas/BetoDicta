@@ -532,9 +532,13 @@ enum EntrenadorPiper {
 
     struct Snapshot {
         var fase: Int; var texto: String; var pct: Double
+        var avanceGlobal: Double     // 0-1 del trabajo COMPLETO (dataset + entrenamiento)
+        var avanceFase: Double       // 0-1 de la FASE actual
+        var subfase: String          // qué se hace ahora mismo (archivo / época·paso)
         var paso: Int; var total: Int; var epoca: Int
         var itPerSec: Double; var etaMin: Int
-        var cpu: Double; var ramGB: Double; var discoGB: Double
+        var cpuNucleos: Double; var nucleos: Int; var ramGB: Double; var discoGB: Double
+        var gpu: String; var ia: String   // honesto: el entrenamiento va en CPU
         var clips: Int; var checkpoints: Int; var rechazos: String
         var activo: Bool; var termino: Bool; var errores: Int
         var motor: String            // qué proceso trabaja (whisper / entrenamiento)
@@ -614,8 +618,20 @@ enum EntrenadorPiper {
             .filter { l in !l.trimmingCharacters(in: .whitespaces).isEmpty && !ruido.contains { l.contains($0) } }
         let bit = Array(lineas.suffix(14))
         let motor = enFase2 ? "entrenamiento (torch/CPU)" : (v.activo ? "Whisper + ffmpeg" : "—")
-        return Snapshot(fase: v.fase, texto: v.texto, pct: v.pct, paso: v.paso, total: v.total, epoca: v.epoca,
-                        itPerSec: its, etaMin: eta, cpu: rec.0, ramGB: rec.1, discoGB: discoGB(proyecto),
+        // Avance GLOBAL: el dataset pesa ~8% del trabajo; el entrenamiento ~92%.
+        let pesoDS = 0.08
+        let avGlobal: Double = v.termino ? 1.0 : (enFase2 ? pesoDS + (1 - pesoDS) * v.pct : pesoDS * v.pct)
+        let subfase = enFase2
+            ? (v.paso > 0 ? "época \(v.epoca) · paso \(v.paso)/\(v.total)" : "preparando modelo/caché")
+            : (v.total > 0 ? "archivo \(v.paso)/\(v.total)" : "leyendo audios")
+        // El entrenamiento corre en CPU: GPU y Neural Engine (IA) NO se usan (honesto).
+        let ncpu = ProcessInfo.processInfo.activeProcessorCount
+        return Snapshot(fase: v.fase, texto: v.texto, pct: v.pct,
+                        avanceGlobal: avGlobal, avanceFase: v.pct, subfase: subfase,
+                        paso: v.paso, total: v.total, epoca: v.epoca,
+                        itPerSec: its, etaMin: eta,
+                        cpuNucleos: rec.0 / 100.0, nucleos: ncpu, ramGB: rec.1, discoGB: discoGB(proyecto),
+                        gpu: "sin usar (entrena en CPU)", ia: "sin usar (entrena en CPU)",
                         clips: clips, checkpoints: checkpoints(proyecto).count, rechazos: rech,
                         activo: v.activo, termino: v.termino, errores: errores, motor: motor, bitacora: bit)
     }

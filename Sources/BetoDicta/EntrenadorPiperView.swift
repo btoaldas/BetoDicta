@@ -41,6 +41,7 @@ struct EntrenadorPiperView: View {
     @State private var pctVivo: Double = 0
     @State private var snap: EntrenadorPiper.Snapshot?
     @State private var deteniendo = false
+    @State private var pulso = false
 
     @State private var checkpoints: [(paso: Int, url: URL)] = []
     @State private var estado = ""
@@ -137,13 +138,19 @@ struct EntrenadorPiperView: View {
                         HStack {
                             Text(snap.map { "Bitácora · Fase \($0.fase)/2" } ?? "Bitácora").font(.subheadline)
                             Spacer()
-                            if let s = snap, s.activo { Circle().fill(.green).frame(width: 8, height: 8)
-                                Text("procesando").font(.caption2).foregroundStyle(.green) }
-                            if pctVivo > 0 { Text("\(Int(pctVivo*100))%").font(.caption).monospacedDigit().bold() }
+                            if let s = snap, s.activo {
+                                Circle().fill(.green).frame(width: 8, height: 8)
+                                    .opacity(pulso ? 1 : 0.25)
+                                    .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulso)
+                                Text("procesando").font(.caption2).foregroundStyle(.green)
+                            }
                         }
-                        if pctVivo > 0 { ProgressView(value: pctVivo).tint(acento) }
-                        else if entrenando { ProgressView().controlSize(.small) }
-                        Text(faseTxt).font(.caption).monospacedDigit()
+                        // Avance GLOBAL (todo el trabajo) + avance de la FASE actual
+                        if let s = snap {
+                            barra("Avance global", s.avanceGlobal, .green)
+                            barra("Fase \(s.fase)/2 · \(s.subfase)", s.avanceFase, acento)
+                        } else if entrenando { ProgressView().controlSize(.small) }
+                        Text(faseTxt).font(.caption).monospacedDigit().foregroundStyle(.secondary)
 
                         // Métricas vivas (contadores + recursos + latencia)
                         if let s = snap {
@@ -153,7 +160,7 @@ struct EntrenadorPiperView: View {
                                 if s.fase == 2 {
                                     metrica("Paso", "\(s.paso) / \(s.total)", "figure.walk")
                                     metrica("Época", "\(s.epoca)", "repeat")
-                                    metrica("Velocidad", s.itPerSec > 0 ? String(format: "%.2f it/s", s.itPerSec) : "—", "speedometer")
+                                    metrica("Velocidad", s.itPerSec > 0 ? String(format: "%.2f pasos/s", s.itPerSec) : "calculando…", "speedometer")
                                     metrica("ETA", s.etaMin > 0 ? "~\(s.etaMin) min" : "—", "clock")
                                     metrica("Checkpoints", "\(s.checkpoints)", "flag.checkered")
                                 } else {
@@ -161,8 +168,10 @@ struct EntrenadorPiperView: View {
                                     metrica("Fragmentos", "\(s.clips)", "scissors")
                                     if !s.rechazos.isEmpty { metrica("Rechazos", s.rechazos, "trash") }
                                 }
-                                metrica("CPU", s.cpu > 0 ? String(format: "%.0f%%", s.cpu) : "—", "cpu")
+                                metrica("CPU", s.cpuNucleos > 0 ? String(format: "%.1f de %d núcleos (%.0f%%)", s.cpuNucleos, s.nucleos, s.cpuNucleos/Double(max(s.nucleos,1))*100) : "—", "cpu")
                                 metrica("RAM", s.ramGB > 0 ? String(format: "%.1f GB", s.ramGB) : "—", "memorychip")
+                                metrica("GPU", s.gpu, "display")
+                                metrica("IA (Neural Engine)", s.ia, "brain")
                                 metrica("Disco", s.discoGB > 0 ? String(format: "%.1f GB", s.discoGB) : "—", "internaldrive")
                                 metrica("Errores", "\(s.errores)", s.errores > 0 ? "exclamationmark.triangle" : "checkmark.seal")
                             }
@@ -241,6 +250,17 @@ struct EntrenadorPiperView: View {
             .background(Color.secondary.opacity(0.06)).cornerRadius(8)
     }
 
+    @ViewBuilder private func barra(_ titulo: String, _ valor: Double, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(titulo).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                Spacer()
+                Text("\(Int(min(1, max(0, valor)) * 100))%").font(.caption2).monospacedDigit().bold()
+            }
+            ProgressView(value: min(1, max(0, valor))).tint(color)
+        }
+    }
+
     @ViewBuilder private func metrica(_ titulo: String, _ valor: String, _ icono: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icono).font(.system(size: 9)).foregroundStyle(.secondary).frame(width: 12)
@@ -302,6 +322,7 @@ struct EntrenadorPiperView: View {
 
     private func seguirProgreso() {
         timer?.invalidate()
+        pulso = true   // arranca el latido del punto "procesando"
         tick()   // pinta de inmediato
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in tick() }
     }
