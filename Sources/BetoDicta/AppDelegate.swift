@@ -304,14 +304,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ProcessInfo.processInfo.environment["BETODICTA_MODOTEST"] == "1" {
             DispatchQueue.global().async {
                 let texto = "oye ayúdame a decirle a mark que revisé el kipux del gad y que mañana le mando el informe"
-                let ids = ["dictado", "correo", "tarea", "traducir"]
+                // Fase 7.2: siembra una tarea para probar que el Agente la LEE del contexto.
+                NotasStore.agregar(tipo: "tarea", texto: "enviar la proforma al GAD de Arajuno")
+                let ids = ["dictado", "correo", "tarea", "traducir", "agente"]
                 for id in ids {
                     let modo = ModosStore.modo(id)
                     let sem = DispatchSemaphore(value: 0)
+                    let t = id == "agente" ? "dime qué tareas tengo pendientes hoy" : texto
                     if id == "dictado" {
-                        LLMPostProcess.enhance(texto) { r in print("MODOTEST [\(modo.nombre)] → \(r)"); sem.signal() }
+                        LLMPostProcess.enhance(t) { r in print("MODOTEST [\(modo.nombre)] → \(r)"); sem.signal() }
                     } else {
-                        LLMPostProcess.procesarModo(texto, modo: modo) { r in print("MODOTEST [\(modo.nombre)] → \(r)"); sem.signal() }
+                        LLMPostProcess.procesarModo(t, modo: modo) { r in print("MODOTEST [\(modo.nombre)] → \(r)"); sem.signal() }
                     }
                     _ = sem.wait(timeout: .now() + 30)
                 }
@@ -1999,7 +2002,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "idioma": modo.idiomaDestino, "buscador": modo.buscador, "contenido": textoFinal])
         // Solo el COMANDO, sin contenido ("modo tarea" y nada): no guardes vacío.
         // Excepción: Acción/Buscar de solo-abrir no necesitan texto ("modo calendario").
-        if modo.id != "dictado", ["pulir", "traducir", "responder"].contains(modo.base),
+        if modo.id != "dictado", ["pulir", "traducir", "responder", "agente"].contains(modo.base),
            textoFinal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Log.write("  ⏭︎ modo \(modo.nombre) sin contenido — no se procesa")
             if !recorder.isRecording { panel.flash("🎤 \"\(modo.nombre)\" sin contenido — dilo con el texto", segundos: 2) }
@@ -2031,6 +2034,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }
                 }
                 Log.write("  ✓ entregado:  \(resultado)")
+                // Modo Agente (Fase 7.2): además de pegar el texto, LO DICE por voz
+                // (si la Voz del sistema está activa). Falla suave: si no hay TTS, solo pega.
+                if modo.base == "agente", Config.ttsActivo(),
+                   !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    TTS.hablar(resultado)
+                }
                 self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
             }
         }

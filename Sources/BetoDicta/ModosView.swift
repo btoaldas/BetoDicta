@@ -171,6 +171,7 @@ struct ModosView: View {
                     Text("Pulir / reescribir").tag("pulir")
                     Text("Traducir").tag("traducir")
                     Text("Responder (asistente)").tag("responder")
+                    Text("Agente (responde por voz + tus tareas/notas)").tag("agente")
                     Text("Buscar (web / Spotlight)").tag("buscar")
                     Text("Acción (abrir app/correo/web)").tag("accion")
                 }.labelsHidden().frame(width: 200)

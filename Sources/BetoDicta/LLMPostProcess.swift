@@ -702,6 +702,23 @@ enum LLMPostProcess {
             instruccion = "Traduce el siguiente texto dictado al \(modo.idiomaDestino). Conserva el significado; no agregues comentarios."
         case "responder":
             instruccion = modo.prompt.isEmpty ? "El dictado es una instrucción o pregunta: responde de forma útil, directa y concisa." : modo.prompt
+        case "agente":
+            // Asistente local con CONTEXTO: tus tareas/notas guardadas. Responde breve
+            // (se lee en voz alta). No inventa datos que no tenga.
+            let tareas = NotasStore.tareas().filter { !$0.hecho }.prefix(30)
+                .map { "- \($0.texto)" }.joined(separator: "\n")
+            let notas = NotasStore.notas().prefix(30).map { "- \($0.texto)" }.joined(separator: "\n")
+            let base = modo.prompt.isEmpty
+                ? "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos."
+                : modo.prompt
+            instruccion = """
+            \(base)
+            Usa SOLO estos datos del usuario cuando el pedido los requiera (no inventes):
+            TAREAS pendientes:
+            \(tareas.isEmpty ? "(ninguna)" : tareas)
+            NOTAS guardadas:
+            \(notas.isEmpty ? "(ninguna)" : notas)
+            """
         default:  // "pulir" con la instrucción del modo (Dictado vacío no llega aquí)
             instruccion = modo.prompt.isEmpty ? "Limpia la transcripción: corrige puntuación, mayúsculas y ortografía; quita muletillas; conserva el significado y el orden; no agregues nada." : modo.prompt
         }
@@ -715,7 +732,7 @@ enum LLMPostProcess {
         \(text)
         """
         let inicio = Date()
-        let temp = modo.base == "responder" ? 0.4 : 0
+        let temp = (modo.base == "responder" || modo.base == "agente") ? 0.4 : 0
         guard let request = ia.requestChat(prompt: prompt, temperatura: temp, textLen: text.count) else {
             completion(text); return
         }

@@ -88,6 +88,9 @@ enum ModosStore {
              palabraVoz: "modo asistente, modo asistentes"),
         Modo(id: "buscar", nombre: "Buscar", icono: "magnifyingglass", base: "buscar",
              palabraVoz: "modo buscar, modo busca, modo búsqueda, modo buscador", buscador: "google"),
+        Modo(id: "agente", nombre: "Agente", icono: "sparkle", base: "agente",
+             prompt: "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos.",
+             palabraVoz: "modo agente, modo asistente de voz, modo jarvis"),
     ]
 
     static func todos() -> [Modo] {
