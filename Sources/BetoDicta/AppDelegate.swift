@@ -434,6 +434,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let casos: [(String, String, String, String?)] = [
                 ("google", "hola mundo", "", "https://www.google.com/search?q=hola%20mundo"),
                 ("duckduckgo", "gatos", "", "https://duckduckgo.com/?q=gatos"),
+                ("wikipedia", "quito", "", "https://es.wikipedia.org/w/index.php?search=quito"),
+                ("amazon", "teclado", "", "https://www.amazon.com/s?k=teclado"),
+                ("gmail", "factura", "", "https://mail.google.com/mail/u/0/#search/factura"),
                 ("personalizado", "x y", "https://s.com/?q={q}", "https://s.com/?q=x%20y"),
                 ("personalizado", "z", "sin-placeholder", "https://www.google.com/search?q=z"),
                 ("spotlight", "algo", "", nil),

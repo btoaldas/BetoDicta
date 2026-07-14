@@ -44,6 +44,9 @@ struct ModosView: View {
     @State private var revertir = Config.modoRevertir()
     @State private var nuevoIdioma = ""
     @State private var idiomasVer = 0   // fuerza refrescar el picker tras añadir uno
+    @State private var buscNombre = ""
+    @State private var buscURL = ""
+    @State private var buscVer = 0
     @State private var usarMacWA = ContactosWA.usarMac()
     @State private var contactosVer = 0
     @State private var resultadoImport = ""
@@ -241,10 +244,11 @@ struct ModosView: View {
         }
         // Buscar: buscador destino (web o Spotlight) + URL personalizada. Sin IA ni prompt.
         if b.wrappedValue.base == "buscar" {
+            let _ = buscVer
             HStack {
                 Text("Buscar en:").font(.caption).frame(width: 90, alignment: .leading)
                 Picker("", selection: b.buscador) {
-                    ForEach(Buscadores.base, id: \.id) { item in Text(item.nombre).tag(item.id) }
+                    ForEach(Buscadores.paraPicker(), id: \.id) { item in Text(item.nombre).tag(item.id) }
                 }.labelsHidden().frame(width: 240)
             }
             if b.wrappedValue.buscador == "personalizado" {
@@ -254,7 +258,22 @@ struct ModosView: View {
                         .textFieldStyle(.roundedBorder).frame(width: 280)
                 }
             }
-            Text("Dictas y se abre el buscador con tu consulta (usa {q} donde va el texto). Spotlight abre ⌘Espacio en tu Mac. Sin IA.")
+            // Agregar un buscador PROPIO (queda disponible para todos los modos Buscar)
+            HStack(spacing: 6) {
+                Text("+ Propio:").font(.caption).frame(width: 90, alignment: .leading)
+                TextField("Nombre", text: $buscNombre).textFieldStyle(.roundedBorder).frame(width: 90)
+                TextField("https://sitio.com/?q={q}", text: $buscURL).textFieldStyle(.roundedBorder).frame(width: 200)
+                Button("Guardar") {
+                    let n = buscNombre.trimmingCharacters(in: .whitespaces)
+                    if !n.isEmpty, buscURL.contains("{q}") {
+                        var ps = Config.buscadoresPersonales(); ps.append(["nombre": n, "url": buscURL])
+                        Config.set("buscadores_personales", to: ps)
+                        b.buscador.wrappedValue = "personal:\(n.lowercased())"
+                        buscNombre = ""; buscURL = ""; buscVer += 1
+                    }
+                }.controlSize(.small).disabled(buscNombre.trimmingCharacters(in: .whitespaces).isEmpty || !buscURL.contains("{q}"))
+            }
+            Text("Dictas y se abre el buscador con tu consulta (usa {q} donde va el texto). Agrega los tuyos (Wikipedia, Gmail, Amazon… ya vienen). Spotlight abre ⌘Espacio. Sin IA.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         // Acción: qué abrir con el texto (app/correo/web) — Fase 5. Sin IA ni prompt.

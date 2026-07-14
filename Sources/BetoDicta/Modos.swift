@@ -340,13 +340,36 @@ enum Buscadores {
         ("google", "Google", "https://www.google.com/search?q={q}"),
         ("bing", "Bing", "https://www.bing.com/search?q={q}"),
         ("duckduckgo", "DuckDuckGo", "https://duckduckgo.com/?q={q}"),
+        ("wikipedia", "Wikipedia", "https://es.wikipedia.org/w/index.php?search={q}"),
         ("youtube", "YouTube", "https://www.youtube.com/results?search_query={q}"),
         ("maps", "Google Maps", "https://www.google.com/maps/search/{q}"),
+        ("gmail", "Gmail (buscar correo)", "https://mail.google.com/mail/u/0/#search/{q}"),
+        ("hotmail", "Outlook/Hotmail (buscar)", "https://outlook.live.com/mail/0/search/?q={q}"),
+        ("facebook", "Facebook", "https://www.facebook.com/search/top?q={q}"),
+        ("amazon", "Amazon", "https://www.amazon.com/s?k={q}"),
+        ("mercadolibre", "MercadoLibre", "https://listado.mercadolibre.com.ec/{q}"),
+        ("x", "X (Twitter)", "https://twitter.com/search?q={q}"),
+        ("github", "GitHub", "https://github.com/search?q={q}"),
         ("spotlight", "Spotlight (⌘Espacio en la Mac)", nil),
         ("personalizado", "Personalizado (URL con {q})", nil),
     ]
-    static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
-    static func plantilla(_ id: String) -> String? { base.first { $0.id == id }?.url }
+    /// Buscadores que el usuario agregó (nombre + URL con {q}). id = "personal:<nombre>".
+    static func personales() -> [(id: String, nombre: String, url: String)] {
+        Config.buscadoresPersonales().compactMap {
+            guard let n = $0["nombre"], let u = $0["url"], !n.isEmpty, u.contains("{q}") else { return nil }
+            return ("personal:\(n.lowercased())", n, u)
+        }
+    }
+    /// Para el selector: base + los propios del usuario.
+    static func paraPicker() -> [(id: String, nombre: String)] {
+        base.map { ($0.id, $0.nombre) } + personales().map { ($0.id, $0.nombre) }
+    }
+    static func nombre(_ id: String) -> String {
+        base.first { $0.id == id }?.nombre ?? personales().first { $0.id == id }?.nombre ?? id
+    }
+    static func plantilla(_ id: String) -> String? {
+        base.first { $0.id == id }?.url ?? personales().first { $0.id == id }?.url
+    }
     /// Si `token` nombra un buscador (id o 1ª palabra del nombre), devuelve su id;
     /// si no, nil (para "modo buscar <buscador> <consulta>"). Alias comunes incluidos.
     static func reconocer(_ token: String) -> String? {

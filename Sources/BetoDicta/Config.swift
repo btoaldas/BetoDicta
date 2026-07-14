@@ -137,6 +137,8 @@ struct Config {
     static func ttsActivo() -> Bool { (json()["tts_activo"] as? Bool) ?? false }
     static func ttsVoz() -> String { (json()["tts_voz"] as? String) ?? "" }
     static func ttsVelocidad() -> Double { (json()["tts_velocidad"] as? Double) ?? 0.5 }
+    /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.
+    static func buscadoresPersonales() -> [[String: String]] { (json()["buscadores_personales"] as? [[String: String]]) ?? [] }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }
