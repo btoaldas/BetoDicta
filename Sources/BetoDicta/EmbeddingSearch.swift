@@ -134,8 +134,9 @@ enum EmbeddingSearch {
         let endpoint = openai ? "\(m.base)/embeddings" : "\(m.base)/api/embeddings"
         guard let url = URL(string: endpoint) else { completion(.failure(ScribeError.ws("URL de embeddings inválida"))); return }
         guard esSeguro(url) else { completion(.failure(ScribeError.ws("Embeddings en la nube exige https"))); return }
-        var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 30
+        var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 20
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("close", forHTTPHeaderField: "Connection")   // conexión fresca (VPN mata sockets idle)
         let key = m.keyEnv.isEmpty ? "" : ApiKeys.get(m.keyEnv)
         if openai, !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
         let cuerpo: [String: Any] = openai ? ["model": m.modelo, "input": texto] : ["model": m.modelo, "prompt": texto]

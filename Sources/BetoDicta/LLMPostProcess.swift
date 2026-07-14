@@ -730,7 +730,13 @@ enum LLMPostProcess {
                               inicio: Date, intento: Int, salvaguarda: Bool = true,
                               prompt: String = "", temp: Double = 0, resto: [ChatIA] = [],
                               completion: @escaping (String) -> Void) {
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        // Conexión FRESCA cada vez: la VPN mata sockets inactivos y URLSession reusaba
+        // uno muerto → "connection lost" tras ~13s. Con "Connection: close" no se
+        // reusan → no se agarra un socket muerto (adiós latencia de ~14s).
+        var req = request
+        req.setValue("close", forHTTPHeaderField: "Connection")
+        if req.timeoutInterval > 30 || req.timeoutInterval == 0 { req.timeoutInterval = max(12, Config.pulidoTimeout()) }
+        URLSession.shared.dataTask(with: req) { data, response, error in
             DispatchQueue.main.async {
                 if let data,
                    let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code) {
