@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.25.0"
+    static let numero = "0.26.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.26.0", "2026-07-14", [
+            "Glosario inteligente (Ajustes → Avanzado, opt-in): en el pulido manda a la IA solo los términos del glosario afines a lo que dictaste (con embeddings), no todos. Prompt más corto = pulido MÁS RÁPIDO, y escala aunque tu glosario crezca a cientos de términos",
+            "Importar contactos de WhatsApp desde cualquier lado: auto-detecta vCard (.vcf de teléfono/iCloud/Outlook), CSV de Google/Gmail (inglés y español) y de Outlook/Edge, o CSV/JSON simple; te dice cuántos válidos/inválidos",
+            "WhatsApp \"enviar a <nombre>\" más preciso: entiende el nombre aunque el dictado le ponga punto o coma, y el modal prioriza los contactos más probables (muestra hasta 6 de los que coincidan)",
+        ]),
         ("0.25.0", "2026-07-14", [
             "WhatsApp con CONTACTOS: importa tu lista (CSV/JSON o export de Google/Gmail) o usa tus Contactos de Mac; di \"modo whatsapp, a Alberto, hola\" y abre su chat con el texto. Si hay varios, eliges en un modal. Exportar CSV/JSON te da el formato",
             "Modos de ACCIÓN listos para las apps de Mac por defecto: Outlook, Correo, WhatsApp, Notas, Recordatorios, Calendario, Finder, Safari, Música, Terminal, Mapas, Spotlight y tu propia web (betodicta.eztic.ec). Créalos/edítalos en Ajustes → Modos",
