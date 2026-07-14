@@ -93,6 +93,9 @@ final class SettingsModel: ObservableObject {
     @Published var modoSemPalabras: Double { didSet { Config.set("modo_sem_palabras", to: Int(modoSemPalabras)) } }
     @Published var modoSemUmbral: Double { didSet { Config.set("modo_sem_umbral", to: modoSemUmbral) } }
     @Published var logModos: Bool { didSet { Config.set("log_modos", to: logModos) } }
+    @Published var ttsActivo: Bool { didSet { Config.set("tts_activo", to: ttsActivo) } }
+    @Published var ttsVoz: String { didSet { Config.set("tts_voz", to: ttsVoz) } }
+    @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -133,6 +136,9 @@ final class SettingsModel: ObservableObject {
         modoSemPalabras = Double(Config.modoSemanticoPalabras())
         modoSemUmbral = Config.modoSemanticoUmbral()
         logModos = Config.logModos()
+        ttsActivo = Config.ttsActivo()
+        ttsVoz = Config.ttsVoz()
+        ttsVelocidad = Config.ttsVelocidad()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -702,6 +708,27 @@ struct SettingsView: View {
                         Toggle("Búsqueda por significado en el Historial (semántica)", isOn: $m.busquedaSemantica)
                         Text("Activa el modo de buscar por IDEA (no por palabra exacta) en el Historial, con embeddings. Elige con cuál IA se calculan:")
                             .font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        Text("Voz del sistema (texto → voz) — Modo Agente").font(.subheadline)
+                        Toggle("Que BetoDicta pueda HABLARTE (TTS)", isOn: $m.ttsActivo)
+                        Text("Primer paso del Modo Agente: el sistema te lee respuestas en voz. Usa la voz de macOS (gratis, local, sin setup). Más adelante: ElevenLabs y tu voz clonada.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if m.ttsActivo {
+                            fila("Voz") {
+                                Picker("", selection: $m.ttsVoz) {
+                                    Text("Automática (español)").tag("")
+                                    ForEach(TTS.voces(), id: \.identifier) { Text("\($0.name) · \($0.language)").tag($0.identifier) }
+                                }.labelsHidden().frame(width: 260)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Velocidad: \(String(format: "%.2f", m.ttsVelocidad))").font(.caption)
+                                Slider(value: $m.ttsVelocidad, in: 0.2...0.7, step: 0.02).tint(acento).frame(width: 260)
+                            }
+                            Button("🔊 Probar voz") {
+                                TTS.hablar("Hola Alberto. Soy BetoDicta y ya puedo hablarte. Este es el primer paso del modo agente.")
+                            }.controlSize(.small)
+                        }
+                        Divider()
                         Toggle("Registro detallado de modos (para analizar y mejorar)", isOn: $m.logModos)
                         Text("Guarda cada decisión de modos/acciones (por voz/cadena/contexto/semántico, con score) en ~/.betodicta/logs/modos.jsonl — para revisar qué reconoció bien y afinar. Ábrelo desde Ajustes → Modos (icono de lupa). 100% local.")
                             .font(.caption).foregroundStyle(.secondary)

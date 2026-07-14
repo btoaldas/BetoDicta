@@ -133,6 +133,10 @@ struct Config {
     static func modoSemanticoUmbral() -> Double { (json()["modo_sem_umbral"] as? Double) ?? 0.5 }
     /// Registro detallado del subsistema de modos (~/.betodicta/logs/modos.jsonl). Default ON.
     static func logModos() -> Bool { (json()["log_modos"] as? Bool) ?? true }
+    // Fase 7 — TTS (texto→voz). Default OFF (opt-in).
+    static func ttsActivo() -> Bool { (json()["tts_activo"] as? Bool) ?? false }
+    static func ttsVoz() -> String { (json()["tts_voz"] as? String) ?? "" }
+    static func ttsVelocidad() -> Double { (json()["tts_velocidad"] as? Double) ?? 0.5 }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

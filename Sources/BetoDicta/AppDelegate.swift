@@ -480,6 +480,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("CADTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba de TTS: BETODICTA_TTSTEST=1 (voces + habla una frase).
+        if ProcessInfo.processInfo.environment["BETODICTA_TTSTEST"] == "1" {
+            let vs = TTS.voces()
+            print("TTS voces español (\(vs.count)): \(vs.prefix(8).map { $0.name }.joined(separator: ", "))")
+            TTS.hablar("Hola, soy BetoDicta y ya puedo hablarte.") { print("TTS: terminó de hablar"); exit(0) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { print("TTS: sin fin (¿audio?)"); exit(vs.isEmpty ? 3 : 0) }
+            RunLoop.current.run()
+        }
         // Prueba del analizador de modos: BETODICTA_ANATEST=1 (lee modos.jsonl real).
         if ProcessInfo.processInfo.environment["BETODICTA_ANATEST"] == "1" {
             print(ModosAnalizador.resumenTexto())
