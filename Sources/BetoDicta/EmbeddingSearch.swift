@@ -180,6 +180,62 @@ enum EmbeddingSearch {
         }
     }
 
+    // MARK: Reconocimiento semántico de MODOS (capa 3) — misma idea que el glosario
+    private static func clavesEjemplos(_ modos: [(id: String, ejemplos: [String])]) -> [String] {
+        modos.flatMap { par in par.ejemplos.map { "modoej:\(par.id):\($0)" } }
+    }
+    static func modosListos(_ modos: [(id: String, ejemplos: [String])]) -> Bool {
+        cargarCache()
+        lock.lock(); defer { lock.unlock() }
+        let firma = firmaMotor
+        return clavesEjemplos(modos).allSatisfy { cache[$0]?.motor == firma }
+    }
+    /// Calienta (2º plano) los vectores de las frases-ejemplo de los modos.
+    static func calentarModos(_ modos: [(id: String, ejemplos: [String])]) {
+        cargarCache()
+        let firma = firmaMotor
+        // par (clave, texto) que falta embeber
+        var faltan: [(String, String)] = []
+        lock.lock()
+        for par in modos { for ej in par.ejemplos {
+            let k = "modoej:\(par.id):\(ej)"
+            if cache[k]?.motor != firma { faltan.append((k, ej)) }
+        } }
+        let ocupado = calentando
+        if !faltan.isEmpty { calentando = true }
+        lock.unlock()
+        guard !faltan.isEmpty, !ocupado else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let sem = DispatchSemaphore(value: 4); let grupo = DispatchGroup()
+            for (k, ej) in faltan {
+                sem.wait(); grupo.enter()
+                embed(ej) { r in
+                    if case .success(let v) = r { lock.lock(); cache[k] = Entrada(vec: v, mtime: 0, motor: firma); lock.unlock() }
+                    sem.signal(); grupo.leave()
+                }
+            }
+            grupo.wait(); guardarCache()
+            lock.lock(); calentando = false; lock.unlock()
+        }
+    }
+    /// Embebe el comando y devuelve el id del modo más cercano (max de sus ejemplos) + score.
+    static func mejorModo(comando: String, modos: [(id: String, ejemplos: [String])], done: @escaping (String?, Double) -> Void) {
+        embed(comando) { r in
+            guard case .success(let qv) = r else { DispatchQueue.main.async { done(nil, 0) }; return }
+            lock.lock(); let firma = firmaMotor
+            var best: (String, Double)? = nil
+            for par in modos {
+                var maxS = 0.0
+                for ej in par.ejemplos {
+                    if let e = cache["modoej:\(par.id):\(ej)"], e.motor == firma { maxS = max(maxS, coseno(qv, e.vec)) }
+                }
+                if best == nil || maxS > best!.1 { best = (par.id, maxS) }
+            }
+            lock.unlock()
+            DispatchQueue.main.async { done(best?.0, best?.1 ?? 0) }
+        }
+    }
+
     /// Estado de una búsqueda semántica (progreso + resultados).
     struct Resultado { let path: String; let score: Double }
 

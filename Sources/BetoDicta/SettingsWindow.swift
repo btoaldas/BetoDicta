@@ -89,6 +89,7 @@ final class SettingsModel: ObservableObject {
     @Published var sttStreaming: Bool { didSet { Config.set("stt_streaming", to: sttStreaming) } }
     @Published var busquedaSemantica: Bool { didSet { Config.set("busqueda_semantica", to: busquedaSemantica) } }
     @Published var glosarioInteligente: Bool { didSet { Config.set("glosario_inteligente", to: glosarioInteligente) } }
+    @Published var modoSemantico: Bool { didSet { Config.set("modo_semantico", to: modoSemantico) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -125,6 +126,7 @@ final class SettingsModel: ObservableObject {
         sttStreaming = Config.sttStreaming()
         busquedaSemantica = Config.busquedaSemantica()
         glosarioInteligente = Config.glosarioInteligente()
+        modoSemantico = Config.modoSemantico()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -697,6 +699,9 @@ struct SettingsView: View {
                         EmbeddingMotorPicker().disabled(!m.busquedaSemantica && !m.glosarioInteligente)
                         Toggle("Glosario inteligente (pulido más rápido)", isOn: $m.glosarioInteligente)
                         Text("En el pulido, envía a la IA SOLO los términos del glosario afines a lo que dictaste (con embeddings), no los 80+. Prompt más corto = más rápido, y escala aunque tu glosario crezca. Usa el motor de embeddings de arriba; la 1ª vez calienta los vectores en segundo plano (mientras, usa el glosario normal).")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Reconocimiento inteligente de modos por voz (semántico)", isOn: $m.modoSemantico)
+                        Text("Entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"modo tradúceme al inglés…\"). Solo actúa si empieza con \"modo\" (o mal-escuchas: mudo/molde/…) y el exacto no reconoció; si ninguno se parece, sigue como texto normal. Usa el motor de embeddings; la 1ª vez calienta en 2º plano.")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         VStack(alignment: .leading, spacing: 4) {

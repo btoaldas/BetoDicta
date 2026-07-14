@@ -480,6 +480,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("CADTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba EN VIVO del reconocimiento semántico de modos: BETODICTA_MODOSEMTEST=1.
+        if ProcessInfo.processInfo.environment["BETODICTA_MODOSEMTEST"] == "1" {
+            let pares = ModosStore.todos().filter { $0.id != "dictado" }.map { ($0.id, ModosStore.ejemplos($0)) }
+            EmbeddingSearch.calentarModos(pares)
+            DispatchQueue.global().async {
+                var n = 0
+                while !EmbeddingSearch.modosListos(pares), n < 200 { Thread.sleep(forTimeInterval: 0.25); n += 1 }
+                let casos: [(String, String)] = [
+                    ("modo mándale un whatsapp a Alberto hola", "whatsapp"),
+                    ("modo tradúceme esto al inglés por favor", "traducir"),
+                    ("modo apúntame una tarea comprar pan", "tarea"),
+                    ("modo búscame en google restaurantes", "buscar"),
+                    ("modo redáctame un correo formal", "correo"),
+                ]
+                let grupo = DispatchGroup(); var lineas: [String] = []; var ok = true
+                for (texto, esp) in casos {
+                    grupo.enter()
+                    ModosStore.detectarSemantico(texto) { m, _ in
+                        let got = m?.accion == esp || m?.id == esp || m?.base == esp
+                        // whatsapp es una acción propia; matchea por accion
+                        let bien = (m?.accion == esp) || (m?.id == esp)
+                        if !bien && !got { ok = false }
+                        lineas.append("  \(bien || got ? "OK" : "✗") \"\(texto.prefix(28))…\" → \(m?.nombre ?? "nil") (esp \(esp))")
+                        grupo.leave()
+                    }
+                }
+                grupo.wait()
+                lineas.forEach { print($0) }
+                print("MODOSEMTEST \(ok ? "TODO OK" : "revisar")")
+                exit(ok ? 0 : 3)
+            }
+            RunLoop.current.run()
+        }
         // Prueba EN VIVO del glosario inteligente: BETODICTA_GLOSTEST=1 (necesita motor de embeddings).
         if ProcessInfo.processInfo.environment["BETODICTA_GLOSTEST"] == "1" {
             let terms = ["Quipux", "DGTIC", "MikroTik", "WireGuard", "presupuesto", "EZTIC", "pfSense", "VLAN", "Alfresco", "Nemotron"]
@@ -1916,9 +1949,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if m.id != modo.id { Log.log(.ia, "modo por contexto → \(m.nombre) [\(ctx.nombre)]") }
             modo = m
         }
-        // Solo dijiste el COMANDO, sin contenido (ej. "modo tarea" y nada más):
-        // no guardes/proceses vacío. Avisa y no hagas nada (evita tareas vacías).
-        // Excepción: Acción/Buscar de solo-abrir NO necesitan texto ("modo calendario").
+        // Semántico (capa 3, opt-in): la voz no reconoció pero PARECE comando
+        // ("modo …" mal dicho o forma libre) → embeddings eligen el modo.
+        if !porVoz, Config.modoSemantico(), ModosStore.pareceComando(textoFinal) {
+            ModosStore.detectarSemantico(textoFinal) { [weak self] m, limpio in
+                guard let self else { return }
+                var mm = modo, tf = textoFinal
+                if let m { Log.log(.ia, "modo SEMÁNTICO → \(m.nombre)"); mm = m; tf = limpio }
+                self.despacharModo(mm, textoFinal: tf, crudo: crudo, wav: wav, history: history)
+            }
+            return
+        }
+        despacharModo(modo, textoFinal: textoFinal, crudo: crudo, wav: wav, history: history)
+    }
+
+    /// Ejecuta el modo ya resuelto (buscar/acción/dictado/otro). Reusable por el
+    /// camino síncrono (exacto) y el asíncrono (semántico).
+    private func despacharModo(_ modo: Modo, textoFinal: String, crudo: String, wav: Data, history: HistoryWriter?) {
+        // Solo el COMANDO, sin contenido ("modo tarea" y nada): no guardes vacío.
+        // Excepción: Acción/Buscar de solo-abrir no necesitan texto ("modo calendario").
         if modo.id != "dictado", ["pulir", "traducir", "responder"].contains(modo.base),
            textoFinal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Log.write("  ⏭︎ modo \(modo.nombre) sin contenido — no se procesa")
@@ -1926,40 +1975,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             history?.finish(wav: wav, finalText: "")
             return
         }
-        // Modo BUSCAR: no pega texto — abre el buscador con lo dictado como consulta.
-        if modo.base == "buscar" {
-            ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history)
-            return
-        }
-        // Modo ACCIÓN: abre una app/correo/web con el texto (Fase 5). No pega.
-        if modo.base == "accion" {
-            ejecutarAccion(textoFinal, modo: modo, wav: wav, history: history)
-            return
-        }
+        if modo.base == "buscar" { ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history); return }
+        if modo.base == "accion" { ejecutarAccion(textoFinal, modo: modo, wav: wav, history: history); return }
         let seguir: (String) -> Void = { [weak self] texto in
             self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)
         }
         if modo.id == "dictado" {
-            // Modo por defecto: comportamiento de siempre (pulir si el toggle,
-            // luego traducir si el toggle). Cero cambios para quien no usa modos.
             if Config.postProcess(), ChatIA.seleccionada() != nil {
                 if !recorder.isRecording { panel.update("🤖 Puliendo…") }
                 LLMPostProcess.enhance(textoFinal) { pulido in
                     if pulido != textoFinal { Log.write("  3·IA:         \(pulido)") }
                     seguir(pulido)
                 }
-            } else {
-                seguir(textoFinal)
-            }
+            } else { seguir(textoFinal) }
         } else {
-            // Otro modo (correo/oficio/tarea/nota/traducir/asistente/propio):
-            // transforma explícitamente con la IA del modo y entrega directo
-            // (el modo YA incluye traducir; no se re-traduce).
             if !recorder.isRecording { panel.update("✨ \(modo.nombre)…") }
             let almacen = modo.almacen
             LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
                 Log.write("  3·modo \(modo.nombre): \(resultado)")
-                // Fase 4: modos Tarea/Nota (o con almacén) guardan en la lista local.
                 if !almacen.isEmpty, !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     NotasStore.agregar(tipo: almacen, texto: resultado)
                     if self?.recorder.isRecording == false {

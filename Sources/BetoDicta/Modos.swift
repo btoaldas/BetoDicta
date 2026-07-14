@@ -532,3 +532,87 @@ extension ModosStore {
         return (transforms, accion, contenido)
     }
 }
+
+// MARK: - Reconocimiento SEMÁNTICO de modos (embeddings, capa 3, opt-in) — Fase B
+//
+// Cuando el exacto/raíz NO reconoce el comando pero el dictado empieza con "modo"
+// (o una mal-escucha: mudo/molde/moto…), se embebe la ZONA-COMANDO (el inicio) y se
+// elige el modo más cercano por coseno. Umbral para no forzar. El resto = contenido.
+
+extension ModosStore {
+    /// Palabras que valen como "modo" (indispensable) aunque el STT las mal-escuche.
+    static let palabrasModo: Set<String> = ["modo", "mudo", "molde", "moto", "modho", "moldo", "mode", "modos", "mod", "moro"]
+    static func esPalabraModo(_ tok: String) -> Bool { palabrasModo.contains(limpioTok(tok)) }
+    /// ¿El dictado PARECE un comando? (empieza con una palabra tipo "modo").
+    static func pareceComando(_ texto: String) -> Bool {
+        let f = texto.split(whereSeparator: { $0 == " " || $0 == "\n" }).first.map(String.init) ?? ""
+        return esPalabraModo(f)
+    }
+
+    /// Frases-ejemplo de CÓMO se pide cada modo (para el matcheo semántico). Base
+    /// curada + las frases de voz + el nombre. El usuario amplía con sus frases.
+    static func ejemplos(_ m: Modo) -> [String] {
+        var e = frasesVoz(m)
+        e.append("modo \(m.nombre.lowercased())")
+        switch m.id {
+        case "correo": e += ["enviar un correo", "mandar un email", "escribir un correo", "redactar un mensaje"]
+        case "oficio": e += ["hacer un oficio", "redactar un memorando", "documento formal institucional"]
+        case "tarea": e += ["agregar una tarea", "anotar un pendiente", "recuérdame hacer algo", "nueva tarea"]
+        case "nota": e += ["tomar una nota", "apuntar una idea", "guardar una nota"]
+        case "traducir": e += ["traducir esto", "traduce al inglés", "cómo se dice esto en otro idioma"]
+        case "asistente": e += ["responde esto", "ayúdame a redactar", "escribe una respuesta"]
+        case "buscar": e += ["buscar en google", "busca esto en internet", "googlear algo"]
+        default:
+            if m.base == "accion" {
+                switch m.accion {
+                case "whatsapp": e += ["enviar un whatsapp", "mandar un whatsapp", "escribir por whatsapp", "mándale un mensaje de whatsapp"]
+                case "correo", "outlook": e += ["enviar un correo", "abrir el correo", "nuevo correo en outlook"]
+                case "notas": e += ["abrir notas", "crear una nota en notas de mac"]
+                case "recordatorios": e += ["abrir recordatorios", "crear un recordatorio"]
+                case "calendario": e += ["abrir el calendario", "ver mi agenda"]
+                case "mapas": e += ["abrir mapas", "buscar en el mapa"]
+                case "url": e += ["abrir la página web", "abrir mi sitio"]
+                default: e += ["abrir \(Acciones.nombre(m.accion))"]
+                }
+            } else if m.base == "traducir" {
+                e += ["traducir a \(m.idiomaDestino)"]
+            }
+        }
+        return e.filter { !$0.isEmpty }
+    }
+
+    private static func paresEjemplos() -> [(id: String, ejemplos: [String])] {
+        todos().filter { $0.id != "dictado" }.map { ($0.id, ejemplos($0)) }
+    }
+
+    /// Elige el modo por SIGNIFICADO. Si los vectores no están calientes, los
+    /// calienta en 2º plano y devuelve nil (esta vez cae al comportamiento normal).
+    static func detectarSemantico(_ texto: String, done: @escaping (Modo?, String) -> Void) {
+        let pares = paresEjemplos()
+        guard EmbeddingSearch.modosListos(pares) else {
+            EmbeddingSearch.calentarModos(pares)
+            done(nil, texto); return
+        }
+        // Zona-comando = tras la palabra "modo", hasta la 1ª coma o 6 palabras.
+        var toks = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        if let f = toks.first, esPalabraModo(f) { toks.removeFirst() }
+        let restoTodo = toks.joined(separator: " ")
+        // Zona-comando CORTA: el verbo de intención va al inicio; incluir contenido
+        // (ej. "comprar pan") diluye el embedding. Hasta la 1ª coma o 4 palabras.
+        var cmdN = toks.count
+        if let coma = toks.firstIndex(where: { $0.contains(",") }) { cmdN = coma + 1 }
+        cmdN = min(cmdN, 4)
+        let comando = toks.prefix(cmdN).joined(separator: " ")
+        let contenido = toks.dropFirst(cmdN).joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n"))
+        EmbeddingSearch.mejorModo(comando: comando, modos: pares) { id, score in
+            guard let id, score >= 0.5, let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
+            // Acciones con destinatario (whatsapp/correo): el contenido conserva TODO
+            // lo dicho tras "modo" (para que "a Nombre" siga presente). Transforms:
+            // solo lo que sigue a la zona-comando.
+            let cont = m.base == "accion" ? restoTodo : (contenido.isEmpty ? restoTodo : contenido)
+            done(m, cont.trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n")))
+        }
+    }
+}

@@ -124,6 +124,9 @@ struct Config {
     /// Glosario INTELIGENTE: en el pulido, manda solo los términos afines al dictado
     /// (con embeddings) en vez de los 80 → prompt corto = más rápido. Default OFF (opt-in).
     static func glosarioInteligente() -> Bool { (json()["glosario_inteligente"] as? Bool) ?? false }
+    /// Reconocimiento SEMÁNTICO de modos por voz (capa 3, embeddings): entiende el
+    /// llamado del modo aunque lo digas de mil formas. Default OFF (opt-in).
+    static func modoSemantico() -> Bool { (json()["modo_semantico"] as? Bool) ?? false }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }
