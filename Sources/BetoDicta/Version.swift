@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.36.0-beta"
+    static let numero = "0.37.0-beta"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.37.0-beta", "2026-07-14", [
+            "CANCELAR el agente/voz como con el dictado: pulsa Esc (o toca el notch) y se cancela TODO al instante — mata a Hermes/IA en curso, ignora respuestas en vuelo y corta el audio de raíz (Apple, nube y streaming local). Ya no dependes de esperar a que Hermes termine su relajo",
+            "Vale para cualquier motor de agente (Hermes, IA local o nube) y para todos los modos que hablan",
+        ]),
         ("0.36.0-beta", "2026-07-14", [
             "BETA: el entrenamiento de voces es experimental; puede cambiar o fallar. Lo etiquetamos beta mientras lo estabilizamos",
             "Bitácora con avance GLOBAL + avance de la FASE + subfase (época·paso / archivo), todo en vivo",

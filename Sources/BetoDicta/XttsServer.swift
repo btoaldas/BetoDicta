@@ -71,6 +71,13 @@ enum XttsServer {
 
     static func detener() { proceso?.terminate(); proceso = nil; paqueteActivo = "" }
 
+    /// Corta la VOZ en curso (streaming o lotes) SIN matar el servidor residente (así la
+    /// próxima respuesta sigue siendo rápida). Para el botón/tecla Cancelar.
+    static func pararVoz() {
+        player?.stop(); player = nil
+        stream?.parar(); stream = nil
+    }
+
     private static func ping() -> Bool {
         guard let u = URL(string: salud) else { return false }
         var r = URLRequest(url: u); r.timeoutInterval = 1
@@ -179,6 +186,9 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
         finish(recibio && error == nil)
     }
     private func arrancar() { empezar?(); empezar = nil; player.play(); sonando = true }
+
+    /// Corta la reproducción en curso (para Cancelar).
+    func parar() { terminado = true; player.stop(); engine.stop(); done = nil }
     private func encolar(_ n: Int) {
         let bytes = n * 4
         guard acum.count >= bytes, n > 0, let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else { return }

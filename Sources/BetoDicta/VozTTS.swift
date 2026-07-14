@@ -51,17 +51,40 @@ enum Voz {
         player?.stop(); player = nil
     }
 
+    /// Bandera de cancelación: corta la cascada de failover (no pasa al siguiente motor).
+    private(set) static var cancelado = false
+    /// ¿Hay voz sonando ahora mismo? (para saber si vale la pena cancelar).
+    static var hablando: Bool {
+        (player?.isPlaying ?? false) || TTS.hablando
+            || ElevenLabsStreamTTS.activo != nil || XttsStreamTTS.activo != nil || TTSCloudStream.activo != nil
+    }
+
+    /// CANCELAR TODO lo de voz: para Apple, el audio por lotes, y TODOS los streaming
+    /// (WS/local), y corta la cascada de failover. El servidor XTTS residente NO se mata
+    /// (para que la próxima respuesta siga rápida), solo su reproducción.
+    static func cancelar() {
+        cancelado = true
+        TTS.detener()
+        player?.stop(); player = nil
+        ElevenLabsStreamTTS.cancelar()
+        XttsStreamTTS.cancelar()
+        TTSCloudStream.cancelar()
+        XttsServer.pararVoz()
+    }
+
     /// Dice el texto con el motor configurado (con failover). `empezar` se dispara cuando
     /// la voz REALMENTE arranca (para sincronizar el texto del notch con el habla);
     /// `completion` al terminar.
     static func decir(_ texto: String, empezar: (() -> Void)? = nil, completion: (() -> Void)? = nil) {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { empezar?(); completion?(); return }
+        cancelado = false
         intentar(t, cadena(), 0, empezar, completion)
     }
 
     private static func intentar(_ texto: String, _ orden: [String], _ i: Int,
                                  _ empezar: (() -> Void)?, _ done: (() -> Void)?) {
+        if cancelado { done?(); return }   // cancelado → cortar la cascada de failover
         guard i < orden.count else { done?(); return }
         let motor = orden[i]
         let siguiente: () -> Void = { intentar(texto, orden, i + 1, empezar, done) }

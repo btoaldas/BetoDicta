@@ -14,6 +14,15 @@ import Foundation
 
 enum AgenteHermes {
     private(set) static var sesion = ""     // session_id para mantener la conversación
+    private static var proc: Process?        // proceso hermes en curso (para cancelar)
+    private static var cancelado = false
+
+    /// CANCELAR: mata el proceso de Hermes en curso (si lo hay). El usuario manda.
+    static func cancelar() {
+        cancelado = true
+        proc?.terminate(); proc = nil
+    }
+    static var enCurso: Bool { proc?.isRunning ?? false }
 
     /// Ruta del binario hermes (parametrizable; por defecto ~/.local/bin/hermes).
     static func binario() -> String {
@@ -28,8 +37,10 @@ enum AgenteHermes {
     /// Manda el texto a Hermes y devuelve SU respuesta (o nil si falla → agente local).
     static func preguntar(_ texto: String, completion: @escaping (String?) -> Void) {
         guard disponible else { Log.log(.ia, "Hermes: no encuentro el binario"); completion(nil); return }
+        cancelado = false
         DispatchQueue.global(qos: .userInitiated).async {
             let p = Process()
+            proc = p
             p.executableURL = URL(fileURLWithPath: binario())
             var args = ["chat", "-q", texto, "--quiet"]
             if !sesion.isEmpty { args += ["--resume", sesion] }   // continuidad de conversación
@@ -40,10 +51,12 @@ enum AgenteHermes {
             // stdout = respuesta limpia; stderr = info de sesión (session_id). Se leen los
             // dos para sacar la respuesta Y el session_id (continuidad).
             let out = Pipe(); let err = Pipe(); p.standardOutput = out; p.standardError = err
-            do { try p.run() } catch { DispatchQueue.main.async { completion(nil) }; return }
+            do { try p.run() } catch { proc = nil; DispatchQueue.main.async { completion(nil) }; return }
             let dOut = out.fileHandleForReading.readDataToEndOfFile()
             let dErr = err.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
+            proc = nil
+            if cancelado { DispatchQueue.main.async { completion(nil) }; return }   // cancelado por el usuario
             let stdoutTxt = String(data: dOut, encoding: .utf8) ?? ""
             let stderrTxt = String(data: dErr, encoding: .utf8) ?? ""
             let salida = stdoutTxt + "\n" + stderrTxt

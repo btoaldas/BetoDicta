@@ -147,6 +147,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: Cancelar TODO (grabación · agente Hermes/IA · voz) — el usuario manda
+    //
+    // Igual que la X cancela el dictado, ahora Esc (o tocar el notch) cancela lo que sea:
+    // si graba → descarta; si el agente piensa/habla → mata Hermes, ignora respuestas en
+    // vuelo (token) y corta el audio de raíz. Nunca dependes de esperar a que termine solo.
+    private var agenteToken = 0
+    private(set) var agenteActivo = false
+
+    /// Arranca una "generación" de agente: nuevo token + arma Esc para poder cancelarla.
+    private func nuevoAgente() -> Int {
+        agenteToken += 1; agenteActivo = true
+        if Config.escCancels() { armEsc() }
+        return agenteToken
+    }
+    /// ¿La respuesta con este token sigue vigente (no se canceló)?
+    private func agenteVigente(_ tok: Int) -> Bool { tok == agenteToken && agenteActivo }
+    /// Terminó la generación (respondió/habló): baja la bandera y suelta Esc si no grabas.
+    private func finAgente() { agenteActivo = false; if !recorder.isRecording { disarmEsc() } }
+
+    /// CANCELA lo que esté en curso. Recording → descarta. Agente/voz → mata Hermes,
+    /// invalida respuestas en vuelo, corta el audio, cierra el notch. Idempotente.
+    func cancelarTodo() {
+        if recorder.isRecording { cancelDictation(); return }
+        let habia = agenteActivo || AgenteHermes.enCurso || Voz.hablando
+        agenteToken += 1          // invalida CUALQUIER respuesta en vuelo (Hermes o IA local)
+        agenteActivo = false
+        AgenteHermes.cancelar()   // mata el proceso de Hermes
+        Voz.cancelar()            // corta Apple + lotes + streaming (WS/local); no mata el server
+        disarmEsc()
+        if habia {
+            playSound("Basso")
+            panel.finRespuestaIA()
+            panel.flash("✕ Cancelado", segundos: 1)
+        }
+    }
+
     private var tecla: String { Config.hotkey() }
     /// Solo hay texto en vivo (streaming) si el proveedor #1 de la cadena es
     /// ElevenLabs Y el modelo es realtime. Si el #1 es Whisper local o Groq,
@@ -1011,6 +1047,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registerHotKey()
 
         // Clic en el letrero del motor (notch) → selector rápido de proveedor.
+        // Tocar el cuerpo del notch cancela lo que esté en curso (grabación / agente / voz).
+        panel.onCancelar = { [weak self] in self?.cancelarTodo() }
         panel.onMotorClick = { [weak self] in
             guard let self else { return }
             let menu = NSMenu()
@@ -1530,7 +1568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let delegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
             DispatchQueue.main.async {
                 if hotKeyID.id == 1 { delegate.toggle() }
-                if hotKeyID.id == 2 { delegate.cancelDictation() }
+                if hotKeyID.id == 2 { delegate.cancelarTodo() }   // Esc = cancela dictado O agente/voz
                 if hotKeyID.id == 3 { delegate.aprenderDeSeleccion() }
             }
             return noErr
@@ -2306,6 +2344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 } else { panel.update("✨ \(modo.nombre)…") }
             }
             let almacen = modo.almacen
+            let agTok = (modo.base == "agente") ? nuevoAgente() : 0   // cancelable si es agente
             LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
                 Log.write("  3·modo \(modo.nombre): \(resultado)")
                 if !almacen.isEmpty, !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2318,6 +2357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Modo Agente (Fase 7.2): además de pegar el texto, LO DICE por voz
                 // (si la Voz del sistema está activa). Falla suave: si no hay TTS, solo pega.
                 if modo.base == "agente", !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    guard self?.agenteVigente(agTok) == true else { return }   // cancelado → ignora
                     // Notch de RESPUESTA DE IA (distinto al de dictado): muestra lo que
                     // responde mientras habla; se cierra al terminar. El agente es
                     // conversacional — NO pega salvo que actives "pegar" (a futuro, según
@@ -2327,10 +2367,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         // el texto (karaoke) arranca EN SINCRONÍA cuando la voz empieza a sonar.
                         Voz.decir(resultado,
                                   empezar: { self?.panel.respuestaIA(resultado) },
-                                  completion: { self?.panel.finRespuestaIA() })
+                                  completion: { self?.panel.finRespuestaIA(); self?.finAgente() })
                     } else {
                         self?.panel.respuestaIA(resultado)   // sin voz: muestra el texto
-                        self?.panel.finRespuestaIA()
+                        self?.panel.finRespuestaIA(); self?.finAgente()
                     }
                     self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history, pegar: Config.agentePega())
                 } else {
@@ -2343,20 +2383,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Agente vía HERMES: notch "pensando" (IA: Hermes) → manda a Hermes → muestra y
     /// habla su respuesta. BetoDicta = pasarela; las acciones las hace Hermes.
     private func responderConHermes(_ texto: String, crudo: String, wav: Data, history: HistoryWriter?) {
+        let tok = nuevoAgente()
         if !recorder.isRecording { panel.pensando(ia: "Hermes") }
         AgenteHermes.preguntar(texto) { [weak self] respuesta in
-            guard let self else { return }
+            guard let self, self.agenteVigente(tok) else { return }   // cancelado → ignora la respuesta
             let r = respuesta ?? ""
             if r.isEmpty {
-                self.panel.finRespuestaIA()
+                self.finAgente(); self.panel.finRespuestaIA()
                 if !self.recorder.isRecording { self.panel.flash("🤖 Hermes no respondió", segundos: 2) }
                 history?.finish(wav: wav, finalText: ""); return
             }
             Log.write("  3·Hermes: \(r)")
             if Config.ttsActivo() {
-                Voz.decir(r, empezar: { self.panel.respuestaIA(r) }, completion: { self.panel.finRespuestaIA() })
+                Voz.decir(r, empezar: { self.panel.respuestaIA(r) },
+                          completion: { self.panel.finRespuestaIA(); self.finAgente() })
             } else {
-                self.panel.respuestaIA(r); self.panel.finRespuestaIA()
+                self.panel.respuestaIA(r); self.panel.finRespuestaIA(); self.finAgente()
             }
             self.finishDelivery(r, rawText: crudo, wav: wav, history: history, pegar: Config.agentePega())
         }

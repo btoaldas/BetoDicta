@@ -25,6 +25,16 @@ final class XttsStreamTTS: NSObject {
     private var done: ((Bool) -> Void)?
     private var terminado = false
 
+    /// Corta el streaming local en curso de raíz (proceso python + audio). Para Cancelar.
+    static func cancelar() {
+        guard let c = activo else { return }
+        c.terminado = true
+        c.proceso?.terminationHandler = nil
+        c.proceso?.terminate(); c.proceso = nil
+        c.player.stop(); c.engine.stop(); c.done = nil
+        activo = nil
+    }
+
     /// Habla en vivo por los parlantes (streaming).
     static func hablar(paquete: URL, texto: String, completion: @escaping (Bool) -> Void) {
         let c = XttsStreamTTS(); activo = c; c.reproducir = true

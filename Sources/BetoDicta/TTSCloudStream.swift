@@ -20,6 +20,15 @@ final class TTSCloudStream: NSObject {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private var fmt: AVAudioFormat!
+
+    /// Corta el streaming de nube en curso de raíz (WS + audio). Para Cancelar.
+    static func cancelar() {
+        guard let c = activo else { return }
+        c.terminado = true
+        c.ws?.cancel(with: .goingAway, reason: nil); c.ws = nil
+        c.player.stop(); c.engine.stop(); c.done = nil
+        activo = nil
+    }
     private var esFloat = false          // Cartesia = f32le; Deepgram = int16
     private var resto = Data()
     private var recibio = false

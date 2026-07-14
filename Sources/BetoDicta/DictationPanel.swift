@@ -11,6 +11,12 @@ final class MotorLabel: NSTextField {
     override func rightMouseDown(with event: NSEvent) { onClick?() }
 }
 
+/// Fondo del notch que acepta clic → cancelar lo que esté en curso (grabación/agente/voz).
+final class ClickableBackground: NSView {
+    var onClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) { onClick?() }
+}
+
 final class DictationPanel {
     private let panel: NSPanel
     private let label = NSTextField(labelWithString: "")
@@ -28,6 +34,8 @@ final class DictationPanel {
     var onModoClick: (() -> Void)? {
         didSet { modoLabel.onClick = onModoClick }
     }
+    /// Clic sobre el cuerpo del notch (fuera de las etiquetas): CANCELAR lo que esté en curso.
+    var onCancelar: (() -> Void)?
 
     private let wing: CGFloat = 48      // alas a los lados del notch
     private let strip: CGFloat = 24     // línea de texto bajo el notch
@@ -66,8 +74,10 @@ final class DictationPanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.becomesKeyOnlyIfNeeded = true
 
-        // Forma negra que abraza el notch: alas arriba + tira de texto abajo
-        let background = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        // Forma negra que abraza el notch: alas arriba + tira de texto abajo.
+        // Clickeable: tocar el notch (fuera de las etiquetas) CANCELA lo que esté en curso.
+        let background = ClickableBackground(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        background.onClick = { [weak self] in self?.onCancelar?() }
         background.wantsLayer = true
         background.layer?.backgroundColor = NSColor.black.cgColor
         background.layer?.cornerRadius = 12

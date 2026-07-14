@@ -409,6 +409,8 @@ Así *Quipux*, *Kipux* y *Guipux* caen en códigos casi idénticos (`KIPUKS`, `G
 
 Menú de la barra → **"Traducir al dictar"** → elige idioma (inglés, portugués, francés…). Dictas en español y se pega traducido. Los términos de tu glosario NO se traducen (nombres propios quedan intactos). Necesita key de Groq. **"Desactivado"** vuelve al español normal.
 
+> **Cancelar de raíz.** Cuando el agente está pensando o hablando (Hermes, IA local o nube), puedes cortar TODO al instante: pulsa **Esc** o **toca el notch**. Se mata la consulta en curso, se ignoran respuestas que vengan tarde y se corta el audio (voz de macOS, nube y streaming local). Igual que la X cancela el dictado. No dependes de esperar a que termine.
+
 ## 16 bis. Modos — qué hacer con lo dictado
 
 Un **modo** decide cómo se procesa tu dictado. Se configura en **Ajustes → Modos** y se cambia al vuelo desde el **notch** (etiqueta arriba-izquierda) o el **menú de la barra → Modo**, igual que eliges proveedor.

@@ -18,6 +18,7 @@ enum TTS {
     }
 
     static func detener() { if synth.isSpeaking { synth.stopSpeaking(at: .immediate) } }
+    static var hablando: Bool { synth.isSpeaking }
 
     /// Dice el texto con la voz/velocidad configuradas. `completion` al terminar.
     static func hablar(_ texto: String, completion: (() -> Void)? = nil) {

@@ -19,6 +19,15 @@ final class ElevenLabsStreamTTS: NSObject {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let fmt = AVAudioFormat(standardFormatWithSampleRate: 22050, channels: 1)!
+
+    /// Corta el streaming en curso de raíz (WS + audio). Para el botón/tecla Cancelar.
+    static func cancelar() {
+        guard let c = activo else { return }
+        c.terminado = true
+        c.ws?.cancel(with: .goingAway, reason: nil); c.ws = nil
+        c.player.stop(); c.engine.stop(); c.done = nil
+        activo = nil
+    }
     private var onPCM: ((Data) -> Void)?      // para captura (tests); si nil → reproduce
     private var terminado = false
     private var done: ((Bool) -> Void)?
