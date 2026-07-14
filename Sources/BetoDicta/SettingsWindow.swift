@@ -99,6 +99,7 @@ final class SettingsModel: ObservableObject {
     @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
     @Published var ttsProveedor: String { didSet { Config.set("tts_proveedor", to: ttsProveedor); Voz.preactivarLocal() } }
     @Published var agentePega: Bool { didSet { Config.set("agente_pega", to: agentePega) } }
+    @Published var agenteMotor: String { didSet { Config.set("agente_motor", to: agenteMotor) } }
     @Published var ttsElevenVoz: String { didSet { Config.set("tts_eleven_voz", to: ttsElevenVoz) } }
     @Published var ttsElevenStreaming: Bool { didSet { Config.set("tts_eleven_streaming", to: ttsElevenStreaming) } }
     @Published var ttsXttsCmd: String { didSet { Config.set("tts_xtts_cmd", to: ttsXttsCmd) } }
@@ -148,6 +149,7 @@ final class SettingsModel: ObservableObject {
         ttsVelocidad = Config.ttsVelocidad()
         ttsProveedor = Config.ttsProveedor()
         agentePega = Config.agentePega()
+        agenteMotor = Config.agenteMotor()
         ttsElevenVoz = Config.ttsElevenVoz()
         ttsElevenStreaming = Config.ttsElevenStreaming()
         ttsXttsCmd = Config.ttsXttsCmd()
@@ -723,6 +725,16 @@ struct SettingsView: View {
                         Divider()
                         Text("Voz del sistema (texto → voz) — Modo Agente").font(.subheadline)
                         Toggle("Que BetoDicta pueda HABLARTE (TTS)", isOn: $m.ttsActivo)
+                        fila("Cerebro") {
+                            Picker("", selection: $m.agenteMotor) {
+                                Text("IA local (de BetoDicta)").tag("local")
+                                Text("Hermes (pasarela: su IA + sus herramientas)").tag("hermes")
+                            }.labelsHidden().frame(width: 300)
+                        }
+                        if m.agenteMotor == "hermes" {
+                            Text("BetoDicta manda tu voz a Hermes; Hermes procesa (crear carpetas, abrir web, lo que sea) y devuelve; aquí se muestra y se HABLA la respuesta. Requiere Hermes instalado (~/.local/bin/hermes).")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
                         Toggle("El Agente PEGA su respuesta donde estés (además de decirla)", isOn: $m.agentePega)
                         Text("Apagado (default): el Agente es conversacional — muestra la respuesta en su notch y la habla, sin pegar. Enciéndelo si quieres el texto en tu documento. A futuro será inteligente según lo que pidas.")
                             .font(.caption2).foregroundStyle(.secondary)

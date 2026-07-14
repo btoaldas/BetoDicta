@@ -339,6 +339,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba del agente HERMES: BETODICTA_HERMESASK=<pregunta> → respuesta de Hermes
+        if let q = ProcessInfo.processInfo.environment["BETODICTA_HERMESASK"], !q.isEmpty {
+            print("HERMESASK disponible=\(AgenteHermes.disponible) bin=\(AgenteHermes.binario())")
+            AgenteHermes.preguntar(q) { r in
+                print("HERMESASK R=\(r ?? "(nil)")\nHERMESASK sesion=\(AgenteHermes.sesion)"); exit(r == nil ? 1 : 0)
+            }
+            RunLoop.main.run(); return
+        }
         // Prueba del agente: BETODICTA_AGENTEASK=<pregunta> → respuesta (verifica hora, etc.)
         if let q = ProcessInfo.processInfo.environment["BETODICTA_AGENTEASK"], !q.isEmpty {
             LLMPostProcess.procesarModo(q, modo: ModosStore.modo("agente")) { r in
@@ -2253,6 +2261,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if modo.base == "buscar" { ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history); return }
         if modo.base == "accion" { ejecutarAccion(textoFinal, modo: modo, wav: wav, history: history); return }
+        // Agente con cerebro HERMES (pasarela): BetoDicta manda el texto, Hermes procesa
+        // con SUS herramientas y devuelve; aquí solo mostramos y hablamos el resultado.
+        if modo.base == "agente", Config.agenteMotor() == "hermes", AgenteHermes.disponible {
+            responderConHermes(textoFinal, crudo: crudo, wav: wav, history: history)
+            return
+        }
         let seguir: (String) -> Void = { [weak self] texto in
             self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)
         }
@@ -2304,6 +2318,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
                 }
             }
+        }
+    }
+
+    /// Agente vía HERMES: notch "pensando" (IA: Hermes) → manda a Hermes → muestra y
+    /// habla su respuesta. BetoDicta = pasarela; las acciones las hace Hermes.
+    private func responderConHermes(_ texto: String, crudo: String, wav: Data, history: HistoryWriter?) {
+        if !recorder.isRecording { panel.pensando(ia: "Hermes") }
+        AgenteHermes.preguntar(texto) { [weak self] respuesta in
+            guard let self else { return }
+            let r = respuesta ?? ""
+            if r.isEmpty {
+                self.panel.finRespuestaIA()
+                if !self.recorder.isRecording { self.panel.flash("🤖 Hermes no respondió", segundos: 2) }
+                history?.finish(wav: wav, finalText: ""); return
+            }
+            Log.write("  3·Hermes: \(r)")
+            if Config.ttsActivo() {
+                Voz.decir(r, empezar: { self.panel.respuestaIA(r) }, completion: { self.panel.finRespuestaIA() })
+            } else {
+                self.panel.respuestaIA(r); self.panel.finRespuestaIA()
+            }
+            self.finishDelivery(r, rawText: crudo, wav: wav, history: history, pegar: Config.agentePega())
         }
     }
 
