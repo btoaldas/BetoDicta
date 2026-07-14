@@ -212,9 +212,18 @@ enum EntrenadorPiper {
             }
             let dsDir = proyecto.appendingPathComponent("dataset")
             let meta = dsDir.appendingPathComponent("metadata.csv")
+            cancelado = false
+            // Reentreno FRESCO (no reanudar): limpia checkpoints/run viejos para NO mezclar
+            // cortes de una sesión anterior (con audios distintos) con los nuevos.
+            if !reanudar {
+                try? fm.removeItem(at: proyecto.appendingPathComponent("ckpts"))
+                try? fm.removeItem(at: proyecto.appendingPathComponent("run"))
+            }
 
-            // FASE 1 — dataset (solo si no existe ya, para poder reanudar sin re-transcribir).
-            if !reanudar || !fm.fileExists(atPath: meta.path) {
+            // FASE 1 — dataset. Se construye SOLO si aún no existe uno usable (así reintentar
+            // el mismo proyecto NO re-transcribe los 452 min: reusa el dataset ya hecho).
+            let dsHecho = (try? String(contentsOf: meta, encoding: .utf8))?.split(separator: "\n").count ?? 0
+            if dsHecho <= 3 {
                 guard ffmpegListo() else {
                     DispatchQueue.main.async { onArranco(false, "Falta ffmpeg (necesario para preparar el audio). Instálalo: brew install ffmpeg", proyecto) }; return
                 }
@@ -231,9 +240,11 @@ enum EntrenadorPiper {
                 let dsLog = proyecto.appendingPathComponent("dataset.log")
                 fm.createFile(atPath: dsLog.path, contents: nil)
                 if let fh = try? FileHandle(forWritingTo: dsLog) { ds.standardOutput = fh; ds.standardError = fh }
+                proc = ds   // para que "Detener" mate también la transcripción (Fase 1)
                 do { try ds.run(); ds.waitUntilExit() } catch {
                     DispatchQueue.main.async { onArranco(false, "Falló el dataset: \(error.localizedDescription)", proyecto) }; return
                 }
+                if cancelado { DispatchQueue.main.async { onArranco(false, "Detenido.", proyecto) }; return }
                 let n = (try? String(contentsOf: meta, encoding: .utf8))?.split(separator: "\n").count ?? 0
                 guard ds.terminationStatus == 0, n > 3 else {
                     let pista = pistaDataset(proyecto)
@@ -243,6 +254,7 @@ enum EntrenadorPiper {
                 }
             }
 
+            if cancelado { DispatchQueue.main.async { onArranco(false, "Detenido.", proyecto) }; return }
             // FASE 2 — fit en background.
             DispatchQueue.main.async { onProgreso(Progreso(paso: 0, total: etapas, epoca: 0, texto: "Arrancando el entrenamiento…")) }
             let ckptsDir = proyecto.appendingPathComponent("ckpts")
@@ -277,6 +289,11 @@ enum EntrenadorPiper {
             var env = entorno()
             // Reset del contador SOLO cuando arrancamos desde la base (proyecto nuevo).
             if !(reanudar && reanuda != nil) { env["PIPER_FINETUNE_RESET"] = "1" }
+            // Limitar torch a los núcleos RÁPIDOS (performance): en Apple Silicon incluir los
+            // efficiency frena cada op al ritmo del más lento (CPU 100% sin avanzar).
+            let pc = "\(nucleosRapidos())"
+            env["PIPER_THREADS"] = pc; env["OMP_NUM_THREADS"] = pc
+            env["MKL_NUM_THREADS"] = pc; env["VECLIB_MAXIMUM_THREADS"] = pc
             tr.environment = env
             let trLog = proyecto.appendingPathComponent("piper.log")
             fm.createFile(atPath: trLog.path, contents: nil)
@@ -301,7 +318,8 @@ enum EntrenadorPiper {
         }
     }
 
-    static func detener() { proc?.terminate(); proc = nil }
+    private static var cancelado = false
+    static func detener() { cancelado = true; proc?.terminate(); proc = nil }
     static func esActivo() -> Bool { proc?.isRunning ?? false }
 
     /// Extrae una PISTA legible del dataset.log para decirle al usuario qué pasó
@@ -343,6 +361,14 @@ enum EntrenadorPiper {
         return out.isEmpty ? nil : out
     }
     static func ffmpegListo() -> Bool { rutaBin("ffmpeg") != nil }
+
+    /// Núcleos RÁPIDOS (performance) del Mac. En Apple Silicon usar solo estos evita que los
+    /// efficiency (lentos) frenen el entrenamiento. Fallback: mitad de los lógicos.
+    static func nucleosRapidos() -> Int {
+        var n: Int32 = 0; var sz = MemoryLayout<Int32>.size
+        if sysctlbyname("hw.perflevel0.physicalcpu", &n, &sz, nil, 0) == 0, n > 0 { return Int(n) }
+        return max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
+    }
 
     /// ¿El loop de entrenamiento ya arrancó? (la barra/época o los params aparecen en el
     /// log). Señal de "arranco" fiable: el 1er checkpoint recién sale a ~200 pasos.
@@ -419,12 +445,18 @@ enum EntrenadorPiper {
         let fin = termino(proyecto)
         // piper.log con contenido = ya estamos en FASE 2 (aunque aún esté armando la caché).
         if !piLog.isEmpty || fin {
-            // Barra de Lightning "PASO/TOTAL  m:ss" = paso GLOBAL / max_steps (progreso real).
+            // OJO: la barra de Lightning "X/Y m:ss" es el LOTE dentro de la ÉPOCA (X) sobre
+            // los lotes-por-época (Y); se REINICIA cada época. NO es el paso global. El paso
+            // GLOBAL = época × lotes_por_época + lote. Piso fiable: el último checkpoint.
             let bar = ultimoPar(piLog, "(\\d+)/(\\d+) \\d+:\\d+")
-            let paso = bar?.0 ?? (checkpoints(proyecto).last?.paso ?? 0)
-            let total = etapas > 0 ? etapas : (bar?.1 ?? 0)
-            let pct = total > 0 ? min(1.0, Double(paso) / Double(total)) : 0
             let ep = ultimoEntero(piLog, "Epoch (\\d+)")
+            var paso = checkpoints(proyecto).last?.paso ?? 0
+            if let (lote, lotesEp) = bar, lotesEp > 0 {
+                paso = max(paso, ep * lotesEp + lote)   // estimación fina + piso del checkpoint
+            }
+            let total = etapas > 0 ? etapas : 0
+            paso = total > 0 ? min(paso, total) : paso
+            let pct = total > 0 ? min(1.0, Double(paso) / Double(total)) : 0
             let arrancoPasos = bar != nil || paso > 0
             let txt: String
             if fin { txt = "✓ Terminó — escucha y elige el mejor checkpoint abajo." }
@@ -667,6 +699,14 @@ enum EntrenadorPiper {
     /// PIPER_FINETUNE_RESET=1 arranca el contador en 0 (fine-tune de pesos, no resume).
     private static let trainWrapPy = #"""
     import inspect, os, torch, sys
+    # Apple Silicon: torch reparte cada op entre TODOS los núcleos, pero los efficiency
+    # (lentos) frenan al ritmo del más lento → CPU al 100% pero sin avanzar. Limitar a los
+    # núcleos RÁPIDOS (performance) acelera muchísimo. PIPER_THREADS lo fija BetoDicta.
+    _thr = int(os.environ.get("PIPER_THREADS", "6") or "6")
+    if _thr > 0:
+        torch.set_num_threads(_thr)
+        try: torch.set_num_interop_threads(max(1, _thr // 2))
+        except Exception: pass
     from piper.train.vits.lightning import VitsModel
     from piper.train.vits.dataset import VitsDataModule
     _m_keys = set(inspect.signature(VitsModel.__init__).parameters) - {"self"}
