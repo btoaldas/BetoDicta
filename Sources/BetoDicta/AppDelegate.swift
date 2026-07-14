@@ -1950,7 +1950,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let id = modo.accion.isEmpty ? "correo" : modo.accion
         Log.write("  ▶︎ acción (\(Acciones.nombre(id))): \(t)")
         history?.finish(wav: wav, finalText: "▶︎ \(Acciones.nombre(id)): \(t)")
-        if id == "whatsapp" {
+        if id == "spotlight" {
+            // ⌘Espacio y pega la consulta en Spotlight (tú eliges el resultado).
+            abrirSpotlight()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { pasteText(t) }
+        } else if id == "whatsapp" {
             // Failover: app de escritorio si está; si no, wa.me (web) + sugerir instalarla.
             let tieneApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Acciones.bundle("whatsapp")) != nil
             if let url = URL(string: Acciones.whatsapp(texto: t, app: tieneApp)) { NSWorkspace.shared.open(url) }

@@ -373,14 +373,26 @@ enum Acciones {
     /// id, nombre, esquema URL con {q} ("" = solo abrir la app, sin texto en URL;
     /// "{q}" = URL propia del usuario en `prompt`), bundle id de la app.
     static let base: [(id: String, nombre: String, esquema: String, bundle: String)] = [
-        ("correo",        "Nuevo correo (con el texto)",     "mailto:?body={q}", ""),
+        ("correo",        "Correo / Mail (nuevo correo)",    "mailto:?body={q}", "com.apple.mail"),
         ("outlook",       "Outlook: nuevo correo",           "ms-outlook://compose?body={q}", "com.microsoft.Outlook"),
         ("whatsapp",      "WhatsApp (con el texto)",         "whatsapp://send?text={q}", "net.whatsapp.WhatsApp"),
-        ("notas",         "Abrir Notas (copia el texto)",    "", "com.apple.Notes"),
-        ("recordatorios", "Abrir Recordatorios",             "", "com.apple.reminders"),
-        ("calendario",    "Abrir Calendario",                "", "com.apple.iCal"),
-        ("finder",        "Abrir Finder",                    "", "com.apple.finder"),
-        ("mensajes",      "Abrir Mensajes",                  "", "com.apple.MobileSMS"),
+        ("mensajes",      "Mensajes (copia el texto)",       "", "com.apple.MobileSMS"),
+        ("notas",         "Notas de Mac (copia el texto)",   "", "com.apple.Notes"),
+        ("recordatorios", "Recordatorios (copia el texto)",  "", "com.apple.reminders"),
+        ("calendario",    "Calendario",                      "", "com.apple.iCal"),
+        ("finder",        "Finder",                          "", "com.apple.finder"),
+        ("safari",        "Safari",                          "", "com.apple.Safari"),
+        ("musica",        "Música",                          "", "com.apple.Music"),
+        ("terminal",      "Terminal (copia el texto)",       "", "com.apple.Terminal"),
+        ("mapas",         "Mapas",                           "", "com.apple.Maps"),
+        ("fotos",         "Fotos",                           "", "com.apple.Photos"),
+        ("contactos",     "Contactos",                       "", "com.apple.AddressBook"),
+        ("textedit",      "TextEdit (copia el texto)",       "", "com.apple.TextEdit"),
+        ("vistaprevia",   "Vista Previa",                    "", "com.apple.Preview"),
+        ("ajustes",       "Ajustes del Sistema",             "", "com.apple.systempreferences"),
+        ("appstore",      "App Store",                       "", "com.apple.AppStore"),
+        ("facetime",      "FaceTime",                        "", "com.apple.FaceTime"),
+        ("spotlight",     "Spotlight (⌘Espacio, pega el texto)", "", ""),
         ("url",           "Abrir web (tu URL con {q})",      "{q}", ""),
     ]
     static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
