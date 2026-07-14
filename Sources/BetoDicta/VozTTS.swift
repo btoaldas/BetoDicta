@@ -102,13 +102,21 @@ enum Voz {
                 }
             }
         default:
-            // Motor de NUBE del catálogo (OpenAI/Gemini/Deepgram/Cartesia/…): batch.
-            if TTSCloud.proveedor(motor) != nil {
-                TTSCloud.decir(motor, texto: texto) { data in
-                    if let data { reproducir(data, done) } else {
-                        Log.log(.ia, "TTS \(motor) no disponible → siguiente motor"); siguiente()
+            // Motor de NUBE del catálogo. Con WS + streaming ON → suena mientras genera;
+            // si falla → batch; si el batch falla → siguiente motor.
+            if let p = TTSCloud.proveedor(motor) {
+                let batch: () -> Void = {
+                    TTSCloud.decir(motor, texto: texto) { data in
+                        if let data { reproducir(data, done) } else {
+                            Log.log(.ia, "TTS \(motor) no disponible → siguiente motor"); siguiente()
+                        }
                     }
                 }
+                if p.ws, Config.ttsCloudStreaming(motor), TTSCloudStream.soporta(motor) {
+                    TTSCloudStream.hablar(motor, texto: texto) { ok in
+                        if ok { done?() } else { Log.log(.ia, "TTS \(motor) WS falló → batch"); batch() }
+                    }
+                } else { batch() }
             } else { siguiente() }
         }
     }

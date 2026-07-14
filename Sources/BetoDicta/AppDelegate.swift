@@ -486,6 +486,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de TTS de NUBE por STREAMING WS: BETODICTA_CLOUDWS=<id>
+        if let id = ProcessInfo.processInfo.environment["BETODICTA_CLOUDWS"], !id.isEmpty {
+            print("CLOUDWS proveedor=\(id) soporta=\(TTSCloudStream.soporta(id))")
+            let out = URL(fileURLWithPath: "/tmp/betodicta_cloudws.wav")
+            TTSCloudStream.capturarWav(id, texto: "Hola Alberto, esto llega por WebSocket en vivo.", salida: out) { ok in
+                if ok, let d = try? Data(contentsOf: out) { print("CLOUDWS OK → \(d.count) bytes WAV") } else { print("CLOUDWS FALLÓ") }
+                exit(0)
+            }
+            RunLoop.main.run(); return
+        }
         // Prueba de TTS de NUBE: BETODICTA_CLOUDTTS=<id> sintetiza y guarda /tmp/betodicta_cloud.<ext>
         if let id = ProcessInfo.processInfo.environment["BETODICTA_CLOUDTTS"], !id.isEmpty {
             print("CLOUDTTS proveedor=\(id)")
