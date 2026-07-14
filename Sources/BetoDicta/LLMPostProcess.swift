@@ -661,7 +661,10 @@ enum LLMPostProcess {
         let keyterms = Config.keyterms()
         if Config.glosarioInteligente(), keyterms.count > 25 {
             if EmbeddingSearch.glosarioListo(keyterms) {
-                EmbeddingSearch.terminosRelevantes(texto: text, keyterms: keyterms, k: 20) { ejecutar($0) }
+                EmbeddingSearch.terminosRelevantes(texto: text, keyterms: keyterms, k: 20) { sel in
+                    Log.write("  glosario inteligente: \(sel.count) de \(keyterms.count) términos enviados")
+                    ejecutar(sel)
+                }
                 return
             }
             EmbeddingSearch.calentarGlosario(keyterms)   // para la próxima

@@ -361,6 +361,7 @@ struct RulesEditor: View {
     @State private var refrescarSugerido = 0                  // bump al cerrar popover de voz
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -452,7 +453,7 @@ struct RulesEditor: View {
                 Text("Se escribe").font(.caption).frame(width: 120, alignment: .leading)
                 Text("").frame(width: 22)
             }
-            List {
+            LazyVStack(alignment: .leading, spacing: 6) {
                 ForEach($store.rules) { $rule in
                     HStack(spacing: 8) {
                         Toggle("", isOn: Binding(get: { rule.activo },
@@ -516,7 +517,6 @@ struct RulesEditor: View {
                     .opacity(rule.activo ? 1 : 0.5)
                 }
             }
-            .frame(minHeight: 300)
             // Leyenda: aclara que NADA de esto es audio.
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle").font(.caption2).foregroundStyle(.secondary)
@@ -524,7 +524,9 @@ struct RulesEditor: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(20).frame(width: 660, height: porAudio ? 600 : 540)
+        .padding(20)
+        }
+        .frame(width: 660, height: porAudio ? 640 : 540)
         .onDisappear { store.purgarVacias() }   // al cerrar, limpia filas en blanco
     }
 
