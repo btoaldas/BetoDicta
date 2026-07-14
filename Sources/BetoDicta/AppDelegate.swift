@@ -50,6 +50,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.items.first(where: { $0.tag == 83 })?.title =
                 "Proveedor principal: \(Self.nombreMotor(cadena.first))"
         }
+        if let modoMenu = menu.items.first(where: { $0.tag == 85 })?.submenu {
+            modoMenu.removeAllItems()
+            let activo = Config.modoActivo()
+            for m in ModosStore.todos() {
+                let item = NSMenuItem(title: m.nombre, action: #selector(elegirModo(_:)), keyEquivalent: "")
+                item.representedObject = m.id
+                item.target = self
+                item.state = m.id == activo ? .on : .off
+                modoMenu.addItem(item)
+            }
+            menu.items.first(where: { $0.tag == 85 })?.title = "Modo: \(ModosStore.activo().nombre)"
+        }
         if let recientes = menu.items.first(where: { $0.tag == 80 })?.submenu {
             recientes.removeAllItems()
             let fmt = DateFormatter()
@@ -284,6 +296,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de los MODOS: BETODICTA_MODOTEST=<id> corre ese modo (o varios)
+        // contra un texto de prueba con la IA real de pulido y sale.
+        if ProcessInfo.processInfo.environment["BETODICTA_MODOTEST"] == "1" {
+            DispatchQueue.global().async {
+                let texto = "oye ayúdame a decirle a mark que revisé el kipux del gad y que mañana le mando el informe"
+                let ids = ["dictado", "correo", "tarea", "traducir"]
+                for id in ids {
+                    let modo = ModosStore.modo(id)
+                    let sem = DispatchSemaphore(value: 0)
+                    if id == "dictado" {
+                        LLMPostProcess.enhance(texto) { r in print("MODOTEST [\(modo.nombre)] → \(r)"); sem.signal() }
+                    } else {
+                        LLMPostProcess.procesarModo(texto, modo: modo) { r in print("MODOTEST [\(modo.nombre)] → \(r)"); sem.signal() }
+                    }
+                    _ = sem.wait(timeout: .now() + 30)
+                }
+                print("MODOTEST fin")
+                exit(0)
+            }
+            return
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
@@ -363,6 +396,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         prov.tag = 83
         prov.submenu = NSMenu()
         menu.addItem(prov)
+        let modoItem = NSMenuItem(title: "Modo", action: nil, keyEquivalent: "")
+        modoItem.tag = 85
+        modoItem.submenu = NSMenu()
+        menu.addItem(modoItem)
         menu.addItem(withTitle: "Editar keyterms", action: #selector(openKeyterms), keyEquivalent: "")
         menu.addItem(withTitle: "Editar reemplazos", action: #selector(openReplacements), keyEquivalent: "")
         menu.addItem(withTitle: "Copiar último dictado", action: #selector(copyLastDictation), keyEquivalent: "c")
@@ -430,6 +467,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self.panel.popUpMotorMenu(menu)
         }
+        // Clic en el letrero del MODO (arriba-izq): selector de modo.
+        panel.onModoClick = { [weak self] in
+            guard let self else { return }
+            let menu = NSMenu()
+            let titulo = NSMenuItem(title: "Modo (qué hacer con lo dictado)", action: nil, keyEquivalent: "")
+            titulo.isEnabled = false
+            menu.addItem(titulo)
+            let activo = Config.modoActivo()
+            for m in ModosStore.todos() {
+                let item = NSMenuItem(title: m.nombre, action: #selector(self.elegirModo(_:)), keyEquivalent: "")
+                item.representedObject = m.id
+                item.target = self
+                item.state = m.id == activo ? .on : .off
+                menu.addItem(item)
+            }
+            self.panel.popUpModoMenu(menu)
+        }
+        panel.setModo(ModosStore.activo())
 
         // Caja negra: rescatar dictados de sesiones que murieron a medias,
         // y matar whisper-servers huérfanos de crashes anteriores.
@@ -608,6 +663,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.setMotor(Self.nombreMotor(p), enVivo: esVivo)
         }
     }
+
+    /// Cambia el MODO activo (qué hacer con lo dictado) — desde el menú o el notch.
+    @objc func elegirModo(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        ModosStore.fijarActivo(id)
+        panel.setModo(ModosStore.activo())
+    }
+    /// Refresca el letrero de modo en el notch (lo llama la pestaña Modos).
+    func refrescarModoNotch() { panel.setModo(ModosStore.activo()) }
 
     @objc private func openKeyterms() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("keyterms.txt")) }
     @objc private func openReplacements() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("reemplazos.json")) }
@@ -1543,18 +1607,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             avisarSiLibre("(silencio)")
             return
         }
-        // Paso opcional: pulir con IA → luego traducir (si están activos)
+        // El MODO activo decide qué hacer con lo dictado.
+        let modo = ModosStore.activo()
         let seguir: (String) -> Void = { [weak self] texto in
             self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)
         }
-        if Config.postProcess(), Config.groqKey() != nil {
-            if !recorder.isRecording { panel.update("🤖 Puliendo…") }
-            LLMPostProcess.enhance(textoFinal) { pulido in
-                if pulido != textoFinal { Log.write("  3·IA:         \(pulido)") }
-                seguir(pulido)
+        if modo.id == "dictado" {
+            // Modo por defecto: comportamiento de siempre (pulir si el toggle,
+            // luego traducir si el toggle). Cero cambios para quien no usa modos.
+            if Config.postProcess(), ChatIA.seleccionada() != nil {
+                if !recorder.isRecording { panel.update("🤖 Puliendo…") }
+                LLMPostProcess.enhance(textoFinal) { pulido in
+                    if pulido != textoFinal { Log.write("  3·IA:         \(pulido)") }
+                    seguir(pulido)
+                }
+            } else {
+                seguir(textoFinal)
             }
         } else {
-            seguir(textoFinal)
+            // Otro modo (correo/oficio/tarea/nota/traducir/asistente/propio):
+            // transforma explícitamente con la IA del modo y entrega directo
+            // (el modo YA incluye traducir; no se re-traduce).
+            if !recorder.isRecording { panel.update("✨ \(modo.nombre)…") }
+            LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
+                Log.write("  3·modo \(modo.nombre): \(resultado)")
+                Log.write("  ✓ entregado:  \(resultado)")
+                self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
+            }
         }
     }
 

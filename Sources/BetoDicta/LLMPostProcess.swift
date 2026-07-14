@@ -52,6 +52,13 @@ struct ChatIA {
         if id.hasPrefix("custom:") { return modelo }
         return Config.pulidoModelo(id) ?? modelo
     }
+    /// Copia de esta IA con OTRO modelo (para los modos, que fijan su modelo).
+    func conModelo(_ m: String) -> ChatIA {
+        var c = ChatIA(id: id, nombre: nombre, base: base, modelo: m.isEmpty ? modelo : m, keyEnv: keyEnv, local: local)
+        c.authHeader = authHeader; c.authPrefix = authPrefix; c.headersExtra = headersExtra
+        c.keyDirecta = keyDirecta; c.paraPulido = paraPulido; c.formato = formato
+        return c
+    }
     /// Nombre corto del proveedor (sin el " · modelo" que traen algunos).
     var proveedorCorto: String { nombre.components(separatedBy: " · ").first ?? nombre }
     /// Etiqueta para el selector: "Proveedor · modelo-activo".
@@ -630,10 +637,57 @@ enum LLMPostProcess {
         hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1, completion: completion)
     }
 
+    /// La IA que usa un MODO: la suya propia (proveedorId+modelo) o, si no tiene,
+    /// nil para que el llamador use la global de pulido.
+    static func iaDeModo(_ modo: Modo) -> ChatIA? {
+        guard !modo.proveedorId.isEmpty else { return nil }
+        guard let ia = ChatIA.catalogo.first(where: { $0.id == modo.proveedorId }) else { return nil }
+        return modo.modelo.isEmpty ? ia : ia.conModelo(modo.modelo)
+    }
+
+    /// Procesa el texto según el MODO activo (correo/oficio/tarea/nota/traducir/
+    /// asistente/propio). Usa la IA del modo o la global. NO aplica la salvaguarda
+    /// anti-inyección: estos modos transforman a propósito (crecen, cambian).
+    static func procesarModo(_ text: String, modo: Modo, completion: @escaping (String) -> Void) {
+        let ia = iaDeModo(modo) ?? ChatIA.seleccionada()
+        guard let ia else {
+            Log.write("modo \(modo.nombre): sin IA de chat conectada — texto original"); completion(text); return
+        }
+        guard text.unicodeScalars.filter({ CharacterSet.alphanumerics.contains($0) }).count >= 4 else {
+            completion(text); return
+        }
+        let glosario = Config.keyterms().prefix(80).joined(separator: ", ")
+        let instruccion: String
+        switch modo.base {
+        case "traducir":
+            instruccion = "Traduce el siguiente texto dictado al \(modo.idiomaDestino). Conserva el significado; no agregues comentarios."
+        case "responder":
+            instruccion = modo.prompt.isEmpty ? "El dictado es una instrucción o pregunta: responde de forma útil, directa y concisa." : modo.prompt
+        default:  // "pulir" con la instrucción del modo (Dictado vacío no llega aquí)
+            instruccion = modo.prompt.isEmpty ? "Limpia la transcripción: corrige puntuación, mayúsculas y ortografía; quita muletillas; conserva el significado y el orden; no agregues nada." : modo.prompt
+        }
+        let prompt = """
+        \(instruccion)
+        - GLOSARIO — respeta EXACTAMENTE estos términos si aparecen (no los traduzcas): \(glosario).
+        - Devuelve ÚNICAMENTE el resultado pedido, sin preámbulos ni comentarios.
+
+        Texto dictado:
+
+        \(text)
+        """
+        let inicio = Date()
+        let temp = modo.base == "responder" ? 0.4 : 0
+        guard let request = ia.requestChat(prompt: prompt, temperatura: temp, textLen: text.count) else {
+            completion(text); return
+        }
+        Log.log(.ia, "modo \(modo.nombre) con \(ia.etiqueta)")
+        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1, salvaguarda: false, completion: completion)
+    }
+
     /// Ejecuta la llamada con hasta 1 REINTENTO ante fallos de red/timeout
     /// (transitorios). En error de servidor (HTTP 4xx/5xx) no reintenta.
     private static func hacer(_ request: URLRequest, ia: ChatIA, textoOriginal text: String,
-                              inicio: Date, intento: Int, completion: @escaping (String) -> Void) {
+                              inicio: Date, intento: Int, salvaguarda: Bool = true, completion: @escaping (String) -> Void) {
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let data,
@@ -651,7 +705,9 @@ enum LLMPostProcess {
                         }
                         // Salvaguarda anti-inyección (opt-in): si el pulido diverge
                         // groseramente del dictado, cae al ORIGINAL (nunca bloquea).
-                        if let motivo = razonSospecha(original: text, pulido: pulido) {
+                        // Los modos que TRANSFORMAN (correo/oficio/traducir/…) la
+                        // omiten: crecen/cambian a propósito.
+                        if salvaguarda, let motivo = razonSospecha(original: text, pulido: pulido) {
                             Log.write("pulido: salvaguarda anti-inyección (\(motivo)) → texto original")
                             completion(text); return
                         }
@@ -667,7 +723,7 @@ enum LLMPostProcess {
                 if esRed, intento < 2 {
                     Log.write("pulido: fallo de red (\(motivo)) — reintento…")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento + 1, completion: completion)
+                        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento + 1, salvaguarda: salvaguarda, completion: completion)
                     }
                     return
                 }

@@ -17,10 +17,15 @@ final class DictationPanel {
     let meter: LevelMeterView
     private let keycap = NSTextField(labelWithString: "fn")
     private let motorLabel = MotorLabel(labelWithString: "")
+    private let modoLabel = MotorLabel(labelWithString: "")   // arriba-izq: modo activo
 
     /// Clic sobre el letrero del motor (o el fn): abrir el selector rápido.
     var onMotorClick: (() -> Void)? {
         didSet { motorLabel.onClick = onMotorClick }
+    }
+    /// Clic sobre el letrero del MODO (arriba-izq): abrir el selector de modo.
+    var onModoClick: (() -> Void)? {
+        didSet { modoLabel.onClick = onModoClick }
     }
 
     private let wing: CGFloat = 48      // alas a los lados del notch
@@ -113,6 +118,27 @@ final class DictationPanel {
         label.lineBreakMode = .byTruncatingHead
         label.frame = NSRect(x: 8, y: 4, width: width - 16, height: 15)
         background.addSubview(label)
+
+        // Ala IZQUIERDA, arriba (sobre el audio): el MODO activo. Clic para
+        // cambiarlo — igual que el letrero del motor a la derecha.
+        modoLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
+        modoLabel.textColor = NSColor(calibratedWhite: 0.62, alpha: 1)
+        modoLabel.alignment = .center
+        modoLabel.maximumNumberOfLines = 1
+        modoLabel.frame = NSRect(x: 1, y: strip + notchHeight - 11, width: wing - 2, height: 10)
+        modoLabel.onClick = onModoClick
+        background.addSubview(modoLabel)   // encima del meter (z-order)
+        setModo(ModosStore.activo())
+    }
+
+    /// Fija el letrero del modo activo (arriba-izq del notch).
+    func setModo(_ modo: Modo) {
+        let txt = modo.id == "dictado" ? "dictado" : modo.nombre.lowercased()
+        modoLabel.stringValue = txt
+        // El modo por defecto va tenue; los otros resaltan (están transformando).
+        modoLabel.textColor = modo.id == "dictado"
+            ? NSColor(calibratedWhite: 0.5, alpha: 1)
+            : NSColor(calibratedRed: 0.62, green: 0.55, blue: 0.95, alpha: 1)
     }
 
     // Un "flash" (aviso breve, ej. "📚 Aprendí…") tiene prioridad sobre el
@@ -183,6 +209,7 @@ final class DictationPanel {
         let motorH = max(8, notchHeight - capH - 7)
         motorLabel.frame = NSRect(x: width - wing + 1, y: strip + capH + 4,
                                   width: wing - 2, height: min(motorH, 10))
+        modoLabel.frame = NSRect(x: 1, y: strip + notchHeight - 11, width: wing - 2, height: 10)
         label.frame = NSRect(x: 8, y: 4, width: width - 16, height: 15)
     }
 
@@ -214,6 +241,11 @@ final class DictationPanel {
     func popUpMotorMenu(_ menu: NSMenu) {
         menu.popUp(positioning: nil,
                    at: NSPoint(x: motorLabel.frame.minX, y: motorLabel.frame.minY - 4),
+                   in: panel.contentView)
+    }
+    func popUpModoMenu(_ menu: NSMenu) {
+        menu.popUp(positioning: nil,
+                   at: NSPoint(x: modoLabel.frame.minX, y: modoLabel.frame.minY - 4),
                    in: panel.contentView)
     }
 

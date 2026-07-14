@@ -96,6 +96,9 @@ struct Config {
     /// Motor de embeddings elegido ("ollama"|"openai"|"gemini"|"mistral"|"custom").
     /// Default Ollama (local), pero el usuario elige en Avanzado según lo que tenga.
     static func embeddingProveedor() -> String { (json()["embedding_proveedor"] as? String) ?? "ollama" }
+    /// Modo activo (qué hacer con lo dictado): "dictado" (default) / correo / oficio /
+    /// tarea / nota / traducir / asistente / propio. Se elige en caliente.
+    static func modoActivo() -> String { (json()["modo_activo"] as? String) ?? "dictado" }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }
