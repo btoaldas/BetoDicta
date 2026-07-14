@@ -54,85 +54,50 @@ enum XttsServer {
         _ = sem.wait(timeout: .now() + 1.5); return ok
     }
 
-    /// Habla por el servidor: manda el texto, recibe PCM float32 en streaming y lo
-    /// reproduce por AVAudioEngine conforme llega. Falla suave (completion(false)).
+    private static var player: AVAudioPlayer?
+    private static let fin = XttsFin()
+
+    /// Habla por el servidor. Genera el audio COMPLETO (el modelo ya está en RAM → rápido)
+    /// y LUEGO lo reproduce de corrido. Así la reproducción NO compite con la CPU de la
+    /// generación → suena parejo, sin bajones ni trabas. Falla suave (completion(false)).
     static func decir(texto: String, completion: @escaping (Bool) -> Void) {
         guard corriendo, let u = URL(string: "http://127.0.0.1:\(puerto)/say") else { completion(false); return }
-        let player = XttsServerPlayer()
-        player.reproducir(texto: texto, url: u, completion: completion)
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 120
+        req.httpBody = texto.data(using: .utf8)
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            guard let data, (200..<300).contains(code), data.count >= 8 else {
+                Log.log(.ia, "XTTS servidor: sin audio (\(err?.localizedDescription ?? "HTTP \(code)"))")
+                DispatchQueue.main.async { completion(false) }; return
+            }
+            // PCM float32 24kHz mono → WAV → AVAudioPlayer (reproducción fluida garantizada).
+            guard let wav = try? pcmFloatAWav(data) else { DispatchQueue.main.async { completion(false) }; return }
+            DispatchQueue.main.async {
+                do {
+                    let p = try AVAudioPlayer(data: wav)
+                    fin.alTerminar = completion; p.delegate = fin
+                    player = p; p.prepareToPlay(); p.play()
+                } catch { Log.log(.ia, "XTTS servidor: no reproduce (\(error.localizedDescription))"); completion(false) }
+            }
+        }.resume()
+    }
+
+    /// float32 LE (24kHz mono) → WAV int16.
+    private static func pcmFloatAWav(_ f32: Data) throws -> Data {
+        var pcm16 = Data(capacity: f32.count / 2)
+        f32.withUnsafeBytes { raw in
+            let f = raw.bindMemory(to: Float32.self)
+            for i in 0..<f.count { var s = Int16(max(-1, min(1, f[i])) * 32767).littleEndian; withUnsafeBytes(of: &s) { pcm16.append(contentsOf: $0) } }
+        }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("xtts-srv-\(abs(f32.count)).wav")
+        try WavIO.escribir(pcm16: pcm16, sampleRate: 24000, a: tmp)
+        let d = try Data(contentsOf: tmp); try? FileManager.default.removeItem(at: tmp); return d
     }
 }
 
-// Recibe el PCM float32 (24kHz mono) por HTTP en streaming y lo encola en AVAudioEngine
-// con un JITTER BUFFER: acumula un colchón (~1s) antes de sonar y programa trozos
-// UNIFORMES. El XTTS en CPU entrega el audio a ráfagas (frase, pausa mientras calcula la
-// siguiente, frase…); sin colchón el reproductor se vacía en esas pausas → se entrecorta.
-// El colchón cubre las pausas y suena parejo.
-private final class XttsServerPlayer: NSObject, URLSessionDataDelegate {
-    static var activo: XttsServerPlayer?
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private let fmt = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
-    private var acumulador = Data()          // bytes float32 pendientes de programar
-    private var sonando = false
-    private let colchon = 24000              // ~1.0s (samples) antes de arrancar
-    private let trozo = 4800                 // ~0.2s por buffer (uniforme)
-    private var programados = 0              // samples ya encolados
-    private var recibio = false
-    private var done: ((Bool) -> Void)?
-    private var terminado = false
-
-    func reproducir(texto: String, url: URL, completion: @escaping (Bool) -> Void) {
-        XttsServerPlayer.activo = self
-        done = completion
-        engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: fmt)
-        do { try engine.start() } catch { finish(false); return }   // play() se difiere hasta el colchón
-        var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 120
-        req.httpBody = texto.data(using: .utf8)
-        let ses = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
-        ses.dataTask(with: req).resume()
-    }
-
-    func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        recibio = true
-        acumulador.append(data)
-        // Programa en trozos uniformes de ~0.2s.
-        while acumulador.count >= trozo * 4 {
-            encolar(muestras: trozo)
-        }
-        // Arranca a sonar solo cuando hay colchón (~1s) → no se vacía en las pausas.
-        if !sonando, programados >= colchon { player.play(); sonando = true }
-    }
-
-    func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        // Vacía lo que quede (último trozo corto) y, si nunca alcanzó el colchón
-        // (respuesta corta), arranca igual para reproducir lo poco que hay.
-        let rest = acumulador.count / 4
-        if rest > 0 { encolar(muestras: rest) }
-        if !sonando { player.play(); sonando = true }
-        finish(recibio && error == nil)
-    }
-
-    /// Saca `muestras` floats del acumulador y las programa como un buffer.
-    private func encolar(muestras: Int) {
-        let bytes = muestras * 4
-        guard acumulador.count >= bytes, muestras > 0,
-              let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(muestras)) else { return }
-        let bloque = acumulador.subdata(in: 0..<bytes)
-        acumulador.removeSubrange(0..<bytes)
-        pcm.frameLength = AVAudioFrameCount(muestras)
-        bloque.withUnsafeBytes { raw in
-            let f = raw.bindMemory(to: Float32.self)
-            guard let out = pcm.floatChannelData?[0] else { return }
-            for i in 0..<muestras { out[i] = f[i] }
-        }
-        player.scheduleBuffer(pcm)
-        programados += muestras
-    }
-
-    private func finish(_ ok: Bool) {
-        if terminado { return }; terminado = true
-        // Deja que suene lo encolado antes de avisar (no cortar el final).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.done?(ok); self.done = nil }
+private final class XttsFin: NSObject, AVAudioPlayerDelegate {
+    var alTerminar: ((Bool) -> Void)?
+    func audioPlayerDidFinishPlaying(_ p: AVAudioPlayer, successfully flag: Bool) {
+        let cb = alTerminar; alTerminar = nil; DispatchQueue.main.async { cb?(true) }
     }
 }

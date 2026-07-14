@@ -232,7 +232,7 @@ enum VozEngine {
     config=XttsConfig(); config.load_json(rel("config","config.json"))
     model=Xtts.init_from_config(config)
     model.load_checkpoint(config, checkpoint_path=rel("modelo","model.pth"), vocab_path=rel("vocab","vocab.json"), use_deepspeed=False)
-    model.cpu(); model.train(False)
+    model.cpu(); model.train(False)   # XTTS no acelera bien en MPS; CPU estable
     refs=[os.path.join(PKG,l.strip()) for l in open(rel("ref_list","ref_list.txt")) if l.strip()]
     GPT,SPK=model.get_conditioning_latents(audio_path=refs)   # una sola vez
     class H(BaseHTTPRequestHandler):
