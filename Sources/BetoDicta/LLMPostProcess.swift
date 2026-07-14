@@ -718,8 +718,14 @@ enum LLMPostProcess {
                !voz.persona.trimmingCharacters(in: .whitespaces).isEmpty {
                 base = voz.persona + "\n" + base
             }
+            // La IA NO tiene reloj: si no le damos la hora, se la INVENTA. Se la pasamos.
+            let fmt = DateFormatter()
+            fmt.locale = Locale(identifier: "es_EC"); fmt.timeZone = TimeZone.current
+            fmt.dateFormat = "EEEE d 'de' MMMM 'de' yyyy, h:mm a"
+            let ahora = fmt.string(from: Date())
             instruccion = """
             \(base)
+            AHORA MISMO (fecha y hora local, úsala para preguntas de hora/fecha, NO inventes): \(ahora).
             Usa SOLO estos datos del usuario cuando el pedido los requiera (no inventes):
             TAREAS pendientes:
             \(tareas.isEmpty ? "(ninguna)" : tareas)

@@ -339,6 +339,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba del agente: BETODICTA_AGENTEASK=<pregunta> → respuesta (verifica hora, etc.)
+        if let q = ProcessInfo.processInfo.environment["BETODICTA_AGENTEASK"], !q.isEmpty {
+            LLMPostProcess.procesarModo(q, modo: ModosStore.modo("agente")) { r in
+                print("AGENTEASK Q=\(q)\nAGENTEASK R=\(r)"); exit(0)
+            }
+            RunLoop.main.run(); return
+        }
         // Prueba de progreso en vivo: BETODICTA_PROGTEST=<proyecto> (lee train.log)
         if let p = ProcessInfo.processInfo.environment["BETODICTA_PROGTEST"], !p.isEmpty {
             let pr = Entrenador.leerProgreso(URL(fileURLWithPath: p))
