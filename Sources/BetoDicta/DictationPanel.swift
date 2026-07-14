@@ -256,13 +256,34 @@ final class DictationPanel {
         pulsar(true)
     }
 
-    /// Muestra la RESPUESTA de la IA (mientras habla). Sigue latiendo suave.
+    private var revelarTimer: Timer?
+    private var palabrasIA: [String] = []
+    private var idxIA = 0
+
+    /// Muestra la RESPUESTA de la IA REVELÁNDOLA palabra por palabra, al ritmo aproximado
+    /// del habla (para que el texto AVANCE como va hablando, no que se pegue todo de una).
     func respuestaIA(_ texto: String) {
         guard Config.panelVisible() else { return }
         if !enRespuestaIA { pensando(ia: "local") }   // por si no pasó por "pensando"
         label.textColor = colorIA
-        label.stringValue = texto.replacingOccurrences(of: "\n", with: " ")
+        let limpio = texto.replacingOccurrences(of: "\n", with: " ")
+        palabrasIA = limpio.split(separator: " ").map(String.init)
+        idxIA = 0
+        revelarTimer?.invalidate()
+        // Duración estimada del habla ≈ chars × ~0.058s (≈17 car/s). Reparte las palabras
+        // en ese tiempo → el texto termina más o menos cuando termina la voz.
+        let dur = max(1.5, Double(limpio.count) * 0.058)
+        let intervalo = max(0.12, dur / Double(max(1, palabrasIA.count)))
+        label.stringValue = ""
         panel.orderFrontRegardless()
+        let t = Timer(timeInterval: intervalo, repeats: true) { [weak self] tm in
+            guard let self else { tm.invalidate(); return }
+            guard self.idxIA < self.palabrasIA.count else { tm.invalidate(); return }
+            self.idxIA += 1
+            self.label.stringValue = self.palabrasIA[0..<self.idxIA].joined(separator: " ")
+        }
+        RunLoop.main.add(t, forMode: .common)
+        revelarTimer = t
     }
 
     /// Latido del notch entero (pulso de opacidad). "Está pensando/hablando".
@@ -287,6 +308,8 @@ final class DictationPanel {
     func finRespuestaIA() {
         guard enRespuestaIA else { return }
         enRespuestaIA = false
+        revelarTimer?.invalidate(); revelarTimer = nil
+        if !palabrasIA.isEmpty { label.stringValue = palabrasIA.joined(separator: " ") }  // revela lo que falte
         pulsar(false)
         label.textColor = .white
         motorLabel.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)

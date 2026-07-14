@@ -63,13 +63,21 @@ enum XttsServer {
     }
 }
 
-// Recibe el PCM float32 (24kHz mono) por HTTP en streaming y lo encola en AVAudioEngine.
+// Recibe el PCM float32 (24kHz mono) por HTTP en streaming y lo encola en AVAudioEngine
+// con un JITTER BUFFER: acumula un colchón (~1s) antes de sonar y programa trozos
+// UNIFORMES. El XTTS en CPU entrega el audio a ráfagas (frase, pausa mientras calcula la
+// siguiente, frase…); sin colchón el reproductor se vacía en esas pausas → se entrecorta.
+// El colchón cubre las pausas y suena parejo.
 private final class XttsServerPlayer: NSObject, URLSessionDataDelegate {
     static var activo: XttsServerPlayer?
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let fmt = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
-    private var resto = Data()
+    private var acumulador = Data()          // bytes float32 pendientes de programar
+    private var sonando = false
+    private let colchon = 24000              // ~1.0s (samples) antes de arrancar
+    private let trozo = 4800                 // ~0.2s por buffer (uniforme)
+    private var programados = 0              // samples ya encolados
     private var recibio = false
     private var done: ((Bool) -> Void)?
     private var terminado = false
@@ -78,7 +86,7 @@ private final class XttsServerPlayer: NSObject, URLSessionDataDelegate {
         XttsServerPlayer.activo = self
         done = completion
         engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: fmt)
-        do { try engine.start(); player.play() } catch { finish(false); return }
+        do { try engine.start() } catch { finish(false); return }   // play() se difiere hasta el colchón
         var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 120
         req.httpBody = texto.data(using: .utf8)
         let ses = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
@@ -87,27 +95,44 @@ private final class XttsServerPlayer: NSObject, URLSessionDataDelegate {
 
     func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         recibio = true
-        var buf = resto; buf.append(data)
-        let usable = buf.count - (buf.count % 4)
-        guard usable > 0 else { resto = buf; return }
-        let bloque = buf.subdata(in: 0..<usable); resto = buf.subdata(in: usable..<buf.count)
-        let n = usable / 4
-        guard let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else { return }
-        pcm.frameLength = AVAudioFrameCount(n)
-        bloque.withUnsafeBytes { raw in
-            let f = raw.bindMemory(to: Float32.self)
-            guard let out = pcm.floatChannelData?[0] else { return }
-            for i in 0..<n { out[i] = f[i] }
+        acumulador.append(data)
+        // Programa en trozos uniformes de ~0.2s.
+        while acumulador.count >= trozo * 4 {
+            encolar(muestras: trozo)
         }
-        player.scheduleBuffer(pcm)
+        // Arranca a sonar solo cuando hay colchón (~1s) → no se vacía en las pausas.
+        if !sonando, programados >= colchon { player.play(); sonando = true }
     }
 
     func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        // Vacía lo que quede (último trozo corto) y, si nunca alcanzó el colchón
+        // (respuesta corta), arranca igual para reproducir lo poco que hay.
+        let rest = acumulador.count / 4
+        if rest > 0 { encolar(muestras: rest) }
+        if !sonando { player.play(); sonando = true }
         finish(recibio && error == nil)
+    }
+
+    /// Saca `muestras` floats del acumulador y las programa como un buffer.
+    private func encolar(muestras: Int) {
+        let bytes = muestras * 4
+        guard acumulador.count >= bytes, muestras > 0,
+              let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(muestras)) else { return }
+        let bloque = acumulador.subdata(in: 0..<bytes)
+        acumulador.removeSubrange(0..<bytes)
+        pcm.frameLength = AVAudioFrameCount(muestras)
+        bloque.withUnsafeBytes { raw in
+            let f = raw.bindMemory(to: Float32.self)
+            guard let out = pcm.floatChannelData?[0] else { return }
+            for i in 0..<muestras { out[i] = f[i] }
+        }
+        player.scheduleBuffer(pcm)
+        programados += muestras
     }
 
     private func finish(_ ok: Bool) {
         if terminado { return }; terminado = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.done?(ok); self.done = nil }
+        // Deja que suene lo encolado antes de avisar (no cortar el final).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.done?(ok); self.done = nil }
     }
 }

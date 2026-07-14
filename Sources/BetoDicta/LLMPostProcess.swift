@@ -703,35 +703,18 @@ enum LLMPostProcess {
         case "responder":
             instruccion = modo.prompt.isEmpty ? "El dictado es una instrucción o pregunta: responde de forma útil, directa y concisa." : modo.prompt
         case "agente":
-            // Asistente local con CONTEXTO: tus tareas/notas guardadas. Responde breve
-            // (se lee en voz alta). No inventa datos que no tenga.
-            let tareas = NotasStore.tareas().filter { !$0.hecho }.prefix(30)
-                .map { "- \($0.texto)" }.joined(separator: "\n")
-            let notas = NotasStore.notas().prefix(30).map { "- \($0.texto)" }.joined(separator: "\n")
+            // Asistente local. CONTEXTO BAJO DEMANDA: no metemos todo siempre (inflaría
+            // el prompt → memoria/tokens/lento). Traemos SOLO el bloque del tema del que
+            // habla el pedido (v1 por palabras clave; embeddings/vectores a futuro).
             var base = modo.prompt.isEmpty
                 ? "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos."
                 : modo.prompt
-            // Si el Agente habla con una voz LOCAL clonada que tiene PERSONA (cómo
-            // habla esa persona), redacta la respuesta en ESE estilo. Es el 2º
-            // parámetro de la voz: el "skill" de su forma de hablar.
             if Config.ttsProveedor() == "xtts_local", let voz = VocesLocales.activa(),
                !voz.persona.trimmingCharacters(in: .whitespaces).isEmpty {
                 base = voz.persona + "\n" + base
             }
-            // La IA NO tiene reloj: si no le damos la hora, se la INVENTA. Se la pasamos.
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "es_EC"); fmt.timeZone = TimeZone.current
-            fmt.dateFormat = "EEEE d 'de' MMMM 'de' yyyy, h:mm a"
-            let ahora = fmt.string(from: Date())
-            instruccion = """
-            \(base)
-            AHORA MISMO (fecha y hora local, úsala para preguntas de hora/fecha, NO inventes): \(ahora).
-            Usa SOLO estos datos del usuario cuando el pedido los requiera (no inventes):
-            TAREAS pendientes:
-            \(tareas.isEmpty ? "(ninguna)" : tareas)
-            NOTAS guardadas:
-            \(notas.isEmpty ? "(ninguna)" : notas)
-            """
+            let contexto = Contexto.paraPedido(text)   // solo lo relevante al tema
+            instruccion = contexto.isEmpty ? base : base + "\n" + contexto
         default:  // "pulir" con la instrucción del modo (Dictado vacío no llega aquí)
             instruccion = modo.prompt.isEmpty ? "Limpia la transcripción: corrige puntuación, mayúsculas y ortografía; quita muletillas; conserva el significado y el orden; no agregues nada." : modo.prompt
         }
