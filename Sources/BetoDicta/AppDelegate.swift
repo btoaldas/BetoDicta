@@ -339,6 +339,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de recursos: BETODICTA_RECURSOS=1 → info + recomendación
+        if ProcessInfo.processInfo.environment["BETODICTA_RECURSOS"] == "1" {
+            let i = Recursos.info(); let r = Recursos.recomendar(i)
+            print("RECURSOS ram=\(String(format: "%.1f", i.ramGB))GB libre=\(String(format: "%.1f", i.ramLibreGB))GB nucleos=\(i.nucleos) silicon=\(i.appleSilicon)")
+            print("RECURSOS reco: preactivar=\(r.preactivarClon) dormirMin=\(r.dormirMin) — \(r.motivo)")
+            exit(0)
+        }
         // Prueba del agente HERMES: BETODICTA_HERMESASK=<pregunta> → respuesta de Hermes
         if let q = ProcessInfo.processInfo.environment["BETODICTA_HERMESASK"], !q.isEmpty {
             print("HERMESASK disponible=\(AgenteHermes.disponible) bin=\(AgenteHermes.binario())")

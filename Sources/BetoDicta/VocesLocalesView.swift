@@ -14,6 +14,9 @@ struct MotorVozControl: View {
     @State private var progreso = ""
     @State private var instalando = false
     @State private var preactivar = Config.ttsXttsPreactivar()
+    @State private var dormir = Config.ttsXttsDormir()
+    @State private var dormirMin = Config.ttsXttsDormirMin()
+    @State private var reco = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -30,6 +33,28 @@ struct MotorVozControl: View {
                     .onChange(of: preactivar) { _, v in Config.set("tts_xtts_preactivar", to: v); Voz.preactivarLocal() }
                 Text("⚠️ Mantiene el clon (~2 GB) cargado en RAM mientras es tu voz activa: el Agente responde en ~1-2s en vez de recargar el modelo (~15s) cada vez. Si tu Mac va justa de memoria, apágalo (la 1ª respuesta tardará más). \(XttsServer.corriendo ? "🟢 en RAM ahora" : "⚪️ no cargado")")
                     .font(.caption2).foregroundStyle(.secondary)
+                // Ahorro de recursos: dormir el clon tras N minutos (parametrizable).
+                Toggle("Dormir el clon tras inactividad (libera RAM/CPU; fn lo despierta)", isOn: $dormir)
+                    .font(.caption)
+                    .onChange(of: dormir) { _, v in Config.set("tts_xtts_dormir", to: v) }
+                if dormir {
+                    HStack {
+                        Text("Dormir tras \(Int(dormirMin)) min").font(.caption2)
+                        Slider(value: $dormirMin, in: 1...30, step: 1) { _ in Config.set("tts_xtts_dormir_min", to: dormirMin) }
+                            .frame(width: 200)
+                    }
+                }
+                HStack {
+                    Button("🔎 Recomendar según mi Mac") {
+                        let i = Recursos.info(); let r = Recursos.recomendar(i)
+                        preactivar = r.preactivarClon; Config.set("tts_xtts_preactivar", to: r.preactivarClon)
+                        dormirMin = r.dormirMin; Config.set("tts_xtts_dormir_min", to: r.dormirMin)
+                        dormir = true; Config.set("tts_xtts_dormir", to: true)
+                        Voz.preactivarLocal()
+                        reco = r.motivo + " (\(i.nucleos) núcleos, \(i.appleSilicon ? "Apple Silicon" : "Intel"))"
+                    }.controlSize(.small)
+                }
+                if !reco.isEmpty { Text("💡 " + reco).font(.caption2).foregroundStyle(.secondary) }
             case .instalando:
                 Text("⏳ Instalando el motor de voz…").font(.caption)
                 if !progreso.isEmpty { Text(progreso).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
