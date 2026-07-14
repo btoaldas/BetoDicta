@@ -214,6 +214,17 @@ struct ModosView: View {
             Text("Dictas y se abre el buscador con tu consulta (usa {q} donde va el texto). Spotlight abre ⌘Espacio en tu Mac. Sin IA.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
+        // Guardar en la lista local (Tareas/Notas) — Fase 4. No aplica a Buscar/Dictado.
+        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" {
+            HStack {
+                Text("Guardar en:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: b.almacen) {
+                    Text("No guardar").tag("")
+                    Text("Tareas").tag("tarea")
+                    Text("Notas").tag("nota")
+                }.labelsHidden().frame(width: 160)
+            }
+        }
         // Prompt (salvo Dictado/Traducir/Buscar, que no usan prompt libre)
         if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" && b.wrappedValue.base != "traducir" {
             Text("Instrucción para la IA (prompt):").font(.caption).foregroundStyle(.secondary)

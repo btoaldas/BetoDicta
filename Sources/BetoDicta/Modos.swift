@@ -27,15 +27,16 @@ struct Modo: Codable, Identifiable {
     var apps: [String]           // apps (nombre o bundle id) que activan este modo
     var sitios: [String]         // dominios/URLs que activan este modo (en navegador)
     var buscador: String         // solo base "buscar": google/bing/duckduckgo/…/spotlight/personalizado
+    var almacen: String          // "tarea"|"nota"|"" — guarda lo procesado en la lista local
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
          esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = [],
-         buscador: String = "google") {
+         buscador: String = "google", almacen: String = "") {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
-        self.apps = apps; self.sitios = sitios; self.buscador = buscador
+        self.apps = apps; self.sitios = sitios; self.buscador = buscador; self.almacen = almacen
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -53,6 +54,7 @@ struct Modo: Codable, Identifiable {
         apps = (try? c.decode([String].self, forKey: .apps)) ?? []
         sitios = (try? c.decode([String].self, forKey: .sitios)) ?? []
         buscador = (try? c.decode(String.self, forKey: .buscador)) ?? "google"
+        almacen = (try? c.decode(String.self, forKey: .almacen)) ?? ""
     }
 }
 
@@ -70,10 +72,10 @@ enum ModosStore {
              palabraVoz: "modo oficio"),
         Modo(id: "tarea", nombre: "Tarea", icono: "checklist", base: "pulir",
              prompt: "Convierte el dictado en una TAREA breve y accionable: una sola línea, empieza con un verbo en infinitivo, sin relleno. Devuelve solo la tarea.",
-             palabraVoz: "modo tarea"),
+             palabraVoz: "modo tarea", almacen: "tarea"),
         Modo(id: "nota", nombre: "Nota", icono: "note.text", base: "pulir",
              prompt: "Ordena el dictado como una NOTA clara y legible: puntuación correcta, sin muletillas; usa viñetas si hay varios puntos. Conserva todo el contenido. Devuelve solo la nota.",
-             palabraVoz: "modo nota"),
+             palabraVoz: "modo nota", almacen: "nota"),
         Modo(id: "traducir", nombre: "Traducir", icono: "globe", base: "traducir", idiomaDestino: "inglés",
              palabraVoz: "modo traducir"),
         Modo(id: "asistente", nombre: "Asistente", icono: "sparkles", base: "responder",
@@ -96,10 +98,10 @@ enum ModosStore {
         // modos.json sin el campo palabraVoz (lo borra al no conocerlo), lo
         // restauramos desde la definición base. Solo si está VACÍO (no pisa lo que
         // tú edites) y solo la frase (prompt/IA/apps/sitios se respetan tal cual).
-        for (i, m) in list.enumerated() where m.palabraVoz.isEmpty {
-            if let b = base.first(where: { $0.id == m.id }), !b.palabraVoz.isEmpty {
-                list[i].palabraVoz = b.palabraVoz; cambio = true
-            }
+        for (i, m) in list.enumerated() {
+            guard let b = base.first(where: { $0.id == m.id }) else { continue }
+            if m.palabraVoz.isEmpty, !b.palabraVoz.isEmpty { list[i].palabraVoz = b.palabraVoz; cambio = true }
+            if m.almacen.isEmpty, !b.almacen.isEmpty { list[i].almacen = b.almacen; cambio = true }
         }
         if cambio { guardar(list) }
         return list

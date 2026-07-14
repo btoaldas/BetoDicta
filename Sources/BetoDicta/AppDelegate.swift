@@ -411,6 +411,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("REVTEST \(ok1 && ok2 && ok3 ? "TODO OK" : "✗ FALLA")")
             exit(ok1 && ok2 && ok3 ? 0 : 3)
         }
+        // Prueba de tareas/notas: BETODICTA_NOTATEST=1 (agrega→verifica→borra, net-cero).
+        if ProcessInfo.processInfo.environment["BETODICTA_NOTATEST"] == "1" {
+            let n0 = NotasStore.todos().count
+            let p = NotasStore.agregar(tipo: "tarea", texto: "  prueba xyz  ")
+            let addOk = NotasStore.todos().count == n0 + 1
+                && NotasStore.tareas().first?.texto == "prueba xyz" && p.hecho == false
+            NotasStore.alternar(p.id)
+            let togOk = NotasStore.todos().first { $0.id == p.id }?.hecho == true
+            NotasStore.borrar(p.id)
+            let delOk = NotasStore.todos().count == n0 && !NotasStore.todos().contains { $0.id == p.id }
+            let ok = addOk && togOk && delOk
+            print("NOTATEST add=\(addOk) toggle=\(togOk) delete=\(delOk) → \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
+        }
         // Prueba del modo BUSCAR: BETODICTA_BUSCARTEST=1 (construcción de URL, sin abrir nada).
         if ProcessInfo.processInfo.environment["BETODICTA_BUSCARTEST"] == "1" {
             let casos: [(String, String, String, String?)] = [
@@ -1787,8 +1801,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // transforma explícitamente con la IA del modo y entrega directo
             // (el modo YA incluye traducir; no se re-traduce).
             if !recorder.isRecording { panel.update("✨ \(modo.nombre)…") }
+            let almacen = modo.almacen
             LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
                 Log.write("  3·modo \(modo.nombre): \(resultado)")
+                // Fase 4: modos Tarea/Nota (o con almacén) guardan en la lista local.
+                if !almacen.isEmpty {
+                    NotasStore.agregar(tipo: almacen, texto: resultado)
+                    if self?.recorder.isRecording == false {
+                        self?.panel.flash("✓ \(almacen == "tarea" ? "Tarea" : "Nota") agregada", segundos: 2)
+                    }
+                }
                 Log.write("  ✓ entregado:  \(resultado)")
                 self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
             }
