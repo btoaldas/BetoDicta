@@ -60,7 +60,7 @@ enum XttsServer {
     /// Habla por el servidor. Genera el audio COMPLETO (el modelo ya está en RAM → rápido)
     /// y LUEGO lo reproduce de corrido. Así la reproducción NO compite con la CPU de la
     /// generación → suena parejo, sin bajones ni trabas. Falla suave (completion(false)).
-    static func decir(texto: String, completion: @escaping (Bool) -> Void) {
+    static func decir(texto: String, empezar: (() -> Void)? = nil, completion: @escaping (Bool) -> Void) {
         guard corriendo, let u = URL(string: "http://127.0.0.1:\(puerto)/say") else { completion(false); return }
         var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 120
         req.httpBody = texto.data(using: .utf8)
@@ -76,7 +76,9 @@ enum XttsServer {
                 do {
                     let p = try AVAudioPlayer(data: wav)
                     fin.alTerminar = completion; p.delegate = fin
-                    player = p; p.prepareToPlay(); p.play()
+                    player = p; p.prepareToPlay()
+                    empezar?()   // el texto del notch arranca justo cuando suena la voz
+                    p.play()
                 } catch { Log.log(.ia, "XTTS servidor: no reproduce (\(error.localizedDescription))"); completion(false) }
             }
         }.resume()

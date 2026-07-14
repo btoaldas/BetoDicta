@@ -51,30 +51,34 @@ enum Voz {
         player?.stop(); player = nil
     }
 
-    /// Dice el texto con el motor configurado (con failover). `completion` al terminar.
-    static func decir(_ texto: String, completion: (() -> Void)? = nil) {
+    /// Dice el texto con el motor configurado (con failover). `empezar` se dispara cuando
+    /// la voz REALMENTE arranca (para sincronizar el texto del notch con el habla);
+    /// `completion` al terminar.
+    static func decir(_ texto: String, empezar: (() -> Void)? = nil, completion: (() -> Void)? = nil) {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { completion?(); return }
-        intentar(t, cadena(), 0, completion)
+        guard !t.isEmpty else { empezar?(); completion?(); return }
+        intentar(t, cadena(), 0, empezar, completion)
     }
 
-    private static func intentar(_ texto: String, _ orden: [String], _ i: Int, _ done: (() -> Void)?) {
+    private static func intentar(_ texto: String, _ orden: [String], _ i: Int,
+                                 _ empezar: (() -> Void)?, _ done: (() -> Void)?) {
         guard i < orden.count else { done?(); return }
         let motor = orden[i]
-        let siguiente: () -> Void = { intentar(texto, orden, i + 1, done) }
+        let siguiente: () -> Void = { intentar(texto, orden, i + 1, empezar, done) }
         switch motor {
         case "apple":
             // Respaldo final: no falla. Reproduce con la voz de macOS.
-            TTS.hablar(texto) { done?() }
+            empezar?(); TTS.hablar(texto) { done?() }
         case "elevenlabs":
             // Streaming WS (suena mientras se genera); si falla, cae al batch mp3;
             // si el batch también falla, al siguiente motor.
             if Config.ttsElevenStreaming() {
+                empezar?()
                 ElevenLabsStreamTTS.hablar(texto) { ok in
                     if ok { done?() } else {
                         Log.log(.ia, "TTS ElevenLabs WS falló → batch")
                         ElevenLabsTTS.decir(texto) { data in
-                            if let data { reproducir(data, done) } else {
+                            if let data { reproducir(data, empezar, done) } else {
                                 Log.log(.ia, "TTS ElevenLabs batch falló → siguiente motor"); siguiente()
                             }
                         }
@@ -82,7 +86,7 @@ enum Voz {
                 }
             } else {
                 ElevenLabsTTS.decir(texto) { data in
-                    if let data { reproducir(data, done) } else {
+                    if let data { reproducir(data, empezar, done) } else {
                         Log.log(.ia, "TTS ElevenLabs falló → siguiente motor"); siguiente()
                     }
                 }
@@ -94,13 +98,14 @@ enum Voz {
                 let pkg = URL(fileURLWithPath: voz.paquete)
                 let batch: () -> Void = {
                     VozEngine.correrPaquete(carpeta: pkg, texto: texto) { url in
-                        if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
+                        if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) } else {
                             Log.log(.ia, "TTS motor interno falló → siguiente motor"); siguiente()
                         }
                     }
                 }
                 let porStream: () -> Void = {
                     if voz.streaming {
+                        empezar?()
                         XttsStreamTTS.hablar(paquete: pkg, texto: texto) { ok in
                             if ok { done?() } else { Log.log(.ia, "TTS XTTS streaming falló → batch"); batch() }
                         }
@@ -110,14 +115,14 @@ enum Voz {
                 // ya cargado → ~1-2s). Si no, arráncalo para la próxima y esta vez va por
                 // streaming directo.
                 if XttsServer.corriendo, XttsServer.paqueteActivo == pkg.path {
-                    XttsServer.decir(texto: texto) { ok in if ok { done?() } else { porStream() } }
+                    XttsServer.decir(texto: texto, empezar: empezar) { ok in if ok { done?() } else { porStream() } }
                 } else {
                     if Config.ttsXttsPreactivar() { XttsServer.asegurar(paquete: pkg) { _ in } }
                     porStream()
                 }
             } else {
                 XttsLocalTTS.decir(texto) { url in
-                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
+                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) } else {
                         Log.log(.ia, "TTS XTTS local no disponible → siguiente motor"); siguiente()
                     }
                 }
@@ -128,12 +133,13 @@ enum Voz {
             if let p = TTSCloud.proveedor(motor) {
                 let batch: () -> Void = {
                     TTSCloud.decir(motor, texto: texto) { data in
-                        if let data { reproducir(data, done) } else {
+                        if let data { reproducir(data, empezar, done) } else {
                             Log.log(.ia, "TTS \(motor) no disponible → siguiente motor"); siguiente()
                         }
                     }
                 }
                 if p.ws, Config.ttsCloudStreaming(motor), TTSCloudStream.soporta(motor) {
+                    empezar?()
                     TTSCloudStream.hablar(motor, texto: texto) { ok in
                         if ok { done?() } else { Log.log(.ia, "TTS \(motor) WS falló → batch"); batch() }
                     }
@@ -147,7 +153,7 @@ enum Voz {
     static func probarVozLocal(_ voz: VozLocal, _ done: (() -> Void)? = nil) {
         let saludo = "Hola, esta es la voz de \(voz.nombre)."
         let cb: (URL?) -> Void = { url in
-            if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) }
+            if let url, let data = try? Data(contentsOf: url) { reproducir(data, nil, done) }
             else { DispatchQueue.main.async { done?() } }
         }
         if !voz.paquete.isEmpty, VozEngine.estado() == .listo {
@@ -157,14 +163,15 @@ enum Voz {
         }
     }
 
-    /// Reproduce audio (mp3/wav) ya generado.
-    private static func reproducir(_ data: Data, _ done: (() -> Void)?) {
+    /// Reproduce audio (mp3/wav) ya generado. `empezar` justo antes de sonar (sync texto).
+    private static func reproducir(_ data: Data, _ empezar: (() -> Void)?, _ done: (() -> Void)?) {
         DispatchQueue.main.async {
             do {
                 let p = try AVAudioPlayer(data: data)
                 p.delegate = fin
                 fin.alTerminar = done
                 player = p
+                empezar?()
                 p.play()
             } catch {
                 Log.log(.ia, "TTS: no pude reproducir el audio (\(error.localizedDescription)) → voz de macOS")

@@ -2284,10 +2284,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     // responde mientras habla; se cierra al terminar. El agente es
                     // conversacional — NO pega salvo que actives "pegar" (a futuro, según
                     // la intención). Así no hace las cosas del dictado.
-                    self?.panel.respuestaIA(resultado)
                     if Config.ttsActivo() {
-                        Voz.decir(resultado) { self?.panel.finRespuestaIA() }   // motor elegido → … → macOS
+                        // El notch sigue "pensando" (latiendo) mientras se genera la voz;
+                        // el texto (karaoke) arranca EN SINCRONÍA cuando la voz empieza a sonar.
+                        Voz.decir(resultado,
+                                  empezar: { self?.panel.respuestaIA(resultado) },
+                                  completion: { self?.panel.finRespuestaIA() })
                     } else {
+                        self?.panel.respuestaIA(resultado)   // sin voz: muestra el texto
                         self?.panel.finRespuestaIA()
                     }
                     self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history, pegar: Config.agentePega())
