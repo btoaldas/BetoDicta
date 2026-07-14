@@ -63,7 +63,29 @@ final class ProvidersModel: ObservableObject {
     }
     func subir(_ i: Int) { guard i > 0 else { return }; lista.swapAt(i, i - 1); guardar() }
     func bajar(_ i: Int) { guard i < lista.count - 1 else { return }; lista.swapAt(i, i + 1); guardar() }
-    func mover(from: IndexSet, to: Int) { lista.move(fromOffsets: from, toOffset: to); guardar() }
+
+    /// Un proveedor es visible si no es un STT local sin modelo (Ollama/LM Studio).
+    /// La MISMA regla que usa la vista, para que el reorder no se desalinee.
+    func visible(_ p: Provider) -> Bool {
+        if p.id == "ollama_stt" { return ChatIA.sttLocalModelo["ollama"] != nil }
+        if p.id == "lmstudio_stt" { return ChatIA.sttLocalModelo["lmstudio"] != nil }
+        return true
+    }
+
+    /// Reordena la cascada. `from`/`to` vienen con índices de la lista VISIBLE
+    /// (filtrada). BUG anterior: se aplicaban a `lista` completa → con proveedores
+    /// ocultos (Ollama/LM Studio STT sin modelo) los índices se corrían y el arrastre
+    /// movía la fila equivocada o "no subía". Fix: reordenar SOLO entre las posiciones
+    /// que ocupan los visibles; los ocultos quedan clavados en su sitio.
+    func mover(from: IndexSet, to: Int) {
+        let idxVisibles = lista.indices.filter { visible(lista[$0]) }
+        var visibles = idxVisibles.map { lista[$0] }
+        visibles.move(fromOffsets: from, toOffset: to)
+        var arr = lista
+        for (k, fullIdx) in idxVisibles.enumerated() { arr[fullIdx] = visibles[k] }
+        lista = arr
+        guardar()
+    }
 
     /// Cambia el modelo/archivo del proveedor local Whisper.
     func usarModeloLocal(_ archivo: String) {
@@ -170,11 +192,7 @@ struct ModelsView: View {
     /// alto), así ocultarlos no descoloca el orden de la cascada.
     private var listaVisible: [Provider] {
         let _ = sttTick
-        return m.lista.filter { p in
-            if p.id == "ollama_stt" { return ChatIA.sttLocalModelo["ollama"] != nil }
-            if p.id == "lmstudio_stt" { return ChatIA.sttLocalModelo["lmstudio"] != nil }
-            return true
-        }
+        return m.lista.filter { m.visible($0) }
     }
     /// Modelo a mostrar para un proveedor (los STT locales usan el whisper detectado).
     private func modeloDe(_ p: Provider) -> String {

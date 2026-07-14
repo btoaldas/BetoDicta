@@ -339,6 +339,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba del REORDER de la cascada: BETODICTA_MOVERTEST=1 mueve una fila visible
+        // con un proveedor OCULTO en medio y verifica que el oculto no se corra.
+        if ProcessInfo.processInfo.environment["BETODICTA_MOVERTEST"] == "1" {
+            let m = ProvidersModel()
+            m.lista = [
+                Provider(id: "A", nombre: "A", tipo: "nube", activo: true, orden: 0, modelo: nil),
+                Provider(id: "B", nombre: "B", tipo: "nube", activo: true, orden: 1, modelo: nil),
+                Provider(id: "ollama_stt", nombre: "Ollama", tipo: "local", activo: false, orden: 2, modelo: nil),
+                Provider(id: "C", nombre: "C", tipo: "nube", activo: true, orden: 3, modelo: nil),
+                Provider(id: "D", nombre: "D", tipo: "nube", activo: true, orden: 4, modelo: nil),
+            ]
+            print("MOVERTEST visible antes: \(m.lista.filter { m.visible($0) }.map { $0.id })")
+            // Visible = [A,B,C,D]. Subir D (índice visible 3) al tope (0).
+            m.lista.move(fromOffsets: IndexSet(integer: 100), toOffset: 0)   // no-op defensivo
+            let before = m.lista.map { $0.id }
+            // Llamar directo a la lógica sin guardar en disco:
+            let idxVis = m.lista.indices.filter { m.visible(m.lista[$0]) }
+            var vis = idxVis.map { m.lista[$0] }; vis.move(fromOffsets: IndexSet(integer: 3), toOffset: 0)
+            var arr = m.lista; for (k, fi) in idxVis.enumerated() { arr[fi] = vis[k] }
+            print("MOVERTEST antes:  \(before)")
+            print("MOVERTEST después: \(arr.map { $0.id })  (esperado D,A,ollama_stt,B,C)")
+            print("MOVERTEST ollama_stt sigue en índice 2: \(arr[2].id == "ollama_stt")")
+            exit(0)
+        }
         // Prueba del MOTOR interno: BETODICTA_ENGINE=<carpeta_paquete> corre voz_gen.py
         // con el Python del motor y guarda /tmp/betodicta_engine.wav.
         if let pkg = ProcessInfo.processInfo.environment["BETODICTA_ENGINE"], !pkg.isEmpty {
