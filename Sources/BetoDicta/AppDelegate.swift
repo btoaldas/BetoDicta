@@ -505,6 +505,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ("enviar a María López, nos vemos", "María López", "nos vemos"),
                 ("a Juan hola", "Juan", "hola"),
                 ("hola sin destinatario", nil, "hola sin destinatario"),
+                ("Enviar a Alberto. ¿Qué estás haciendo?", "Alberto", "Qué estás haciendo"),  // punto tras el nombre (caso real)
+                ("a Alberto. Hola, ¿qué tal?", "Alberto", "Hola, ¿qué tal"),                    // punto nombre + coma en mensaje
             ]
             for (t, n, m) in casos {
                 let r = ContactosWA.objetivo(t)
@@ -2021,17 +2023,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     /// Modal para elegir cuando varios contactos coinciden (ej. 10 "Alberto").
     private func elegirContactoWA(_ matches: [ContactoWA], texto: String, app: Bool) {
+        let tope = 6
         let alert = NSAlert()
         alert.messageText = "¿A cuál contacto enviar?"
-        alert.informativeText = "Varios coinciden. Elige a quién mandar el WhatsApp."
-        for m in matches.prefix(4) {
+        alert.informativeText = matches.count > tope
+            ? "\(matches.count) coinciden (muestro los \(tope) más probables). Elige a quién."
+            : "Varios coinciden. Elige a quién mandar el WhatsApp."
+        for m in matches.prefix(tope) {
             let mask = m.numero.count > 4 ? "…" + m.numero.suffix(4) : m.numero
             alert.addButton(withTitle: "\(m.nombre) (\(mask))")
         }
         alert.addButton(withTitle: "Cancelar")
         NSApp.activate(ignoringOtherApps: true)
         let idx = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        if idx >= 0, idx < min(4, matches.count) { abrirWA(numero: matches[idx].numero, texto: texto, app: app) }
+        if idx >= 0, idx < min(tope, matches.count) { abrirWA(numero: matches[idx].numero, texto: texto, app: app) }
     }
 
     /// Abre una app y CREA un ítem nuevo con el texto vía Accesibilidad (que ya

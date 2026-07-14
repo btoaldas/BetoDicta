@@ -213,11 +213,16 @@ enum ContactosWA {
 
     /// Resuelve un nombre a coincidencias (importados + Mac), dedup por número. Callback en MAIN.
     static func resolver(_ nombre: String, _ done: @escaping ([ContactoWA]) -> Void) {
-        let n = norm(nombre)
+        let n = norm(nombre).trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:!?¿¡"))
         let base = importados().filter { !n.isEmpty && norm($0.nombre).contains(n) }
         func terminar(_ extra: [ContactoWA]) {
             var vistos = Set<String>()
-            let todo = (base + extra).filter { !$0.numero.isEmpty && vistos.insert($0.numero).inserted }
+            var todo = (base + extra).filter { !$0.numero.isEmpty && vistos.insert($0.numero).inserted }
+            // Relevancia: primero los nombres que EMPIEZAN con lo dictado, luego los cortos.
+            todo.sort { a, b in
+                let pa = norm(a.nombre).hasPrefix(n), pb = norm(b.nombre).hasPrefix(n)
+                return pa != pb ? pa : a.nombre.count < b.nombre.count
+            }
             DispatchQueue.main.async { done(todo) }
         }
         if usarMac() {
@@ -233,12 +238,17 @@ enum ContactosWA {
     static func objetivo(_ texto: String) -> (nombre: String?, mensaje: String) {
         let t = texto.trimmingCharacters(in: .whitespaces)
         let low = norm(t)
-        let prefs = ["enviar a ", "envia a ", "mandar a ", "manda a ", "mandale a ", "escribe a ", "escribele a ", "para ", "a "]
+        let prefs = ["enviar a ", "envia a ", "mandar a ", "manda a ", "mandale a ", "mándale a ",
+                     "escribe a ", "escribele a ", "escríbele a ", "para ", "a "]
+        // El NOMBRE va hasta la primera puntuación (coma/punto/…) que el STT pone
+        // antes del mensaje; el resto es el mensaje. Sin puntuación, la 1ª palabra.
+        let corte: Set<Character> = [",", ".", ";", ":", "!", "?", "¿", "¡", "\n"]
         for pref in prefs where low.hasPrefix(pref) {
             let resto = String(t.dropFirst(pref.count)).trimmingCharacters(in: .whitespaces)
-            if let coma = resto.firstIndex(of: ",") {
-                let nombre = String(resto[..<coma]).trimmingCharacters(in: .whitespaces)
-                let msg = String(resto[resto.index(after: coma)...]).trimmingCharacters(in: .whitespaces)
+            if let idx = resto.firstIndex(where: { corte.contains($0) }) {
+                let nombre = String(resto[..<idx]).trimmingCharacters(in: .whitespaces)
+                let msg = String(resto[resto.index(after: idx)...])
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:!?¿¡\n"))
                 return (nombre.isEmpty ? nil : nombre, msg)
             }
             let parts = resto.split(separator: " ", maxSplits: 1).map(String.init)
