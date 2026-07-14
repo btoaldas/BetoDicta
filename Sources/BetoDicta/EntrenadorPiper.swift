@@ -399,7 +399,8 @@ enum EntrenadorPiper {
     // Al reabrir, detectamos ese proceso vivo (pgrep) y re-enganchamos el progreso. Si de
     // plano se apagó la compu, no hay proceso: se ofrece REANUDAR desde el último checkpoint.
 
-    struct Vivo { var fase: Int; var faseTotal: Int; var pct: Double; var texto: String; var activo: Bool; var termino: Bool }
+    struct Vivo { var fase: Int; var faseTotal: Int; var pct: Double; var texto: String; var activo: Bool; var termino: Bool
+        var paso: Int = 0; var total: Int = 0; var epoca: Int = 0 }
 
     private static func mtime(_ u: URL) -> Date {
         (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -472,7 +473,8 @@ enum EntrenadorPiper {
             if fin { txt = "✓ Terminó — escucha y elige el mejor checkpoint abajo." }
             else if !arrancoPasos { txt = "Fase 2/2 · Preparando el modelo y la caché de audio (arranca en breve)…" }
             else { txt = "Fase 2/2 · Entrenando: paso \(paso) de \(total) (\(Int(pct*100))%) · época \(ep)" }
-            return Vivo(fase: 2, faseTotal: 2, pct: pct, texto: txt, activo: vivo && !fin, termino: fin)
+            return Vivo(fase: 2, faseTotal: 2, pct: pct, texto: txt, activo: vivo && !fin, termino: fin,
+                        paso: paso, total: total, epoca: ep)
         }
         // Fase 1 — dataset (Whisper): archivos hechos / total + fragmentos.
         let tot = ultimoEntero(dsLog, "(\\d+) audios en", primero: true)
@@ -482,7 +484,102 @@ enum EntrenadorPiper {
         let txt = tot > 0
             ? "Fase 1/2 · Transcribiendo audios (Whisper): \(hechos) de \(tot) (\(Int(pct*100))%) · \(clips) fragmentos"
             : "Fase 1/2 · Preparando audios (Whisper)…"
-        return Vivo(fase: 1, faseTotal: 2, pct: pct, texto: txt, activo: vivo || !dsLog.isEmpty, termino: false)
+        return Vivo(fase: 1, faseTotal: 2, pct: pct, texto: txt, activo: vivo || !dsLog.isEmpty, termino: false,
+                    paso: hechos, total: tot, epoca: 0)
+    }
+
+    // MARK: Snapshot RICO para la bitácora en la app (recursos + contadores + últimas líneas)
+
+    struct Snapshot {
+        var fase: Int; var texto: String; var pct: Double
+        var paso: Int; var total: Int; var epoca: Int
+        var itPerSec: Double; var etaMin: Int
+        var cpu: Double; var ramGB: Double; var discoGB: Double
+        var clips: Int; var checkpoints: Int; var rechazos: String
+        var activo: Bool; var termino: Bool; var errores: Int
+        var motor: String            // qué proceso trabaja (whisper / entrenamiento)
+        var bitacora: [String]       // últimas líneas del log activo, limpias
+    }
+
+    private static var pidCache: (Date, Int?) = (.distantPast, nil)
+    private static var discoCache: (Date, Double) = (.distantPast, 0)
+
+    /// PID del proceso de entrenamiento del proyecto (o nil). Cacheado 3s.
+    static func pidDe(_ proyecto: URL) -> Int? {
+        if Date().timeIntervalSince(pidCache.0) < 3 { return pidCache.1 }
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", proyecto.lastPathComponent + "/run"]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+        var pid: Int? = nil
+        if (try? p.run()) != nil { p.waitUntilExit()
+            let s = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            pid = s.split(separator: "\n").first.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        }
+        pidCache = (Date(), pid); return pid
+    }
+
+    private static func recursosProc(_ pid: Int) -> (Double, Double) {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["-o", "%cpu=,rss=", "-p", "\(pid)"]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return (0, 0) }; p.waitUntilExit()
+        let s = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let cols = s.split(whereSeparator: { $0 == " " || $0 == "\n" }).compactMap { Double($0) }
+        guard cols.count >= 2 else { return (0, 0) }
+        return (cols[0], cols[1] / 1_048_576.0)   // %cpu, rss KB→GB
+    }
+
+    private static func discoGB(_ proyecto: URL) -> Double {
+        if Date().timeIntervalSince(discoCache.0) < 12 { return discoCache.1 }   // du es caro
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/du")
+        p.arguments = ["-sk", proyecto.path]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+        var gb = discoCache.1
+        if (try? p.run()) != nil { p.waitUntilExit()
+            let s = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            if let kb = Double(s.split(separator: "\t").first ?? "") { gb = kb / 1_048_576.0 }
+        }
+        discoCache = (Date(), gb); return gb
+    }
+
+    private static func ultimoDouble(_ s: String, _ pat: String) -> Double {
+        guard let re = try? NSRegularExpression(pattern: pat) else { return 0 }
+        let ms = re.matches(in: s, range: NSRange(s.startIndex..., in: s))
+        guard let m = ms.last, let r = Range(m.range(at: 1), in: s) else { return 0 }
+        return Double(s[r]) ?? 0
+    }
+
+    static func snapshot(_ proyecto: URL, etapas: Int) -> Snapshot {
+        let v = progresoVivo(proyecto, etapas: etapas)
+        let piLog = (try? String(contentsOf: proyecto.appendingPathComponent("piper.log"), encoding: .utf8))?
+            .replacingOccurrences(of: "\r", with: "\n") ?? ""
+        let dsLog = (try? String(contentsOf: proyecto.appendingPathComponent("dataset.log"), encoding: .utf8))?
+            .replacingOccurrences(of: "\r", with: "\n") ?? ""
+        let enFase2 = v.fase == 2
+        let its = ultimoDouble(piLog, "([0-9.]+)it/s")
+        let eta = (enFase2 && its > 0 && v.total > v.paso) ? Int(Double(v.total - v.paso) / its / 60.0) : 0
+        let pid = v.activo ? pidDe(proyecto) : nil
+        let rec = pid != nil ? recursosProc(pid!) : (0, 0)
+        let clips = (try? String(contentsOf: proyecto.appendingPathComponent("dataset/metadata.csv"), encoding: .utf8))?
+            .split(separator: "\n").count ?? 0
+        // rechazos del dataset (última línea con {...})
+        var rech = ""
+        if let re = try? NSRegularExpression(pattern: "rechaz[^:]*: (\\{[^}]*\\})"),
+           let m = re.matches(in: dsLog, range: NSRange(dsLog.startIndex..., in: dsLog)).last,
+           let r = Range(m.range(at: 1), in: dsLog) { rech = String(dsLog[r]) }
+        let errores = (piLog + dsLog).components(separatedBy: "Traceback").count - 1
+        let activoLog = enFase2 ? piLog : dsLog
+        // Bitácora: últimas líneas útiles (sin warnings ruidosos ni líneas vacías).
+        let ruido = ["does not have many workers", "UserWarning", "FutureWarning", "warnings.warn",
+                     "Tip:", "litmodels", "self.manual_backward", "optimizer.step()", "def training_step"]
+        let lineas = activoLog.split(separator: "\n").map(String.init)
+            .filter { l in !l.trimmingCharacters(in: .whitespaces).isEmpty && !ruido.contains { l.contains($0) } }
+        let bit = Array(lineas.suffix(14))
+        let motor = enFase2 ? "entrenamiento (torch/CPU)" : (v.activo ? "Whisper + ffmpeg" : "—")
+        return Snapshot(fase: v.fase, texto: v.texto, pct: v.pct, paso: v.paso, total: v.total, epoca: v.epoca,
+                        itPerSec: its, etaMin: eta, cpu: rec.0, ramGB: rec.1, discoGB: discoGB(proyecto),
+                        clips: clips, checkpoints: checkpoints(proyecto).count, rechazos: rech,
+                        activo: v.activo, termino: v.termino, errores: errores, motor: motor, bitacora: bit)
     }
 
     /// Nombre "bonito" (para reconstruir el campo Nombre al re-enganchar) desde la carpeta.

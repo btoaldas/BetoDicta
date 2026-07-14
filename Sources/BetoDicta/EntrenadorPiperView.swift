@@ -39,6 +39,7 @@ struct EntrenadorPiperView: View {
     @State private var timer: Timer?
     @State private var pasoActual = 0
     @State private var pctVivo: Double = 0
+    @State private var snap: EntrenadorPiper.Snapshot?
 
     @State private var checkpoints: [(paso: Int, url: URL)] = []
     @State private var estado = ""
@@ -129,23 +130,63 @@ struct EntrenadorPiperView: View {
                     }
                 }
 
-                // 2) Progreso EN VIVO (fase + porcentaje + qué pasa ahora)
+                // 2) Bitácora VIVA (fase + % + métricas + registro que se imprime solo)
                 if entrenando || !faseTxt.isEmpty {
                     grupo {
-                        HStack { Text("Progreso").font(.subheadline); Spacer()
-                            if pctVivo > 0 { Text("\(Int(pctVivo*100))%").font(.caption).monospacedDigit().foregroundStyle(.secondary) } }
-                        if pctVivo > 0 {
-                            ProgressView(value: pctVivo).tint(acento)
-                        } else if entrenando {
-                            ProgressView().controlSize(.small)
+                        HStack {
+                            Text(snap.map { "Bitácora · Fase \($0.fase)/2" } ?? "Bitácora").font(.subheadline)
+                            Spacer()
+                            if let s = snap, s.activo { Circle().fill(.green).frame(width: 8, height: 8)
+                                Text("procesando").font(.caption2).foregroundStyle(.green) }
+                            if pctVivo > 0 { Text("\(Int(pctVivo*100))%").font(.caption).monospacedDigit().bold() }
                         }
+                        if pctVivo > 0 { ProgressView(value: pctVivo).tint(acento) }
+                        else if entrenando { ProgressView().controlSize(.small) }
                         Text(faseTxt).font(.caption).monospacedDigit()
+
+                        // Métricas vivas (contadores + recursos + latencia)
+                        if let s = snap {
+                            let cols = [GridItem(.adaptive(minimum: 104), spacing: 6)]
+                            LazyVGrid(columns: cols, alignment: .leading, spacing: 6) {
+                                metrica("Motor", s.motor, "gearshape")
+                                if s.fase == 2 {
+                                    metrica("Paso", "\(s.paso) / \(s.total)", "figure.walk")
+                                    metrica("Época", "\(s.epoca)", "repeat")
+                                    metrica("Velocidad", s.itPerSec > 0 ? String(format: "%.2f it/s", s.itPerSec) : "—", "speedometer")
+                                    metrica("ETA", s.etaMin > 0 ? "~\(s.etaMin) min" : "—", "clock")
+                                    metrica("Checkpoints", "\(s.checkpoints)", "flag.checkered")
+                                } else {
+                                    metrica("Archivos", "\(s.paso) / \(s.total)", "waveform")
+                                    metrica("Fragmentos", "\(s.clips)", "scissors")
+                                    if !s.rechazos.isEmpty { metrica("Rechazos", s.rechazos, "trash") }
+                                }
+                                metrica("CPU", s.cpu > 0 ? String(format: "%.0f%%", s.cpu) : "—", "cpu")
+                                metrica("RAM", s.ramGB > 0 ? String(format: "%.1f GB", s.ramGB) : "—", "memorychip")
+                                metrica("Disco", s.discoGB > 0 ? String(format: "%.1f GB", s.discoGB) : "—", "internaldrive")
+                                metrica("Errores", "\(s.errores)", s.errores > 0 ? "exclamationmark.triangle" : "checkmark.seal")
+                            }
+                            // El REGISTRO en vivo (últimas líneas del log activo)
+                            if !s.bitacora.isEmpty {
+                                ScrollView {
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        ForEach(Array(s.bitacora.enumerated()), id: \.offset) { _, l in
+                                            Text(l).font(.system(size: 10, design: .monospaced))
+                                                .foregroundStyle(l.contains("[!]") || l.lowercased().contains("error") ? .red : .secondary)
+                                                .lineLimit(1).truncationMode(.middle)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    }.padding(6)
+                                }.frame(height: 150)
+                                .background(Color.black.opacity(0.04)).cornerRadius(6)
+                            }
+                        }
+
                         if entrenando {
                             Button("Detener") {
                                 if let p = proyecto { EntrenadorPiper.detenerProyecto(p) } else { EntrenadorPiper.detener() }
                                 entrenando = false; timer?.invalidate()
                             }.controlSize(.small)
-                            Text("Puedes cerrar la ventana e incluso BetoDicta: el entrenamiento sigue en segundo plano. Al reabrir, verás el progreso otra vez (y si se apagó la compu, aparece “Reanudar”).").font(.caption2).foregroundStyle(.secondary)
+                            Text("Puedes cerrar la ventana e incluso BetoDicta: sigue en segundo plano. Al reabrir, la bitácora vuelve (y si se apagó la compu, aparece “Reanudar”). Todo queda también en dataset.log y piper.log.").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -190,6 +231,19 @@ struct EntrenadorPiperView: View {
         VStack(alignment: .leading, spacing: 6) { c() }
             .padding(10).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.secondary.opacity(0.06)).cornerRadius(8)
+    }
+
+    @ViewBuilder private func metrica(_ titulo: String, _ valor: String, _ icono: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icono).font(.system(size: 9)).foregroundStyle(.secondary).frame(width: 12)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(titulo).font(.system(size: 8)).foregroundStyle(.secondary)
+                Text(valor).font(.system(size: 10, weight: .medium)).monospacedDigit().lineLimit(1)
+            }
+        }
+        .padding(.vertical, 3).padding(.horizontal, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08)).cornerRadius(5)
     }
 
     private func elegirCarpeta() {
@@ -246,18 +300,17 @@ struct EntrenadorPiperView: View {
 
     private func tick() {
         guard let proyecto else { return }
-        let v = EntrenadorPiper.progresoVivo(proyecto, etapas: etapas)
-        pctVivo = v.pct; faseTxt = v.texto
-        pasoActual = Int(v.pct * Double(max(etapas, 1)))
+        let s = EntrenadorPiper.snapshot(proyecto, etapas: etapas)
+        snap = s; pctVivo = s.pct; faseTxt = s.texto; pasoActual = s.paso
         checkpoints = EntrenadorPiper.checkpoints(proyecto)
-        if v.termino {
+        if s.termino {
             entrenando = false; timer?.invalidate()
             faseTxt = "✓ Terminó — escucha y elige el mejor checkpoint abajo."
-        } else if !v.activo {
+        } else if !s.activo {
             entrenando = false; timer?.invalidate()
             if !checkpoints.isEmpty { reanudable = proyecto
                 faseTxt = "Se detuvo — elige un checkpoint abajo o pulsa Reanudar." }
-            else { faseTxt = "Se detuvo (revisa los logs)." }
+            else { faseTxt = "Se detuvo (revisa la bitácora)." }
         }
     }
 
