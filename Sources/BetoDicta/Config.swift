@@ -29,6 +29,10 @@ struct Config {
     /// Qué IA hace el pulido (y la traducción). Cualquier proveedor de chat
     /// conectado, no solo Groq. Default "groq".
     static func pulidoProveedor() -> String { (json()["pulido_proveedor"] as? String) ?? "groq" }
+    /// Cascada de FAILOVER de pulido: ids de proveedores en el ORDEN elegido por el
+    /// usuario (1º intenta, si cae salta al siguiente). Vacío = automática (el
+    /// proveedor de pulido primero, luego el resto de conectados).
+    static func pulidoCascada() -> [String] { (json()["pulido_cascada"] as? [String]) ?? [] }
     /// Modelo ACTIVO elegido por el usuario para un proveedor de pulido (por id).
     /// Si no eligió, se usa el modelo por defecto del proveedor. Aplica a todos
     /// (Groq, OpenAI, OpenRouter, Gemini, locales…), no solo a los gateways.

@@ -266,6 +266,7 @@ Tres formas, de la más rápida a la más completa:
 - Pasa el texto por una IA que corrige puntuación y quita muletillas ("eh", "este…").
 - **Elige la IA**: no tiene que ser Groq. Cualquiera conectada — **Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI (Grok), Anthropic (Claude), Gemini (Google)**, y varias **GRATIS**: **Cerebras, GitHub Models, NVIDIA NIM, Together AI, Novita AI, Z.ai (GLM), SiliconFlow** (nube) o **LM Studio / Ollama** (local, se detectan solos si están corriendo, incluso recién abiertos). El selector muestra **"proveedor · modelo activo"** y solo lista las conectadas; la misma IA pule y traduce.
 - **Elige el modelo de CUALQUIER proveedor** (no solo gateways): al elegir una IA aparece una fila **"Modelo"** con un botón **"Descubrir"** que trae su lista completa; eliges cuál usar al vuelo y se guarda por proveedor. Si el proveedor publica precios (ej. **OpenRouter**), cada modelo muestra su costo: **`$entrada/$salida por millón de tokens`** o **`gratis`** — así ves cuánto te costará antes de usarlo.
+- **Failover de pulido** (si tienes 2+ IAs conectadas): despliega **"Failover de pulido (respaldo si uno cae)"** y ordena tus proveedores con las flechas. Igual que la cascada de voz: se intenta el **1º** (ej. Groq, el más rápido) y, si no responde (caído, sin cupo, error), salta solo al **2º**, luego al **3º**… (ej. OpenAI → OpenRouter → local). Si un modo tiene su **propia IA**, esa va primero y la cascada queda de respaldo. Así el pulido nunca se queda sin funcionar por un proveedor caído.
 - **Aviso de privacidad**: al pulir con una IA de **nube** o un **gateway de terceros**, la app te recuerda que **tu texto sale de tu Mac** — no dictes datos sensibles (claves, tarjetas). Para que **nada** salga, usa una IA **local**. El aviso se puede ocultar en *Ajustes → Avanzado*. Si un gateway usa **http sin cifrar**, la API key **no se envía** (protección).
 - **Conectar más IAs de chat** (despliega la sección): pega la API key de la que quieras (OpenRouter/DeepSeek/xAI…). Para los locales, pulsa **"Buscar"** (o préndelos y reabre) — la app encuentra el modelo cargado.
 - **IA personalizada (gateway propio)**: para servidores/gateways que no están en la lista. Pones tu **URL base**, **API key**, el **esquema de autenticación** (Bearer, X-API-Key o un encabezado propio), **encabezados extra**, y el **modelo** (a mano o con "Descubrir modelos"). Botón **"Probar conexión"** y marcas si sirve **para pulir** y/o **para reconocer voz (transcripción)**. Un gateway marcado **para voz** (debe exponer `/audio/transcriptions` estilo OpenAI) aparece en la **cascada de Modelos** (apagado; actívalo y ordénalo ahí) y participa en el failover como cualquier motor. Cada gateway aparece también en el selector de pulido. El botón **"+"** trae **plantillas preconfiguradas** (ej. **Cloudflare Workers AI**): crea el gateway casi listo — solo reemplazas tu **Account ID** en la URL y pones el token.
@@ -405,7 +406,7 @@ Cada modo (menos Dictado/Buscar) usa **su propia IA y su propio prompt** — o l
 
 **Activación automática:**
 
-- **Por voz** — empieza el dictado con la frase del modo (ej. *"modo tarea comprar la comida"*): se aplica ese modo y la frase se quita. Edita/vacía cada frase en Ajustes → Modos.
+- **Por voz** — empieza el dictado con la frase del modo (ej. *"modo tarea comprar la comida"*): se aplica ese modo y la frase se quita. Edita/vacía cada frase en Ajustes → Modos. **Con argumento**: la frase mágica puede llevar un dato que ajusta el modo solo por ese dictado — *"modo traducir quichua hola"* traduce a quichua; *"modo buscar google gatos"* busca en Google. Sin argumento usa el idioma/buscador por defecto del modo.
 - **Por app / sitio web** — pon en cada modo las **apps** (ej. Outlook) o **sitios** (ej. `quipux.gob.ec`) donde debe aplicarse solo. La primera vez, los sitios piden permiso de Automatización para leer la URL del navegador.
 
 Precedencia: **voz > app/sitio > el modo elegido a mano**.
@@ -427,6 +428,7 @@ Todos tus dictados, buscables:
 
 ![Pestaña Transcribir](img/transcribir.png)
 
+- **Procesar como**: arriba eliges un **modo** (Dictado = solo limpieza, o Correo, Oficio, Tarea, Nota, Traducir, Asistente…). Se aplica tanto al archivo que subes como a la re-transcripción — ágil para, por ejemplo, subir un audio y sacarlo ya como correo o traducido. Buscar no aplica aquí (abre navegador, no da texto).
 - **Subir un archivo**: elige un audio o video (wav, mp3, m4a, mp4, mov…) y lo convierte a texto con tu glosario. Ideal para grabaciones de reuniones.
 - **Re-transcribir un dictado**: vuelve a pasar un audio del historial por el motor — útil si falló la primera vez o si tu glosario mejoró desde entonces.
 

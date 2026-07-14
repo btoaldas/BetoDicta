@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.21.0"
-    static let fecha = "2026-07-13"
+    static let numero = "0.22.0"
+    static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.22.0", "2026-07-14", [
+            "FAILOVER de pulido: si tienes 2+ IAs de chat conectadas, ordénalas en Ajustes → Pulido (\"Failover de pulido\") y si la 1ª (ej. Groq) no responde, salta sola a la 2ª, 3ª… (ej. OpenAI → OpenRouter → local). El pulido ya no se queda sin funcionar por un proveedor caído",
+            "Modos por VOZ con argumento: \"modo traducir quichua …\" traduce a quichua; \"modo buscar google …\" busca en Google — el dato ajusta el modo solo por ese dictado (sin argumento usa el idioma/buscador por defecto). Reconoce rellenos (\"al\", \"en\") y alias (ddg, yt, mapas…)",
+            "Transcribir con selector \"Procesar como:\": aplica un modo (Correo, Oficio, Traducir…) al archivo que subes o al dictado que re-transcribes",
+            "Nuevo idioma de traducción: quichua (con banderita 🇪🇨)",
+        ]),
         ("0.21.0", "2026-07-13", [
             "NUEVO: MODOS — decide qué hacer con lo dictado. Además de Dictado (pulir), elige Correo, Oficio, Tarea, Nota, Traducir, Asistente o Buscar; cada modo con su propia IA y su prompt. Cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra, como el proveedor",
             "El modo elegido al vuelo es de UN SOLO USO: se aplica a ese dictado y vuelve al modo POR DEFECTO (configúralo en Ajustes → Modos; puedes dejarlo fijo apagando el interruptor)",

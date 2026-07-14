@@ -290,6 +290,21 @@ struct ChatIA {
            conectadas.contains(where: { $0.id == c.id }) { return c }
         return conectadasPulido.first
     }
+    /// Cascada de FAILOVER de pulido: si el 1º cae, se prueba el 2º, etc.
+    /// Usa el orden elegido por el usuario (Config.pulidoCascada); lo que no listó
+    /// se agrega al final para no perder respaldo. Sin orden → el proveedor de
+    /// pulido primero y luego el resto de conectados.
+    static func cadenaPulido() -> [ChatIA] {
+        let conex = conectadasPulido
+        let orden = Config.pulidoCascada()
+        if !orden.isEmpty {
+            var out = orden.compactMap { id in conex.first { $0.id == id } }
+            for c in conex where !out.contains(where: { $0.id == c.id }) { out.append(c) }
+            return out
+        }
+        guard let sel = seleccionada() else { return conex }
+        return [sel] + conex.filter { $0.id != sel.id }
+    }
     /// Sondea LM Studio / Ollama y cachea su modelo cargado (si responden).
     static func detectarLocales(_ done: (() -> Void)? = nil) {
         // Sesión EFÍMERA y NUEVA en cada llamada: sin caché ni conexiones
@@ -600,7 +615,8 @@ enum PersonalizadaStore {
 enum LLMPostProcess {
 
     static func enhance(_ text: String, completion: @escaping (String) -> Void) {
-        guard let ia = ChatIA.seleccionada() else {
+        let cadena = ChatIA.cadenaPulido()
+        guard let ia = cadena.first else {
             Log.write("pulido: SIN IA de chat conectada (pon una key en Modelos) — texto original")
             completion(text)
             return
@@ -634,7 +650,8 @@ enum LLMPostProcess {
         guard let request = ia.requestChat(prompt: prompt, temperatura: 0, textLen: text.count) else {
             Log.write("pulido: no pude armar la request — texto original"); completion(text); return
         }
-        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1, completion: completion)
+        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1,
+              prompt: prompt, temp: 0, resto: Array(cadena.dropFirst()), completion: completion)
     }
 
     /// La IA que usa un MODO: la suya propia (proveedorId+modelo) o, si no tiene,
@@ -649,8 +666,12 @@ enum LLMPostProcess {
     /// asistente/propio). Usa la IA del modo o la global. NO aplica la salvaguarda
     /// anti-inyección: estos modos transforman a propósito (crecen, cambian).
     static func procesarModo(_ text: String, modo: Modo, completion: @escaping (String) -> Void) {
-        let ia = iaDeModo(modo) ?? ChatIA.seleccionada()
-        guard let ia else {
+        // Cascada: si el modo fija una IA propia, se intenta ESA primero y luego la
+        // cascada de pulido como respaldo; si usa la global, va la cascada completa.
+        let cadena: [ChatIA]
+        if let m = iaDeModo(modo) { cadena = [m] + ChatIA.cadenaPulido().filter { $0.id != m.id } }
+        else { cadena = ChatIA.cadenaPulido() }
+        guard let ia = cadena.first else {
             Log.write("modo \(modo.nombre): sin IA de chat conectada — texto original"); completion(text); return
         }
         guard text.unicodeScalars.filter({ CharacterSet.alphanumerics.contains($0) }).count >= 4 else {
@@ -681,13 +702,16 @@ enum LLMPostProcess {
             completion(text); return
         }
         Log.log(.ia, "modo \(modo.nombre) con \(ia.etiqueta)")
-        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1, salvaguarda: false, completion: completion)
+        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1, salvaguarda: false,
+              prompt: prompt, temp: temp, resto: Array(cadena.dropFirst()), completion: completion)
     }
 
     /// Ejecuta la llamada con hasta 1 REINTENTO ante fallos de red/timeout
     /// (transitorios). En error de servidor (HTTP 4xx/5xx) no reintenta.
     private static func hacer(_ request: URLRequest, ia: ChatIA, textoOriginal text: String,
-                              inicio: Date, intento: Int, salvaguarda: Bool = true, completion: @escaping (String) -> Void) {
+                              inicio: Date, intento: Int, salvaguarda: Bool = true,
+                              prompt: String = "", temp: Double = 0, resto: [ChatIA] = [],
+                              completion: @escaping (String) -> Void) {
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let data,
@@ -723,11 +747,21 @@ enum LLMPostProcess {
                 if esRed, intento < 2 {
                     Log.write("pulido: fallo de red (\(motivo)) — reintento…")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento + 1, salvaguarda: salvaguarda, completion: completion)
+                        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento + 1,
+                              salvaguarda: salvaguarda, prompt: prompt, temp: temp, resto: resto, completion: completion)
                     }
                     return
                 }
                 let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                // FAILOVER: si este proveedor cayó y hay más en la cascada, salta al siguiente.
+                if let siguiente = resto.first, !prompt.isEmpty,
+                   let req2 = siguiente.requestChat(prompt: prompt, temperatura: temp, textLen: text.count) {
+                    Log.write("pulido: \(ia.id) FALLÓ (HTTP \(code)) → failover a \(siguiente.id)")
+                    hacer(req2, ia: siguiente, textoOriginal: text, inicio: Date(), intento: 1,
+                          salvaguarda: salvaguarda, prompt: prompt, temp: temp,
+                          resto: Array(resto.dropFirst()), completion: completion)
+                    return
+                }
                 Log.write("pulido: FALLÓ (HTTP \(code)) → texto original. Detalle: \(motivo)")
                 completion(text)
             }

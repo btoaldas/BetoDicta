@@ -551,6 +551,28 @@ struct SettingsView: View {
                         if let sel = conectadas.first(where: { $0.id == m.pulidoProveedor }) {
                             selectorModelo(sel)
                         }
+                        // Failover: cascada ordenada de respaldo (si el 1º cae, el 2º…)
+                        if conectadas.count > 1 {
+                            SeccionPlegable("Failover de pulido (respaldo si uno cae)") {
+                                let _ = detectTrigger
+                                let orden = ChatIA.cadenaPulido()
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Si el 1º no responde, se prueba el 2º, y así sucesivamente. Arrastra el orden con las flechas.")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                    ForEach(Array(orden.enumerated()), id: \.element.id) { i, ia in
+                                        HStack(spacing: 6) {
+                                            Text("\(i + 1).").font(.caption).foregroundStyle(.secondary)
+                                            Text(ia.etiqueta).font(.caption).lineLimit(1)
+                                            Spacer()
+                                            Button { moverCascada(orden.map { $0.id }, i, -1) } label: { Image(systemName: "chevron.up") }
+                                                .buttonStyle(.plain).disabled(i == 0)
+                                            Button { moverCascada(orden.map { $0.id }, i, 1) } label: { Image(systemName: "chevron.down") }
+                                                .buttonStyle(.plain).disabled(i == orden.count - 1)
+                                        }
+                                    }
+                                }.padding(.top, 4)
+                            }
+                        }
                     }
                     // Conectar IAs de nube por key (OpenRouter, DeepSeek, xAI…)
                     SeccionPlegable("Conectar más IAs de chat") {
@@ -853,6 +875,15 @@ struct SettingsView: View {
         if let p = ChatIA.precioDe(sel.id, modelo) { return "\(modelo) · \(p)" }
         return modelo
     }
+    /// Reordena la cascada de failover de pulido (persiste el orden completo).
+    private func moverCascada(_ ids: [String], _ i: Int, _ d: Int) {
+        var a = ids; let j = i + d
+        guard j >= 0, j < a.count else { return }
+        a.swapAt(i, j)
+        Config.set("pulido_cascada", to: a)
+        detectTrigger += 1
+    }
+
     @ViewBuilder private func selectorModelo(_ sel: ChatIA) -> some View {
         let _ = detectTrigger
         let lista = modelosDe(sel)
