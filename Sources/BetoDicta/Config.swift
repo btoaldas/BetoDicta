@@ -119,6 +119,8 @@ struct Config {
     /// web (ej. Quipux) que un modo declara, ese modo se aplica solo a ese dictado.
     /// Default ON (inofensivo: los modos base no traen apps/sitios hasta que los pongas).
     static func modoPorContexto() -> Bool { (json()["modo_por_contexto"] as? Bool) ?? true }
+    /// WhatsApp: usar los Contactos de macOS además de la lista importada. Default ON.
+    static func waUsarContactosMac() -> Bool { (json()["wa_usar_contactos_mac"] as? Bool) ?? true }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

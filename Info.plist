@@ -22,6 +22,8 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>BetoDicta pausa la música y los videos que estés reproduciendo mientras dictas, y los reanuda al terminar.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>BetoDicta usa tus contactos para enviar WhatsApp al nombre que dictes.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BetoDicta graba tu voz para transcribirla con ElevenLabs Scribe.</string>
 </dict>

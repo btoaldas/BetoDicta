@@ -44,6 +44,18 @@ struct ModosView: View {
     @State private var revertir = Config.modoRevertir()
     @State private var nuevoIdioma = ""
     @State private var idiomasVer = 0   // fuerza refrescar el picker tras añadir uno
+    @State private var usarMacWA = ContactosWA.usarMac()
+    @State private var contactosVer = 0
+
+    private func importarContactos() {
+        let p = NSOpenPanel(); p.allowedContentTypes = [.commaSeparatedText, .json, .plainText]
+        p.allowsMultipleSelection = false
+        if p.runModal() == .OK, let u = p.url { _ = ContactosWA.importar(u); contactosVer += 1 }
+    }
+    private func guardarPlantillaContactos() {
+        let p = NSSavePanel(); p.nameFieldStringValue = "contactos_whatsapp.csv"
+        if p.runModal() == .OK, let u = p.url { try? ContactosWA.plantillaCSV().write(to: u, atomically: true, encoding: .utf8) }
+    }
 
     /// Lista de idiomas para el picker; garantiza que el valor actual sea seleccionable.
     /// Compara EXACTO (no case-insensitive): si el valor guardado difiere en
@@ -233,6 +245,22 @@ struct ModosView: View {
                     Text("URL:").font(.caption).frame(width: 90, alignment: .leading)
                     TextField("https://quipux.gob.ec/…?q={q}", text: b.prompt)
                         .textFieldStyle(.roundedBorder).frame(width: 280)
+                }
+            }
+            // WhatsApp: contactos para "enviar a <nombre>"
+            if b.wrappedValue.accion == "whatsapp" {
+                let _ = contactosVer
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Contactos (\(ContactosWA.importados().count) importados) — para \"enviar a <nombre>\"")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Button("Importar CSV/JSON…") { importarContactos() }.controlSize(.small)
+                        Button("Plantilla CSV") { guardarPlantillaContactos() }.controlSize(.small)
+                        Toggle("Contactos de Mac", isOn: $usarMacWA).toggleStyle(.switch).controlSize(.mini)
+                            .onChange(of: usarMacWA) { _, v in Config.set("wa_usar_contactos_mac", to: v) }
+                    }
+                    Text("Di \"modo whatsapp, a Alberto, hola qué tal\" → busca a Alberto y abre su chat con el texto. Si hay varios, eliges en un modal. CSV: nombre,numero (con código país, ej. 5939...).")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
             Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Apps como Notas/Finder: copia el texto y abre la app para que pegues (⌘V). Quipux/tu web: pon la URL. Sin IA.")

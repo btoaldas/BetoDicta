@@ -480,6 +480,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("CADTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba de contactos WhatsApp: BETODICTA_WATEST=1 (destinatario + URL, sin enviar).
+        if ProcessInfo.processInfo.environment["BETODICTA_WATEST"] == "1" {
+            var ok = true
+            let casos: [(String, String?, String)] = [
+                ("a Alberto, hola qué tal", "Alberto", "hola qué tal"),
+                ("enviar a María López, nos vemos", "María López", "nos vemos"),
+                ("a Juan hola", "Juan", "hola"),
+                ("hola sin destinatario", nil, "hola sin destinatario"),
+            ]
+            for (t, n, m) in casos {
+                let r = ContactosWA.objetivo(t)
+                let bien = r.nombre == n && r.mensaje == m; ok = ok && bien
+                print("WATEST \(bien ? "OK" : "✗") objetivo(\"\(t)\") → \(r.nombre ?? "nil") | \"\(r.mensaje)\"")
+            }
+            let u1 = ContactosWA.urlEnvio(numero: "593999", texto: "hola", tieneApp: true)
+            let u2 = ContactosWA.urlEnvio(numero: nil, texto: "hola", tieneApp: false)
+            let u3 = ContactosWA.urlEnvio(numero: "+59 3-999", texto: "hola", tieneApp: false)
+            let urlOk = u1 == "whatsapp://send?phone=593999&text=hola"
+                && u2 == "https://wa.me/?text=hola" && u3 == "https://wa.me/+593999?text=hola"
+            ok = ok && urlOk
+            print("WATEST \(urlOk ? "OK" : "✗") urls: \(u1) | \(u2) | \(u3)")
+            print("WATEST \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
+        }
         // Prueba del modo ACCIÓN: BETODICTA_ACCTEST=1 (construcción de URL, sin abrir nada).
         if ProcessInfo.processInfo.environment["BETODICTA_ACCTEST"] == "1" {
             let casos: [(String, String, String, String?)] = [
@@ -1950,6 +1974,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Modo Acción (Fase 5): abre una app / correo / web con el texto dictado.
     /// Con esquema (mailto/whatsapp/ms-outlook/URL) precarga el texto; sin esquema
     /// (Notas/Finder/…) copia el texto al portapapeles y abre la app por bundle id.
+    /// Abre WhatsApp (app→wa.me) a un número (o sin número para elegir) con el texto.
+    private func abrirWA(numero: String?, texto: String, app: Bool) {
+        if let url = URL(string: ContactosWA.urlEnvio(numero: numero, texto: texto, tieneApp: app)) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    /// Modal para elegir cuando varios contactos coinciden (ej. 10 "Alberto").
+    private func elegirContactoWA(_ matches: [ContactoWA], texto: String, app: Bool) {
+        let alert = NSAlert()
+        alert.messageText = "¿A cuál contacto enviar?"
+        alert.informativeText = "Varios coinciden. Elige a quién mandar el WhatsApp."
+        for m in matches.prefix(4) {
+            let mask = m.numero.count > 4 ? "…" + m.numero.suffix(4) : m.numero
+            alert.addButton(withTitle: "\(m.nombre) (\(mask))")
+        }
+        alert.addButton(withTitle: "Cancelar")
+        NSApp.activate(ignoringOtherApps: true)
+        let idx = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        if idx >= 0, idx < min(4, matches.count) { abrirWA(numero: matches[idx].numero, texto: texto, app: app) }
+    }
+
     /// Escapa texto para incrustarlo en un literal de AppleScript.
     private func escAS(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
@@ -1974,9 +2019,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { pasteText(t) }
         case "whatsapp":
             let tieneApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Acciones.bundle("whatsapp")) != nil
-            if let url = URL(string: Acciones.whatsapp(texto: t, app: tieneApp)) { NSWorkspace.shared.open(url) }
-            if !tieneApp, !recorder.isRecording {
-                panel.flash("💡 Instala WhatsApp de escritorio para abrirlo directo", segundos: 3)
+            // ¿"enviar a <nombre>"? → resuelve el contacto y manda directo a su chat.
+            let (nombre, msg) = ContactosWA.objetivo(t)
+            if let nombre {
+                ContactosWA.resolver(nombre) { [weak self] matches in
+                    if matches.count == 1 {
+                        self?.abrirWA(numero: matches[0].numero, texto: msg, app: tieneApp)
+                    } else if matches.count >= 2 {
+                        self?.elegirContactoWA(matches, texto: msg, app: tieneApp)
+                    } else {
+                        self?.abrirWA(numero: nil, texto: msg.isEmpty ? t : msg, app: tieneApp)
+                        if self?.recorder.isRecording == false {
+                            self?.panel.flash("No encontré a \(nombre) — elige el contacto", segundos: 3)
+                        }
+                    }
+                }
+            } else {
+                abrirWA(numero: nil, texto: t, app: tieneApp)
+                if !tieneApp, !recorder.isRecording {
+                    panel.flash("💡 Instala WhatsApp de escritorio para abrirlo directo", segundos: 3)
+                }
             }
         case "notas" where !t.isEmpty:
             // AppleScript: crea una nota NUEVA con el texto (título = 1ª línea).
