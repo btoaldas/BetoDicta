@@ -323,6 +323,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de Apple Speech STT: BETODICTA_APPLESTT=<ruta.wav> transcribe ese
+        // archivo con el motor nativo on-device y sale.
+        if let ruta = ProcessInfo.processInfo.environment["BETODICTA_APPLESTT"], !ruta.isEmpty {
+            print("APPLESTT: disponible=\(AppleSpeechSTT.disponible) archivo=\(ruta)")
+            guard let wav = try? Data(contentsOf: URL(fileURLWithPath: ruta)) else {
+                print("APPLESTT: no pude leer el archivo"); exit(1)
+            }
+            AppleSpeechSTT.run(wav: wav) { r in
+                switch r {
+                case .success(let t): print("APPLESTT OK → \(t)")
+                case .failure(let e): print("APPLESTT FALLÓ → \(e.localizedDescription)")
+                }
+                exit(0)
+            }
+            return
+        }
+        // Prueba de TTS ElevenLabs (voz clonada Bto): BETODICTA_TTSTEST=<texto>
+        // sintetiza y guarda /tmp/betodicta_tts.mp3, reporta bytes, y sale.
+        if let txt = ProcessInfo.processInfo.environment["BETODICTA_TTSTEST"], !txt.isEmpty {
+            print("TTSTEST: voz=\(Config.ttsElevenVoz()) modelo=\(Config.ttsElevenModelo()) key=\(Config.apiKey() != nil)")
+            ElevenLabsTTS.decir(txt) { data in
+                if let data {
+                    try? data.write(to: URL(fileURLWithPath: "/tmp/betodicta_tts.mp3"))
+                    print("TTSTEST OK → \(data.count) bytes → /tmp/betodicta_tts.mp3")
+                } else { print("TTSTEST FALLÓ (sin audio)") }
+                exit(0)
+            }
+            return
+        }
         // Prueba de activación de modo por VOZ: BETODICTA_VOZTEST=1 comprueba
         // la detección + recorte de la frase disparadora y sale.
         if ProcessInfo.processInfo.environment["BETODICTA_VOZTEST"] == "1" {
@@ -2038,7 +2067,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // (si la Voz del sistema está activa). Falla suave: si no hay TTS, solo pega.
                 if modo.base == "agente", Config.ttsActivo(),
                    !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    TTS.hablar(resultado)
+                    Voz.decir(resultado)   // failover: motor elegido → … → voz de macOS
                 }
                 self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
             }

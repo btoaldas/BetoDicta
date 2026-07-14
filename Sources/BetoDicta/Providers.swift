@@ -42,6 +42,10 @@ enum Providers {
     /// Proveedores que se agregan a configs existentes cuando salen en una
     /// versión nueva (apagados, al final — el usuario decide activarlos).
     static let nuevos: [Provider] = [
+        // Apple Speech nativo (on-device, macOS 26+): gratis, sin key, sin red.
+        // El mismo motor que usa VoiceInk. Apagado por defecto; el usuario lo activa.
+        Provider(id: "apple_speech", nombre: "Apple Speech (nativo, on-device)", tipo: "local", activo: false,
+                 orden: 98, modelo: "es-EC"),
         Provider(id: "voxtral_local", nombre: "Voxtral local", tipo: "local", activo: false,
                  orden: 99, modelo: "Voxtral-Mini-4B-Realtime-2602-Q4_K_M.gguf"),
         Provider(id: "nemotron_local", nombre: "Nemotron local", tipo: "local", activo: false,

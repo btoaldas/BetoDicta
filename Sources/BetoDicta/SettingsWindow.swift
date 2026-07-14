@@ -97,6 +97,9 @@ final class SettingsModel: ObservableObject {
     @Published var ttsActivo: Bool { didSet { Config.set("tts_activo", to: ttsActivo) } }
     @Published var ttsVoz: String { didSet { Config.set("tts_voz", to: ttsVoz) } }
     @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
+    @Published var ttsProveedor: String { didSet { Config.set("tts_proveedor", to: ttsProveedor) } }
+    @Published var ttsElevenVoz: String { didSet { Config.set("tts_eleven_voz", to: ttsElevenVoz) } }
+    @Published var ttsXttsCmd: String { didSet { Config.set("tts_xtts_cmd", to: ttsXttsCmd) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -141,6 +144,9 @@ final class SettingsModel: ObservableObject {
         ttsActivo = Config.ttsActivo()
         ttsVoz = Config.ttsVoz()
         ttsVelocidad = Config.ttsVelocidad()
+        ttsProveedor = Config.ttsProveedor()
+        ttsElevenVoz = Config.ttsElevenVoz()
+        ttsXttsCmd = Config.ttsXttsCmd()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -713,21 +719,47 @@ struct SettingsView: View {
                         Divider()
                         Text("Voz del sistema (texto → voz) — Modo Agente").font(.subheadline)
                         Toggle("Que BetoDicta pueda HABLARTE (TTS)", isOn: $m.ttsActivo)
-                        Text("Primer paso del Modo Agente: el sistema te lee respuestas en voz. Usa la voz de macOS (gratis, local, sin setup). Más adelante: ElevenLabs y tu voz clonada.")
+                        Text("El Modo Agente te lee respuestas en voz. Elige el motor; si el elegido falla (sin key, sin red, sin clon), cae al siguiente y termina en la voz de macOS — nunca se queda mudo.")
                             .font(.caption).foregroundStyle(.secondary)
                         if m.ttsActivo {
-                            fila("Voz") {
-                                Picker("", selection: $m.ttsVoz) {
-                                    Text("Automática (español)").tag("")
-                                    ForEach(TTS.voces(), id: \.identifier) { Text("\($0.name) · \($0.language)").tag($0.identifier) }
-                                }.labelsHidden().frame(width: 260)
+                            fila("Motor") {
+                                Picker("", selection: $m.ttsProveedor) {
+                                    Text("Voz de macOS (gratis, local)").tag("apple")
+                                    Text("ElevenLabs — tu voz clonada (nube)").tag("elevenlabs")
+                                    Text("Clon local XTTS (offline, gratis)").tag("xtts_local")
+                                }.labelsHidden().frame(width: 300)
                             }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Velocidad: \(String(format: "%.2f", m.ttsVelocidad))").font(.caption)
-                                Slider(value: $m.ttsVelocidad, in: 0.2...0.7, step: 0.02).tint(acento).frame(width: 260)
+                            if m.ttsProveedor == "apple" {
+                                fila("Voz") {
+                                    Picker("", selection: $m.ttsVoz) {
+                                        Text("Automática (español)").tag("")
+                                        ForEach(TTS.voces(), id: \.identifier) { Text("\($0.name) · \($0.language)").tag($0.identifier) }
+                                    }.labelsHidden().frame(width: 260)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Velocidad: \(String(format: "%.2f", m.ttsVelocidad))").font(.caption)
+                                    Slider(value: $m.ttsVelocidad, in: 0.2...0.7, step: 0.02).tint(acento).frame(width: 260)
+                                }
+                            }
+                            if m.ttsProveedor == "elevenlabs" {
+                                fila("voice_id") {
+                                    TextField("qoHnXuIkkICzacInt72I", text: $m.ttsElevenVoz)
+                                        .textFieldStyle(.roundedBorder).frame(width: 260)
+                                }
+                                Text("Tu voz clonada de ElevenLabs (usa tu ELEVENLABS_API_KEY de la pestaña Modelos). Modelo eleven_flash_v2_5 (baja latencia). El streaming por WebSocket llega en la siguiente sub-fase.")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            if m.ttsProveedor == "xtts_local" {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Comando de tu clon local (usa {texto} y {salida}):").font(.caption)
+                                    TextField("bash ~/Downloads/VozClonPOC/clonar.sh decir Bto run/ckpt.pth \"{texto}\" {salida}", text: $m.ttsXttsCmd)
+                                        .textFieldStyle(.roundedBorder).frame(width: 420)
+                                }
+                                Text("100% offline con tu voz entrenada (XTTS). Vacío = desactivado. Es batch (genera y luego suena); en CPU tarda unos segundos.")
+                                    .font(.caption).foregroundStyle(.secondary)
                             }
                             Button("🔊 Probar voz") {
-                                TTS.hablar("Hola Alberto. Soy BetoDicta y ya puedo hablarte. Este es el primer paso del modo agente.")
+                                Voz.decir("Hola Alberto. Soy BetoDicta y ya puedo hablarte con el motor que elegiste.")
                             }.controlSize(.small)
                         }
                         Divider()

@@ -733,6 +733,7 @@ enum Failover {
         let modeloUsado: String
         switch p.id {
         case "elevenlabs": modeloUsado = elevenModel(p)
+        case "apple_speech": modeloUsado = p.modelo ?? "es-EC"
         case "groq": modeloUsado = p.modelo ?? "whisper-large-v3"
         case "openai": modeloUsado = p.modelo ?? "gpt-4o-mini-transcribe"
         case "mistral": modeloUsado = p.modelo ?? "voxtral-mini-latest"
@@ -764,6 +765,7 @@ enum Failover {
         switch p.id {
         case "elevenlabs": transcribeBatch(wav: wav, model: elevenModel(p)) { siguiente($0) }
         case "groq": GroqTranscribe.run(wav: wav, model: p.modelo ?? "whisper-large-v3") { siguiente($0) }
+        case "apple_speech": AppleSpeechSTT.run(wav: wav, idioma: p.modelo) { siguiente($0) }
         case "whisper_local": WhisperLocal.run(wav: wav) { siguiente($0) }
         case "voxtral_local":
             // La familia Voxtral tiene dos motores: el Mini 3B corre en

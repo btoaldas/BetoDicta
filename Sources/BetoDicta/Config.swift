@@ -133,10 +133,23 @@ struct Config {
     static func modoSemanticoUmbral() -> Double { (json()["modo_sem_umbral"] as? Double) ?? 0.5 }
     /// Registro detallado del subsistema de modos (~/.betodicta/logs/modos.jsonl). Default ON.
     static func logModos() -> Bool { (json()["log_modos"] as? Bool) ?? true }
+    /// Apple Speech nativo (STT on-device, macOS 26+): idioma BCP-47. es-EC se
+    /// mapea al español más cercano. Parametrizable.
+    static func appleSpeechIdioma() -> String { (json()["apple_speech_idioma"] as? String) ?? "es-EC" }
+
     // Fase 7 — TTS (texto→voz). Default OFF (opt-in).
     static func ttsActivo() -> Bool { (json()["tts_activo"] as? Bool) ?? false }
     static func ttsVoz() -> String { (json()["tts_voz"] as? String) ?? "" }
     static func ttsVelocidad() -> Double { (json()["tts_velocidad"] as? Double) ?? 0.5 }
+    /// Motor de TTS: "apple" (voz de macOS) | "elevenlabs" (voz clonada Bto) |
+    /// "xtts_local" (tu clon local). Cascada de failover parametrizable.
+    static func ttsProveedor() -> String { (json()["tts_proveedor"] as? String) ?? "apple" }
+    /// voice_id de ElevenLabs para TTS (tu voz clonada "Bto"). Vacío = usar el default.
+    static func ttsElevenVoz() -> String { (json()["tts_eleven_voz"] as? String) ?? "qoHnXuIkkICzacInt72I" }
+    static func ttsElevenModelo() -> String { (json()["tts_eleven_modelo"] as? String) ?? "eleven_flash_v2_5" }
+    /// Comando de shell para tu clon LOCAL XTTS (VozClonPOC). {texto} y {salida}
+    /// se sustituyen. Vacío = motor no configurado (failover). Parametrizable.
+    static func ttsXttsCmd() -> String { (json()["tts_xtts_cmd"] as? String) ?? "" }
     /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.
     static func buscadoresPersonales() -> [[String: String]] { (json()["buscadores_personales"] as? [[String: String]]) ?? [] }
     /// Despertar el túnel de red al grabar (mitiga latencia del 1er dictado con VPN). Default ON.
