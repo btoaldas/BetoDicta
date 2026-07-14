@@ -14,13 +14,33 @@ enum XttsServer {
     static var puerto = 8791
     static var paqueteActivo = ""
     private static let salud = "http://127.0.0.1:8791/health"
+    private static var ultimoUso = Date()      // para dormir por inactividad
+    private static var vigia: Timer?
 
     static var corriendo: Bool { proceso?.isRunning == true }
+
+    /// Marca que se acaba de usar (para el reloj de inactividad).
+    static func tocar() { ultimoUso = Date() }
+
+    /// Vigila la inactividad: si el clon no se usa en N minutos, lo DUERME (mata el
+    /// server → libera ~2GB de RAM + CPU). Se despierta al grabar (fn) vía preactivarLocal.
+    static func iniciarVigilancia() {
+        vigia?.invalidate()
+        let t = Timer(timeInterval: 30, repeats: true) { _ in
+            guard corriendo, Config.ttsXttsDormir() else { return }
+            if Date().timeIntervalSince(ultimoUso) > Config.ttsXttsDormirMin() * 60 {
+                Log.log(.ia, "clon local dormido por inactividad (RAM liberada); fn lo despierta")
+                detener()
+            }
+        }
+        RunLoop.main.add(t, forMode: .common); vigia = t
+    }
 
     /// Asegura el servidor levantado para ESTE paquete (lo reinicia si cambió la voz).
     /// `onListo(true)` cuando el modelo está cargado (GET /health responde).
     static func asegurar(paquete: URL, onListo: @escaping (Bool) -> Void) {
         guard VozEngine.estado() == .listo else { onListo(false); return }
+        tocar()
         if corriendo && paqueteActivo == paquete.path { onListo(true); return }
         detener()
         VozEngine.asegurarServerPy()
@@ -62,6 +82,7 @@ enum XttsServer {
     /// generación → suena parejo, sin bajones ni trabas. Falla suave (completion(false)).
     static func decir(texto: String, empezar: (() -> Void)? = nil, completion: @escaping (Bool) -> Void) {
         guard corriendo, let u = URL(string: "http://127.0.0.1:\(puerto)/say") else { completion(false); return }
+        tocar()
         var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 120
         req.httpBody = texto.data(using: .utf8)
         URLSession.shared.dataTask(with: req) { data, resp, err in

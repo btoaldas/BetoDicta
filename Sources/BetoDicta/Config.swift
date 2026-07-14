@@ -171,6 +171,10 @@ struct Config {
     /// Preactivar el servidor XTTS residente (modelo cargado en RAM) cuando el clon
     /// local es el motor activo → respuesta rápida. Default ON. Parametrizable.
     static func ttsXttsPreactivar() -> Bool { (json()["tts_xtts_preactivar"] as? Bool) ?? true }
+    /// DORMIR el clon (descargar el modelo, liberar RAM/CPU) tras N minutos sin usarse;
+    /// se despierta al grabar (fn). Default ON, 5 min. No satura la Mac cuando no lo usas.
+    static func ttsXttsDormir() -> Bool { (json()["tts_xtts_dormir"] as? Bool) ?? true }
+    static func ttsXttsDormirMin() -> Double { (json()["tts_xtts_dormir_min"] as? Double) ?? 5 }
     /// Carpeta base de VozClonPOC (para el botón "Detectar mis voces"). Parametrizable.
     static func vozClonBase() -> String { (json()["voz_clon_base"] as? String) ?? "~/Downloads/VozClonPOC" }
     /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.

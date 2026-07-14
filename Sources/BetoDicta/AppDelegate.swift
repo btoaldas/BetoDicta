@@ -1031,6 +1031,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { CalientaRed.iniciarLatido() }
         // Preactiva el clon local (modelo XTTS en RAM) si es el motor activo → voz rápida.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { Voz.preactivarLocal() }
+        // Vigila la inactividad del clon: lo duerme tras N min sin usarse (libera RAM/CPU).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { XttsServer.iniciarVigilancia() }
 
         // Caja negra: rescatar dictados de sesiones que murieron a medias,
         // y matar whisper-servers huérfanos de crashes anteriores.
@@ -1620,6 +1622,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if Config.postProcess() || Config.busquedaSemantica() || Config.glosarioInteligente() {
             CalientaRed.despertar()
         }
+        // fn DESPIERTA el clon local si estaba dormido (modelo a RAM), para que la
+        // respuesta del agente salga rápida — como un latido: la tecla revive el motor.
+        Voz.preactivarLocal()
         // Trigger por CONTEXTO: recuerda dónde estás AHORA (app al frente = destino
         // del pegado). La app es instantánea; la URL del navegador se pide async
         // (AppleScript) para no frenar el micrófono, y llega mucho antes de entregar.
