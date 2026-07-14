@@ -210,6 +210,16 @@ enum VozEngine {
         try? runnerPy.data(using: .utf8)?.write(to: streamRunnerURL)
     }
 
+    /// Cache del modelo BASE de Coqui XTTS v2 (vocab.json/config.json comunes a TODO
+    /// clon XTTS). Sirve para rellenar paquetes traídos de fuera que llegan incompletos.
+    static var coquiCache: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/tts/tts_models--multilingual--multi-dataset--xtts_v2")
+    }
+    static func baseVocab() -> URL? { existe(coquiCache.appendingPathComponent("vocab.json")) }
+    static func baseConfig() -> URL? { existe(coquiCache.appendingPathComponent("config.json")) }
+    private static func existe(_ u: URL) -> URL? { FileManager.default.fileExists(atPath: u.path) ? u : nil }
+
     static func desinstalar() { try? FileManager.default.removeItem(at: dir) }
 
     // MARK: Utilidades

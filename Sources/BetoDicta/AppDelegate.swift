@@ -378,12 +378,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Prueba de IMPORTAR paquete: BETODICTA_IMPORTTEST=<carpeta> lo sube y reporta.
         if let pkg = ProcessInfo.processInfo.environment["BETODICTA_IMPORTTEST"], !pkg.isEmpty {
-            let v = VocesLocales.importarPaquete(desde: URL(fileURLWithPath: pkg))
-            if let v {
+            switch VocesLocales.importarPaquete(desde: URL(fileURLWithPath: pkg)) {
+            case .ok(let v):
                 print("IMPORTTEST OK → id=\(v.id) nombre=\(v.nombre) paquete=\(v.paquete)")
-                print("IMPORTTEST persona: \(v.persona.prefix(60))…")
-                print("IMPORTTEST copiado: \(FileManager.default.fileExists(atPath: v.paquete + "/voz_gen.py"))")
-            } else { print("IMPORTTEST FALLÓ") }
+                for f in ["voz_gen.py", "config.json", "vocab.json", "betodicta-voz.json", "ref_list.txt"] {
+                    print("IMPORTTEST tiene \(f): \(FileManager.default.fileExists(atPath: v.paquete + "/" + f))")
+                }
+            case .faltaModelo: print("IMPORTTEST faltaModelo")
+            case .faltaMuestras(let v): print("IMPORTTEST faltaMuestras → \(v.nombre) (\(v.paquete))")
+            }
             exit(0)
         }
         // Prueba del REORDER de la cascada: BETODICTA_MOVERTEST=1 mueve una fila visible

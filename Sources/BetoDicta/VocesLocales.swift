@@ -98,40 +98,117 @@ enum VocesLocales {
     /// Carpeta donde BetoDicta guarda los paquetes de voz importados (gestionados).
     static var vocesDir: URL { Config.dir.appendingPathComponent("voces") }
 
-    /// SUBIR un paquete de voz portable (carpeta con voz_gen.py). Lee el nombre y la
-    /// persona del manifest/persona.txt, COPIA la carpeta a ~/.betodicta/voces/<id>/
-    /// (gestionada, autocontenida) y la registra como voz corrida por el motor interno.
-    /// Devuelve la voz (o nil si la carpeta no es un paquete válido).
-    @discardableResult
-    static func importarPaquete(desde origen: URL) -> VozLocal? {
+    /// Resultado del import inteligente.
+    enum ResultadoImport {
+        case ok(VozLocal)                 // listo para hablar
+        case faltaModelo                  // no hay checkpoint .pth → no es un clon
+        case faltaMuestras(VozLocal)      // registrado, pero sin refs → pide muestras de voz
+    }
+
+    /// Runner genérico que BetoDicta escribe en CADA paquete: lee el manifest para
+    /// hallar modelo/config/vocab/refs. Así controla el runner (no el subido) y funciona
+    /// aunque el paquete venga de fuera.
+    private static let runnerBatch = """
+    import os, sys, json, warnings
+    warnings.filterwarnings("ignore")
+    os.environ["COQUI_TOS_AGREED"]="1"; os.environ.setdefault("CUDA_VISIBLE_DEVICES","")
+    import torch, torchaudio
+    from TTS.tts.configs.xtts_config import XttsConfig
+    from TTS.tts.models.xtts import Xtts
+    PKG=os.path.dirname(os.path.abspath(__file__)); TXT=sys.argv[1]; OUT=sys.argv[2] if len(sys.argv)>2 else "voz.wav"
+    man=json.load(open(os.path.join(PKG,"betodicta-voz.json"))).get("archivos",{})
+    def rel(k,d): return os.path.join(PKG, man.get(k,d))
+    config=XttsConfig(); config.load_json(rel("config","config.json"))
+    model=Xtts.init_from_config(config)
+    model.load_checkpoint(config, checkpoint_path=rel("modelo","model.pth"), vocab_path=rel("vocab","vocab.json"), use_deepspeed=False)
+    model.cpu(); model.train(False)
+    refs=[os.path.join(PKG,l.strip()) for l in open(rel("ref_list","ref_list.txt")) if l.strip()]
+    g,s=model.get_conditioning_latents(audio_path=refs)
+    o=model.inference(TXT,"es",g,s,temperature=0.55,enable_text_splitting=True)
+    torchaudio.save(OUT, torch.tensor(o["wav"]).unsqueeze(0), 24000)
+    print("OK", OUT)
+    """
+
+    /// SUBIR un paquete de voz — TOLERANTE: si viene incompleto (de fuera), BetoDicta
+    /// arma lo que falta (voz_gen.py, vocab/config del base, manifest) y solo pide lo
+    /// que NO puede generar: el modelo (.pth) y, si no hay, las muestras de voz (refs).
+    static func importarPaquete(desde origen: URL) -> ResultadoImport {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: origen.appendingPathComponent("voz_gen.py").path) else { return nil }
-        // Nombre (manifest → carpeta) y persona (persona.txt o manifest).
-        var nombre = origen.lastPathComponent
-        var persona = ""
+        let items = (try? fm.contentsOfDirectory(at: origen, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        // 1) Modelo: el .pth (prefiere 'slim'; si no, el más pesado). Sin él no es un clon.
+        let pths = items.filter { $0.pathExtension.lowercased() == "pth" }
+        guard let modelo = pths.first(where: { $0.lastPathComponent.lowercased().contains("slim") })
+            ?? pths.max(by: { (tam($0)) < (tam($1)) }) else { return .faltaModelo }
+        // 2) Nombre + persona (si vienen).
+        var nombre = origen.lastPathComponent, persona = ""
         if let mData = try? Data(contentsOf: origen.appendingPathComponent("betodicta-voz.json")),
            let j = try? JSONSerialization.jsonObject(with: mData) as? [String: Any] {
             if let n = j["nombre"] as? String, !n.isEmpty { nombre = n }
-            if let pa = j["persona_archivo"] as? String,
-               let t = try? String(contentsOf: origen.appendingPathComponent(pa), encoding: .utf8) {
-                persona = t.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
         }
-        if persona.isEmpty,
-           let t = try? String(contentsOf: origen.appendingPathComponent("persona.txt"), encoding: .utf8) {
+        if let t = try? String(contentsOf: origen.appendingPathComponent("persona.txt"), encoding: .utf8) {
             persona = t.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        // Registrar (obtiene id único) y copiar la carpeta a voces/<id>/.
+        // 3) Registrar + carpeta gestionada.
         let v = agregar(nombre: nombre, cmd: "", persona: persona, paquete: "")
         try? fm.createDirectory(at: vocesDir, withIntermediateDirectories: true)
-        let destino = vocesDir.appendingPathComponent(v.id)
-        try? fm.removeItem(at: destino)
-        do { try fm.copyItem(at: origen, to: destino) }
-        catch { borrar(v.id); return nil }
-        // Actualizar la ruta del paquete a la copia gestionada.
+        let dst = vocesDir.appendingPathComponent(v.id)
+        try? fm.removeItem(at: dst)
+        try? fm.createDirectory(at: dst.appendingPathComponent("refs"), withIntermediateDirectories: true)
+        // 4) Copiar modelo.
+        try? fm.copyItem(at: modelo, to: dst.appendingPathComponent(modelo.lastPathComponent))
+        // 5) config/vocab: del paquete si vienen, si no del BASE de Coqui (comunes a todo XTTS).
+        func poner(_ nombreArch: String, base: URL?) {
+            let enOrigen = origen.appendingPathComponent(nombreArch)
+            if fm.fileExists(atPath: enOrigen.path) { try? fm.copyItem(at: enOrigen, to: dst.appendingPathComponent(nombreArch)) }
+            else if let base { try? fm.copyItem(at: base, to: dst.appendingPathComponent(nombreArch)) }
+        }
+        poner("config.json", base: VozEngine.baseConfig())
+        poner("vocab.json", base: VozEngine.baseVocab())
+        // 6) Refs: cualquier wav del paquete (raíz o refs/). Si no hay → pedir muestras.
+        var refWavs = items.filter { $0.pathExtension.lowercased() == "wav" }
+        if let sub = try? fm.contentsOfDirectory(at: origen.appendingPathComponent("refs"), includingPropertiesForKeys: nil) {
+            refWavs += sub.filter { $0.pathExtension.lowercased() == "wav" }
+        }
+        var refLines: [String] = []
+        for w in refWavs.prefix(8) {
+            let d = dst.appendingPathComponent("refs/" + w.lastPathComponent)
+            try? fm.copyItem(at: w, to: d); refLines.append("refs/" + w.lastPathComponent)
+        }
+        try? refLines.joined(separator: "\n").write(to: dst.appendingPathComponent("ref_list.txt"), atomically: true, encoding: .utf8)
+        // 7) Runner genérico + manifest (BetoDicta los controla).
+        try? runnerBatch.write(to: dst.appendingPathComponent("voz_gen.py"), atomically: true, encoding: .utf8)
+        if !persona.isEmpty { try? persona.write(to: dst.appendingPathComponent("persona.txt"), atomically: true, encoding: .utf8) }
+        let manifest: [String: Any] = ["formato": "betodicta-voz-clonada/1", "nombre": nombre, "idioma": "es",
+            "motor": "xtts", "persona_archivo": "persona.txt",
+            "archivos": ["modelo": modelo.lastPathComponent, "config": "config.json", "vocab": "vocab.json",
+                         "ref_list": "ref_list.txt", "refs_dir": "refs"]]
+        if let mj = try? JSONSerialization.data(withJSONObject: manifest, options: .prettyPrinted) {
+            try? mj.write(to: dst.appendingPathComponent("betodicta-voz.json"))
+        }
+        // 8) Fijar ruta + estado.
         var list = todas()
-        if let i = list.firstIndex(where: { $0.id == v.id }) { list[i].paquete = destino.path; guardar(list) }
-        return list.first { $0.id == v.id }
+        if let i = list.firstIndex(where: { $0.id == v.id }) { list[i].paquete = dst.path; guardar(list) }
+        let voz = todas().first { $0.id == v.id } ?? v
+        return refLines.isEmpty ? .faltaMuestras(voz) : .ok(voz)
+    }
+
+    private static func tam(_ u: URL) -> Int { (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+
+    /// Agrega muestras de voz (wavs) a una voz que quedó sin refs. Reconstruye ref_list.
+    static func agregarMuestras(_ id: String, wavs: [URL]) {
+        guard let v = todas().first(where: { $0.id == id }), !v.paquete.isEmpty else { return }
+        let dst = URL(fileURLWithPath: v.paquete)
+        let fm = FileManager.default
+        try? fm.createDirectory(at: dst.appendingPathComponent("refs"), withIntermediateDirectories: true)
+        var lineas = (try? String(contentsOf: dst.appendingPathComponent("ref_list.txt"), encoding: .utf8))?
+            .split(separator: "\n").map(String.init) ?? []
+        for w in wavs where w.pathExtension.lowercased() == "wav" {
+            let d = dst.appendingPathComponent("refs/" + w.lastPathComponent)
+            try? fm.copyItem(at: w, to: d)
+            let rel = "refs/" + w.lastPathComponent
+            if !lineas.contains(rel) { lineas.append(rel) }
+        }
+        try? lineas.joined(separator: "\n").write(to: dst.appendingPathComponent("ref_list.txt"), atomically: true, encoding: .utf8)
     }
 
     /// DESCARGAR/exportar el paquete de una voz a una carpeta destino (para llevarlo).

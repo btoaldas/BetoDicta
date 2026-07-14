@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Editor de la biblioteca de voces locales (Fase 7)
 //
@@ -64,12 +65,27 @@ struct VocesLocalesEditor: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         estado = "Importando el paquete…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let v = VocesLocales.importarPaquete(desde: url)
+            let r = VocesLocales.importarPaquete(desde: url)
             DispatchQueue.main.async {
-                if let v { estado = "Voz “\(v.nombre)” agregada."; refrescar() }
-                else { estado = "Esa carpeta no es un paquete de voz válido (falta voz_gen.py)." }
+                switch r {
+                case .ok(let v): estado = "Voz “\(v.nombre)” agregada y lista."
+                case .faltaModelo: estado = "Esa carpeta no tiene un modelo de voz (.pth). No es un clon."
+                case .faltaMuestras(let v):
+                    estado = "“\(v.nombre)” agregada, pero le faltan MUESTRAS de voz. Usa “➕ muestras” para subir 3-10 audios (10-30s) de esa persona."
+                }
+                refrescar()
             }
         }
+    }
+
+    private func muestras(_ v: VozLocal) {
+        let panel = NSOpenPanel()
+        panel.title = "Muestras de voz para “\(v.nombre)” (wav 10-30s)"
+        panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.wav]
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        VocesLocales.agregarMuestras(v.id, wavs: panel.urls)
+        estado = "Muestras agregadas a “\(v.nombre)”."; refrescar()
     }
 
     private func descargar(_ v: VozLocal) {
@@ -115,6 +131,7 @@ struct VocesLocalesEditor: View {
                                 set: { VocesLocales.fijarStreaming(v.id, $0); refrescar() }))
                                 .toggleStyle(.checkbox).font(.caption2)
                                 .help("Suena mientras genera (más rápido). Apágalo para generar completo y luego sonar.")
+                            Button("➕🎙") { muestras(v) }.controlSize(.small).help("Agregar muestras de voz (wavs de 10-30s)")
                             Button("⬇︎") { descargar(v) }.controlSize(.small).help("Descargar el paquete para llevarlo")
                         }
                         Button("Quitar") { VocesLocales.borrar(v.id); refrescar() }.controlSize(.small)
