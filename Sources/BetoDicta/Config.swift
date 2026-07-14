@@ -121,6 +121,9 @@ struct Config {
     static func modoPorContexto() -> Bool { (json()["modo_por_contexto"] as? Bool) ?? true }
     /// WhatsApp: usar los Contactos de macOS además de la lista importada. Default ON.
     static func waUsarContactosMac() -> Bool { (json()["wa_usar_contactos_mac"] as? Bool) ?? true }
+    /// Glosario INTELIGENTE: en el pulido, manda solo los términos afines al dictado
+    /// (con embeddings) en vez de los 80 → prompt corto = más rápido. Default OFF (opt-in).
+    static func glosarioInteligente() -> Bool { (json()["glosario_inteligente"] as? Bool) ?? false }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

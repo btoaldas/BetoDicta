@@ -88,6 +88,7 @@ final class SettingsModel: ObservableObject {
     @Published var salvaguardaInyeccion: Bool { didSet { Config.set("salvaguarda_inyeccion", to: salvaguardaInyeccion) } }
     @Published var sttStreaming: Bool { didSet { Config.set("stt_streaming", to: sttStreaming) } }
     @Published var busquedaSemantica: Bool { didSet { Config.set("busqueda_semantica", to: busquedaSemantica) } }
+    @Published var glosarioInteligente: Bool { didSet { Config.set("glosario_inteligente", to: glosarioInteligente) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -123,6 +124,7 @@ final class SettingsModel: ObservableObject {
         salvaguardaInyeccion = Config.salvaguardaInyeccion()
         sttStreaming = Config.sttStreaming()
         busquedaSemantica = Config.busquedaSemantica()
+        glosarioInteligente = Config.glosarioInteligente()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -692,7 +694,10 @@ struct SettingsView: View {
                         Toggle("Búsqueda por significado en el Historial (semántica)", isOn: $m.busquedaSemantica)
                         Text("Activa el modo de buscar por IDEA (no por palabra exacta) en el Historial, con embeddings. Elige con cuál IA se calculan:")
                             .font(.caption).foregroundStyle(.secondary)
-                        EmbeddingMotorPicker().disabled(!m.busquedaSemantica)
+                        EmbeddingMotorPicker().disabled(!m.busquedaSemantica && !m.glosarioInteligente)
+                        Toggle("Glosario inteligente (pulido más rápido)", isOn: $m.glosarioInteligente)
+                        Text("En el pulido, envía a la IA SOLO los términos del glosario afines a lo que dictaste (con embeddings), no los 80+. Prompt más corto = más rápido, y escala aunque tu glosario crezca. Usa el motor de embeddings de arriba; la 1ª vez calienta los vectores en segundo plano (mientras, usa el glosario normal).")
+                            .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Espera del pulido con IA: \(Int(m.pulidoTimeout)) s").font(.subheadline)

@@ -480,6 +480,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("CADTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba EN VIVO del glosario inteligente: BETODICTA_GLOSTEST=1 (necesita motor de embeddings).
+        if ProcessInfo.processInfo.environment["BETODICTA_GLOSTEST"] == "1" {
+            let terms = ["Quipux", "DGTIC", "MikroTik", "WireGuard", "presupuesto", "EZTIC", "pfSense", "VLAN", "Alfresco", "Nemotron"]
+            EmbeddingSearch.calentarGlosario(terms)
+            DispatchQueue.global().async {
+                var n = 0
+                while !EmbeddingSearch.glosarioListo(terms), n < 80 { Thread.sleep(forTimeInterval: 0.25); n += 1 }
+                let listo = EmbeddingSearch.glosarioListo(terms)
+                EmbeddingSearch.terminosRelevantes(texto: "necesito revisar el kipux del gad y configurar el mikrotic de la red", keyterms: terms, k: 3) { sel in
+                    // Espera: MikroTik + Quipux entre los afines; NO todos los 10.
+                    let ok = listo && sel.count <= 5 && sel.contains("MikroTik")
+                    print("GLOSTEST listo=\(listo) seleccionados(\(sel.count))=\(sel) → \(ok ? "OK" : "revisar")")
+                    exit(ok ? 0 : 3)
+                }
+            }
+            RunLoop.current.run()   // bloquea aquí (sirve la cola) hasta exit — no arranca la app
+        }
         // Prueba de contactos WhatsApp: BETODICTA_WATEST=1 (destinatario + URL, sin enviar).
         if ProcessInfo.processInfo.environment["BETODICTA_WATEST"] == "1" {
             var ok = true

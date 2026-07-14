@@ -184,6 +184,70 @@ enum EmbeddingSearch {
     struct Resultado { let path: String; let score: Double }
 
     private static let lock = NSLock()
+    private static var calentando = false
+
+    // MARK: Glosario inteligente (opt-in) — manda al pulido SOLO los términos afines
+    //
+    // El glosario crece y mandarlo entero cada vez alarga el prompt (lento). Con
+    // embeddings: vectorizamos cada término UNA vez (caché "glosario:<t>"), y por
+    // dictado embebemos el texto y mandamos solo los K términos más cercanos (por
+    // coseno) + los que aparecen literalmente. Rápido y escala con glosario grande.
+
+    private static func fold(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es"))
+    }
+    /// ¿Ya están cacheados los vectores de TODOS los términos (con el motor actual)?
+    static func glosarioListo(_ keyterms: [String]) -> Bool {
+        cargarCache()
+        lock.lock(); defer { lock.unlock() }
+        let firma = firmaMotor
+        return keyterms.allSatisfy { cache["glosario:\($0)"]?.motor == firma }
+    }
+    /// Calienta (en segundo plano) los vectores de términos que falten. Idempotente.
+    static func calentarGlosario(_ keyterms: [String]) {
+        cargarCache()
+        let firma = firmaMotor
+        lock.lock()
+        let faltan = keyterms.filter { !$0.isEmpty && cache["glosario:\($0)"]?.motor != firma }
+        let ocupado = calentando
+        if !faltan.isEmpty { calentando = true }
+        lock.unlock()
+        guard !faltan.isEmpty, !ocupado else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let sem = DispatchSemaphore(value: 4); let grupo = DispatchGroup()
+            for t in faltan {
+                sem.wait(); grupo.enter()
+                embed(t) { r in
+                    if case .success(let v) = r {
+                        lock.lock(); cache["glosario:\(t)"] = Entrada(vec: v, mtime: 0, motor: firma); lock.unlock()
+                    }
+                    sem.signal(); grupo.leave()
+                }
+            }
+            grupo.wait(); guardarCache()
+            lock.lock(); calentando = false; lock.unlock()
+        }
+    }
+    /// Devuelve los K términos MÁS afines al texto + los que aparecen literalmente.
+    /// Requiere glosarioListo==true (el llamador lo verifica y cae al glosario
+    /// completo mientras se calienta).
+    static func terminosRelevantes(texto: String, keyterms: [String], k: Int, done: @escaping ([String]) -> Void) {
+        let t = fold(texto)
+        let lits = keyterms.filter { let n = fold($0); return !n.isEmpty && t.contains(n) }
+        embed(texto) { r in
+            guard case .success(let qv) = r else { DispatchQueue.main.async { done(keyterms) }; return }
+            lock.lock(); let firma = firmaMotor
+            let scored = keyterms.compactMap { term -> (String, Double)? in
+                guard let e = cache["glosario:\(term)"], e.motor == firma else { return nil }
+                return (term, coseno(qv, e.vec))
+            }.sorted { $0.1 > $1.1 }
+            lock.unlock()
+            var sel = Set(lits)
+            for (term, _) in scored where sel.count < max(k, lits.count) { sel.insert(term) }
+            let out = keyterms.filter { sel.contains($0) }
+            DispatchQueue.main.async { done(out.isEmpty ? keyterms : out) }
+        }
+    }
 
     /// Indexa (si hace falta) y ordena las entradas por cercanía a la consulta.
     /// `items`: (path, mtime, texto). Llama `progreso(hechos, total)` mientras

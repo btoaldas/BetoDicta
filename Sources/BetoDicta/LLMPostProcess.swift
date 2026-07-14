@@ -630,28 +630,43 @@ enum LLMPostProcess {
             return
         }
         let inicio = Date()
-
-        let glosario = Config.keyterms().prefix(80).joined(separator: ", ")
         let estilo = Config.customPrompt().map { "\n        - ESTILO pedido por el usuario: \($0)" } ?? ""
-        let prompt = """
-        Limpia esta transcripción dictada en español latino:
-        - Corrige puntuación, mayúsculas y ortografía.
-        - Elimina muletillas (eh, este, "o sea" de relleno) y repeticiones de tartamudeo.
-        - GLOSARIO — estos términos se escriben exactamente así cuando aparecen: \(glosario).
-        - REGLA ESTRICTA: solo corrige a un término del glosario si la palabra NO es español válido y suena inequívocamente igual. Palabras normales del español se quedan intactas.
-        - Conserva el significado y el orden exactos. No parafrasees, no resumas, no agregues nada.\(estilo)
-        Devuelve ÚNICAMENTE la transcripción limpia, sin comentarios.
 
-        Transcripción:
+        // Arma el prompt con el glosario dado y lo ejecuta.
+        func ejecutar(_ terminos: [String]) {
+            let glosario = terminos.joined(separator: ", ")
+            let prompt = """
+            Limpia esta transcripción dictada en español latino:
+            - Corrige puntuación, mayúsculas y ortografía.
+            - Elimina muletillas (eh, este, "o sea" de relleno) y repeticiones de tartamudeo.
+            - GLOSARIO — estos términos se escriben exactamente así cuando aparecen: \(glosario).
+            - REGLA ESTRICTA: solo corrige a un término del glosario si la palabra NO es español válido y suena inequívocamente igual. Palabras normales del español se quedan intactas.
+            - Conserva el significado y el orden exactos. No parafrasees, no resumas, no agregues nada.\(estilo)
+            Devuelve ÚNICAMENTE la transcripción limpia, sin comentarios.
 
-        \(text)
-        """
+            Transcripción:
 
-        guard let request = ia.requestChat(prompt: prompt, temperatura: 0, textLen: text.count) else {
-            Log.write("pulido: no pude armar la request — texto original"); completion(text); return
+            \(text)
+            """
+            guard let request = ia.requestChat(prompt: prompt, temperatura: 0, textLen: text.count) else {
+                Log.write("pulido: no pude armar la request — texto original"); completion(text); return
+            }
+            hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1,
+                  prompt: prompt, temp: 0, resto: Array(cadena.dropFirst()), completion: completion)
         }
-        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1,
-              prompt: prompt, temp: 0, resto: Array(cadena.dropFirst()), completion: completion)
+
+        // Glosario INTELIGENTE (opt-in): si hay muchos términos y sus vectores ya
+        // están calientes, manda solo los ~20 afines al dictado (prompt corto = más
+        // rápido). Si no están listos, calienta en 2º plano y usa el glosario normal.
+        let keyterms = Config.keyterms()
+        if Config.glosarioInteligente(), keyterms.count > 25 {
+            if EmbeddingSearch.glosarioListo(keyterms) {
+                EmbeddingSearch.terminosRelevantes(texto: text, keyterms: keyterms, k: 20) { ejecutar($0) }
+                return
+            }
+            EmbeddingSearch.calentarGlosario(keyterms)   // para la próxima
+        }
+        ejecutar(Array(keyterms.prefix(80)))
     }
 
     /// La IA que usa un MODO: la suya propia (proveedorId+modelo) o, si no tiene,
