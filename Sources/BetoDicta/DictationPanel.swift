@@ -154,7 +154,7 @@ final class DictationPanel {
 
     /// Muestra un aviso breve por N segundos, por encima del texto del dictado.
     func flash(_ text: String, segundos: TimeInterval = 2.5) {
-        guard Config.panelVisible() else { return }
+        guard Config.panelVisible(), !enRespuestaIA else { return }
         reposicionar()
         flashHasta = Date().addingTimeInterval(segundos)
         label.stringValue = text
@@ -217,15 +217,53 @@ final class DictationPanel {
     /// El truncado por la cabeza (.byTruncatingHead) + alineación derecha se
     /// encargan de recortar lo viejo; no hace falta cortar a mano.
     func update(_ text: String) {
-        // No pisar un aviso breve todavía vigente.
-        guard Date() >= flashHasta else { return }
+        // No pisar un aviso breve todavía vigente ni la respuesta de la IA.
+        guard !enRespuestaIA, Date() >= flashHasta else { return }
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
     }
 
     /// Update que SÍ pisa el flash (para la entrega final del dictado).
     func updateForzado(_ text: String) {
+        guard !enRespuestaIA else { return }   // el dictado NO pisa la respuesta de la IA
         flashHasta = .distantPast
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    // MARK: - Notch de RESPUESTA DE IA (distinto al de dictado)
+    //
+    // Al revés del dictado: aquí aparece lo que la IA RESPONDE (mientras habla), no lo
+    // que tú dictas. Look propio (🤖, color azul, sin medidor de mic) para reconocerlo,
+    // y NO se comporta como el dictado (no lo pisan update/flash, no muestra nivel).
+
+    private(set) var enRespuestaIA = false
+    private let colorIA = NSColor(calibratedRed: 0.45, green: 0.72, blue: 1.0, alpha: 1)
+
+    /// Abre el notch en modo RESPUESTA DE IA con el texto (mientras el agente habla).
+    func respuestaIA(_ texto: String) {
+        guard Config.panelVisible() else { return }
+        enRespuestaIA = true
+        reposicionar()
+        meter.isHidden = true
+        modoLabel.stringValue = "🤖 IA"
+        label.textColor = colorIA
+        label.stringValue = texto.replacingOccurrences(of: "\n", with: " ")
+        panel.orderFrontRegardless()
+    }
+
+    /// Actualiza el texto de la respuesta (si la IA lo entrega en trozos).
+    func actualizarRespuestaIA(_ texto: String) {
+        guard enRespuestaIA else { return }
+        label.stringValue = texto.replacingOccurrences(of: "\n", with: " ")
+    }
+
+    /// Cierra el modo respuesta de IA y vuelve el notch a lo normal.
+    func finRespuestaIA() {
+        guard enRespuestaIA else { return }
+        enRespuestaIA = false
+        label.textColor = .white
+        meter.isHidden = false
+        setModo(ModosStore.activo())   // restaura el letrero de modo
+        hide(after: 1.2)
     }
 
     /// Letrero del motor activo, encima del fn. Verde = texto en vivo;

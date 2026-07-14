@@ -2266,9 +2266,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Log.write("  ✓ entregado:  \(resultado)")
                 // Modo Agente (Fase 7.2): además de pegar el texto, LO DICE por voz
                 // (si la Voz del sistema está activa). Falla suave: si no hay TTS, solo pega.
-                if modo.base == "agente", Config.ttsActivo(),
-                   !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Voz.decir(resultado)   // failover: motor elegido → … → voz de macOS
+                if modo.base == "agente", !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // Notch de RESPUESTA DE IA: muestra lo que responde mientras habla
+                    // (distinto al de dictado). Se cierra al terminar de hablar.
+                    self?.panel.respuestaIA(resultado)
+                    if Config.ttsActivo() {
+                        Voz.decir(resultado) { self?.panel.finRespuestaIA() }   // motor elegido → … → macOS
+                    } else {
+                        self?.panel.finRespuestaIA()   // sin voz: se muestra un momento y se cierra
+                    }
                 }
                 self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
             }
