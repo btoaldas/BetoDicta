@@ -648,7 +648,12 @@ extension ModosStore {
                 "aceptado": (mejor?.id != nil && (mejor?.score ?? 0) >= umbral)])
             guard let mejor, let id = mejor.id, mejor.score >= umbral,
                   let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
-            let contenido = toks.dropFirst(mejor.w).joined(separator: " ")
+            // No dejes conectores finales ("a", "para"…) en el comando: van al
+            // contenido, para que "…whatsapp a | Alberto" → contenido "a Alberto"
+            // y objetivo() extraiga el destinatario.
+            var w = mejor.w
+            while w > 1, conectores.contains(limpioTok(toks[w - 1])) { w -= 1 }
+            let contenido = toks.dropFirst(w).joined(separator: " ")
                 .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n"))
             done(m, contenido)
         }
