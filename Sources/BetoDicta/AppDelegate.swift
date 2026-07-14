@@ -368,6 +368,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("TRIGTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba del "un solo uso" del modo + idiomas: BETODICTA_REVTEST=1.
+        // Snapshotea y restaura la config real (no la ensucia).
+        if ProcessInfo.processInfo.environment["BETODICTA_REVTEST"] == "1" {
+            let d0 = Config.modoDefecto(), a0 = Config.modoActivo(), r0 = Config.modoRevertir()
+            let ip0 = Config.idiomasPersonales()
+            // ON: activo=correo, revertir ON → vuelve a dictado
+            Config.set("modo_revertir", to: true)
+            ModosStore.fijarDefecto("dictado")
+            ModosStore.fijarActivo("correo")
+            let antes = Config.modoActivo()
+            ModosStore.revertirADefecto()
+            let ok1 = (antes == "correo" && Config.modoActivo() == "dictado")
+            // OFF (sticky): revertir OFF → el modo se queda
+            Config.set("modo_revertir", to: false)
+            ModosStore.fijarActivo("oficio")
+            ModosStore.revertirADefecto()
+            let ok2 = (Config.modoActivo() == "oficio")
+            // Idiomas: agregar propio + bandera de un base
+            let n = Idiomas.agregar("klingon")
+            let ok3 = (n == "klingon") && Idiomas.todos().contains { $0.nombre == "klingon" }
+                && Idiomas.bandera("inglés") == "🇬🇧" && Idiomas.bandera("kichwa") == "🇪🇨"
+            // Restaurar TODO como estaba
+            Config.set("modo_defecto", to: d0); Config.set("modo_activo", to: a0)
+            Config.set("modo_revertir", to: r0); Config.set("idiomas_personales", to: ip0)
+            print("REVTEST revertON=\(ok1) sticky=\(ok2) idiomas=\(ok3)")
+            print("REVTEST \(ok1 && ok2 && ok3 ? "TODO OK" : "✗ FALLA")")
+            exit(ok1 && ok2 && ok3 ? 0 : 3)
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
@@ -535,6 +563,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             self.panel.popUpModoMenu(menu)
         }
+        // Al arrancar, limpia un transitorio viejo (si el "un solo uso" está ON,
+        // vuelve al modo por defecto; si es sticky, respeta el último).
+        ModosStore.revertirADefecto()
         panel.setModo(ModosStore.activo())
 
         // Caja negra: rescatar dictados de sesiones que murieron a medias,
@@ -1479,18 +1510,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let historyActual = self.history
         self.history = nil
         let ultimoParcial = lastPartial
+        // Congela el MODO de ESTE dictado AHORA (al cerrar), no en la entrega:
+        // así dos dictados solapados no se pisan, y el "un solo uso" se consume
+        // aquí (el notch vuelve al defecto en cuanto sueltas). Viaja por las
+        // entregas asíncronas igual que historyActual.
+        let modoDictado = ModosStore.activo()
+        ModosStore.revertirADefecto()
+        refrescarModoNotch()
 
         func rescatarConCascada(_ etiquetaFallo: String) {
             Failover.transcribe(wav: wav) { [weak self] r in
                 switch r {
                 case .success(let (raw, proveedor, modelo)):
-                    self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo, history: historyActual)
+                    self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo, history: historyActual, modo: modoDictado)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     if !ultimoParcial.isEmpty {
                         // Último recurso: el parcial que alcanzó a llegar.
                         self?.deliver(raw: ultimoParcial, wav: wav,
-                                      via: "\(etiquetaFallo) (parcial)", history: historyActual)
+                                      via: "\(etiquetaFallo) (parcial)", history: historyActual, modo: modoDictado)
                     } else {
                         historyActual?.finish(wav: wav, finalText: "")
                         self?.avisarSiLibre("⚠️ \(etiquetaFallo) — audio guardado")
@@ -1519,7 +1557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 } else {
                     let motor = Self.nombreMotor(id: tcpp.proveedorId)
                     let mod = Providers.modelo(de: tcpp.proveedorId) ?? ""
-                    self?.deliver(raw: final, wav: wav, via: "\(motor) (en vivo)", modelo: mod, history: historyActual)
+                    self?.deliver(raw: final, wav: wav, via: "\(motor) (en vivo)", modelo: mod, history: historyActual, modo: modoDictado)
                 }
             }
             tcpp.finish()
@@ -1558,7 +1596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     rescatarConCascada("\(nombreVivo) sin texto")
                 } else {
                     let mod = Providers.modelo(de: idVivo) ?? ""
-                    self?.deliver(raw: mejor, wav: wav, via: "\(nombreVivo) (en vivo)", modelo: mod, history: historyActual)
+                    self?.deliver(raw: mejor, wav: wav, via: "\(nombreVivo) (en vivo)", modelo: mod, history: historyActual, modo: modoDictado)
                 }
             }
             return
@@ -1587,7 +1625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if full.isEmpty {
                     rescatarConCascada("Sin texto")
                 } else {
-                    self?.deliver(raw: full, wav: wav, via: "ElevenLabs (en vivo)", modelo: "scribe_v2_realtime", history: historyActual)
+                    self?.deliver(raw: full, wav: wav, via: "ElevenLabs (en vivo)", modelo: "scribe_v2_realtime", history: historyActual, modo: modoDictado)
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
@@ -1617,7 +1655,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Failover.transcribe(wav: wav) { [weak self] result in
                 switch result {
                 case .success(let (raw, proveedor, modelo)):
-                    self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo, history: historyActual)
+                    self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo, history: historyActual, modo: modoDictado)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     historyActual?.finish(wav: wav, finalText: "")
@@ -1636,7 +1674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.hide(after: 3)
     }
 
-    private func deliver(raw: String, wav: Data, via proveedor: String, modelo: String = "", history: HistoryWriter?) {
+    private func deliver(raw: String, wav: Data, via proveedor: String, modelo: String = "", history: HistoryWriter?, modo modoSnapshot: Modo? = nil) {
         let segundos = Double(wav.count - 44) / 32000.0
         UsageLog.record(provider: proveedor, modelo: modelo, seconds: segundos)
 
@@ -1674,11 +1712,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             avisarSiLibre("(silencio)")
             return
         }
-        // El MODO decide qué hacer con lo dictado. Por defecto, el modo activo;
-        // pero si el dictado EMPIEZA con la frase de voz de un modo ("modo tarea
-        // …"), ese modo manda solo por este dictado (y se quita la frase).
-        // Precedencia: voz (explícita) > contexto app/web > modo activo (manual).
-        var modo = ModosStore.activo()
+        // El MODO decide qué hacer con lo dictado. Se CONGELA al cerrar el dictado
+        // (modoSnapshot, pasado por stopAndTranscribe) para no depender del global
+        // compartido: dos dictados solapados jamás se pisan el modo. Precedencia:
+        // voz (explícita) > contexto app/web > modo congelado (manual/notch).
+        var modo = modoSnapshot ?? ModosStore.activo()
         var porVoz = false
         if Config.modoPorVoz(), let (m, limpio) = ModosStore.detectarPorVoz(textoFinal) {
             if m.id != modo.id { Log.log(.ia, "modo por voz → \(m.nombre)") }
@@ -1752,6 +1790,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Aprendizaje.recordarContexto(pegado: text, traducido: Config.translate())
         playSound("Glass")
         if !recorder.isRecording { setIcono(.reposo) }
+        // (El "un solo uso" ya se consumió al CERRAR el dictado en stopAndTranscribe;
+        //  no se revierte aquí para no pisar el modo de un dictado solapado.)
         // Si ya hay otro dictado grabando, no pisar su panel.
         if !recorder.isRecording {
             panel.updateForzado("✓ " + text)

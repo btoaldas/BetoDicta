@@ -111,11 +111,27 @@ enum ModosStore {
         todos().first { $0.id == id } ?? base[0]
     }
 
-    /// El modo ACTIVO (se elige en caliente). Default: Dictado.
+    /// El modo POR DEFECTO (sticky): al que se vuelve tras cada dictado.
+    static func defecto() -> Modo { modo(Config.modoDefecto()) }
+    /// Fija el modo por defecto (Ajustes → Modos) y lo aplica ya.
+    static func fijarDefecto(_ id: String) {
+        Config.set("modo_defecto", to: id)
+        Config.set("modo_activo", to: id)
+        Log.log(.config, "modo por defecto → \(modo(id).nombre)")
+    }
+    /// El modo ACTIVO ahora (transitorio; el notch/menú lo cambia al vuelo).
     static func activo() -> Modo { modo(Config.modoActivo()) }
+    /// Cambio en caliente (notch/menú): de un solo uso si modoRevertir (default).
     static func fijarActivo(_ id: String) {
         Config.set("modo_activo", to: id)
         Log.log(.config, "modo activo → \(modo(id).nombre)")
+    }
+    /// Vuelve al modo por defecto si el usuario tiene el "un solo uso" activo.
+    /// Se llama tras entregar cada dictado y al arrancar (limpia un transitorio viejo).
+    static func revertirADefecto() {
+        guard Config.modoRevertir(), Config.modoActivo() != Config.modoDefecto() else { return }
+        Config.set("modo_activo", to: Config.modoDefecto())
+        Log.log(.config, "modo vuelve al defecto → \(defecto().nombre)")
     }
 
     // MARK: Modos propios (crear / borrar)
@@ -130,6 +146,8 @@ enum ModosStore {
         var lista = todos()
         lista.removeAll { $0.id == id && !$0.esFijo }   // los base no se borran
         guardar(lista)
+        // No dejar modo_activo NI modo_defecto colgando en un id inexistente.
+        if Config.modoDefecto() == id { Config.set("modo_defecto", to: "dictado") }
         if Config.modoActivo() == id { fijarActivo("dictado") }
     }
 
@@ -204,5 +222,47 @@ enum ContextoApp {
         var err: NSDictionary?
         let out = s.executeAndReturnError(&err)
         return err == nil ? out.stringValue : nil
+    }
+}
+
+// MARK: - Idiomas para el modo "Traducir" (con banderita + agregar propios)
+
+enum Idiomas {
+    /// Idiomas comunes con la bandera que MÁS los representa (aprox: idioma≠país).
+    /// kichwa/shuar → 🇪🇨 (Amazonía ecuatoriana, contexto UEA).
+    static let base: [(nombre: String, bandera: String)] = [
+        ("inglés", "🇬🇧"), ("español", "🇪🇸"), ("portugués", "🇧🇷"), ("francés", "🇫🇷"),
+        ("alemán", "🇩🇪"), ("italiano", "🇮🇹"), ("chino", "🇨🇳"), ("japonés", "🇯🇵"),
+        ("coreano", "🇰🇷"), ("ruso", "🇷🇺"), ("árabe", "🇸🇦"), ("hindi", "🇮🇳"),
+        ("neerlandés", "🇳🇱"), ("turco", "🇹🇷"), ("polaco", "🇵🇱"), ("ucraniano", "🇺🇦"),
+        ("griego", "🇬🇷"), ("hebreo", "🇮🇱"), ("vietnamita", "🇻🇳"), ("tailandés", "🇹🇭"),
+        ("indonesio", "🇮🇩"), ("sueco", "🇸🇪"), ("noruego", "🇳🇴"), ("danés", "🇩🇰"),
+        ("finés", "🇫🇮"), ("checo", "🇨🇿"), ("rumano", "🇷🇴"), ("húngaro", "🇭🇺"),
+        ("kichwa", "🇪🇨"), ("shuar", "🇪🇨"),
+    ]
+    /// Todos: base + los que el usuario agregó (bandera genérica para los propios).
+    static func todos() -> [(nombre: String, bandera: String)] {
+        var vistos = Set(base.map { $0.nombre.lowercased() })
+        var lista = base
+        for p in Config.idiomasPersonales() where !p.isEmpty && !vistos.contains(p.lowercased()) {
+            lista.append((p, "🏳️")); vistos.insert(p.lowercased())
+        }
+        return lista
+    }
+    static func bandera(_ nombre: String) -> String {
+        base.first { $0.nombre.caseInsensitiveCompare(nombre) == .orderedSame }?.bandera ?? "🏳️"
+    }
+    /// Agrega un idioma propio (idempotente; no pisa los base). Devuelve el nombre
+    /// CANÓNICO: si ya existe (aunque difiera en mayúsculas/acentos), devuelve el
+    /// que está en la lista para que el Picker lo empareje por tag exacto.
+    @discardableResult static func agregar(_ nombre: String) -> String {
+        let n = nombre.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !n.isEmpty else { return "" }
+        if let existente = todos().first(where: { $0.nombre.caseInsensitiveCompare(n) == .orderedSame }) {
+            return existente.nombre   // ya está: usa el canónico, no el tecleado
+        }
+        var props = Config.idiomasPersonales(); props.append(n)
+        Config.set("idiomas_personales", to: props)
+        return n
     }
 }

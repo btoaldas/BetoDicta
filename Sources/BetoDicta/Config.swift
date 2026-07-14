@@ -96,9 +96,17 @@ struct Config {
     /// Motor de embeddings elegido ("ollama"|"openai"|"gemini"|"mistral"|"custom").
     /// Default Ollama (local), pero el usuario elige en Avanzado según lo que tenga.
     static func embeddingProveedor() -> String { (json()["embedding_proveedor"] as? String) ?? "ollama" }
-    /// Modo activo (qué hacer con lo dictado): "dictado" (default) / correo / oficio /
-    /// tarea / nota / traducir / asistente / propio. Se elige en caliente.
-    static func modoActivo() -> String { (json()["modo_activo"] as? String) ?? "dictado" }
+    /// Modo POR DEFECTO (sticky): al que se vuelve tras cada dictado si modoRevertir.
+    /// Se fija en Ajustes → Modos ("Poner por defecto"). Default "dictado".
+    static func modoDefecto() -> String { (json()["modo_defecto"] as? String) ?? "dictado" }
+    /// Modo activo AHORA (qué hacer con lo dictado). Transitorio: el notch/menú lo
+    /// cambia al vuelo; si modoRevertir está ON, vuelve al defecto tras cada dictado.
+    static func modoActivo() -> String { (json()["modo_activo"] as? String) ?? modoDefecto() }
+    /// El modo elegido en caliente (notch/menú) es de UN SOLO USO: tras dictar,
+    /// vuelve al modo por defecto. Default ON (pedido de Alberto). Apágalo = sticky.
+    static func modoRevertir() -> Bool { (json()["modo_revertir"] as? Bool) ?? true }
+    /// Idiomas que el usuario agregó al selector de "Traducir" (además de los base).
+    static func idiomasPersonales() -> [String] { (json()["idiomas_personales"] as? [String]) ?? [] }
     /// Activar un modo por VOZ: si el dictado empieza con la frase de un modo
     /// (ej. "modo tarea comprar la comida"), se usa ese modo y se quita la frase.
     /// Default ON (los modos base traen su frase; edítalas o vacíalas en Modos).

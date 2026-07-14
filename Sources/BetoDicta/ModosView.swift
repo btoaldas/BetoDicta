@@ -7,11 +7,12 @@ private let acentoMo = Color(red: 0.36, green: 0.28, blue: 0.62)
 
 final class ModosModel: ObservableObject {
     @Published var modos: [Modo] = ModosStore.todos()
-    @Published var activo: String = Config.modoActivo()
+    @Published var defecto: String = Config.modoDefecto()
 
     func guardar() { ModosStore.guardar(modos) }
-    func activar(_ id: String) {
-        ModosStore.fijarActivo(id); activo = id
+    /// Fija el modo POR DEFECTO (sticky). El cambio al vuelo va por el notch/menú.
+    func ponerDefecto(_ id: String) {
+        ModosStore.fijarDefecto(id); defecto = id
         // Refleja el cambio en el notch al instante.
         (NSApp.delegate as? AppDelegate)?.refrescarModoNotch()
     }
@@ -26,7 +27,7 @@ final class ModosModel: ObservableObject {
     }
     func borrar(_ id: String) {
         ModosStore.borrar(id)
-        modos = ModosStore.todos(); activo = Config.modoActivo()
+        modos = ModosStore.todos(); defecto = Config.modoDefecto()
         (NSApp.delegate as? AppDelegate)?.refrescarModoNotch()
     }
 }
@@ -40,6 +41,21 @@ struct ModosView: View {
 
     @State private var porVoz = Config.modoPorVoz()
     @State private var porContexto = Config.modoPorContexto()
+    @State private var revertir = Config.modoRevertir()
+    @State private var nuevoIdioma = ""
+    @State private var idiomasVer = 0   // fuerza refrescar el picker tras añadir uno
+
+    /// Lista de idiomas para el picker; garantiza que el valor actual sea seleccionable.
+    /// Compara EXACTO (no case-insensitive): si el valor guardado difiere en
+    /// mayúsculas/acentos de un base, se inserta tal cual para que el tag empareje
+    /// y el Picker nunca quede en blanco.
+    private func listaIdiomas(_ actual: String) -> [(nombre: String, bandera: String)] {
+        var lista = Idiomas.todos()
+        if !actual.isEmpty, !lista.contains(where: { $0.nombre == actual }) {
+            lista.insert((actual, Idiomas.bandera(actual)), at: 0)
+        }
+        return lista
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -50,8 +66,14 @@ struct ModosView: View {
                 Button { expandido = m.crear() } label: { Image(systemName: "plus") }
                     .help("Crear un modo propio")
             }
-            Text("El MODO decide cómo se procesa tu dictado: solo pulir (Dictado), o formatearlo como correo, oficio, tarea, nota, traducirlo o responder. Elígelo al vuelo desde el notch (arriba-izquierda) o el menú de la barra. Cada modo usa su propia IA y su propio prompt.")
+            Text("El MODO decide cómo se procesa tu dictado: solo pulir (Dictado), o formatearlo como correo, oficio, tarea, nota, traducirlo o responder. Cada modo usa su propia IA y su propio prompt. Marca uno como POR DEFECTO aquí; cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            Toggle("El modo elegido al vuelo es de UN SOLO USO (vuelve al de por defecto tras dictar)", isOn: $revertir)
+                .toggleStyle(.switch).controlSize(.mini)
+                .onChange(of: revertir) { _, v in Config.set("modo_revertir", to: v) }
+            Text("Encendido: cambiar a Correo/Traducir/… desde el notch aplica solo a ese dictado y luego vuelve al modo por defecto. Apagado: el modo elegido se queda fijo hasta que lo cambies.")
+                .font(.caption2).foregroundStyle(.secondary)
 
             Toggle("Activar un modo POR VOZ", isOn: $porVoz)
                 .toggleStyle(.switch).controlSize(.mini)
@@ -76,19 +98,16 @@ struct ModosView: View {
             HStack {
                 Image(systemName: modo.icono).foregroundStyle(acentoMo).frame(width: 20)
                 Text(modo.nombre).font(.subheadline).bold()
-                if modo.id == "dictado" {
-                    Text("por defecto").font(.system(size: 9)).padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(.gray.opacity(0.3)).clipShape(Capsule())
-                }
                 Spacer()
-                if m.activo == modo.id {
-                    Label("Activo", systemImage: "checkmark.circle.fill")
+                if m.defecto == modo.id {
+                    Label("Por defecto", systemImage: "checkmark.circle.fill")
                         .font(.caption2).foregroundStyle(.green)
                 } else {
-                    Button("Activar") { m.activar(modo.id) }.controlSize(.small)
+                    Button("Poner por defecto") { m.ponerDefecto(modo.id) }.controlSize(.small)
                 }
                 Button {
                     expandido = expandido == modo.id ? nil : modo.id
+                    nuevoIdioma = ""   // no arrastrar borrador entre tarjetas
                 } label: {
                     Image(systemName: expandido == modo.id ? "chevron.up" : "chevron.down")
                 }.buttonStyle(.plain).foregroundStyle(.secondary)
@@ -153,12 +172,28 @@ struct ModosView: View {
                 }
             }
         }
-        // Traducir: idioma destino
+        // Traducir: idioma destino como LISTA con banderita + agregar propios
         if b.wrappedValue.base == "traducir" {
-            HStack {
+            HStack(alignment: .top) {
                 Text("Traducir a:").font(.caption).frame(width: 90, alignment: .leading)
-                TextField("inglés", text: b.idiomaDestino).textFieldStyle(.roundedBorder).frame(width: 160)
+                VStack(alignment: .leading, spacing: 6) {
+                    Picker("", selection: b.idiomaDestino) {
+                        ForEach(listaIdiomas(b.wrappedValue.idiomaDestino), id: \.nombre) { item in
+                            Text("\(item.bandera)  \(item.nombre.capitalized)").tag(item.nombre)
+                        }
+                    }.labelsHidden().frame(width: 220)
+                    HStack {
+                        TextField("Agregar otro idioma…", text: $nuevoIdioma)
+                            .textFieldStyle(.roundedBorder).frame(width: 150)
+                        Button("Añadir") {
+                            let n = Idiomas.agregar(nuevoIdioma)
+                            if !n.isEmpty { b.idiomaDestino.wrappedValue = n; nuevoIdioma = ""; idiomasVer += 1 }
+                        }.controlSize(.small)
+                        .disabled(nuevoIdioma.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
             }
+            .id(idiomasVer)
         }
         // Prompt (salvo Dictado, que usa la limpieza estándar)
         if b.wrappedValue.id != "dictado" {
