@@ -339,6 +339,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba del RANKING de validación: BETODICTA_RANKTEST=<proyecto>
+        if let proy = ProcessInfo.processInfo.environment["BETODICTA_RANKTEST"], !proy.isEmpty {
+            let r = Entrenador.rankingValidacion(proyecto: URL(fileURLWithPath: proy))
+            for (i, c) in r.enumerated() {
+                print("RANKTEST #\(i + 1) checkpoint \(c.etapa) score=\(String(format: "%.4f", c.score)) ruta=\(c.ruta != nil)")
+            }
+            print("RANKTEST ganador: \(r.first.map { "checkpoint \($0.etapa)" } ?? "ninguno")")
+            exit(0)
+        }
+        // Prueba de EMITIR PAQUETE post-train: BETODICTA_EMITIRTEST=<proyecto>|<checkpoint>
+        if let arg = ProcessInfo.processInfo.environment["BETODICTA_EMITIRTEST"], arg.contains("|") {
+            let ps = arg.components(separatedBy: "|")
+            Entrenador.emitirPaquete(proyecto: URL(fileURLWithPath: ps[0]), checkpoint: URL(fileURLWithPath: ps[1]),
+                                     nombre: "AnaLucia", stamp: "test") { r in
+                switch r {
+                case .ok(let v): print("EMITIRTEST OK → \(v.nombre) paquete=\(v.paquete) persona=\(v.persona.prefix(50))…")
+                case .faltaModelo: print("EMITIRTEST faltaModelo")
+                case .faltaMuestras(let v): print("EMITIRTEST faltaMuestras → \(v.paquete)")
+                }
+                exit(0)
+            }
+            RunLoop.main.run(); return
+        }
         // Prueba de ORQUESTACIÓN del entrenador: BETODICTA_ENTRENARTEST=<carpeta_audio>
         // corre dataset → arranca train, confirma que dio pasos, y lo MATA (atajo Alberto).
         if let car = ProcessInfo.processInfo.environment["BETODICTA_ENTRENARTEST"], !car.isEmpty {

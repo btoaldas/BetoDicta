@@ -138,6 +138,131 @@ enum Entrenador {
 
     static func detener() { trainProc?.terminate(); trainProc = nil }
 
+    // MARK: Best-pick — ranking de checkpoints (d-vector coseno)
+
+    struct RankCheckpoint { var etapa: Int; var score: Double; var ruta: URL? }
+
+    /// Lee validacion.csv (measure.py: d-vector Resemblyzer + coseno vs voz real) y
+    /// devuelve los checkpoints ordenados del MEJOR al peor (promedio de coseno). El
+    /// #1 es la RECOMENDACIÓN; el usuario puede escuchar cualquiera y elegir.
+    static func rankingValidacion(proyecto: URL) -> [RankCheckpoint] {
+        guard let csv = try? String(contentsOf: proyecto.appendingPathComponent("validacion.csv"), encoding: .utf8) else { return [] }
+        let ckpts = (try? FileManager.default.contentsOfDirectory(at: proyecto.appendingPathComponent("run"),
+                     includingPropertiesForKeys: nil)) ?? []
+        func ruta(_ n: Int) -> URL? {
+            // Busca run/**/checkpoint_N.pth.
+            for d in ckpts {
+                let c = d.appendingPathComponent("checkpoint_\(n).pth")
+                if FileManager.default.fileExists(atPath: c.path) { return c }
+            }
+            return nil
+        }
+        var filas: [RankCheckpoint] = []
+        for (i, linea) in csv.split(separator: "\n").enumerated() where i > 0 {   // salta cabecera
+            let cols = linea.split(separator: ",")
+            guard cols.count >= 2, let etapa = Int(cols[0]), let score = Double(cols[cols.count - 1]) else { continue }
+            filas.append(RankCheckpoint(etapa: etapa, score: score, ruta: ruta(etapa)))
+        }
+        return filas.sorted { $0.score > $1.score }
+    }
+
+    /// Corre la VALIDACIÓN de un proyecto entrenado: pick_clips → genera esos clips con
+    /// CADA checkpoint → measure (d-vector coseno). Deja validacion.csv + validacion.png.
+    /// `onFin(true)` si produjo el CSV. Pesado (genera N clips × M checkpoints).
+    static func validar(proyecto: URL, onProgreso: @escaping (String) -> Void,
+                        onFin: @escaping (Bool) -> Void) {
+        guard VozEngine.estado() == .listo, VozEngine.entrenoListo else { onFin(false); return }
+        let clonar = VozEngine.pipelineDir.appendingPathComponent("clonar")
+        DispatchQueue.global(qos: .userInitiated).async {
+            func py(_ script: String, _ args: [String]) -> Bool {
+                let p = Process(); p.executableURL = VozEngine.pythonURL
+                p.arguments = [clonar.appendingPathComponent(script).path] + args
+                var env = ProcessInfo.processInfo.environment
+                env["COQUI_TOS_AGREED"] = "1"; env["VAL_N"] = "\(valN)"; env["VAL_SEC"] = "\(valSeg)"
+                p.environment = env
+                p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+                do { try p.run() } catch { return false }; p.waitUntilExit(); return p.terminationStatus == 0
+            }
+            DispatchQueue.main.async { onProgreso("Eligiendo clips de validación…") }
+            _ = py("pick_clips.py", [proyecto.path])
+            // gen por checkpoint × clip.
+            let val = (try? String(contentsOf: proyecto.appendingPathComponent("val_clips.txt"), encoding: .utf8)) ?? ""
+            let clips = val.split(separator: "\n").map(String.init).filter { $0.contains("|") }
+            let ckDirs = (try? FileManager.default.contentsOfDirectory(at: proyecto.appendingPathComponent("run"), includingPropertiesForKeys: nil)) ?? []
+            var checkpoints: [(Int, URL)] = []
+            for d in ckDirs {
+                let items = (try? FileManager.default.contentsOfDirectory(at: d, includingPropertiesForKeys: nil)) ?? []
+                for c in items where c.lastPathComponent.hasPrefix("checkpoint_") && c.pathExtension == "pth" {
+                    if let n = Int(c.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "checkpoint_", with: "")) {
+                        checkpoints.append((n, c))
+                    }
+                }
+            }
+            try? FileManager.default.createDirectory(at: proyecto.appendingPathComponent("val"), withIntermediateDirectories: true)
+            for (n, ck) in checkpoints.sorted(by: { $0.0 < $1.0 }) {
+                DispatchQueue.main.async { onProgreso("Generando validación del checkpoint \(n)…") }
+                for (i, linea) in clips.enumerated() {
+                    let txt = linea.components(separatedBy: "|").last ?? ""
+                    guard !txt.isEmpty else { continue }
+                    _ = py("gen.py", [proyecto.path, ck.path, txt, proyecto.appendingPathComponent("val/\(n)_\(i).wav").path])
+                }
+            }
+            DispatchQueue.main.async { onProgreso("Comparando con tu voz real (d-vector)…") }
+            _ = py("measure.py", [proyecto.path])
+            let ok = FileManager.default.fileExists(atPath: proyecto.appendingPathComponent("validacion.csv").path)
+            DispatchQueue.main.async { onFin(ok) }
+        }
+    }
+
+    // MARK: Post-train — persona + emitir el PAQUETE portable
+
+    /// Genera la PERSONA (cómo habla) del proyecto con persona.py (Whisper ya transcribió
+    /// en el dataset). Devuelve el texto de persona_PROMPT.md (o "").
+    static func generarPersona(proyecto: URL, nombre: String) -> String {
+        let clonar = VozEngine.pipelineDir.appendingPathComponent("clonar")
+        let meta = proyecto.appendingPathComponent("dataset/metadata.csv")
+        guard FileManager.default.fileExists(atPath: meta.path) else { return "" }
+        let p = Process(); p.executableURL = VozEngine.pythonURL
+        p.arguments = [clonar.appendingPathComponent("persona.py").path, meta.path, proyecto.path, nombre]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        try? p.run(); p.waitUntilExit()
+        return (try? String(contentsOf: proyecto.appendingPathComponent("persona_PROMPT.md"), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// Emite el PAQUETE portable de un checkpoint elegido: persona + ensamblado
+    /// (reusa el import inteligente → rellena config/vocab/runner/manifest). Registra
+    /// la voz. `stamp` para el temporal (los scripts no usan Date()).
+    static func emitirPaquete(proyecto: URL, checkpoint: URL, nombre: String, stamp: String,
+                              completion: @escaping (VocesLocales.ResultadoImport) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fm = FileManager.default
+            let persona = generarPersona(proyecto: proyecto, nombre: nombre)
+            // Carpeta temporal con lo mínimo; el import inteligente completa el resto.
+            let temp = fm.temporaryDirectory.appendingPathComponent("emitir_\(slug(nombre))_\(stamp)")
+            try? fm.removeItem(at: temp)
+            try? fm.createDirectory(at: temp.appendingPathComponent("refs"), withIntermediateDirectories: true)
+            try? fm.copyItem(at: checkpoint, to: temp.appendingPathComponent(checkpoint.lastPathComponent))
+            // Refs desde ref_list.txt del proyecto (rutas relativas al proyecto o absolutas).
+            if let lista = try? String(contentsOf: proyecto.appendingPathComponent("ref_list.txt"), encoding: .utf8) {
+                for (i, l) in lista.split(separator: "\n").prefix(8).enumerated() {
+                    let ruta = l.hasPrefix("/") ? String(l) : proyecto.appendingPathComponent(String(l)).path
+                    if fm.fileExists(atPath: ruta) {
+                        try? fm.copyItem(atPath: ruta, toPath: temp.appendingPathComponent("refs/ref\(i).wav").path)
+                    }
+                }
+            }
+            if !persona.isEmpty { try? persona.write(to: temp.appendingPathComponent("persona.txt"), atomically: true, encoding: .utf8) }
+            let manifest = ["nombre": nombre]
+            if let mj = try? JSONSerialization.data(withJSONObject: manifest) {
+                try? mj.write(to: temp.appendingPathComponent("betodicta-voz.json"))
+            }
+            let r = VocesLocales.importarPaquete(desde: temp)
+            try? fm.removeItem(at: temp)
+            DispatchQueue.main.async { completion(r) }
+        }
+    }
+
     /// Lee el avance desde train.log (STEP/GLOBAL_STEP y el total del [PLAN]).
     static func leerProgreso(_ proyecto: URL) -> Progreso {
         let log = (try? String(contentsOf: proyecto.appendingPathComponent("train.log"), encoding: .utf8)) ?? ""
