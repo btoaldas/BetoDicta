@@ -487,22 +487,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.global().async {
                 var n = 0
                 while !EmbeddingSearch.modosListos(pares), n < 200 { Thread.sleep(forTimeInterval: 0.25); n += 1 }
-                let casos: [(String, String)] = [
-                    ("modo mándale un whatsapp a Alberto hola", "whatsapp"),
-                    ("modo tradúceme esto al inglés por favor", "traducir"),
-                    ("modo apúntame una tarea comprar pan", "tarea"),
-                    ("modo búscame en google restaurantes", "buscar"),
-                    ("modo redáctame un correo formal", "correo"),
+                // (texto, modo esperado, ¿contenido debe empezar con?)
+                let casos: [(String, String, String?)] = [
+                    ("modo mándale mensaje whatsapp a Alberto, hola qué tal", "whatsapp", "a Alberto"),
+                    ("modo tradúceme esto al inglés por favor", "traducir", nil),
+                    ("modo apúntame una tarea comprar pan", "tarea", nil),
+                    ("modo búscame en google restaurantes", "buscar", nil),
+                    ("modo redáctame un correo formal", "correo", nil),
                 ]
                 let grupo = DispatchGroup(); var lineas: [String] = []; var ok = true
-                for (texto, esp) in casos {
+                for (texto, esp, contDebe) in casos {
                     grupo.enter()
-                    ModosStore.detectarSemantico(texto) { m, _ in
-                        let got = m?.accion == esp || m?.id == esp || m?.base == esp
-                        // whatsapp es una acción propia; matchea por accion
-                        let bien = (m?.accion == esp) || (m?.id == esp)
-                        if !bien && !got { ok = false }
-                        lineas.append("  \(bien || got ? "OK" : "✗") \"\(texto.prefix(28))…\" → \(m?.nombre ?? "nil") (esp \(esp))")
+                    ModosStore.detectarSemantico(texto) { m, cont in
+                        let modoOk = (m?.accion == esp) || (m?.id == esp)
+                        let contOk = contDebe == nil || cont.lowercased().hasPrefix(contDebe!.lowercased())
+                        if !modoOk || !contOk { ok = false }
+                        lineas.append("  \(modoOk && contOk ? "OK" : "✗") \"\(texto.prefix(30))…\" → \(m?.nombre ?? "nil") | cont=\"\(cont.prefix(20))\"")
                         grupo.leave()
                     }
                 }

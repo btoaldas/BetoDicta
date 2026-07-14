@@ -596,29 +596,38 @@ extension ModosStore {
             EmbeddingSearch.calentarModos(pares)
             done(nil, texto); return
         }
-        // Zona-comando = tras la palabra "modo", hasta la 1ª coma o 6 palabras.
         var toks = texto.trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
         if let f = toks.first, esPalabraModo(f) { toks.removeFirst() }
-        let restoTodo = toks.joined(separator: " ")
-        // Zona-comando CORTA: el verbo de intención va al inicio; incluir contenido
-        // (ej. "comprar pan") diluye el embedding. Hasta la 1ª coma o 4 palabras.
-        var cmdN = toks.count
-        if let coma = toks.firstIndex(where: { $0.contains(",") }) { cmdN = coma + 1 }
-        cmdN = min(cmdN, max(2, Config.modoSemanticoPalabras()))   // parametrizable
-        let comando = toks.prefix(cmdN).joined(separator: " ")
-        let contenido = toks.dropFirst(cmdN).joined(separator: " ")
-            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n"))
+        guard !toks.isEmpty else { done(nil, texto); return }
+        // VENTANA DINÁMICA: crecemos la zona-comando palabra por palabra y nos
+        // quedamos con la ventana de MAYOR score (donde la intención "consolida").
+        // Así "mándale mensaje whatsapp | a Alberto, hola" corta bien: el comando
+        // llega hasta donde el score es máximo, y "a Alberto…" queda como contenido
+        // (para extraer el destinatario). Techo = 1ª coma o N palabras (parametrizable).
+        var techo = min(toks.count, max(2, Config.modoSemanticoPalabras()))
+        if let coma = toks.firstIndex(where: { $0.contains(",") }) { techo = min(techo, coma + 1) }
         let umbral = Config.modoSemanticoUmbral()
-        EmbeddingSearch.mejorModo(comando: comando, modos: pares) { id, score in
-            ModosLog.registrar("semantico", ["comando": comando, "mejor": id ?? "-",
-                "score": score, "umbral": umbral, "aceptado": (id != nil && score >= umbral)])
-            guard let id, score >= umbral, let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
-            // Acciones con destinatario (whatsapp/correo): el contenido conserva TODO
-            // lo dicho tras "modo" (para que "a Nombre" siga presente). Transforms:
-            // solo lo que sigue a la zona-comando.
-            let cont = m.base == "accion" ? restoTodo : (contenido.isEmpty ? restoTodo : contenido)
-            done(m, cont.trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n")))
+        let grupo = DispatchGroup(); let lk = NSLock()
+        var res: [(w: Int, id: String?, score: Double)] = []
+        for w in 1...techo {
+            let cmd = toks.prefix(w).joined(separator: " ")
+            grupo.enter()
+            EmbeddingSearch.mejorModo(comando: cmd, modos: pares) { id, score in
+                lk.lock(); res.append((w, id, score)); lk.unlock(); grupo.leave()
+            }
+        }
+        grupo.notify(queue: .main) {
+            let mejor = res.max { $0.score < $1.score }
+            let comandoTxt = mejor.map { toks.prefix($0.w).joined(separator: " ") } ?? ""
+            ModosLog.registrar("semantico", ["comando": comandoTxt, "ventana": mejor?.w ?? 0,
+                "mejor": mejor?.id ?? "-", "score": mejor?.score ?? 0, "umbral": umbral,
+                "aceptado": (mejor?.id != nil && (mejor?.score ?? 0) >= umbral)])
+            guard let mejor, let id = mejor.id, mejor.score >= umbral,
+                  let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
+            let contenido = toks.dropFirst(mejor.w).joined(separator: " ")
+                .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n"))
+            done(m, contenido)
         }
     }
 }
