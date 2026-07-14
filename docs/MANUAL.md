@@ -586,7 +586,7 @@ Ambos se entrenan desde una **carpeta de audios** de una sola persona (mientras 
 
 **Corre en segundo plano y es resumible.** Puedes **cerrar la ventana e incluso salir de BetoDicta**: el entrenamiento sigue. Al reabrir, el progreso **vuelve a aparecer solo**. Si se apagó la computadora, aparece **“Reanudar”** y continúa desde el último checkpoint (no re-transcribe lo ya hecho).
 
-**Bitácora viva.** Mientras entrena, la app muestra —refrescándose sola cada 2 segundos— la **fase** (1/2), el **porcentaje**, **paso/total**, **época**, **velocidad (it/s)**, **ETA**, y los recursos que ocupa: **CPU, RAM, disco**, además de **fragmentos**, **checkpoints** y **errores**. Debajo va el **registro imprimiéndose en vivo** (lo que pasa, bueno o malo). Todo queda también guardado en `dataset.log` y `piper.log` dentro de la carpeta del proyecto.
+**Bitácora viva.** Mientras entrena, la app muestra —refrescándose sola cada 2 segundos— la **fase** (1/2), el **porcentaje**, **paso/total**, **época**, **velocidad (it/s)**, **ETA**, y los recursos que ocupa: **CPU, RAM, disco**, además de **fragmentos**, **checkpoints** y **errores**. Debajo va el **registro imprimiéndose en vivo** (lo que pasa, bueno o malo). El **paso se muestra en tiempo real desde el primer paso** (no hay que esperar al primer checkpoint). Todo queda también guardado en `dataset.log` y `piper.log` dentro de la carpeta del proyecto.
 
 **Detener del todo.** El botón **“⏹ Detener del todo”** corta el entrenamiento **de raíz** —mata todos sus procesos (torch, Whisper, ffmpeg)— y te **confirma en pantalla** que no quedó nada corriendo. El control es tuyo; no depende de nada externo.
 

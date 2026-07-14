@@ -294,6 +294,9 @@ enum EntrenadorPiper {
             let pc = "\(nucleosRapidos())"
             env["PIPER_THREADS"] = pc; env["OMP_NUM_THREADS"] = pc
             env["MKL_NUM_THREADS"] = pc; env["VECLIB_MAXIMUM_THREADS"] = pc
+            // Sin buffer: que la barra de progreso (paso/época) salga al log EN VIVO, no
+            // recién al primer checkpoint. Así la bitácora muestra los pasos en tiempo real.
+            env["PYTHONUNBUFFERED"] = "1"
             tr.environment = env
             let trLog = proyecto.appendingPathComponent("piper.log")
             fm.createFile(atPath: trLog.path, contents: nil)
@@ -408,7 +411,7 @@ enum EntrenadorPiper {
     /// log). Señal de "arranco" fiable: el 1er checkpoint recién sale a ~200 pasos.
     private static func logEntrenando(_ proyecto: URL) -> Bool {
         let log = colaLog(proyecto.appendingPathComponent("piper.log"))
-        return log.contains("Epoch 0") || log.contains("it/s") || log.contains("Trainable params")
+        return log.contains("[BD] step=") || log.contains("Epoch 0") || log.contains("it/s") || log.contains("Trainable params")
     }
     /// ¿El fit terminó de verdad? (Lightning imprime el motivo de parada).
     static func termino(_ proyecto: URL) -> Bool {
@@ -497,7 +500,8 @@ enum EntrenadorPiper {
             // GLOBAL = época × lotes_por_época + lote. Piso fiable: el último checkpoint.
             let bar = ultimoPar(piLog, "(\\d+)/(\\d+) \\d+:\\d+")
             let ep = ultimoEntero(piLog, "Epoch (\\d+)")
-            var paso = checkpoints(proyecto).last?.paso ?? 0
+            let bdStep = ultimoEntero(piLog, "\\[BD\\] step=(\\d+)")   // paso EN VIVO propio
+            var paso = max(checkpoints(proyecto).last?.paso ?? 0, bdStep)
             if let (lote, lotesEp) = bar, lotesEp > 0 {
                 paso = max(paso, ep * lotesEp + lote)   // estimación fina + piso del checkpoint
             }
@@ -590,7 +594,7 @@ enum EntrenadorPiper {
         let piLog = colaLog(proyecto.appendingPathComponent("piper.log"))
         let dsLog = colaLog(proyecto.appendingPathComponent("dataset.log"))
         let enFase2 = v.fase == 2
-        let its = ultimoDouble(piLog, "([0-9.]+)it/s")
+        let its = max(ultimoDouble(piLog, "sps=([0-9.]+)"), ultimoDouble(piLog, "([0-9.]+)it/s"))
         let eta = (enFase2 && its > 0 && v.total > v.paso) ? Int(Double(v.total - v.paso) / its / 60.0) : 0
         let pid = v.activo ? pidDe(proyecto) : nil
         let rec = pid != nil ? recursosProc(pid!) : (0, 0)
@@ -869,6 +873,20 @@ enum EntrenadorPiper {
                 for kk in ("loops", "callbacks"): ck.pop(kk, None)
         return ck
     torch.load = _load
+    # Progreso EN VIVO propio: Lightning NO emite su barra al log cuando la salida es un
+    # archivo (no-TTY). Imprimimos el paso nosotros con flush=True (garantizado en vivo).
+    # La bitácora de BetoDicta parsea "[BD] step=N".
+    import time as _t
+    _bd = {"n": 0, "t": _t.time()}
+    _orig_ts = VitsModel.training_step
+    def _ts(self, *a, **k):
+        r = _orig_ts(self, *a, **k)
+        _bd["n"] += 1
+        if _bd["n"] <= 3 or _bd["n"] % 10 == 0:
+            dt = _t.time() - _bd["t"]; sps = _bd["n"] / dt if dt > 0 else 0
+            print(f"[BD] step={_bd['n']} sps={sps:.3f}", flush=True)
+        return r
+    VitsModel.training_step = _ts
     from piper.train.__main__ import main
     sys.argv[0] = "piper.train"
     main()

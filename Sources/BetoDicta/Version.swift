@@ -6,11 +6,14 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.34.0"
+    static let numero = "0.35.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.35.0", "2026-07-14", [
+            "Progreso del entrenamiento Piper AHORA SÍ EN VIVO: la app imprime el paso ella misma (paso a paso, con velocidad y ETA) en vez de esperar a Lightning, que no volcaba su barra al archivo. La bitácora se llena en tiempo real desde el primer paso, sin esperar al primer checkpoint",
+        ]),
         ("0.34.0", "2026-07-14", [
             "BITÁCORA VIVA al entrenar una voz Piper: ves en la app, refrescándose solo, la FASE (1/2), el porcentaje real, paso/total, época, velocidad (it/s), tiempo estimado (ETA), CPU, RAM, disco, fragmentos, checkpoints y errores — más el registro imprimiéndose en vivo. Todo queda también en dataset.log y piper.log",
             "“⏹ Detener del todo”: el botón mata el entrenamiento DE RAÍZ (y sus procesos: torch, Whisper, ffmpeg) y te confirma que no quedó nada corriendo. Tú tienes el control, sin depender de nadie",
