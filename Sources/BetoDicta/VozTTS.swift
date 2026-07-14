@@ -78,9 +78,19 @@ enum Voz {
                 }
             }
         case "xtts_local":
-            XttsLocalTTS.decir(texto) { url in
-                if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
-                    Log.log(.ia, "TTS XTTS local no disponible → siguiente motor"); siguiente()
+            // Voz con PAQUETE + motor interno listo → lo corre BetoDicta solo.
+            // Si no, cae al comando (bootstrap/externo). Si nada → siguiente motor.
+            if let voz = VocesLocales.activa(), !voz.paquete.isEmpty, VozEngine.estado() == .listo {
+                VozEngine.correrPaquete(carpeta: URL(fileURLWithPath: voz.paquete), texto: texto) { url in
+                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
+                        Log.log(.ia, "TTS motor interno falló → siguiente motor"); siguiente()
+                    }
+                }
+            } else {
+                XttsLocalTTS.decir(texto) { url in
+                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
+                        Log.log(.ia, "TTS XTTS local no disponible → siguiente motor"); siguiente()
+                    }
                 }
             }
         default:
@@ -91,9 +101,15 @@ enum Voz {
     /// Prueba UNA voz local concreta (la genera con su comando y la reproduce),
     /// sin importar cuál sea el motor activo. Para el botón "Probar" de la biblioteca.
     static func probarVozLocal(_ voz: VozLocal, _ done: (() -> Void)? = nil) {
-        XttsLocalTTS.decirCon(cmd: voz.cmd, texto: "Hola, esta es la voz de \(voz.nombre).") { url in
+        let saludo = "Hola, esta es la voz de \(voz.nombre)."
+        let cb: (URL?) -> Void = { url in
             if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) }
             else { DispatchQueue.main.async { done?() } }
+        }
+        if !voz.paquete.isEmpty, VozEngine.estado() == .listo {
+            VozEngine.correrPaquete(carpeta: URL(fileURLWithPath: voz.paquete), texto: saludo, completion: cb)
+        } else {
+            XttsLocalTTS.decirCon(cmd: voz.cmd, texto: saludo, completion: cb)
         }
     }
 

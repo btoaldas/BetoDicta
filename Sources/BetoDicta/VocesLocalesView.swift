@@ -5,6 +5,43 @@ import SwiftUI
 // El usuario agrega/detecta/elige sus voces clonadas (XTTS local). Nada viene de
 // fábrica: cada quien sube las suyas. Se elige UNA como activa para el Modo Agente.
 
+// Control del MOTOR de voz interno (instalar/estado/quitar). El botón ES el permiso:
+// el texto revela tamaño y ubicación antes de descargar.
+struct MotorVozControl: View {
+    @State private var estado = VozEngine.estado()
+    @State private var progreso = ""
+    @State private var instalando = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch estado {
+            case .listo:
+                HStack {
+                    Text("🟢 Motor de voz instalado (corre tus clones 100% local).").font(.caption)
+                    Spacer()
+                    Button("Quitar motor") { VozEngine.desinstalar(); estado = VozEngine.estado() }
+                        .controlSize(.small)
+                }
+            case .instalando:
+                Text("⏳ Instalando el motor de voz…").font(.caption)
+                if !progreso.isEmpty { Text(progreso).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
+            case .noInstalado:
+                Text("El motor de voz (para correr tus clones) no está instalado. BetoDicta descargará su PROPIO Python + IA de voz (~3-4 GB) en ~/.betodicta/voz-engine/ — aislado, no toca tu sistema, borrable de un clic. Después es 100% local, sin internet.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("⬇︎ Instalar motor de voz (~3-4 GB)") {
+                    instalando = true; estado = .instalando; progreso = "Empezando…"
+                    VozEngine.instalar(onProgreso: { l in DispatchQueue.main.async { progreso = l } },
+                                       completion: { ok, msg in
+                        DispatchQueue.main.async { progreso = msg; instalando = false; estado = VozEngine.estado() }
+                    })
+                }.controlSize(.small).disabled(instalando)
+            }
+        }
+        .padding(6).background(Color.secondary.opacity(0.06)).cornerRadius(6)
+        .onAppear { estado = VozEngine.estado() }
+    }
+}
+
 struct VocesLocalesEditor: View {
     @State private var voces: [VozLocal] = VocesLocales.todas()
     @State private var activa: String = Config.ttsVozLocal()
@@ -19,6 +56,7 @@ struct VocesLocalesEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            MotorVozControl()
             Text("Tus voces clonadas (100% local, XTTS). Elige con cuál habla el Modo Agente. Ninguna viene incluida — agregas las tuyas.")
                 .font(.caption).foregroundStyle(.secondary)
 

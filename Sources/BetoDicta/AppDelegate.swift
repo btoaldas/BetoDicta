@@ -339,6 +339,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba del MOTOR interno: BETODICTA_ENGINE=<carpeta_paquete> corre voz_gen.py
+        // con el Python del motor y guarda /tmp/betodicta_engine.wav.
+        if let pkg = ProcessInfo.processInfo.environment["BETODICTA_ENGINE"], !pkg.isEmpty {
+            print("ENGINE: estado=\(VozEngine.estado()) python=\(VozEngine.pythonURL.path)")
+            VozEngine.correrPaquete(carpeta: URL(fileURLWithPath: pkg),
+                                    texto: "Hola mi hijo, hablo desde el motor interno de Beto Dicta. Chao, chao.") { url in
+                if let url { let d = (try? Data(contentsOf: url)) ?? Data()
+                    try? d.write(to: URL(fileURLWithPath: "/tmp/betodicta_engine.wav"))
+                    print("ENGINE OK → \(d.count) bytes → /tmp/betodicta_engine.wav")
+                } else { print("ENGINE FALLÓ") }
+                exit(0)
+            }
+            RunLoop.main.run()
+            return
+        }
         // Bench de latencia de red: BETODICTA_REDBENCH=1 mide si la 2ª petición
         // REUSA la conexión caliente (sin handshake TLS) — prueba el fix del latido.
         if ProcessInfo.processInfo.environment["BETODICTA_REDBENCH"] == "1" {

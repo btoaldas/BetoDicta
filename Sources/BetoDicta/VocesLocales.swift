@@ -15,14 +15,16 @@ import Foundation
 struct VozLocal: Codable, Identifiable, Equatable {
     var id: String
     var nombre: String        // lo que ve el usuario ("Mamá Rafaela", "Mi voz Bto")
-    var cmd: String           // comando con {texto} y {salida}
+    var cmd: String           // comando con {texto} y {salida} (modo bootstrap/externo)
     var persona: String = ""  // 2º parámetro: PROMPT de cómo habla esa persona. Cuando
                               // el Agente responde con esta voz, la IA redacta en ESE estilo.
+    var paquete: String = ""  // ruta a un PAQUETE portable (carpeta con voz_gen.py). Si
+                              // está, se corre con el MOTOR interno (VozEngine), no con cmd.
 
-    // Decode tolerante: JSON viejos sin `persona` siguen cargando.
-    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona }
-    init(id: String, nombre: String, cmd: String, persona: String = "") {
-        self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona
+    // Decode tolerante: JSON viejos sin campos nuevos siguen cargando.
+    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete }
+    init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "") {
+        self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona; self.paquete = paquete
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -30,6 +32,7 @@ struct VozLocal: Codable, Identifiable, Equatable {
         nombre = try c.decode(String.self, forKey: .nombre)
         cmd = try c.decode(String.self, forKey: .cmd)
         persona = (try? c.decode(String.self, forKey: .persona)) ?? ""
+        paquete = (try? c.decode(String.self, forKey: .paquete)) ?? ""
     }
 }
 
