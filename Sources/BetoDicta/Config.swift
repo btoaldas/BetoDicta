@@ -149,6 +149,14 @@ struct Config {
     static func ttsElevenModelo() -> String { (json()["tts_eleven_modelo"] as? String) ?? "eleven_flash_v2_5" }
     /// Streaming por WebSocket para ElevenLabs (suena mientras se genera). Default ON.
     static func ttsElevenStreaming() -> Bool { (json()["tts_eleven_streaming"] as? Bool) ?? true }
+    /// Parámetros POR proveedor TTS de nube (voz/modelo/streaming). Todo parametrizable.
+    static func ttsCloudVoz(_ id: String) -> String { ((json()["tts_cloud_voz"] as? [String: String]) ?? [:])[id] ?? "" }
+    static func ttsCloudModelo(_ id: String) -> String { ((json()["tts_cloud_modelo"] as? [String: String]) ?? [:])[id] ?? "" }
+    /// Streaming por proveedor (solo aplica si el proveedor soporta WS). Default ON.
+    static func ttsCloudStreaming(_ id: String) -> Bool { ((json()["tts_cloud_streaming"] as? [String: Bool]) ?? [:])[id] ?? true }
+    static func fijarTtsCloud(_ campo: String, _ id: String, _ valor: Any) {
+        var d = (json()[campo] as? [String: Any]) ?? [:]; d[id] = valor; set(campo, to: d)
+    }
     /// Comando de shell para tu clon LOCAL XTTS (VozClonPOC). {texto} y {salida}
     /// se sustituyen. Vacío = motor no configurado (failover). Parametrizable.
     /// (Compat: se usa si no hay voces en la biblioteca [[VocesLocales]].)

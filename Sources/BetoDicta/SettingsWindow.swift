@@ -729,6 +729,7 @@ struct SettingsView: View {
                                     Text("Voz de macOS (gratis, local)").tag("apple")
                                     Text("ElevenLabs — tu voz clonada (nube)").tag("elevenlabs")
                                     Text("Clon local XTTS (offline, gratis)").tag("xtts_local")
+                                    ForEach(TTSCloud.catalogo) { p in Text("\(p.nombre) (nube)").tag(p.id) }
                                 }.labelsHidden().frame(width: 300)
                             }
                             if m.ttsProveedor == "apple" {
@@ -754,6 +755,9 @@ struct SettingsView: View {
                             }
                             if m.ttsProveedor == "xtts_local" {
                                 VocesLocalesEditor()
+                            }
+                            if TTSCloud.proveedor(m.ttsProveedor) != nil {
+                                TTSNubeConfig(id: m.ttsProveedor)
                             }
                             Button("🔊 Probar voz") {
                                 Voz.decir("Hola Alberto. Soy BetoDicta y ya puedo hablarte con el motor que elegiste.")

@@ -102,7 +102,14 @@ enum Voz {
                 }
             }
         default:
-            siguiente()
+            // Motor de NUBE del catálogo (OpenAI/Gemini/Deepgram/Cartesia/…): batch.
+            if TTSCloud.proveedor(motor) != nil {
+                TTSCloud.decir(motor, texto: texto) { data in
+                    if let data { reproducir(data, done) } else {
+                        Log.log(.ia, "TTS \(motor) no disponible → siguiente motor"); siguiente()
+                    }
+                }
+            } else { siguiente() }
         }
     }
 

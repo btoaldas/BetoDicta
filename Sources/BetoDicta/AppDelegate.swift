@@ -450,6 +450,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de TTS de NUBE: BETODICTA_CLOUDTTS=<id> sintetiza y guarda /tmp/betodicta_cloud.<ext>
+        if let id = ProcessInfo.processInfo.environment["BETODICTA_CLOUDTTS"], !id.isEmpty {
+            print("CLOUDTTS proveedor=\(id)")
+            TTSCloud.decir(id, texto: "Hola Alberto, esta es una prueba de voz en la nube desde BetoDicta.") { data in
+                if let data {
+                    let ext = data.prefix(4).elementsEqual([0x52,0x49,0x46,0x46]) ? "wav" : "mp3"  // RIFF = wav
+                    let out = "/tmp/betodicta_cloud.\(ext)"
+                    try? data.write(to: URL(fileURLWithPath: out))
+                    print("CLOUDTTS OK → \(data.count) bytes → \(out)")
+                } else { print("CLOUDTTS FALLÓ (sin audio)") }
+                exit(0)
+            }
+            RunLoop.main.run()
+            return
+        }
         // Prueba de TTS ElevenLabs por STREAMING WS: BETODICTA_TTSWS=<texto>
         // conecta el WebSocket, captura el PCM a /tmp/betodicta_ws.wav y sale.
         if let txt = ProcessInfo.processInfo.environment["BETODICTA_TTSWS"], !txt.isEmpty {
