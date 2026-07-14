@@ -887,6 +887,11 @@ struct SettingsView: View {
             tarjeta("Motores y librerías de código abierto", "shippingbox") {
                 ForEach(Self.creditosOpenSource, id: \.0) { link($0.0, $0.1) }
             }
+            tarjeta("Voz y clonación (motores locales)", "waveform.badge.mic") {
+                Text("El asistente por voz y la clonación local se apoyan en estos proyectos. Se descargan bajo demanda (con tu permiso), no vienen en el instalador. Ver CREDITS.md.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(Self.creditosVozClon, id: \.0) { link($0.0, $0.1) }
+            }
             tarjeta("Servicios de transcripción (voz)", "waveform") {
                 Text("Los motores de nube que puedes conectar para pasar tu voz a texto:")
                     .font(.caption).foregroundStyle(.secondary)
@@ -925,6 +930,15 @@ struct SettingsView: View {
         ("mediaremote-adapter — pausa de multimedia", "https://github.com/ungive/mediaremote-adapter"),
         ("Ollama — IA local (chat, embeddings, whisper)", "https://ollama.com"),
         ("LM Studio — IA local", "https://lmstudio.ai"),
+    ]
+    // Voz y clonación (motores locales de texto→voz y entrenamiento). Con gratitud.
+    static let creditosVozClon: [(String, String)] = [
+        ("Coqui XTTS v2 — clonación de voz (código MPL-2.0; modelo CPML no-comercial)", "https://github.com/idiap/coqui-ai-TTS"),
+        ("Piper — TTS rápido VITS/ONNX (GPL-3.0, rhasspy/OHF-Voice)", "https://github.com/OHF-Voice/piper1-gpl"),
+        ("Piper voices — voces donadas (rhasspy/piper-voices)", "https://huggingface.co/rhasspy/piper-voices"),
+        ("PyTorch (BSD-3) · Lightning (Apache-2.0)", "https://pytorch.org"),
+        ("Resemblyzer — elegir el mejor clon (Apache-2.0)", "https://github.com/resemble-ai/Resemblyzer"),
+        ("uv + python-build-standalone — motor aislado (Astral)", "https://github.com/astral-sh/uv"),
     ]
     static let creditosVoz: [(String, String)] = [
         ("ElevenLabs Scribe", "https://elevenlabs.io"),
