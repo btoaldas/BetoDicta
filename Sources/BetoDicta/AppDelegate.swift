@@ -339,6 +339,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de duración: BETODICTA_DURTEST=<carpeta>
+        if let c = ProcessInfo.processInfo.environment["BETODICTA_DURTEST"], !c.isEmpty {
+            let m = Entrenador.duracionMinutos(URL(fileURLWithPath: c))
+            let p = Entrenador.recomendar(minutos: m)
+            print("DURTEST \(String(format: "%.1f", m))min → \(p.tier) permitido=\(p.permitido) etapas=\(p.etapasRecomendadas)")
+            exit(0)
+        }
         // Prueba del RANKING de validación: BETODICTA_RANKTEST=<proyecto>
         if let proy = ProcessInfo.processInfo.environment["BETODICTA_RANKTEST"], !proy.isEmpty {
             let r = Entrenador.rankingValidacion(proyecto: URL(fileURLWithPath: proy))

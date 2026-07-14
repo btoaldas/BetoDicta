@@ -140,6 +140,8 @@ struct VocesLocalesEditor: View {
             }
 
             HStack {
+                Button("🎓 Entrenar una voz nueva") { EntrenadorWindow.show() }.controlSize(.small)
+                    .help("Crea un clon desde una carpeta de audios (dentro de BetoDicta)")
                 Button("⬆︎ Subir voz (paquete)") { subirPaquete() }.controlSize(.small)
                     .help("Elige una carpeta de paquete de voz portable (con voz_gen.py)")
                 Button("➕ Agregar voz") { mostrarAgregar.toggle() }.controlSize(.small)

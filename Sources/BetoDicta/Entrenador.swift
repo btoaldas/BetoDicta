@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 // MARK: - Entrenador de clones de voz (planificación inteligente) — Fase asistente por voz
 //
@@ -30,6 +31,21 @@ enum Entrenador {
     /// pipeline, que por defecto trae 5 × 20s).
     static let valN = 10
     static let valSeg = 30
+
+    /// Suma la duración (minutos) de los audios de una carpeta (recursivo). Sin deps:
+    /// AVFoundation. Para mostrar el plan ANTES de entrenar.
+    static func duracionMinutos(_ carpeta: URL) -> Double {
+        let exts: Set<String> = ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"]
+        let fm = FileManager.default
+        guard let en = fm.enumerator(at: carpeta, includingPropertiesForKeys: nil) else { return 0 }
+        var seg = 0.0
+        for case let u as URL in en where exts.contains(u.pathExtension.lowercased()) {
+            let a = AVURLAsset(url: u)
+            let d = CMTimeGetSeconds(a.duration)
+            if d.isFinite, d > 0 { seg += d }
+        }
+        return seg / 60.0
+    }
 
     /// Recomienda el plan según los MINUTOS de audio. El usuario puede editar todo.
     static func recomendar(minutos: Double) -> PlanEntrenamiento {
@@ -80,7 +96,7 @@ enum Entrenador {
     /// `stamp` = marca de tiempo para el nombre del proyecto (se pasa desde afuera:
     /// los scripts no pueden usar Date()). `onArranco(true)` cuando train ya da pasos.
     /// Corre en el motor AISLADO. NO espera a terminar (son horas); el caller decide.
-    static func entrenar(carpeta: URL, nombre: String, stamp: String,
+    static func entrenar(carpeta: URL, nombre: String, stamp: String, etapas: Int = 0,
                          onProgreso: @escaping (Progreso) -> Void,
                          onArranco: @escaping (Bool, String) -> Void) {
         guard VozEngine.estado() == .listo, VozEngine.entrenoListo else {
@@ -97,6 +113,7 @@ enum Entrenador {
             ds.arguments = [clonar.appendingPathComponent("build_ds.py").path, carpeta.path, proyecto.path]
             var env = ProcessInfo.processInfo.environment
             env["COQUI_TOS_AGREED"] = "1"; env["VAL_N"] = "\(valN)"; env["VAL_SEC"] = "\(valSeg)"
+            if etapas > 0 { env["STEPS"] = "\(etapas)" }   // etapas elegidas por el usuario (0 = auto)
             ds.environment = env
             let dsLog = proyecto.appendingPathComponent("dataset.log")
             fm.createFile(atPath: dsLog.path, contents: nil)
