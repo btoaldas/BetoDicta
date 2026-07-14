@@ -181,6 +181,9 @@ struct Config {
     /// se despierta al grabar (fn). Default ON, 5 min. No satura la Mac cuando no lo usas.
     static func ttsXttsDormir() -> Bool { (json()["tts_xtts_dormir"] as? Bool) ?? true }
     static func ttsXttsDormirMin() -> Double { (json()["tts_xtts_dormir_min"] as? Double) ?? 5 }
+    /// Modo AHORRO global: al inactivar (mismos minutos), libera lo pesado (clon + latido
+    /// de red); fn despierta todo. Default ON. Parametrizable.
+    static func ahorroGlobal() -> Bool { (json()["ahorro_global"] as? Bool) ?? true }
     /// Carpeta base de VozClonPOC (para el botón "Detectar mis voces"). Parametrizable.
     static func vozClonBase() -> String { (json()["voz_clon_base"] as? String) ?? "~/Downloads/VozClonPOC" }
     /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.

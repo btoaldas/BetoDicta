@@ -94,6 +94,7 @@ final class SettingsModel: ObservableObject {
     @Published var modoSemUmbral: Double { didSet { Config.set("modo_sem_umbral", to: modoSemUmbral) } }
     @Published var logModos: Bool { didSet { Config.set("log_modos", to: logModos) } }
     @Published var calentarRed: Bool { didSet { Config.set("calentar_red", to: calentarRed) } }
+    @Published var ahorroGlobal: Bool { didSet { Config.set("ahorro_global", to: ahorroGlobal) } }
     @Published var ttsActivo: Bool { didSet { Config.set("tts_activo", to: ttsActivo) } }
     @Published var ttsVoz: String { didSet { Config.set("tts_voz", to: ttsVoz) } }
     @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
@@ -144,6 +145,7 @@ final class SettingsModel: ObservableObject {
         modoSemUmbral = Config.modoSemanticoUmbral()
         logModos = Config.logModos()
         calentarRed = Config.calentarRed()
+        ahorroGlobal = Config.ahorroGlobal()
         ttsActivo = Config.ttsActivo()
         ttsVoz = Config.ttsVoz()
         ttsVelocidad = Config.ttsVelocidad()
@@ -781,6 +783,9 @@ struct SettingsView: View {
                             }.controlSize(.small)
                         }
                         Divider()
+                        Toggle("Modo AHORRO: dormir lo pesado tras inactividad (fn despierta)", isOn: $m.ahorroGlobal)
+                        Text("Si no usas BetoDicta por unos minutos (los de 'dormir el clon'), libera lo que consume recursos: el clon local (~2 GB de RAM) y el latido de red. Al grabar (fn) revive todo. Para no cargar la Mac cuando no lo usas.")
+                            .font(.caption2).foregroundStyle(.secondary)
                         Toggle("Despertar la red al grabar (mitiga latencia con VPN)", isOn: $m.calentarRed)
                         Text("Si usas VPN (WireGuard/OpenVPN/etc.) que 'duerme' cuando está inactiva, el 1er dictado podía tardar ~14s. Esto despierta la red mientras hablas. Es un pedido diminuto, nunca frena el dictado, y funciona con cualquier VPN o ninguna. Apágalo si no lo quieres.")
                             .font(.caption).foregroundStyle(.secondary)

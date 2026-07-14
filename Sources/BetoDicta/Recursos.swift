@@ -9,9 +9,11 @@ import Foundation
 enum Recursos {
     struct Info {
         var ramGB: Double          // RAM total
-        var ramLibreGB: Double     // RAM libre aprox (ahora)
+        var ramLibreGB: Double     // RAM DISPONIBLE ahora (libre+inactiva+purgeable)
+        var ramUsadaGB: Double     // en uso ahora
         var nucleos: Int           // núcleos de CPU
-        var appleSilicon: Bool     // GPU/NPU integrada (acelera algunas cosas)
+        var cargaCPU: Double       // carga actual (loadavg 1min / núcleos): 0=libre, 1=full
+        var appleSilicon: Bool
     }
 
     struct Recomendacion {
@@ -22,30 +24,44 @@ enum Recursos {
 
     static func info() -> Info {
         let total = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
+        let libre = ramLibreGB()
         var silicon = false
         #if arch(arm64)
         silicon = true
         #endif
-        return Info(ramGB: total, ramLibreGB: ramLibreGB(), nucleos: ProcessInfo.processInfo.activeProcessorCount,
-                    appleSilicon: silicon)
+        let cores = ProcessInfo.processInfo.activeProcessorCount
+        var load = [Double](repeating: 0, count: 3); getloadavg(&load, 3)
+        return Info(ramGB: total, ramLibreGB: libre, ramUsadaGB: max(0, total - libre),
+                    nucleos: cores, cargaCPU: cores > 0 ? load[0] / Double(cores) : 0, appleSilicon: silicon)
     }
 
-    /// Recomienda parámetros según la RAM (el clon XTTS residente ocupa ~2 GB).
+    /// Recomienda según lo que está DISPONIBLE ahora (no solo el total): el clon XTTS
+    /// residente ocupa ~2 GB, así que importa cuánta RAM libre hay y qué tan cargado
+    /// está el CPU en este momento.
     static func recomendar(_ i: Info = info()) -> Recomendacion {
-        // Con poca RAM: no mantener 2 GB colgados; dormir rápido. Con harta: aprovechar.
-        if i.ramGB >= 24 {
-            return Recomendacion(preactivarClon: true, dormirMin: 15,
-                                  motivo: "Tienes \(fmt(i.ramGB)) GB de RAM — de sobra. Clon precargado (respuesta rápida) y duerme a los 15 min.")
-        } else if i.ramGB >= 12 {
-            return Recomendacion(preactivarClon: true, dormirMin: 5,
-                                  motivo: "Tienes \(fmt(i.ramGB)) GB de RAM — bien. Clon precargado y duerme a los 5 min para liberar cuando no lo uses.")
-        } else {
-            return Recomendacion(preactivarClon: false, dormirMin: 3,
-                                  motivo: "Tienes \(fmt(i.ramGB)) GB de RAM — justo. Mejor NO precargar el clon (la 1ª respuesta tarda más pero no cuelga 2 GB); duerme a los 3 min.")
+        let usoTxt = "libre \(fmt(i.ramLibreGB)) de \(fmt(i.ramGB)) GB, CPU \(Int(i.cargaCPU * 100))%"
+        // RAM disponible manda (el clon necesita ~2 GB para quedar residente).
+        if i.ramLibreGB < 3 {
+            return Recomendacion(preactivarClon: false, dormirMin: 2,
+                                  motivo: "Poca RAM libre ahora (\(usoTxt)). NO precargar el clon (colgaría 2 GB que no hay); duerme a los 2 min. Cierra apps si quieres precargar.")
         }
+        if i.cargaCPU > 0.85 {
+            return Recomendacion(preactivarClon: false, dormirMin: 3,
+                                  motivo: "CPU muy ocupado ahora (\(usoTxt)). Mejor no precargar todavía; duerme a los 3 min. Vuelve a recomendar cuando baje la carga.")
+        }
+        if i.ramLibreGB >= 16 {
+            return Recomendacion(preactivarClon: true, dormirMin: 15,
+                                  motivo: "RAM de sobra (\(usoTxt)). Clon precargado (respuesta rápida) y duerme a los 15 min.")
+        }
+        if i.ramLibreGB >= 6 {
+            return Recomendacion(preactivarClon: true, dormirMin: 5,
+                                  motivo: "RAM suficiente (\(usoTxt)). Clon precargado y duerme a los 5 min para liberar cuando no lo uses.")
+        }
+        return Recomendacion(preactivarClon: true, dormirMin: 3,
+                              motivo: "RAM justa (\(usoTxt)). Precargar con dormida corta (3 min) para no retener 2 GB de más.")
     }
 
-    /// RAM libre aproximada (páginas libres+inactivas × tamaño de página), en GB.
+    /// RAM DISPONIBLE aprox (libre + inactiva + purgeable), en GB.
     private static func ramLibreGB() -> Double {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.stride / MemoryLayout<integer_t>.stride)
@@ -56,7 +72,8 @@ enum Recursos {
         }
         guard kr == KERN_SUCCESS else { return 0 }
         let page = Double(vm_kernel_page_size)
-        let libres = (Double(stats.free_count) + Double(stats.inactive_count)) * page
+        // Disponible ≈ libre + inactiva + purgeable (reclamable al instante).
+        let libres = (Double(stats.free_count) + Double(stats.inactive_count) + Double(stats.purgeable_count)) * page
         return libres / 1_073_741_824.0
     }
 
