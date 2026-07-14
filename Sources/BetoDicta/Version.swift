@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.27.0"
+    static let numero = "0.28.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.28.0", "2026-07-14", [
+            "Reconocimiento inteligente de modos MÁS PRECISO: la zona-comando se ajusta sola (ventana dinámica) — corta donde la intención se entiende y conserva el resto como contenido (ej. \"modo mándale un WhatsApp a Ana, nos vemos\" reconoce WhatsApp y guarda \"a Ana, nos vemos\")",
+            "El sistema se MEJORA A SÍ MISMO: nuevo \"Mejorar modos\" (Ajustes → Modos, icono varita) — analiza el registro y te dice qué reconoció mal, con un clic agregas los comandos no reconocidos como ejemplos, o pide sugerencias a tu IA. Y un registro detallado en ~/.betodicta/logs/modos.jsonl (opcional)",
+            "Arreglo: la ventana de Reemplazos ya no corta el encabezado al activar \"coincidir por audio\"",
+        ]),
         ("0.27.0", "2026-07-14", [
             "Reconocimiento INTELIGENTE de modos por voz (Ajustes → Avanzado, opt-in): entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"modo apúntame una tarea…\") con embeddings. Solo actúa si empieza con \"modo\" (o mal-escuchas: mudo/molde/…) y el exacto no acertó; si nada se parece, sigue como texto normal",
             "Es parametrizable (cuántas palabras del inicio se analizan + sensibilidad) y ENTRENABLE por ti: en Ajustes → Modos, cada modo tiene un campo \"Ejemplos\" para agregar TUS formas de pedirlo, procesadas con tu motor de embeddings (Ollama local o el que elijas)",
