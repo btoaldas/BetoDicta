@@ -339,6 +339,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de IMPORTAR paquete: BETODICTA_IMPORTTEST=<carpeta> lo sube y reporta.
+        if let pkg = ProcessInfo.processInfo.environment["BETODICTA_IMPORTTEST"], !pkg.isEmpty {
+            let v = VocesLocales.importarPaquete(desde: URL(fileURLWithPath: pkg))
+            if let v {
+                print("IMPORTTEST OK → id=\(v.id) nombre=\(v.nombre) paquete=\(v.paquete)")
+                print("IMPORTTEST persona: \(v.persona.prefix(60))…")
+                print("IMPORTTEST copiado: \(FileManager.default.fileExists(atPath: v.paquete + "/voz_gen.py"))")
+            } else { print("IMPORTTEST FALLÓ") }
+            exit(0)
+        }
         // Prueba del REORDER de la cascada: BETODICTA_MOVERTEST=1 mueve una fila visible
         // con un proveedor OCULTO en medio y verifica que el oculto no se corra.
         if ProcessInfo.processInfo.environment["BETODICTA_MOVERTEST"] == "1" {

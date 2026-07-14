@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Editor de la biblioteca de voces locales (Fase 7)
 //
@@ -54,6 +55,37 @@ struct VocesLocalesEditor: View {
 
     private func refrescar() { voces = VocesLocales.todas(); activa = VocesLocales.activa()?.id ?? "" }
 
+    private func subirPaquete() {
+        let panel = NSOpenPanel()
+        panel.title = "Elige la carpeta del paquete de voz"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        estado = "Importando el paquete…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let v = VocesLocales.importarPaquete(desde: url)
+            DispatchQueue.main.async {
+                if let v { estado = "Voz “\(v.nombre)” agregada."; refrescar() }
+                else { estado = "Esa carpeta no es un paquete de voz válido (falta voz_gen.py)." }
+            }
+        }
+    }
+
+    private func descargar(_ v: VozLocal) {
+        let panel = NSOpenPanel()
+        panel.title = "¿Dónde guardo el paquete “\(v.nombre)”?"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Guardar aquí"
+        guard panel.runModal() == .OK, let dst = panel.url else { return }
+        estado = "Copiando el paquete…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let out = VocesLocales.exportarPaquete(v, a: dst)
+            DispatchQueue.main.async { estado = out != nil ? "Descargado en \(out!.path)" : "No pude copiar el paquete." }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             MotorVozControl()
@@ -77,12 +109,17 @@ struct VocesLocalesEditor: View {
                             estado = "Generando “\(v.nombre)”…"
                             Voz.probarVozLocal(v) { estado = "" }
                         }.controlSize(.small).help("Probar esta voz (genera en local, tarda)")
+                        if !v.paquete.isEmpty {
+                            Button("⬇︎") { descargar(v) }.controlSize(.small).help("Descargar el paquete para llevarlo")
+                        }
                         Button("Quitar") { VocesLocales.borrar(v.id); refrescar() }.controlSize(.small)
                     }
                 }
             }
 
             HStack {
+                Button("⬆︎ Subir voz (paquete)") { subirPaquete() }.controlSize(.small)
+                    .help("Elige una carpeta de paquete de voz portable (con voz_gen.py)")
                 Button("➕ Agregar voz") { mostrarAgregar.toggle() }.controlSize(.small)
                 Button("🔍 Detectar mis voces (VozClonPOC)") {
                     detectadas = VocesLocales.detectarDeVozClon()

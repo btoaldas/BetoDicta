@@ -51,7 +51,7 @@ enum VocesLocales {
     }
 
     @discardableResult
-    static func agregar(nombre: String, cmd: String, persona: String = "") -> VozLocal {
+    static func agregar(nombre: String, cmd: String, persona: String = "", paquete: String = "") -> VozLocal {
         var list = todas()
         // id estable a partir del nombre (evita duplicar la misma voz).
         let base = nombre.lowercased().folding(options: .diacriticInsensitive, locale: nil)
@@ -60,7 +60,7 @@ enum VocesLocales {
         var id = base.isEmpty ? "voz" : base
         var n = 2
         while list.contains(where: { $0.id == id }) { id = "\(base)-\(n)"; n += 1 }
-        let v = VozLocal(id: id, nombre: nombre, cmd: cmd, persona: persona)
+        let v = VozLocal(id: id, nombre: nombre, cmd: cmd, persona: persona, paquete: paquete)
         list.append(v); guardar(list)
         // Si es la primera, queda activa.
         if Config.ttsVozLocal().isEmpty { Config.set("tts_voz_local", to: id) }
@@ -68,6 +68,11 @@ enum VocesLocales {
     }
 
     static func borrar(_ id: String) {
+        // Si la voz tenía un paquete GESTIONADO (bajo voces/<id>), bórralo también.
+        if let v = todas().first(where: { $0.id == id }), !v.paquete.isEmpty,
+           v.paquete.hasPrefix(vocesDir.path) {
+            try? FileManager.default.removeItem(atPath: v.paquete)
+        }
         guardar(todas().filter { $0.id != id })
         if Config.ttsVozLocal() == id { Config.set("tts_voz_local", to: todas().first?.id ?? "") }
     }
@@ -79,6 +84,59 @@ enum VocesLocales {
     }
 
     static func fijarActiva(_ id: String) { Config.set("tts_voz_local", to: id) }
+
+    /// Carpeta donde BetoDicta guarda los paquetes de voz importados (gestionados).
+    static var vocesDir: URL { Config.dir.appendingPathComponent("voces") }
+
+    /// SUBIR un paquete de voz portable (carpeta con voz_gen.py). Lee el nombre y la
+    /// persona del manifest/persona.txt, COPIA la carpeta a ~/.betodicta/voces/<id>/
+    /// (gestionada, autocontenida) y la registra como voz corrida por el motor interno.
+    /// Devuelve la voz (o nil si la carpeta no es un paquete válido).
+    @discardableResult
+    static func importarPaquete(desde origen: URL) -> VozLocal? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: origen.appendingPathComponent("voz_gen.py").path) else { return nil }
+        // Nombre (manifest → carpeta) y persona (persona.txt o manifest).
+        var nombre = origen.lastPathComponent
+        var persona = ""
+        if let mData = try? Data(contentsOf: origen.appendingPathComponent("betodicta-voz.json")),
+           let j = try? JSONSerialization.jsonObject(with: mData) as? [String: Any] {
+            if let n = j["nombre"] as? String, !n.isEmpty { nombre = n }
+            if let pa = j["persona_archivo"] as? String,
+               let t = try? String(contentsOf: origen.appendingPathComponent(pa), encoding: .utf8) {
+                persona = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        if persona.isEmpty,
+           let t = try? String(contentsOf: origen.appendingPathComponent("persona.txt"), encoding: .utf8) {
+            persona = t.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // Registrar (obtiene id único) y copiar la carpeta a voces/<id>/.
+        let v = agregar(nombre: nombre, cmd: "", persona: persona, paquete: "")
+        try? fm.createDirectory(at: vocesDir, withIntermediateDirectories: true)
+        let destino = vocesDir.appendingPathComponent(v.id)
+        try? fm.removeItem(at: destino)
+        do { try fm.copyItem(at: origen, to: destino) }
+        catch { borrar(v.id); return nil }
+        // Actualizar la ruta del paquete a la copia gestionada.
+        var list = todas()
+        if let i = list.firstIndex(where: { $0.id == v.id }) { list[i].paquete = destino.path; guardar(list) }
+        return list.first { $0.id == v.id }
+    }
+
+    /// DESCARGAR/exportar el paquete de una voz a una carpeta destino (para llevarlo).
+    @discardableResult
+    static func exportarPaquete(_ voz: VozLocal, a carpetaDestino: URL) -> URL? {
+        guard !voz.paquete.isEmpty else { return nil }
+        let origen = URL(fileURLWithPath: voz.paquete)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: origen.path) else { return nil }
+        let nombreCarpeta = "Voz-" + voz.id
+        let destino = carpetaDestino.appendingPathComponent(nombreCarpeta)
+        try? fm.removeItem(at: destino)
+        do { try fm.copyItem(at: origen, to: destino); return destino }
+        catch { return nil }
+    }
 
     /// Escanea los proyectos entrenados de VozClonPOC y arma un comando listo por
     /// cada uno (proyecto + su mejor checkpoint slim). Para el botón "Detectar".
