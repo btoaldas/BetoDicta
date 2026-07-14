@@ -403,6 +403,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             exit(0)
         }
+        // Prueba del SERVIDOR XTTS residente: BETODICTA_XTTSSERVER=<paquete>
+        // Levanta el servidor (mide carga) y hace 2 respuestas (mide latencia con modelo cargado).
+        if let pkg = ProcessInfo.processInfo.environment["BETODICTA_XTTSSERVER"], !pkg.isEmpty {
+            let t0 = Date()
+            XttsServer.asegurar(paquete: URL(fileURLWithPath: pkg)) { listo in
+                print("XTTSSERVER carga=\(String(format: "%.1f", Date().timeIntervalSince(t0)))s listo=\(listo)")
+                guard listo, let u = URL(string: "http://127.0.0.1:\(XttsServer.puerto)/say") else { exit(1) }
+                func pedir(_ n: Int, _ then: @escaping () -> Void) {
+                    let t = Date(); var req = URLRequest(url: u); req.httpMethod = "POST"
+                    req.httpBody = "Hola mi hijo, esta es una prueba rápida. Chao chao.".data(using: .utf8)
+                    URLSession.shared.dataTask(with: req) { d, _, _ in
+                        print("XTTSSERVER pedido\(n): \(String(format: "%.1f", Date().timeIntervalSince(t)))s, \(d?.count ?? 0) bytes PCM")
+                        then()
+                    }.resume()
+                }
+                pedir(1) { pedir(2) { XttsServer.detener(); exit(0) } }
+            }
+            RunLoop.main.run(); return
+        }
         // Prueba de STREAMING local XTTS: BETODICTA_XTTSSTREAM=<carpeta_paquete>
         // corre inference_stream, captura los trozos a /tmp/betodicta_xtts_stream.wav.
         if let pkg = ProcessInfo.processInfo.environment["BETODICTA_XTTSSTREAM"], !pkg.isEmpty {
@@ -1003,6 +1022,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Arranca el LATIDO de red: mantiene túnel + conexión TLS calientes para que
         // el pulido responda rápido aunque dictes cada varios minutos.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { CalientaRed.iniciarLatido() }
+        // Preactiva el clon local (modelo XTTS en RAM) si es el motor activo → voz rápida.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { Voz.preactivarLocal() }
 
         // Caja negra: rescatar dictados de sesiones que murieron a medias,
         // y matar whisper-servers huérfanos de crashes anteriores.

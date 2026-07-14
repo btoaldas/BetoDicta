@@ -13,6 +13,7 @@ struct MotorVozControl: View {
     @State private var estado = VozEngine.estado()
     @State private var progreso = ""
     @State private var instalando = false
+    @State private var preactivar = Config.ttsXttsPreactivar()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -24,6 +25,11 @@ struct MotorVozControl: View {
                     Button("Quitar motor") { VozEngine.desinstalar(); estado = VozEngine.estado() }
                         .controlSize(.small)
                 }
+                Toggle("Preactivar (modelo en RAM → respuesta rápida)", isOn: $preactivar)
+                    .font(.caption)
+                    .onChange(of: preactivar) { _, v in Config.set("tts_xtts_preactivar", to: v); Voz.preactivarLocal() }
+                Text("Mantiene el clon cargado en memoria mientras es tu voz activa: el Agente responde en ~1-2s en vez de recargar el modelo (~15s) cada vez. Usa algo de RAM. \(XttsServer.corriendo ? "🟢 activo ahora" : "")")
+                    .font(.caption2).foregroundStyle(.secondary)
             case .instalando:
                 Text("⏳ Instalando el motor de voz…").font(.caption)
                 if !progreso.isEmpty { Text(progreso).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
@@ -125,7 +131,7 @@ struct VocesLocalesEditor: View {
                 ForEach(voces) { v in
                     HStack(spacing: 8) {
                         Button {
-                            VocesLocales.fijarActiva(v.id); activa = v.id
+                            VocesLocales.fijarActiva(v.id); activa = v.id; Voz.preactivarLocal()
                         } label: {
                             Image(systemName: activa == v.id ? "largecircle.fill.circle" : "circle")
                         }.buttonStyle(.plain)

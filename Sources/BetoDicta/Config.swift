@@ -163,6 +163,9 @@ struct Config {
     static func ttsXttsCmd() -> String { (json()["tts_xtts_cmd"] as? String) ?? "" }
     /// Voz LOCAL clonada seleccionada de la biblioteca (id). Vacío = la primera.
     static func ttsVozLocal() -> String { (json()["tts_voz_local"] as? String) ?? "" }
+    /// Preactivar el servidor XTTS residente (modelo cargado en RAM) cuando el clon
+    /// local es el motor activo → respuesta rápida. Default ON. Parametrizable.
+    static func ttsXttsPreactivar() -> Bool { (json()["tts_xtts_preactivar"] as? Bool) ?? true }
     /// Carpeta base de VozClonPOC (para el botón "Detectar mis voces"). Parametrizable.
     static func vozClonBase() -> String { (json()["voz_clon_base"] as? String) ?? "~/Downloads/VozClonPOC" }
     /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.

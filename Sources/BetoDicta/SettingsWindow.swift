@@ -97,7 +97,7 @@ final class SettingsModel: ObservableObject {
     @Published var ttsActivo: Bool { didSet { Config.set("tts_activo", to: ttsActivo) } }
     @Published var ttsVoz: String { didSet { Config.set("tts_voz", to: ttsVoz) } }
     @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
-    @Published var ttsProveedor: String { didSet { Config.set("tts_proveedor", to: ttsProveedor) } }
+    @Published var ttsProveedor: String { didSet { Config.set("tts_proveedor", to: ttsProveedor); Voz.preactivarLocal() } }
     @Published var ttsElevenVoz: String { didSet { Config.set("tts_eleven_voz", to: ttsElevenVoz) } }
     @Published var ttsElevenStreaming: Bool { didSet { Config.set("tts_eleven_streaming", to: ttsElevenStreaming) } }
     @Published var ttsXttsCmd: String { didSet { Config.set("tts_xtts_cmd", to: ttsXttsCmd) } }

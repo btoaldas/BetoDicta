@@ -210,6 +210,48 @@ enum VozEngine {
         try? runnerPy.data(using: .utf8)?.write(to: streamRunnerURL)
     }
 
+    static var serverPyURL: URL { dir.appendingPathComponent("xtts_server.py") }
+
+    /// Servidor XTTS residente: carga el modelo UNA vez + precalcula los latentes del
+    /// locutor, y sirve por HTTP local streaming PCM float32. Mata la latencia (no
+    /// recarga el modelo por respuesta). Lo levanta BetoDicta cuando el clon local es
+    /// el motor activo (preactivar).
+    private static let serverPy = """
+    import os, sys, json, warnings
+    warnings.filterwarnings("ignore")
+    os.environ["COQUI_TOS_AGREED"]="1"; os.environ.setdefault("CUDA_VISIBLE_DEVICES","")
+    import torch
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from TTS.tts.configs.xtts_config import XttsConfig
+    from TTS.tts.models.xtts import Xtts
+    PKG=sys.argv[1]; PORT=int(sys.argv[2])
+    man={}
+    p=os.path.join(PKG,"betodicta-voz.json")
+    if os.path.exists(p): man=json.load(open(p)).get("archivos",{})
+    def rel(k,d): return os.path.join(PKG, man.get(k,d))
+    config=XttsConfig(); config.load_json(rel("config","config.json"))
+    model=Xtts.init_from_config(config)
+    model.load_checkpoint(config, checkpoint_path=rel("modelo","model.pth"), vocab_path=rel("vocab","vocab.json"), use_deepspeed=False)
+    model.cpu(); model.train(False)
+    refs=[os.path.join(PKG,l.strip()) for l in open(rel("ref_list","ref_list.txt")) if l.strip()]
+    GPT,SPK=model.get_conditioning_latents(audio_path=refs)   # una sola vez
+    class H(BaseHTTPRequestHandler):
+        def log_message(self,*a): pass
+        def do_GET(self):
+            self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+        def do_POST(self):
+            n=int(self.headers.get("Content-Length",0)); txt=self.rfile.read(n).decode("utf-8")
+            self.send_response(200); self.send_header("Content-Type","application/octet-stream"); self.end_headers()
+            try:
+                for ch in model.inference_stream(txt,"es",GPT,SPK,temperature=0.55,enable_text_splitting=True):
+                    self.wfile.write(ch.cpu().numpy().astype("<f4").tobytes()); self.wfile.flush()
+            except Exception: pass
+    print("READY", flush=True); sys.stdout.flush()
+    HTTPServer(("127.0.0.1",PORT), H).serve_forever()
+    """
+
+    static func asegurarServerPy() { try? serverPy.data(using: .utf8)?.write(to: serverPyURL) }
+
     /// Cache del modelo BASE de Coqui XTTS v2 (vocab.json/config.json comunes a TODO
     /// clon XTTS). Sirve para rellenar paquetes traídos de fuera que llegan incompletos.
     static var coquiCache: URL {

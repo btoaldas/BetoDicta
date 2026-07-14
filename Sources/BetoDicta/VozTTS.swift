@@ -25,14 +25,24 @@ enum Voz {
     /// Reproductor retenido (si se libera, se corta el audio).
     private static var player: AVAudioPlayer?
 
-    /// Motores en orden de intento: el principal elegido + los demás como
-    /// failover, y Apple SIEMPRE al final (respaldo que nunca falla).
+    /// Motores en orden de intento: el ELEGIDO y, si falla, la voz de macOS (neutral).
+    /// NUNCA cae a otra voz CLONADA (sonaría otra persona): si eliges el clon de mamá y
+    /// falla, hablas con la voz de macOS, no con la de otro. Apple nunca falla.
     private static func cadena() -> [String] {
         let principal = Config.ttsProveedor()
-        var orden = [principal]
-        for m in ["elevenlabs", "xtts_local", "apple"] where !orden.contains(m) { orden.append(m) }
-        if !orden.contains("apple") { orden.append("apple") }   // respaldo garantizado
-        return orden
+        return principal == "apple" ? ["apple"] : [principal, "apple"]
+    }
+
+    /// Preactiva el servidor XTTS si el clon local es el motor activo (modelo en RAM →
+    /// respuesta rápida). Se llama al arrancar y al cambiar de motor/voz. No bloquea.
+    static func preactivarLocal() {
+        guard Config.ttsActivo(), Config.ttsProveedor() == "xtts_local", Config.ttsXttsPreactivar(),
+              VozEngine.estado() == .listo, let voz = VocesLocales.activa(), !voz.paquete.isEmpty else {
+            XttsServer.detener(); return   // si ya no aplica, libera la RAM del modelo
+        }
+        XttsServer.asegurar(paquete: URL(fileURLWithPath: voz.paquete)) { listo in
+            Log.log(.ia, "servidor XTTS \(listo ? "listo (modelo en RAM)" : "no arrancó")")
+        }
     }
 
     /// Detiene cualquier voz en curso (Apple o audio reproduciéndose).
@@ -89,11 +99,22 @@ enum Voz {
                         }
                     }
                 }
-                if voz.streaming {   // POR VOZ: suena mientras genera; si falla, batch
-                    XttsStreamTTS.hablar(paquete: pkg, texto: texto) { ok in
-                        if ok { done?() } else { Log.log(.ia, "TTS XTTS streaming falló → batch"); batch() }
-                    }
-                } else { batch() }
+                let porStream: () -> Void = {
+                    if voz.streaming {
+                        XttsStreamTTS.hablar(paquete: pkg, texto: texto) { ok in
+                            if ok { done?() } else { Log.log(.ia, "TTS XTTS streaming falló → batch"); batch() }
+                        }
+                    } else { batch() }
+                }
+                // RÁPIDO: si el servidor residente está listo para esta voz, úsalo (modelo
+                // ya cargado → ~1-2s). Si no, arráncalo para la próxima y esta vez va por
+                // streaming directo.
+                if XttsServer.corriendo, XttsServer.paqueteActivo == pkg.path {
+                    XttsServer.decir(texto: texto) { ok in if ok { done?() } else { porStream() } }
+                } else {
+                    if Config.ttsXttsPreactivar() { XttsServer.asegurar(paquete: pkg) { _ in } }
+                    porStream()
+                }
             } else {
                 XttsLocalTTS.decir(texto) { url in
                     if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
