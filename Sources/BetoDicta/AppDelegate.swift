@@ -789,6 +789,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // vuelve al modo por defecto; si es sticky, respeta el último).
         ModosStore.revertirADefecto()
         panel.setModo(ModosStore.activo())
+        // Despierta el túnel VPN poco después de arrancar (el 1er dictado ya lo halla vivo).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { CalientaRed.despertar() }
 
         // Caja negra: rescatar dictados de sesiones que murieron a medias,
         // y matar whisper-servers huérfanos de crashes anteriores.
@@ -1373,6 +1375,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
         lastPartial = ""
         lastVoice = Date()
+        // Despierta el túnel VPN/red MIENTRAS grabas: el pulido/STT al final ya lo
+        // encuentra despierto (evita el "connection lost" de ~13s tras estar inactivo).
+        if Config.postProcess() || Config.busquedaSemantica() || Config.glosarioInteligente() {
+            CalientaRed.despertar()
+        }
         // Trigger por CONTEXTO: recuerda dónde estás AHORA (app al frente = destino
         // del pegado). La app es instantánea; la URL del navegador se pide async
         // (AppleScript) para no frenar el micrófono, y llega mucho antes de entregar.
