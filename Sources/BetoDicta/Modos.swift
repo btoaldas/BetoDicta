@@ -1,4 +1,5 @@
 import Foundation
+import AppKit   // NSWorkspace / NSAppleScript para los triggers por contexto
 
 // MARK: - Modos: qué hacer con lo dictado (pulir / correo / oficio / traducir…)
 //
@@ -23,13 +24,16 @@ struct Modo: Codable, Identifiable {
     var idiomaDestino: String    // solo "traducir"
     var esFijo: Bool             // base (no se borra) vs propio del usuario
     var palabraVoz: String       // frase al inicio del dictado que activa este modo
+    var apps: [String]           // apps (nombre o bundle id) que activan este modo
+    var sitios: [String]         // dominios/URLs que activan este modo (en navegador)
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
-         esFijo: Bool = true, palabraVoz: String = "") {
+         esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = []) {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
+        self.apps = apps; self.sitios = sitios
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -44,6 +48,8 @@ struct Modo: Codable, Identifiable {
         idiomaDestino = (try? c.decode(String.self, forKey: .idiomaDestino)) ?? "inglés"
         esFijo = (try? c.decode(Bool.self, forKey: .esFijo)) ?? false
         palabraVoz = (try? c.decode(String.self, forKey: .palabraVoz)) ?? ""
+        apps = (try? c.decode([String].self, forKey: .apps)) ?? []
+        sitios = (try? c.decode([String].self, forKey: .sitios)) ?? []
     }
 }
 
@@ -79,7 +85,18 @@ enum ModosStore {
         }
         // Sumar modos base nuevos que un JSON viejo no conozca (sin duplicar).
         let faltan = base.filter { b in !list.contains { $0.id == b.id } }
-        if !faltan.isEmpty { list.append(contentsOf: faltan); guardar(list) }
+        var cambio = false
+        if !faltan.isEmpty { list.append(contentsOf: faltan); cambio = true }
+        // Auto-sanado de la frase de voz: si un app de versión ANTERIOR reescribió
+        // modos.json sin el campo palabraVoz (lo borra al no conocerlo), lo
+        // restauramos desde la definición base. Solo si está VACÍO (no pisa lo que
+        // tú edites) y solo la frase (prompt/IA/apps/sitios se respetan tal cual).
+        for (i, m) in list.enumerated() where m.palabraVoz.isEmpty {
+            if let b = base.first(where: { $0.id == m.id }), !b.palabraVoz.isEmpty {
+                list[i].palabraVoz = b.palabraVoz; cambio = true
+            }
+        }
+        if cambio { guardar(list) }
         return list
     }
 
@@ -139,5 +156,53 @@ enum ModosStore {
         let sinFrase = String(orig.dropFirst(min(len, orig.count)))
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n").union(.whitespaces))
         return (modo, sinFrase)
+    }
+
+    // MARK: Activación por CONTEXTO (app / sitio web al frente)
+    /// El modo cuyo app o sitio coincide con dónde estás (app al frente / URL del
+    /// navegador). nil si ninguno. El activo/dictado no cuenta como trigger.
+    static func detectarPorContexto(bundleId: String, nombre: String, url: String?) -> Modo? {
+        coincidePorContexto(todos(), bundleId: bundleId, nombre: nombre, url: url)
+    }
+    /// Matcher puro (sin disco) — testeable sin tocar la config real.
+    static func coincidePorContexto(_ modos: [Modo], bundleId: String, nombre: String, url: String?) -> Modo? {
+        let bid = bundleId.lowercased(), nom = normalizar(nombre), u = url?.lowercased()
+        for m in modos where m.id != "dictado" {
+            for a in m.apps {
+                let an = normalizar(a)
+                if !an.isEmpty, bid.contains(an) || nom.contains(an) { return m }
+            }
+            if let u {
+                for s in m.sitios {
+                    let sn = normalizar(s)
+                    if !sn.isEmpty, u.contains(sn) { return m }
+                }
+            }
+        }
+        return nil
+    }
+}
+
+// MARK: - Contexto: app al frente y URL del navegador (para los triggers)
+
+enum ContextoApp {
+    static func alFrente() -> (bundleId: String, nombre: String) {
+        let app = NSWorkspace.shared.frontmostApplication
+        return (app?.bundleIdentifier ?? "", app?.localizedName ?? "")
+    }
+    /// URL del navegador al frente (best-effort, vía AppleScript). Requiere
+    /// permiso de Automatización (lo pide macOS la 1ª vez). nil si no aplica.
+    static func urlNavegador(_ bundleId: String) -> String? {
+        let scripts: [String: String] = [
+            "com.apple.safari": "tell application \"Safari\" to return URL of current tab of front window",
+            "com.google.chrome": "tell application \"Google Chrome\" to return URL of active tab of front window",
+            "com.microsoft.edgemac": "tell application \"Microsoft Edge\" to return URL of active tab of front window",
+            "com.brave.browser": "tell application \"Brave Browser\" to return URL of active tab of front window",
+            "company.thebrowser.browser": "tell application \"Arc\" to return URL of active tab of front window",
+        ]
+        guard let src = scripts[bundleId.lowercased()], let s = NSAppleScript(source: src) else { return nil }
+        var err: NSDictionary?
+        let out = s.executeAndReturnError(&err)
+        return err == nil ? out.stringValue : nil
     }
 }

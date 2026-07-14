@@ -103,6 +103,10 @@ struct Config {
     /// (ej. "modo tarea comprar la comida"), se usa ese modo y se quita la frase.
     /// Default ON (los modos base traen su frase; edítalas o vacíalas en Modos).
     static func modoPorVoz() -> Bool { (json()["modo_por_voz"] as? Bool) ?? true }
+    /// Activar un modo por CONTEXTO: si estás en una app (ej. Outlook) o un sitio
+    /// web (ej. Quipux) que un modo declara, ese modo se aplica solo a ese dictado.
+    /// Default ON (inofensivo: los modos base no traen apps/sitios hasta que los pongas).
+    static func modoPorContexto() -> Bool { (json()["modo_por_contexto"] as? Bool) ?? true }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

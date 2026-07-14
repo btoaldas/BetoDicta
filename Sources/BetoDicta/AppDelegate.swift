@@ -106,6 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastVoice = Date()
     private var silenceTimer: Timer?
     private var lastPartial = ""
+    // Contexto (app/sitio al frente) capturado al arrancar el dictado, para los
+    // triggers de modo por app/web. url se completa async (AppleScript navegador).
+    private var ctxDictado: (bundleId: String, nombre: String, url: String?)?
 
     private func playSound(_ name: String) {
         guard Config.sounds() else { return }
@@ -335,6 +338,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("VOZTEST \(idOk && limpioOk ? "OK" : "✗") \"\(texto)\" → \(r.map { "[\($0.0.id)] \"\($0.1)\"" } ?? "nil")")
             }
             print("VOZTEST \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
+        }
+        // Prueba de activación por CONTEXTO (app/sitio): BETODICTA_TRIGTEST=1
+        // usa modos EN MEMORIA (no toca la config real) y comprueba el matcher.
+        if ProcessInfo.processInfo.environment["BETODICTA_TRIGTEST"] == "1" {
+            let lista = [
+                Modo(id: "correo", nombre: "Correo", icono: "envelope.fill", base: "pulir",
+                     apps: ["Outlook", "com.microsoft.Outlook"]),
+                Modo(id: "oficio", nombre: "Oficio", icono: "doc.text.fill", base: "pulir",
+                     sitios: ["quipux.gob.ec"]),
+                Modo(id: "dictado", nombre: "Dictado", icono: "mic.fill", base: "pulir",
+                     apps: ["Finder"]),   // dictado NO debe disparar por contexto
+            ]
+            let casos: [(String, String, String?, String?)] = [
+                ("com.microsoft.Outlook", "Microsoft Outlook", nil, "correo"),   // por app (bundle)
+                ("com.otra.cosa", "Outlook para Mac", nil, "correo"),            // por app (nombre)
+                ("com.apple.Safari", "Safari", "https://quipux.gob.ec/inicio", "oficio"), // por sitio
+                ("com.apple.Safari", "Safari", "https://google.com", nil),      // navegador sin match
+                ("com.apple.finder", "Finder", nil, nil),                       // dictado no dispara
+            ]
+            var ok = true
+            for (bid, nom, url, esp) in casos {
+                let r = ModosStore.coincidePorContexto(lista, bundleId: bid, nombre: nom, url: url)
+                let bien = (r?.id == esp)
+                ok = ok && bien
+                print("TRIGTEST \(bien ? "OK" : "✗") app=\(nom) url=\(url ?? "-") → \(r?.id ?? "nil") (esp \(esp ?? "nil"))")
+            }
+            print("TRIGTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
         // Prueba de la verificación de firma del updater (seguridad):
@@ -1089,6 +1120,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
         lastPartial = ""
         lastVoice = Date()
+        // Trigger por CONTEXTO: recuerda dónde estás AHORA (app al frente = destino
+        // del pegado). La app es instantánea; la URL del navegador se pide async
+        // (AppleScript) para no frenar el micrófono, y llega mucho antes de entregar.
+        if Config.modoPorContexto() {
+            let (bid, nom) = ContextoApp.alFrente()
+            ctxDictado = (bid, nom, nil)
+            if ModosStore.todos().contains(where: { !$0.sitios.isEmpty }) {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    let u = ContextoApp.urlNavegador(bid)
+                    // Solo si sigue siendo ESTE dictado (no pisar uno más nuevo).
+                    DispatchQueue.main.async {
+                        if self?.ctxDictado?.bundleId == bid { self?.ctxDictado?.url = u }
+                    }
+                }
+            }
+        } else { ctxDictado = nil }
         // ¿Corregiste el dictado anterior donde lo pegaste? Aprende de eso.
         let aprendidas = Aprendizaje.revisarCorreccion()
         if let a = aprendidas.first {
@@ -1630,11 +1677,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // El MODO decide qué hacer con lo dictado. Por defecto, el modo activo;
         // pero si el dictado EMPIEZA con la frase de voz de un modo ("modo tarea
         // …"), ese modo manda solo por este dictado (y se quita la frase).
+        // Precedencia: voz (explícita) > contexto app/web > modo activo (manual).
         var modo = ModosStore.activo()
+        var porVoz = false
         if Config.modoPorVoz(), let (m, limpio) = ModosStore.detectarPorVoz(textoFinal) {
             if m.id != modo.id { Log.log(.ia, "modo por voz → \(m.nombre)") }
             modo = m
             textoFinal = limpio
+            porVoz = true
+        }
+        if !porVoz, Config.modoPorContexto(), let ctx = ctxDictado,
+           let m = ModosStore.detectarPorContexto(bundleId: ctx.bundleId, nombre: ctx.nombre, url: ctx.url) {
+            if m.id != modo.id { Log.log(.ia, "modo por contexto → \(m.nombre) [\(ctx.nombre)]") }
+            modo = m
         }
         let seguir: (String) -> Void = { [weak self] texto in
             self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)

@@ -39,6 +39,7 @@ struct ModosView: View {
     private var iasPulido: [ChatIA] { ChatIA.conectadasPulido }
 
     @State private var porVoz = Config.modoPorVoz()
+    @State private var porContexto = Config.modoPorContexto()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -56,6 +57,12 @@ struct ModosView: View {
                 .toggleStyle(.switch).controlSize(.mini)
                 .onChange(of: porVoz) { _, v in Config.set("modo_por_voz", to: v) }
             Text("Si lo enciendes y empiezas el dictado con la frase de un modo (ej. \"modo tarea comprar la comida\"), ese modo se aplica solo a ese dictado y la frase se quita. Edita o vacía cada frase abajo.")
+                .font(.caption2).foregroundStyle(.secondary)
+
+            Toggle("Activar un modo POR APP / SITIO WEB", isOn: $porContexto)
+                .toggleStyle(.switch).controlSize(.mini)
+                .onChange(of: porContexto) { _, v in Config.set("modo_por_contexto", to: v) }
+            Text("Aplica un modo solo por estar en cierta app o página. Ej.: en Outlook usa Correo; en Quipux (por URL) usa Oficio. Configura las apps y sitios de cada modo abajo. La voz manda sobre el contexto.")
                 .font(.caption2).foregroundStyle(.secondary)
 
             ForEach(m.modos) { modo in
@@ -95,6 +102,14 @@ struct ModosView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
+    /// Puente [String] ⇄ texto "a, b, c" para editar listas en un TextField.
+    private func listaTexto(_ b: Binding<[String]>) -> Binding<String> {
+        Binding(
+            get: { b.wrappedValue.joined(separator: ", ") },
+            set: { b.wrappedValue = $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+        )
+    }
+
     @ViewBuilder private func editor(_ b: Binding<Modo>) -> some View {
         Divider()
         // Modo PROPIO: nombre + comportamiento base editables.
@@ -116,6 +131,27 @@ struct ModosView: View {
         HStack {
             Text("Frase de voz:").font(.caption).frame(width: 90, alignment: .leading)
             TextField("ej. modo tarea (vacío = sin voz)", text: b.palabraVoz).textFieldStyle(.roundedBorder).frame(width: 240)
+        }
+        // Triggers por contexto (app / sitio). Dictado no dispara por contexto.
+        if b.wrappedValue.id != "dictado" {
+            HStack(alignment: .top) {
+                Text("En apps:").font(.caption).frame(width: 90, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField("ej. Outlook, Mail, com.microsoft.Outlook", text: listaTexto(b.apps))
+                        .textFieldStyle(.roundedBorder).frame(width: 300)
+                    Text("Nombres o bundle IDs, separados por coma. Coincide por parte del nombre.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            HStack(alignment: .top) {
+                Text("En sitios:").font(.caption).frame(width: 90, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField("ej. quipux.gob.ec, mail.google.com", text: listaTexto(b.sitios))
+                        .textFieldStyle(.roundedBorder).frame(width: 300)
+                    Text("Dominios o trozos de URL (navegador). Requiere permiso de Automatización la 1ª vez.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
         }
         // Traducir: idioma destino
         if b.wrappedValue.base == "traducir" {
