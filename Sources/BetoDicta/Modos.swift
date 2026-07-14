@@ -410,12 +410,18 @@ enum Acciones {
     /// `custom` = plantilla del usuario cuando id=="url" (debe tener {q}).
     static func url(_ id: String, texto: String, custom: String = "") -> String? {
         guard let e = base.first(where: { $0.id == id }), !e.esquema.isEmpty else { return nil }
-        let tpl = id == "url"
-            ? (custom.contains("{q}") ? custom : "https://www.google.com/search?q={q}")
-            : e.esquema
+        if id == "url" {
+            let c = custom.trimmingCharacters(in: .whitespaces)
+            guard !c.isEmpty else { return "https://www.google.com/search?q={q}" }
+            // URL propia SIN {q} → abre la página tal cual (ignora el texto).
+            if !c.contains("{q}") { return c }
+            var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
+            let enc = texto.addingPercentEncoding(withAllowedCharacters: cs) ?? texto
+            return c.replacingOccurrences(of: "{q}", with: enc)
+        }
         var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
         let enc = texto.addingPercentEncoding(withAllowedCharacters: cs) ?? texto
-        return tpl.replacingOccurrences(of: "{q}", with: enc)
+        return e.esquema.replacingOccurrences(of: "{q}", with: enc)
     }
 }
 

@@ -53,11 +53,26 @@ enum ContactosWA {
                 if !n.isEmpty { cs.append(ContactoWA(nombre: n, numero: num)) }
             }
         } else {
-            for (i, line) in txt.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).enumerated() {
-                let parts = line.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                guard parts.count >= 2 else { continue }
-                if i == 0, norm(parts[0]).contains("nombre") { continue }   // cabecera
-                cs.append(ContactoWA(nombre: parts[0], numero: soloNumero(parts[1])))
+            // CSV con detección de columnas por CABECERA (soporta exports de
+            // Google/Gmail/teléfono: "Name","Phone 1 - Value", etc.).
+            let lineas = txt.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map(String.init)
+            let sep: Character = (lineas.first?.contains(";") == true && lineas.first?.contains(",") == false) ? ";" : ","
+            func cols(_ l: String) -> [String] { l.components(separatedBy: String(sep)).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"")) } }
+            let cab = (lineas.first.map(cols) ?? []).map { norm($0) }
+            let iNom = cab.firstIndex { $0.contains("nombre") || $0.contains("name") }
+            let clavesTel = ["numero", "number", "phone", "tel", "movil", "mobile", "celular", "whatsapp"]
+            let iTel = cab.firstIndex { col in clavesTel.contains { col.contains($0) } }
+            if let iNom, let iTel {
+                for l in lineas.dropFirst() {
+                    let c = cols(l); guard c.count > max(iNom, iTel) else { continue }
+                    let n = c[iNom], num = soloNumero(c[iTel])
+                    if !n.isEmpty, !num.isEmpty { cs.append(ContactoWA(nombre: n, numero: num)) }
+                }
+            } else {   // sin cabecera reconocida: nombre,numero
+                for l in lineas {
+                    let c = cols(l); guard c.count >= 2 else { continue }
+                    if !c[0].isEmpty, !soloNumero(c[1]).isEmpty { cs.append(ContactoWA(nombre: c[0], numero: soloNumero(c[1]))) }
+                }
             }
         }
         var vistos = Set<String>()
@@ -67,6 +82,20 @@ enum ContactosWA {
     }
     static func plantillaCSV() -> String {
         "nombre,numero\nAlberto Aldás,593999999999\nMaría López,593988888888\n"
+    }
+    /// Exporta los contactos actuales; si está vacío, un EJEMPLO para ver el formato.
+    static func exportarCSV() -> String {
+        let cs = importados()
+        if cs.isEmpty { return plantillaCSV() }
+        return "nombre,numero\n" + cs.map { "\($0.nombre),\($0.numero)" }.joined(separator: "\n") + "\n"
+    }
+    static func exportarJSON() -> String {
+        let cs = importados()
+        let arr: [[String: String]] = cs.isEmpty
+            ? [["nombre": "Alberto Aldás", "numero": "593999999999"], ["nombre": "María López", "numero": "593988888888"]]
+            : cs.map { ["nombre": $0.nombre, "numero": $0.numero] }
+        let d = try? JSONSerialization.data(withJSONObject: arr, options: [.prettyPrinted, .sortedKeys])
+        return d.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
     }
 
     // ---- Contactos de macOS ----

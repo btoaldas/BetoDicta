@@ -1999,12 +1999,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func escAS(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
-    /// Corre AppleScript en segundo plano (pide permiso de Automatización la 1ª vez).
-    private func correrAppleScript(_ src: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
+    /// Corre AppleScript en el hilo PRINCIPAL (así macOS SÍ muestra el prompt de
+    /// Automatización la 1ª vez). Si falta permiso, avisa y abre Ajustes.
+    private func correrAppleScript(_ src: String, app: String) {
+        DispatchQueue.main.async {
             var err: NSDictionary?
             NSAppleScript(source: src)?.executeAndReturnError(&err)
-            if let err { Log.write("AppleScript acción: \(err[NSAppleScript.errorMessage] ?? err)") }
+            guard let err else { return }
+            let msg = (err[NSAppleScript.errorMessage] as? String) ?? "\(err)"
+            let code = (err[NSAppleScript.errorNumber] as? Int) ?? 0
+            Log.write("AppleScript acción (\(app)): \(msg)")
+            if code == -1743 || msg.localizedCaseInsensitiveContains("not authorized") {
+                if !self.recorder.isRecording {
+                    self.panel.flash("⚠️ Permite BetoDicta → \(app) en Ajustes → Privacidad → Automatización", segundos: 6)
+                }
+                if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+                    NSWorkspace.shared.open(u)
+                }
+            }
         }
     }
 
@@ -2042,14 +2054,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         case "notas" where !t.isEmpty:
             // AppleScript: crea una nota NUEVA con el texto (título = 1ª línea).
-            correrAppleScript("tell application \"Notes\"\nactivate\nmake new note with properties {body:\"\(escAS(t))\"}\nend tell")
+            correrAppleScript("tell application \"Notes\"\nactivate\nmake new note with properties {body:\"\(escAS(t))\"}\nend tell", app: "Notas")
         case "recordatorios" where !t.isEmpty:
-            correrAppleScript("tell application \"Reminders\"\nactivate\nmake new reminder with properties {name:\"\(escAS(t))\"}\nend tell")
+            correrAppleScript("tell application \"Reminders\"\nactivate\nmake new reminder with properties {name:\"\(escAS(t))\"}\nend tell", app: "Recordatorios")
         case "textedit" where !t.isEmpty:
-            correrAppleScript("tell application \"TextEdit\"\nactivate\nmake new document with properties {text:\"\(escAS(t))\"}\nend tell")
+            correrAppleScript("tell application \"TextEdit\"\nactivate\nmake new document with properties {text:\"\(escAS(t))\"}\nend tell", app: "TextEdit")
         case "outlook" where !t.isEmpty:
             // AppleScript: nuevo correo con el texto (el esquema ms-outlook no prellena).
-            correrAppleScript("tell application \"Microsoft Outlook\"\nactivate\nset m to make new outgoing message with properties {content:\"\(escAS(t))\"}\nopen m\nend tell")
+            correrAppleScript("tell application \"Microsoft Outlook\"\nactivate\nset m to make new outgoing message with properties {content:\"\(escAS(t))\"}\nopen m\nend tell", app: "Microsoft Outlook")
         default:
             if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
                 NSWorkspace.shared.open(url)   // correo mailto, mapas, url propia

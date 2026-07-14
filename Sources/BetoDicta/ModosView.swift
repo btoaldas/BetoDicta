@@ -52,9 +52,12 @@ struct ModosView: View {
         p.allowsMultipleSelection = false
         if p.runModal() == .OK, let u = p.url { _ = ContactosWA.importar(u); contactosVer += 1 }
     }
-    private func guardarPlantillaContactos() {
-        let p = NSSavePanel(); p.nameFieldStringValue = "contactos_whatsapp.csv"
-        if p.runModal() == .OK, let u = p.url { try? ContactosWA.plantillaCSV().write(to: u, atomically: true, encoding: .utf8) }
+    private func exportarContactos(_ formato: String) {
+        let p = NSSavePanel(); p.nameFieldStringValue = "contactos_whatsapp.\(formato)"
+        if p.runModal() == .OK, let u = p.url {
+            let txt = formato == "json" ? ContactosWA.exportarJSON() : ContactosWA.exportarCSV()
+            try? txt.write(to: u, atomically: true, encoding: .utf8)
+        }
     }
 
     /// Lista de idiomas para el picker; garantiza que el valor actual sea seleccionable.
@@ -255,11 +258,12 @@ struct ModosView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 8) {
                         Button("Importar CSV/JSON…") { importarContactos() }.controlSize(.small)
-                        Button("Plantilla CSV") { guardarPlantillaContactos() }.controlSize(.small)
+                        Button("Exportar CSV") { exportarContactos("csv") }.controlSize(.small)
+                        Button("Exportar JSON") { exportarContactos("json") }.controlSize(.small)
                         Toggle("Contactos de Mac", isOn: $usarMacWA).toggleStyle(.switch).controlSize(.mini)
                             .onChange(of: usarMacWA) { _, v in Config.set("wa_usar_contactos_mac", to: v) }
                     }
-                    Text("Di \"modo whatsapp, a Alberto, hola qué tal\" → busca a Alberto y abre su chat con el texto. Si hay varios, eliges en un modal. CSV: nombre,numero (con código país, ej. 5939...).")
+                    Text("Di \"modo whatsapp, a Alberto, hola qué tal\" → busca a Alberto y abre su chat. Si hay varios, eliges. Importa CSV/JSON (o export de Google/Gmail: detecta columnas Nombre/Teléfono). Exportar vacío = te da un ejemplo del formato. Si no encuentra el nombre, cae a Contactos de Mac.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
