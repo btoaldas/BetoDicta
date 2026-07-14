@@ -84,6 +84,8 @@ struct ModosView: View {
                 Label("Modos — qué hacer con lo dictado", systemImage: "wand.and.stars")
                     .font(.headline).foregroundStyle(acentoMo)
                 Spacer()
+                Button { AnalizadorWindow.show() } label: { Image(systemName: "wand.and.stars.inverse") }
+                    .help("Mejorar modos: analiza el registro y sugiere mejoras (autónomo o con IA)")
                 Button { ModosLog.abrir() } label: { Image(systemName: "doc.text.magnifyingglass") }
                     .help("Ver el registro detallado de modos (para analizar y mejorar)")
                 Button { expandido = m.crear() } label: { Image(systemName: "plus") }

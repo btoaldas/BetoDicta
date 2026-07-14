@@ -480,6 +480,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("CADTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba del analizador de modos: BETODICTA_ANATEST=1 (lee modos.jsonl real).
+        if ProcessInfo.processInfo.environment["BETODICTA_ANATEST"] == "1" {
+            print(ModosAnalizador.resumenTexto())
+            print("--- no reconocidos: \(ModosAnalizador.noReconocidos().count) ---")
+            exit(0)
+        }
         // Prueba EN VIVO del reconocimiento semántico de modos: BETODICTA_MODOSEMTEST=1.
         if ProcessInfo.processInfo.environment["BETODICTA_MODOSEMTEST"] == "1" {
             let pares = ModosStore.todos().filter { $0.id != "dictado" }.map { ($0.id, ModosStore.ejemplos($0)) }
