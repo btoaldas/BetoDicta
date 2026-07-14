@@ -224,6 +224,10 @@ enum VozEngine {
     from http.server import BaseHTTPRequestHandler, HTTPServer
     from TTS.tts.configs.xtts_config import XttsConfig
     from TTS.tts.models.xtts import Xtts
+    # Limitar hilos → deja CPU libre para el hilo de AUDIO (streaming sin trabas).
+    _th=int(os.environ.get("XTTS_THREADS","0"))
+    if _th>0:
+        torch.set_num_threads(_th)
     PKG=sys.argv[1]; PORT=int(sys.argv[2])
     man={}
     p=os.path.join(PKG,"betodicta-voz.json")

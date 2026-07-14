@@ -45,9 +45,16 @@ enum XttsServer {
         detener()
         VozEngine.asegurarServerPy()
         paqueteActivo = paquete.path
+        // FULL potencia: XTTS en CPU ya va al límite (~1.3x tiempo real); NO reducir hilos
+        // (lo hundía por debajo de tiempo real). El hilo de audio de CoreAudio es de
+        // prioridad real y no lo ahoga la generación. Hilos opcionales (Config.ttsXttsHilos).
         let p = Process(); p.executableURL = VozEngine.pythonURL
         p.arguments = [VozEngine.serverPyURL.path, paquete.path, "\(puerto)"]
-        var env = ProcessInfo.processInfo.environment; env["COQUI_TOS_AGREED"] = "1"; p.environment = env
+        var env = ProcessInfo.processInfo.environment; env["COQUI_TOS_AGREED"] = "1"
+        if Config.ttsXttsHilos() > 0 {
+            let h = "\(Config.ttsXttsHilos())"; env["XTTS_THREADS"] = h; env["OMP_NUM_THREADS"] = h
+        }
+        p.environment = env
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { onListo(false); return }
         proceso = p
@@ -80,9 +87,18 @@ enum XttsServer {
     /// Habla por el servidor. Genera el audio COMPLETO (el modelo ya está en RAM → rápido)
     /// y LUEGO lo reproduce de corrido. Así la reproducción NO compite con la CPU de la
     /// generación → suena parejo, sin bajones ni trabas. Falla suave (completion(false)).
+    private static var stream: XttsStreamPlayer?
+
     static func decir(texto: String, empezar: (() -> Void)? = nil, completion: @escaping (Bool) -> Void) {
         guard corriendo, let u = URL(string: "http://127.0.0.1:\(puerto)/say") else { completion(false); return }
         tocar()
+        // MODO RÁPIDO: streaming (suena en ~1-2s). El server ya corre niced + hilos
+        // limitados → el audio no se traba. Si no, por lotes (garantizado fluido).
+        if Config.ttsXttsRapido() {
+            let sp = XttsStreamPlayer(); stream = sp
+            sp.reproducir(texto: texto, url: u, empezar: empezar, completion: completion)
+            return
+        }
         var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 120
         req.httpBody = texto.data(using: .utf8)
         URLSession.shared.dataTask(with: req) { data, resp, err in
@@ -122,5 +138,56 @@ private final class XttsFin: NSObject, AVAudioPlayerDelegate {
     var alTerminar: ((Bool) -> Void)?
     func audioPlayerDidFinishPlaying(_ p: AVAudioPlayer, successfully flag: Bool) {
         let cb = alTerminar; alTerminar = nil; DispatchQueue.main.async { cb?(true) }
+    }
+}
+
+// Reproductor STREAMING (modo rápido): recibe PCM float32 por HTTP y lo va sonando con un
+// jitter buffer (colchón). El server corre a baja prioridad → el audio no compite → parejo.
+private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
+    private let engine = AVAudioEngine()
+    private let player = AVAudioPlayerNode()
+    private let fmt = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+    private var acum = Data()
+    private var sonando = false
+    private let colchon = 40000            // ~1.7s de colchón: cubre las pausas entre frases
+                                          // del XTTS (que va ~1.3x tiempo real) sin trabas.
+    private let trozo = 4800               // ~0.2s por buffer
+    private var progr = 0
+    private var recibio = false
+    private var empezar: (() -> Void)?
+    private var done: ((Bool) -> Void)?
+    private var terminado = false
+
+    func reproducir(texto: String, url: URL, empezar: (() -> Void)?, completion: @escaping (Bool) -> Void) {
+        self.empezar = empezar; self.done = completion
+        engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: fmt)
+        do { try engine.start() } catch { finish(false); return }
+        var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 120
+        req.httpBody = texto.data(using: .utf8)
+        URLSession(configuration: .default, delegate: self, delegateQueue: nil).dataTask(with: req).resume()
+    }
+
+    func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        recibio = true; acum.append(data)
+        while acum.count >= trozo * 4 { encolar(trozo) }
+        if !sonando, progr >= colchon { arrancar() }
+    }
+    func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let r = acum.count / 4; if r > 0 { encolar(r) }
+        if !sonando { arrancar() }
+        finish(recibio && error == nil)
+    }
+    private func arrancar() { empezar?(); empezar = nil; player.play(); sonando = true }
+    private func encolar(_ n: Int) {
+        let bytes = n * 4
+        guard acum.count >= bytes, n > 0, let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else { return }
+        let b = acum.subdata(in: 0..<bytes); acum.removeSubrange(0..<bytes); pcm.frameLength = AVAudioFrameCount(n)
+        b.withUnsafeBytes { raw in let f = raw.bindMemory(to: Float32.self)
+            guard let out = pcm.floatChannelData?[0] else { return }; for i in 0..<n { out[i] = f[i] } }
+        player.scheduleBuffer(pcm); progr += n
+    }
+    private func finish(_ ok: Bool) {
+        if terminado { return }; terminado = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.done?(ok); self.done = nil }
     }
 }

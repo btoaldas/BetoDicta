@@ -14,6 +14,7 @@ struct MotorVozControl: View {
     @State private var progreso = ""
     @State private var instalando = false
     @State private var preactivar = Config.ttsXttsPreactivar()
+    @State private var rapido = Config.ttsXttsRapido()
     @State private var dormir = Config.ttsXttsDormir()
     @State private var dormirMin = Config.ttsXttsDormirMin()
     @State private var reco = ""
@@ -32,6 +33,12 @@ struct MotorVozControl: View {
                     .font(.caption)
                     .onChange(of: preactivar) { _, v in Config.set("tts_xtts_preactivar", to: v); Voz.preactivarLocal() }
                 Text("⚠️ Mantiene el clon (~2 GB) cargado en RAM mientras es tu voz activa: el Agente responde en ~1-2s en vez de recargar el modelo (~15s) cada vez. Si tu Mac va justa de memoria, apágalo (la 1ª respuesta tardará más). \(XttsServer.corriendo ? "🟢 en RAM ahora" : "⚪️ no cargado")")
+                    .font(.caption2).foregroundStyle(.secondary)
+                // Modo rápido: streaming (suena en ~1-2s) con el server a baja prioridad.
+                Toggle("Modo RÁPIDO (streaming: suena en ~1-2s mientras genera)", isOn: $rapido)
+                    .font(.caption)
+                    .onChange(of: rapido) { _, v in Config.set("tts_xtts_rapido", to: v); XttsServer.detener(); Voz.preactivarLocal() }
+                Text("Suena mientras genera: ~1-2s en respuestas CORTAS. En respuestas LARGAS puede entrecortar (el clon XTTS en CPU va al límite del tiempo real, no alcanza a ir adelante del audio). Apagado = por lotes (~4s pero SIEMPRE fluido). Para voz instantánea de verdad: ElevenLabs (nube).")
                     .font(.caption2).foregroundStyle(.secondary)
                 // Ahorro de recursos: dormir el clon tras N minutos (parametrizable).
                 Toggle("Dormir el clon tras inactividad (libera RAM/CPU; fn lo despierta)", isOn: $dormir)

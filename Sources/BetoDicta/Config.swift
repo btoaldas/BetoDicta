@@ -177,6 +177,12 @@ struct Config {
     /// Preactivar el servidor XTTS residente (modelo cargado en RAM) cuando el clon
     /// local es el motor activo → respuesta rápida. Default ON. Parametrizable.
     static func ttsXttsPreactivar() -> Bool { (json()["tts_xtts_preactivar"] as? Bool) ?? true }
+    /// Modo RÁPIDO del clon: streaming (suena en ~1-2s mientras genera) en vez de por
+    /// lotes (~4s pero garantizado fluido). El server corre a baja prioridad + hilos
+    /// limitados para que el audio no se trabe. Default OFF (el usuario lo activa).
+    static func ttsXttsRapido() -> Bool { (json()["tts_xtts_rapido"] as? Bool) ?? false }
+    /// Hilos de CPU para el clon (0 = auto: núcleos-4, deja CPU al audio). Parametrizable.
+    static func ttsXttsHilos() -> Int { (json()["tts_xtts_hilos"] as? Int) ?? 0 }
     /// DORMIR el clon (descargar el modelo, liberar RAM/CPU) tras N minutos sin usarse;
     /// se despierta al grabar (fn). Default ON, 5 min. No satura la Mac cuando no lo usas.
     static func ttsXttsDormir() -> Bool { (json()["tts_xtts_dormir"] as? Bool) ?? true }
