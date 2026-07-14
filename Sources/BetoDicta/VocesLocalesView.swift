@@ -110,6 +110,11 @@ struct VocesLocalesEditor: View {
                             Voz.probarVozLocal(v) { estado = "" }
                         }.controlSize(.small).help("Probar esta voz (genera en local, tarda)")
                         if !v.paquete.isEmpty {
+                            Toggle("stream", isOn: Binding(
+                                get: { v.streaming },
+                                set: { VocesLocales.fijarStreaming(v.id, $0); refrescar() }))
+                                .toggleStyle(.checkbox).font(.caption2)
+                                .help("Suena mientras genera (más rápido). Apágalo para generar completo y luego sonar.")
                             Button("⬇︎") { descargar(v) }.controlSize(.small).help("Descargar el paquete para llevarlo")
                         }
                         Button("Quitar") { VocesLocales.borrar(v.id); refrescar() }.controlSize(.small)

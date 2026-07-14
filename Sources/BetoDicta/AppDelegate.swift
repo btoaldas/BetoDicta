@@ -339,6 +339,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de STREAMING local XTTS: BETODICTA_XTTSSTREAM=<carpeta_paquete>
+        // corre inference_stream, captura los trozos a /tmp/betodicta_xtts_stream.wav.
+        if let pkg = ProcessInfo.processInfo.environment["BETODICTA_XTTSSTREAM"], !pkg.isEmpty {
+            print("XTTSSTREAM: motor=\(VozEngine.estado())")
+            let salida = URL(fileURLWithPath: "/tmp/betodicta_xtts_stream.wav")
+            XttsStreamTTS.capturarWav(paquete: URL(fileURLWithPath: pkg),
+                                      texto: "Hola mi hijo, esto suena por trozos mientras se genera. Chao, chao.",
+                                      salida: salida) { ok in
+                if ok, let d = try? Data(contentsOf: salida) { print("XTTSSTREAM OK → \(d.count) bytes WAV") }
+                else { print("XTTSSTREAM FALLÓ") }
+                exit(0)
+            }
+            RunLoop.main.run()
+            return
+        }
         // Prueba de IMPORTAR paquete: BETODICTA_IMPORTTEST=<carpeta> lo sube y reporta.
         if let pkg = ProcessInfo.processInfo.environment["BETODICTA_IMPORTTEST"], !pkg.isEmpty {
             let v = VocesLocales.importarPaquete(desde: URL(fileURLWithPath: pkg))

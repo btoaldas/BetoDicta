@@ -81,11 +81,19 @@ enum Voz {
             // Voz con PAQUETE + motor interno listo → lo corre BetoDicta solo.
             // Si no, cae al comando (bootstrap/externo). Si nada → siguiente motor.
             if let voz = VocesLocales.activa(), !voz.paquete.isEmpty, VozEngine.estado() == .listo {
-                VozEngine.correrPaquete(carpeta: URL(fileURLWithPath: voz.paquete), texto: texto) { url in
-                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
-                        Log.log(.ia, "TTS motor interno falló → siguiente motor"); siguiente()
+                let pkg = URL(fileURLWithPath: voz.paquete)
+                let batch: () -> Void = {
+                    VozEngine.correrPaquete(carpeta: pkg, texto: texto) { url in
+                        if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {
+                            Log.log(.ia, "TTS motor interno falló → siguiente motor"); siguiente()
+                        }
                     }
                 }
+                if voz.streaming {   // POR VOZ: suena mientras genera; si falla, batch
+                    XttsStreamTTS.hablar(paquete: pkg, texto: texto) { ok in
+                        if ok { done?() } else { Log.log(.ia, "TTS XTTS streaming falló → batch"); batch() }
+                    }
+                } else { batch() }
             } else {
                 XttsLocalTTS.decir(texto) { url in
                     if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) } else {

@@ -20,11 +20,14 @@ struct VozLocal: Codable, Identifiable, Equatable {
                               // el Agente responde con esta voz, la IA redacta en ESE estilo.
     var paquete: String = ""  // ruta a un PAQUETE portable (carpeta con voz_gen.py). Si
                               // está, se corre con el MOTOR interno (VozEngine), no con cmd.
+    var streaming: Bool = true // POR VOZ (no global): suena por trozos mientras genera
+                               // (XTTS inference_stream). Si off → genera completo y suena.
 
     // Decode tolerante: JSON viejos sin campos nuevos siguen cargando.
-    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete }
-    init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "") {
-        self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona; self.paquete = paquete
+    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete, streaming }
+    init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "", streaming: Bool = true) {
+        self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona
+        self.paquete = paquete; self.streaming = streaming
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -33,6 +36,7 @@ struct VozLocal: Codable, Identifiable, Equatable {
         cmd = try c.decode(String.self, forKey: .cmd)
         persona = (try? c.decode(String.self, forKey: .persona)) ?? ""
         paquete = (try? c.decode(String.self, forKey: .paquete)) ?? ""
+        streaming = (try? c.decode(Bool.self, forKey: .streaming)) ?? true
     }
 }
 
@@ -84,6 +88,12 @@ enum VocesLocales {
     }
 
     static func fijarActiva(_ id: String) { Config.set("tts_voz_local", to: id) }
+
+    /// Streaming ON/OFF por VOZ (no global). Con paquete + motor: suena mientras genera.
+    static func fijarStreaming(_ id: String, _ on: Bool) {
+        var list = todas()
+        if let i = list.firstIndex(where: { $0.id == id }) { list[i].streaming = on; guardar(list) }
+    }
 
     /// Carpeta donde BetoDicta guarda los paquetes de voz importados (gestionados).
     static var vocesDir: URL { Config.dir.appendingPathComponent("voces") }

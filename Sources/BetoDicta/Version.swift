@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.30.0"
+    static let numero = "0.31.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.31.0", "2026-07-14", [
+            "Motor de voz INTERNO y aislado: BetoDicta corre tus clones con su propio Python (se instala con un botón, ~3-4 GB bajo ~/.betodicta/, no toca tu sistema). Ya no dependes de herramientas externas",
+            "SUBIR y DESCARGAR voces: importa un paquete de voz portable (⬆︎) o descárgalo para llevarlo (⬇︎). Cada voz lleva su persona (cómo habla)",
+            "Streaming del clon local (por voz): tu voz clonada suena MIENTRAS se genera (1er sonido en ~1-2s). Activable por cada voz, no global",
+            "Arreglado: en la cascada de Modelos ya puedes arrastrar cualquier motor (Apple, Azure, OpenAI…) al orden que quieras — antes se trababa con proveedores ocultos",
+        ]),
         ("0.30.0", "2026-07-14", [
             "Apple Speech NATIVO como motor de dictado: on-device, gratis, sin API key, sin internet (macOS 26+). Actívalo en la cascada",
             "Voz del sistema mejorada: eliges motor (voz de macOS · ElevenLabs tu voz clonada · clon local) con failover — nunca queda mudo",

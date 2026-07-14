@@ -117,6 +117,42 @@ enum VozEngine {
         }
     }
 
+    // MARK: Streaming (XTTS inference_stream → PCM float32 por stdout)
+
+    static var streamRunnerURL: URL { dir.appendingPathComponent("stream_runner.py") }
+
+    /// Runner genérico de streaming: lee el manifest del paquete (betodicta-voz.json)
+    /// para hallar modelo/config/vocab/refs y emite PCM float32 (24000Hz mono) por
+    /// stdout conforme genera. Se escribe una vez; sirve para CUALQUIER paquete.
+    private static let runnerPy = """
+    import os, sys, json, warnings
+    warnings.filterwarnings("ignore")
+    os.environ["COQUI_TOS_AGREED"] = "1"; os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+    import torch
+    from TTS.tts.configs.xtts_config import XttsConfig
+    from TTS.tts.models.xtts import Xtts
+    PKG = sys.argv[1]; TXT = sys.argv[2]
+    man = {}
+    p = os.path.join(PKG, "betodicta-voz.json")
+    if os.path.exists(p):
+        man = json.load(open(p)).get("archivos", {})
+    def rel(k, d): return os.path.join(PKG, man.get(k, d))
+    config = XttsConfig(); config.load_json(rel("config", "config.json"))
+    model = Xtts.init_from_config(config)
+    model.load_checkpoint(config, checkpoint_path=rel("modelo", "xtts_mama_3000_slim.pth"),
+                          vocab_path=rel("vocab", "vocab.json"), use_deepspeed=False)
+    model.cpu(); model.train(False)
+    refs = [os.path.join(PKG, l.strip()) for l in open(rel("ref_list", "ref_list.txt")) if l.strip()]
+    gpt_lat, spk = model.get_conditioning_latents(audio_path=refs)
+    out = sys.stdout.buffer
+    for chunk in model.inference_stream(TXT, "es", gpt_lat, spk, temperature=0.55, enable_text_splitting=True):
+        out.write(chunk.cpu().numpy().astype("<f4").tobytes()); out.flush()
+    """
+
+    static func asegurarStreamRunner() {
+        try? runnerPy.data(using: .utf8)?.write(to: streamRunnerURL)
+    }
+
     static func desinstalar() { try? FileManager.default.removeItem(at: dir) }
 
     // MARK: Utilidades
