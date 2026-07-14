@@ -6,11 +6,19 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.29.0"
+    static let numero = "0.30.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.30.0", "2026-07-14", [
+            "Apple Speech NATIVO como motor de dictado: on-device, gratis, sin API key, sin internet (macOS 26+). Actívalo en la cascada",
+            "Voz del sistema mejorada: eliges motor (voz de macOS · ElevenLabs tu voz clonada · clon local) con failover — nunca queda mudo",
+            "ElevenLabs por STREAMING (WebSocket): tu voz clonada empieza a sonar en ~75-130ms mientras se genera",
+            "Biblioteca de VOCES clonadas locales: agrega/sube/elige tus voces; cada una con su PERSONA (cómo habla) — el Agente redacta en ese estilo y lo dice con esa voz. 100% local",
+            "Pulido MÁS RÁPIDO tras inactividad: la red se mantiene caliente (latido) y el pulido reusa la conexión — sin la espera de ~14s con VPN",
+            "Modo Agente: te responde por voz + texto usando tus tareas/notas; eliges con qué IA piensa y con qué voz habla",
+        ]),
         ("0.29.0", "2026-07-14", [
             "Muchos más buscadores en el modo Buscar: Wikipedia, Gmail, Outlook/Hotmail, Facebook, Amazon, MercadoLibre, X (Twitter), GitHub — y puedes AGREGAR los tuyos (nombre + URL con {q})",
             "Embeddings LOCALES por defecto (Ollama bge-m3): el glosario inteligente, el reconocimiento de modos y la búsqueda semántica corren en tu Mac — gratis, privados, sin internet ni latencia. Y si no tienes ningún motor, la app sigue funcionando igual (sin error ni demora)",
