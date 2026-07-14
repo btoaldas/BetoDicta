@@ -339,6 +339,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Bench de latencia de red: BETODICTA_REDBENCH=1 mide si la 2ª petición
+        // REUSA la conexión caliente (sin handshake TLS) — prueba el fix del latido.
+        if ProcessInfo.processInfo.environment["BETODICTA_REDBENCH"] == "1" {
+            let host = ChatIA.seleccionada()?.base ?? "https://api.groq.com"
+            let bench = RedBench()
+            bench.correr(host: host) { exit(0) }
+            RunLoop.main.run()
+            return
+        }
         // Prueba de TTS ElevenLabs (voz clonada Bto): BETODICTA_TTSTEST=<texto>
         // sintetiza y guarda /tmp/betodicta_tts.mp3, reporta bytes, y sale.
         if let txt = ProcessInfo.processInfo.environment["BETODICTA_TTSTEST"], !txt.isEmpty {
@@ -821,8 +830,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // vuelve al modo por defecto; si es sticky, respeta el último).
         ModosStore.revertirADefecto()
         panel.setModo(ModosStore.activo())
-        // Despierta el túnel VPN poco después de arrancar (el 1er dictado ya lo halla vivo).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { CalientaRed.despertar() }
+        // Arranca el LATIDO de red: mantiene túnel + conexión TLS calientes para que
+        // el pulido responda rápido aunque dictes cada varios minutos.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { CalientaRed.iniciarLatido() }
 
         // Caja negra: rescatar dictados de sesiones que murieron a medias,
         // y matar whisper-servers huérfanos de crashes anteriores.

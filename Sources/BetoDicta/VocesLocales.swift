@@ -68,9 +68,22 @@ enum VocesLocales {
     static func detectarDeVozClon() -> [(nombre: String, cmd: String)] {
         let base = (Config.vozClonBase() as NSString).expandingTildeInPath
         let fm = FileManager.default
-        let proyDir = base + "/proyectos"
-        guard let proyectos = try? fm.contentsOfDirectory(atPath: proyDir) else { return [] }
         var out: [(String, String)] = []
+
+        // (a) Scripts de voz LISTOS en la base (voz_*.sh, como voz_mama_rapid.sh):
+        //     ya envuelven un clon entrenado. Comando: bash <base>/<script> "{texto}" {salida} 1.0
+        if let archivos = try? fm.contentsOfDirectory(atPath: base) {
+            for f in archivos.sorted() where f.hasPrefix("voz_") && f.hasSuffix(".sh") {
+                let nombre = f.dropFirst(4).dropLast(3)          // sin "voz_" ni ".sh"
+                    .replacingOccurrences(of: "_", with: " ").capitalized
+                let cmd = "bash \(base)/\(f) \"{texto}\" {salida} 1.0"
+                out.append((nombre, cmd))
+            }
+        }
+
+        // (b) Proyectos ENTRENADOS en proyectos/ (usa su mejor checkpoint slim).
+        let proyDir = base + "/proyectos"
+        guard let proyectos = try? fm.contentsOfDirectory(atPath: proyDir) else { return out }
         for p in proyectos.sorted() where !p.hasPrefix("_") && !p.hasPrefix(".") {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: proyDir + "/" + p, isDirectory: &isDir), isDir.boolValue else { continue }

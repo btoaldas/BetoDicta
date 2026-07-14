@@ -159,6 +159,9 @@ struct Config {
     static func buscadoresPersonales() -> [[String: String]] { (json()["buscadores_personales"] as? [[String: String]]) ?? [] }
     /// Despertar el túnel de red al grabar (mitiga latencia del 1er dictado con VPN). Default ON.
     static func calentarRed() -> Bool { (json()["calentar_red"] as? Bool) ?? true }
+    /// Cada cuántos segundos late la red para mantener la conexión caliente (pulido
+    /// rápido aunque dictes cada varios minutos). Default 15s. Parametrizable.
+    static func latidoRedSegundos() -> Double { (json()["latido_red_segundos"] as? Double) ?? 15 }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }
