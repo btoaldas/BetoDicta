@@ -73,6 +73,15 @@ enum Voz {
         }
     }
 
+    /// Prueba UNA voz local concreta (la genera con su comando y la reproduce),
+    /// sin importar cuál sea el motor activo. Para el botón "Probar" de la biblioteca.
+    static func probarVozLocal(_ voz: VozLocal, _ done: (() -> Void)? = nil) {
+        XttsLocalTTS.decirCon(cmd: voz.cmd, texto: "Hola, esta es la voz de \(voz.nombre).") { url in
+            if let url, let data = try? Data(contentsOf: url) { reproducir(data, done) }
+            else { DispatchQueue.main.async { done?() } }
+        }
+    }
+
     /// Reproduce audio (mp3/wav) ya generado.
     private static func reproducir(_ data: Data, _ done: (() -> Void)?) {
         DispatchQueue.main.async {
@@ -150,7 +159,13 @@ enum XttsLocalTTS {
     /// {salida} se sustituyen (ej. `bash ~/Downloads/VozClonPOC/clonar.sh decir Bto run/ckpt.pth "{texto}" {salida}`).
     /// Vacío = motor no configurado → failover. NO bloquea la UI (corre en background).
     static func decir(_ texto: String, completion: @escaping (URL?) -> Void) {
-        let plantilla = Config.ttsXttsCmd()
+        // La voz activa de la biblioteca manda; si no hay ninguna, el comando suelto (compat).
+        let plantilla = VocesLocales.activa()?.cmd ?? Config.ttsXttsCmd()
+        decirCon(cmd: plantilla, texto: texto, completion: completion)
+    }
+
+    /// Genera con un comando concreto (para probar una voz sin fijarla activa).
+    static func decirCon(cmd plantilla: String, texto: String, completion: @escaping (URL?) -> Void) {
         guard !plantilla.trimmingCharacters(in: .whitespaces).isEmpty else { completion(nil); return }
         let salida = FileManager.default.temporaryDirectory
             .appendingPathComponent("betodicta-xtts-\(abs(texto.hashValue)).mp3")

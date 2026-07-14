@@ -149,7 +149,12 @@ struct Config {
     static func ttsElevenModelo() -> String { (json()["tts_eleven_modelo"] as? String) ?? "eleven_flash_v2_5" }
     /// Comando de shell para tu clon LOCAL XTTS (VozClonPOC). {texto} y {salida}
     /// se sustituyen. Vacío = motor no configurado (failover). Parametrizable.
+    /// (Compat: se usa si no hay voces en la biblioteca [[VocesLocales]].)
     static func ttsXttsCmd() -> String { (json()["tts_xtts_cmd"] as? String) ?? "" }
+    /// Voz LOCAL clonada seleccionada de la biblioteca (id). Vacío = la primera.
+    static func ttsVozLocal() -> String { (json()["tts_voz_local"] as? String) ?? "" }
+    /// Carpeta base de VozClonPOC (para el botón "Detectar mis voces"). Parametrizable.
+    static func vozClonBase() -> String { (json()["voz_clon_base"] as? String) ?? "~/Downloads/VozClonPOC" }
     /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.
     static func buscadoresPersonales() -> [[String: String]] { (json()["buscadores_personales"] as? [[String: String]]) ?? [] }
     /// Despertar el túnel de red al grabar (mitiga latencia del 1er dictado con VPN). Default ON.

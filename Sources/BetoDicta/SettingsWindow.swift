@@ -750,13 +750,7 @@ struct SettingsView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             if m.ttsProveedor == "xtts_local" {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Comando de tu clon local (usa {texto} y {salida}):").font(.caption)
-                                    TextField("bash ~/Downloads/VozClonPOC/clonar.sh decir Bto run/ckpt.pth \"{texto}\" {salida}", text: $m.ttsXttsCmd)
-                                        .textFieldStyle(.roundedBorder).frame(width: 420)
-                                }
-                                Text("100% offline con tu voz entrenada (XTTS). Vacío = desactivado. Es batch (genera y luego suena); en CPU tarda unos segundos.")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                VocesLocalesEditor()
                             }
                             Button("🔊 Probar voz") {
                                 Voz.decir("Hola Alberto. Soy BetoDicta y ya puedo hablarte con el motor que elegiste.")
