@@ -221,8 +221,9 @@ enum ModosStore {
                                  reconocer: (String) -> String?) -> (String, String)? {
         var tokens = texto.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
         guard !tokens.isEmpty else { return nil }
-        if tokens.count > 1, fillers.contains(normalizar(tokens[0])) { tokens.removeFirst() }  // "al", "en"
-        guard let primero = tokens.first, let canon = reconocer(primero) else { return nil }
+        if tokens.count > 1, fillers.contains(limpioTok(tokens[0])) { tokens.removeFirst() }  // "al", "en"
+        // Reconoce quitando la puntuación pegada ("portugués," → "portugués").
+        guard let primero = tokens.first, let canon = reconocer(limpioTok(primero)) else { return nil }
         let resto = tokens.dropFirst().joined(separator: " ")
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n"))
         return (canon, resto)
@@ -384,7 +385,7 @@ enum Acciones {
         ("safari",        "Safari",                          "", "com.apple.Safari"),
         ("musica",        "Música",                          "", "com.apple.Music"),
         ("terminal",      "Terminal (copia el texto)",       "", "com.apple.Terminal"),
-        ("mapas",         "Mapas",                           "", "com.apple.Maps"),
+        ("mapas",         "Mapas (busca lo dictado)",        "https://maps.apple.com/?q={q}", "com.apple.Maps"),
         ("fotos",         "Fotos",                           "", "com.apple.Photos"),
         ("contactos",     "Contactos",                       "", "com.apple.AddressBook"),
         ("textedit",      "TextEdit (copia el texto)",       "", "com.apple.TextEdit"),
@@ -498,14 +499,21 @@ extension ModosStore {
             i += 1
             if v.tipo == "transform" {
                 var m = modo(v.id)
-                if m.base == "traducir", i < tokens.count, let idi = Idiomas.reconocer(limpioTok(tokens[i])) {
-                    m.idiomaDestino = idi; i += 1
+                if m.base == "traducir" {
+                    // salta conectores ("a", "al"…) y toma el idioma si viene
+                    var j = i
+                    while j < tokens.count, conectores.contains(limpioTok(tokens[j])) { j += 1 }
+                    if j < tokens.count, let idi = Idiomas.reconocer(limpioTok(tokens[j])) { m.idiomaDestino = idi; i = j + 1 }
                 }
                 transforms.append(m)
             } else if v.id == "buscar" {
                 var b = modo("buscar")
                 if let eng = Buscadores.reconocer(w) { b.buscador = eng }
-                else if i < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[i])) { b.buscador = eng; i += 1 }
+                else {
+                    var j = i
+                    while j < tokens.count, conectores.contains(limpioTok(tokens[j])) { j += 1 }
+                    if j < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[j])) { b.buscador = eng; i = j + 1 }
+                }
                 accion = b
             } else {
                 accion = Modo(id: "cadena-\(v.id)", nombre: Acciones.nombre(v.id),

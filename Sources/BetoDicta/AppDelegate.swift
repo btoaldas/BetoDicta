@@ -338,6 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ("mudo tarea hacer la merienda", "tarea", "hacer la merienda", nil),   // alias mal-escucha
                 ("molde tarea comprar pan", "tarea", "comprar pan", nil),              // alias mal-escucha
                 ("modo tarea", "tarea", "", nil),                                       // solo comando → vacío (deliver lo filtra)
+                ("modo traducir portugués, nos vemos mañana", "traducir", "nos vemos mañana", "portugués"), // idioma con coma
             ]
             var ok = true
             for (texto, idEsp, limpioEsp, argEsp) in casos {
@@ -457,6 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ("Modo traducir quichua a WhatsApp, cómo estás amigo", ["traducir:quichua"], "whatsapp", "cómo estás amigo"),
                 ("modo traduce inglés y buscador, mejores laptops", ["traducir:inglés"], "buscar:google", "mejores laptops"), // raíz: traduce, buscador
                 ("modo oficio outlook, solicito permiso el viernes", ["oficio"], "outlook", "solicito permiso el viernes"),
+                ("Modo traducir a inglés correo, estimado equipo nos vemos", ["traducir:inglés"], "correo", "estimado equipo nos vemos"), // idioma tras conector "a"
                 ("modo tarea comprar pan", [], "NIL", ""),   // 1 etapa → cadena nil (lo maneja el modo único)
             ]
             var ok = true
@@ -1851,7 +1853,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Solo dijiste el COMANDO, sin contenido (ej. "modo tarea" y nada más):
         // no guardes/proceses vacío. Avisa y no hagas nada (evita tareas vacías).
-        if modo.id != "dictado",
+        // Excepción: Acción/Buscar de solo-abrir NO necesitan texto ("modo calendario").
+        if modo.id != "dictado", ["pulir", "traducir", "responder"].contains(modo.base),
            textoFinal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Log.write("  ⏭︎ modo \(modo.nombre) sin contenido — no se procesa")
             if !recorder.isRecording { panel.flash("🎤 \"\(modo.nombre)\" sin contenido — dilo con el texto", segundos: 2) }
@@ -1947,32 +1950,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Modo Acción (Fase 5): abre una app / correo / web con el texto dictado.
     /// Con esquema (mailto/whatsapp/ms-outlook/URL) precarga el texto; sin esquema
     /// (Notas/Finder/…) copia el texto al portapapeles y abre la app por bundle id.
+    /// Escapa texto para incrustarlo en un literal de AppleScript.
+    private func escAS(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    }
+    /// Corre AppleScript en segundo plano (pide permiso de Automatización la 1ª vez).
+    private func correrAppleScript(_ src: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var err: NSDictionary?
+            NSAppleScript(source: src)?.executeAndReturnError(&err)
+            if let err { Log.write("AppleScript acción: \(err[NSAppleScript.errorMessage] ?? err)") }
+        }
+    }
+
     private func ejecutarAccion(_ texto: String, modo: Modo, wav: Data, history: HistoryWriter?) {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = modo.accion.isEmpty ? "correo" : modo.accion
         Log.write("  ▶︎ acción (\(Acciones.nombre(id))): \(t)")
         history?.finish(wav: wav, finalText: "▶︎ \(Acciones.nombre(id)): \(t)")
-        if id == "spotlight" {
-            // ⌘Espacio y pega la consulta en Spotlight (tú eliges el resultado).
+        switch id {
+        case "spotlight":
             abrirSpotlight()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { pasteText(t) }
-        } else if id == "whatsapp" {
-            // Failover: app de escritorio si está; si no, wa.me (web) + sugerir instalarla.
+        case "whatsapp":
             let tieneApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Acciones.bundle("whatsapp")) != nil
             if let url = URL(string: Acciones.whatsapp(texto: t, app: tieneApp)) { NSWorkspace.shared.open(url) }
             if !tieneApp, !recorder.isRecording {
                 panel.flash("💡 Instala WhatsApp de escritorio para abrirlo directo", segundos: 3)
             }
-        } else if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
-            NSWorkspace.shared.open(url)
-        } else {
-            // Solo abrir app: deja el texto en el portapapeles para pegar + abre el bundle.
-            if !t.isEmpty {
-                NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string)
-            }
-            let bid = Acciones.bundle(id)
-            if !bid.isEmpty, let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
-                NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        case "notas" where !t.isEmpty:
+            // AppleScript: crea una nota NUEVA con el texto (título = 1ª línea).
+            correrAppleScript("tell application \"Notes\"\nactivate\nmake new note with properties {body:\"\(escAS(t))\"}\nend tell")
+        case "recordatorios" where !t.isEmpty:
+            correrAppleScript("tell application \"Reminders\"\nactivate\nmake new reminder with properties {name:\"\(escAS(t))\"}\nend tell")
+        case "textedit" where !t.isEmpty:
+            correrAppleScript("tell application \"TextEdit\"\nactivate\nmake new document with properties {text:\"\(escAS(t))\"}\nend tell")
+        case "outlook" where !t.isEmpty:
+            // AppleScript: nuevo correo con el texto (el esquema ms-outlook no prellena).
+            correrAppleScript("tell application \"Microsoft Outlook\"\nactivate\nset m to make new outgoing message with properties {content:\"\(escAS(t))\"}\nopen m\nend tell")
+        default:
+            if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
+                NSWorkspace.shared.open(url)   // correo mailto, mapas, url propia
+            } else {
+                // Solo abrir la app (Finder/Safari/…): copia el texto por si lo pegas.
+                if !t.isEmpty { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string) }
+                let bid = Acciones.bundle(id)
+                if !bid.isEmpty, let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
+                    NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+                }
             }
         }
         playSound("Glass")
