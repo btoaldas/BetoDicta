@@ -61,6 +61,10 @@ final class ProvidersModel: ObservableObject {
     func toggle(_ id: String) {
         if let i = lista.firstIndex(where: { $0.id == id }) { lista[i].activo.toggle(); guardar() }
     }
+    /// Cambia el modelo/parámetro de un proveedor (ej. idioma de Apple Speech).
+    func fijarModelo(_ id: String, _ modelo: String) {
+        if let i = lista.firstIndex(where: { $0.id == id }) { lista[i].modelo = modelo; guardar() }
+    }
     func subir(_ i: Int) { guard i > 0 else { return }; lista.swapAt(i, i - 1); guardar() }
     func bajar(_ i: Int) { guard i < lista.count - 1 else { return }; lista.swapAt(i, i + 1); guardar() }
 
@@ -238,6 +242,22 @@ struct ModelsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 Text("Los motores locales de transcripción (Ollama/LM Studio) solo aparecen si tienen un modelo whisper. Si no lo ves, haz 'ollama pull whisper' (o carga uno en LM Studio).")
                     .font(.caption2).foregroundStyle(.secondary)
+                // Parámetro de Apple Speech (idioma): se asoma abajo si el proveedor existe.
+                if let apple = m.lista.first(where: { $0.id == "apple_speech" }) {
+                    HStack(spacing: 8) {
+                        Text("Apple Speech · idioma:").font(.caption)
+                        Picker("", selection: Binding(
+                            get: { apple.modelo ?? "es-EC" },
+                            set: { m.fijarModelo("apple_speech", $0) })) {
+                            Text("Español (Ecuador)").tag("es-EC")
+                            Text("Español (México)").tag("es-MX")
+                            Text("Español (España)").tag("es-ES")
+                            Text("Español (EE.UU.)").tag("es-US")
+                            Text("Inglés (EE.UU.)").tag("en-US")
+                        }.labelsHidden().frame(width: 200)
+                        Text("on-device; es-EC se mapea al español más cercano").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
             }
             .onAppear { ChatIA.detectarSTTLocales { sttTick += 1 } }
 

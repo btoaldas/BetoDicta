@@ -22,9 +22,21 @@ enum VozEngine {
     private static var marcador: URL { dir.appendingPathComponent(".listo") }
 
     // Versiones PROBADAS (mismas que el venv que funciona). No subir a ciegas:
-    // transformers 5.x rompe coqui-tts (isin_mps_friendly).
+    // transformers 5.x rompe coqui-tts (isin_mps_friendly); setuptools 81+ quita pkg_resources.
     private static let pins = ["torch==2.5.1", "torchaudio==2.5.1",
-                               "coqui-tts==0.27.5", "transformers==4.57.6"]
+                               "coqui-tts==0.27.5", "transformers==4.57.6", "setuptools<81"]
+
+    // Deps EXTRA para ENTRENAR (además de las de inferencia): Whisper (transcribir),
+    // Resemblyzer (elegir el mejor checkpoint por d-vector), librosa/soundfile (audio),
+    // matplotlib (gráficas). Todo cacheable → instalación rápida tras la 1ª vez.
+    private static let pinsEntreno = ["mlx-whisper", "resemblyzer", "librosa", "soundfile", "matplotlib"]
+
+    /// Carpeta del pipeline internalizado (scripts de clonación + xtts_base).
+    static var pipelineDir: URL { dir.appendingPathComponent("pipeline") }
+    static var entrenoListo: Bool {
+        FileManager.default.fileExists(atPath: pipelineDir.appendingPathComponent("clonar/train.py").path)
+            && FileManager.default.fileExists(atPath: pipelineDir.appendingPathComponent("xtts_base/dvae.pth").path)
+    }
 
     enum Estado { case noInstalado, instalando, listo }
     private(set) static var instalando = false
@@ -114,6 +126,51 @@ enum VozEngine {
                 Log.log(.ia, "VozEngine: falló correr el paquete (\(error.localizedDescription))")
                 DispatchQueue.main.async { completion(nil) }
             }
+        }
+    }
+
+    // MARK: Entrenamiento (instala deps extra + pipeline internalizado)
+
+    /// Prepara el motor para ENTRENAR: instala las deps extra y deja el pipeline
+    /// (scripts + xtts_base) bajo voz-engine/pipeline/. Requiere el motor base listo.
+    /// Nota: hoy el pipeline y xtts_base se copian de la carpeta VozClonPOC del usuario
+    /// (bootstrap de Alberto); en el producto se EMPAQUETAN en la app o se descargan.
+    static func instalarEntrenamiento(onProgreso: @escaping (String) -> Void,
+                                      completion: @escaping (Bool, String) -> Void) {
+        guard estado() == .listo else { completion(false, "Primero instala el motor de voz."); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                onProgreso("Instalando herramientas de entrenamiento (Whisper, Resemblyzer, gráficas)…")
+                let uv = try localizarObajarUv(onProgreso)
+                try correr(uv, ["pip", "install", "--python", pythonURL.path] + pinsEntreno, onProgreso)
+                onProgreso("Copiando el pipeline de clonación…")
+                try prepararPipeline()
+                guard entrenoListo else { throw Err.proceso(0, "faltan scripts/xtts_base del pipeline") }
+                DispatchQueue.main.async { completion(true, "Entrenamiento listo.") }
+            } catch {
+                DispatchQueue.main.async { completion(false, "Falló: \(error.localizedDescription)") }
+            }
+        }
+    }
+
+    /// Deja los scripts del pipeline + xtts_base bajo voz-engine/pipeline/.
+    private static func prepararPipeline() throws {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: pipelineDir.appendingPathComponent("clonar"), withIntermediateDirectories: true)
+        // Fuente bootstrap: la carpeta VozClonPOC del usuario (parametrizable).
+        let base = (Config.vozClonBase() as NSString).expandingTildeInPath
+        let srcClonar = base + "/clonar"
+        let srcXtts = base + "/xtts_base"
+        if let scripts = try? fm.contentsOfDirectory(atPath: srcClonar) {
+            for f in scripts where f.hasSuffix(".py") {
+                let dst = pipelineDir.appendingPathComponent("clonar/" + f)
+                try? fm.removeItem(at: dst)
+                try? fm.copyItem(atPath: srcClonar + "/" + f, toPath: dst.path)
+            }
+        }
+        let xttsDst = pipelineDir.appendingPathComponent("xtts_base")
+        if !fm.fileExists(atPath: xttsDst.path), fm.fileExists(atPath: srcXtts) {
+            try? fm.copyItem(atPath: srcXtts, toPath: xttsDst.path)
         }
     }
 

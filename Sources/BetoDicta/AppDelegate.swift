@@ -339,6 +339,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de ORQUESTACIÓN del entrenador: BETODICTA_ENTRENARTEST=<carpeta_audio>
+        // corre dataset → arranca train, confirma que dio pasos, y lo MATA (atajo Alberto).
+        if let car = ProcessInfo.processInfo.environment["BETODICTA_ENTRENARTEST"], !car.isEmpty {
+            print("ENTRENARTEST motor=\(VozEngine.estado()) entrenoListo=\(VozEngine.entrenoListo)")
+            Entrenador.entrenar(carpeta: URL(fileURLWithPath: car), nombre: "prueba", stamp: "test",
+                onProgreso: { p in print("ENTRENARTEST fase=\(p.fase) \(p.texto)") },
+                onArranco: { ok, msg in
+                    print("ENTRENARTEST arrancó=\(ok) — \(msg)")
+                    Entrenador.detener()
+                    exit(ok ? 0 : 1)
+                })
+            RunLoop.main.run()
+            return
+        }
         // Prueba del recomendador de entrenamiento: BETODICTA_PLANTEST=1
         if ProcessInfo.processInfo.environment["BETODICTA_PLANTEST"] == "1" {
             for m in [40.0, 90, 150, 300, 480] {

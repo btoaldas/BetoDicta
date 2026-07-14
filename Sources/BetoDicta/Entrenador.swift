@@ -67,4 +67,100 @@ enum Entrenador {
     static func horasEstimadas(etapas: Int, segPorPaso: Double = 3.0) -> Double {
         Double(etapas) * segPorPaso / 3600.0
     }
+
+    // MARK: Orquestación (dataset → train en background)
+
+    /// Carpeta donde viven los proyectos de entrenamiento (gestionados).
+    static var proyectosDir: URL { Config.dir.appendingPathComponent("entrenamientos") }
+    private static var trainProc: Process?
+
+    struct Progreso { var fase: String; var paso: Int; var total: Int; var texto: String }
+
+    /// Lanza un entrenamiento: FASE dataset (Whisper) → FASE train (background).
+    /// `stamp` = marca de tiempo para el nombre del proyecto (se pasa desde afuera:
+    /// los scripts no pueden usar Date()). `onArranco(true)` cuando train ya da pasos.
+    /// Corre en el motor AISLADO. NO espera a terminar (son horas); el caller decide.
+    static func entrenar(carpeta: URL, nombre: String, stamp: String,
+                         onProgreso: @escaping (Progreso) -> Void,
+                         onArranco: @escaping (Bool, String) -> Void) {
+        guard VozEngine.estado() == .listo, VozEngine.entrenoListo else {
+            onArranco(false, "El motor de entrenamiento no está listo."); return
+        }
+        let proyecto = proyectosDir.appendingPathComponent("\(slug(nombre))_\(stamp)")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fm = FileManager.default
+            try? fm.createDirectory(at: proyecto, withIntermediateDirectories: true)
+            let clonar = VozEngine.pipelineDir.appendingPathComponent("clonar")
+            // FASE 1 — dataset (build_ds.py). Sincrónico; con VAL_N/VAL_SEC del spec.
+            DispatchQueue.main.async { onProgreso(Progreso(fase: "dataset", paso: 0, total: 0, texto: "Transcribiendo audios (Whisper)…")) }
+            let ds = Process(); ds.executableURL = VozEngine.pythonURL
+            ds.arguments = [clonar.appendingPathComponent("build_ds.py").path, carpeta.path, proyecto.path]
+            var env = ProcessInfo.processInfo.environment
+            env["COQUI_TOS_AGREED"] = "1"; env["VAL_N"] = "\(valN)"; env["VAL_SEC"] = "\(valSeg)"
+            ds.environment = env
+            let dsLog = proyecto.appendingPathComponent("dataset.log")
+            fm.createFile(atPath: dsLog.path, contents: nil)
+            if let fh = try? FileHandle(forWritingTo: dsLog) { ds.standardOutput = fh; ds.standardError = fh }
+            do { try ds.run(); ds.waitUntilExit() } catch {
+                DispatchQueue.main.async { onArranco(false, "Falló el dataset: \(error.localizedDescription)") }; return
+            }
+            guard ds.terminationStatus == 0,
+                  let n = try? String(contentsOf: proyecto.appendingPathComponent("dataset/metadata_train.csv"), encoding: .utf8),
+                  n.split(separator: "\n").count > 1 else {
+                DispatchQueue.main.async { onArranco(false, "El dataset quedó vacío (¿audio muy corto?).") }; return
+            }
+            // FASE 2 — train (train.py) en BACKGROUND → train.log.
+            DispatchQueue.main.async { onProgreso(Progreso(fase: "train", paso: 0, total: 0, texto: "Arrancando el entrenamiento…")) }
+            let tr = Process(); tr.executableURL = VozEngine.pythonURL
+            tr.arguments = [clonar.appendingPathComponent("train.py").path, proyecto.path]
+            tr.environment = env
+            let trLog = proyecto.appendingPathComponent("train.log")
+            fm.createFile(atPath: trLog.path, contents: nil)
+            if let fh = try? FileHandle(forWritingTo: trLog) { tr.standardOutput = fh; tr.standardError = fh }
+            do { try tr.run() } catch {
+                DispatchQueue.main.async { onArranco(false, "No pude lanzar el entrenamiento.") }; return
+            }
+            trainProc = tr
+            // Espera a que dé el 1er paso (arrancó de verdad) o muera.
+            var arranco = false
+            for _ in 0..<120 {
+                Thread.sleep(forTimeInterval: 1)
+                let p = leerProgreso(proyecto)
+                if p.total > 0 { DispatchQueue.main.async { onProgreso(p) } }
+                if p.paso >= 0 && p.total > 0 && registroTieneStep(trLog) { arranco = true; break }
+                if !tr.isRunning { break }
+            }
+            DispatchQueue.main.async {
+                onArranco(arranco && tr.isRunning, arranco ? "Entrenando en \(proyecto.lastPathComponent)" : "El entrenamiento no arrancó.")
+            }
+        }
+    }
+
+    static func detener() { trainProc?.terminate(); trainProc = nil }
+
+    /// Lee el avance desde train.log (STEP/GLOBAL_STEP y el total del [PLAN]).
+    static func leerProgreso(_ proyecto: URL) -> Progreso {
+        let log = (try? String(contentsOf: proyecto.appendingPathComponent("train.log"), encoding: .utf8)) ?? ""
+        func ultimo(_ patron: String) -> Int? {
+            guard let re = try? NSRegularExpression(pattern: patron) else { return nil }
+            let ms = re.matches(in: log, range: NSRange(log.startIndex..., in: log))
+            guard let m = ms.last, let r = Range(m.range(at: 1), in: log) else { return nil }
+            return Int(log[r])
+        }
+        let paso = ultimo("GLOBAL_STEP: (\\d+)") ?? 0
+        let total = ultimo("~(\\d+) pasos") ?? 0
+        return Progreso(fase: "train", paso: paso, total: total,
+                        texto: total > 0 ? "Paso \(paso) de \(total)" : "Preparando…")
+    }
+
+    private static func registroTieneStep(_ log: URL) -> Bool {
+        guard let t = try? String(contentsOf: log, encoding: .utf8) else { return false }
+        return t.contains("GLOBAL_STEP:")
+    }
+
+    static func slug(_ s: String) -> String {
+        let b = s.lowercased().folding(options: .diacriticInsensitive, locale: nil)
+            .replacingOccurrences(of: " ", with: "-").filter { $0.isLetter || $0.isNumber || $0 == "-" }
+        return b.isEmpty ? "voz" : b
+    }
 }
