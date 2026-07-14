@@ -15,6 +15,7 @@ struct MotorVozControl: View {
     @State private var instalando = false
     @State private var preactivar = Config.ttsXttsPreactivar()
     @State private var rapido = Config.ttsXttsRapido()
+    @State private var colchonSeg = Config.ttsXttsColchonSeg()
     @State private var dormir = Config.ttsXttsDormir()
     @State private var dormirMin = Config.ttsXttsDormirMin()
     @State private var reco = ""
@@ -38,8 +39,16 @@ struct MotorVozControl: View {
                 Toggle("Modo RÁPIDO (streaming: suena en ~1-2s mientras genera)", isOn: $rapido)
                     .font(.caption)
                     .onChange(of: rapido) { _, v in Config.set("tts_xtts_rapido", to: v); XttsServer.detener(); Voz.preactivarLocal() }
-                Text("Suena mientras genera: ~1-2s en respuestas CORTAS. En respuestas LARGAS puede entrecortar (el clon XTTS en CPU va al límite del tiempo real, no alcanza a ir adelante del audio). Apagado = por lotes (~4s pero SIEMPRE fluido). Para voz instantánea de verdad: ElevenLabs (nube).")
+                Text("Suena mientras genera, arrancando en ~el caché de abajo (más caché = más fluido, cubre las pausas del XTTS). Apagado = por lotes (~4s, siempre fluido).")
                     .font(.caption2).foregroundStyle(.secondary)
+                if rapido {
+                    HStack {
+                        Text("Caché \(String(format: "%.1f", colchonSeg))s").font(.caption2)
+                        Slider(value: $colchonSeg, in: 1...6, step: 0.5) { _ in Config.set("tts_xtts_colchon_seg", to: colchonSeg) }
+                            .frame(width: 200)
+                        Text("(sube si se entrecorta)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
                 // Ahorro de recursos: dormir el clon tras N minutos (parametrizable).
                 Toggle("Dormir el clon tras inactividad (libera RAM/CPU; fn lo despierta)", isOn: $dormir)
                     .font(.caption)

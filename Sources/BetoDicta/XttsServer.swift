@@ -149,8 +149,9 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
     private let fmt = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
     private var acum = Data()
     private var sonando = false
-    private let colchon = 40000            // ~1.7s de colchón: cubre las pausas entre frases
-                                          // del XTTS (que va ~1.3x tiempo real) sin trabas.
+    // Colchón (caché) parametrizable: junta N segundos de audio antes de sonar, para
+    // cubrir las pausas entre frases del XTTS → fluido, arrancando en ~ese tiempo.
+    private let colchon = Int(Config.ttsXttsColchonSeg() * 24000)
     private let trozo = 4800               // ~0.2s por buffer
     private var progr = 0
     private var recibio = false

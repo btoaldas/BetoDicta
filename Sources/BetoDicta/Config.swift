@@ -183,6 +183,10 @@ struct Config {
     static func ttsXttsRapido() -> Bool { (json()["tts_xtts_rapido"] as? Bool) ?? false }
     /// Hilos de CPU para el clon (0 = auto: núcleos-4, deja CPU al audio). Parametrizable.
     static func ttsXttsHilos() -> Int { (json()["tts_xtts_hilos"] as? Int) ?? 0 }
+    /// Colchón (caché) del modo rápido en SEGUNDOS: cuánto audio junta antes de sonar.
+    /// Más = más fluido (cubre las pausas del XTTS) pero arranca un poco más tarde.
+    /// Default 2.5s → suena en ~2.5s (vs 4s por lotes) y cubre las pausas. Parametrizable.
+    static func ttsXttsColchonSeg() -> Double { (json()["tts_xtts_colchon_seg"] as? Double) ?? 2.5 }
     /// DORMIR el clon (descargar el modelo, liberar RAM/CPU) tras N minutos sin usarse;
     /// se despierta al grabar (fn). Default ON, 5 min. No satura la Mac cuando no lo usas.
     static func ttsXttsDormir() -> Bool { (json()["tts_xtts_dormir"] as? Bool) ?? true }
