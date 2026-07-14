@@ -16,6 +16,21 @@ struct VozLocal: Codable, Identifiable, Equatable {
     var id: String
     var nombre: String        // lo que ve el usuario ("Mamá Rafaela", "Mi voz Bto")
     var cmd: String           // comando con {texto} y {salida}
+    var persona: String = ""  // 2º parámetro: PROMPT de cómo habla esa persona. Cuando
+                              // el Agente responde con esta voz, la IA redacta en ESE estilo.
+
+    // Decode tolerante: JSON viejos sin `persona` siguen cargando.
+    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona }
+    init(id: String, nombre: String, cmd: String, persona: String = "") {
+        self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona
+    }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        nombre = try c.decode(String.self, forKey: .nombre)
+        cmd = try c.decode(String.self, forKey: .cmd)
+        persona = (try? c.decode(String.self, forKey: .persona)) ?? ""
+    }
 }
 
 enum VocesLocales {
@@ -33,7 +48,7 @@ enum VocesLocales {
     }
 
     @discardableResult
-    static func agregar(nombre: String, cmd: String) -> VozLocal {
+    static func agregar(nombre: String, cmd: String, persona: String = "") -> VozLocal {
         var list = todas()
         // id estable a partir del nombre (evita duplicar la misma voz).
         let base = nombre.lowercased().folding(options: .diacriticInsensitive, locale: nil)
@@ -42,7 +57,7 @@ enum VocesLocales {
         var id = base.isEmpty ? "voz" : base
         var n = 2
         while list.contains(where: { $0.id == id }) { id = "\(base)-\(n)"; n += 1 }
-        let v = VozLocal(id: id, nombre: nombre, cmd: cmd)
+        let v = VozLocal(id: id, nombre: nombre, cmd: cmd, persona: persona)
         list.append(v); guardar(list)
         // Si es la primera, queda activa.
         if Config.ttsVozLocal().isEmpty { Config.set("tts_voz_local", to: id) }

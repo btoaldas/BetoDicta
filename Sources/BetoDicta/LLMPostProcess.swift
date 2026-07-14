@@ -708,9 +708,16 @@ enum LLMPostProcess {
             let tareas = NotasStore.tareas().filter { !$0.hecho }.prefix(30)
                 .map { "- \($0.texto)" }.joined(separator: "\n")
             let notas = NotasStore.notas().prefix(30).map { "- \($0.texto)" }.joined(separator: "\n")
-            let base = modo.prompt.isEmpty
+            var base = modo.prompt.isEmpty
                 ? "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos."
                 : modo.prompt
+            // Si el Agente habla con una voz LOCAL clonada que tiene PERSONA (cómo
+            // habla esa persona), redacta la respuesta en ESE estilo. Es el 2º
+            // parámetro de la voz: el "skill" de su forma de hablar.
+            if Config.ttsProveedor() == "xtts_local", let voz = VocesLocales.activa(),
+               !voz.persona.trimmingCharacters(in: .whitespaces).isEmpty {
+                base = voz.persona + "\n" + base
+            }
             instruccion = """
             \(base)
             Usa SOLO estos datos del usuario cuando el pedido los requiera (no inventes):

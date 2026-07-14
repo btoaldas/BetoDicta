@@ -11,6 +11,7 @@ struct VocesLocalesEditor: View {
     @State private var mostrarAgregar = false
     @State private var nuevoNombre = ""
     @State private var nuevoCmd = ""
+    @State private var nuevaPersona = ""
     @State private var detectadas: [(nombre: String, cmd: String)] = []
     @State private var estado = ""
 
@@ -32,6 +33,7 @@ struct VocesLocalesEditor: View {
                             Image(systemName: activa == v.id ? "largecircle.fill.circle" : "circle")
                         }.buttonStyle(.plain)
                         Text(v.nombre).font(.callout)
+                        if !v.persona.isEmpty { Text("· persona ✓").font(.caption2).foregroundStyle(.secondary) }
                         Spacer()
                         Button("🔊") {
                             estado = "Generando “\(v.nombre)”…"
@@ -72,13 +74,16 @@ struct VocesLocalesEditor: View {
                         .textFieldStyle(.roundedBorder).frame(width: 300)
                     TextField("Comando con {texto} y {salida}", text: $nuevoCmd)
                         .textFieldStyle(.roundedBorder).frame(width: 460)
+                    Text("Persona (opcional): cómo habla esa persona. El Agente redacta en ese estilo antes de que la voz lo lea.").font(.caption2).foregroundStyle(.secondary)
+                    TextField("ej. Habla como mamá: cariñosa, diminutivos (mijo), termina con 'chao chao'…", text: $nuevaPersona, axis: .vertical)
+                        .textFieldStyle(.roundedBorder).frame(width: 460).lineLimit(2...5)
                     HStack {
                         Button("Guardar") {
                             let n = nuevoNombre.trimmingCharacters(in: .whitespaces)
                             let c = nuevoCmd.trimmingCharacters(in: .whitespaces)
                             guard !n.isEmpty, c.contains("{texto}") else { estado = "Falta nombre o {texto} en el comando."; return }
-                            VocesLocales.agregar(nombre: n, cmd: c)
-                            nuevoNombre = ""; nuevoCmd = ""; mostrarAgregar = false; estado = ""; refrescar()
+                            VocesLocales.agregar(nombre: n, cmd: c, persona: nuevaPersona.trimmingCharacters(in: .whitespaces))
+                            nuevoNombre = ""; nuevoCmd = ""; nuevaPersona = ""; mostrarAgregar = false; estado = ""; refrescar()
                         }.controlSize(.small)
                         Button("Cancelar") { mostrarAgregar = false }.controlSize(.small)
                     }
