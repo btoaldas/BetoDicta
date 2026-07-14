@@ -322,14 +322,38 @@ enum EntrenadorPiper {
     static func detener() { cancelado = true; proc?.terminate(); proc = nil }
     static func esActivo() -> Bool { proc?.isRunning ?? false }
 
-    /// Detiene el entrenamiento de un proyecto AUNQUE la app se haya reabierto (el proceso
-    /// quedó huérfano y `proc` es nil): lo mata por pkill sobre la ruta del proyecto.
-    static func detenerProyecto(_ proyecto: URL) {
-        detener()
+    /// DETENER A PRUEBA DE BALAS, controlado por el USUARIO (no depende de `proc`, que es
+    /// nil si la app se reabrió). Mata TODO el árbol del proyecto — python de entrenamiento
+    /// o de dataset, y sus hijos (ffmpeg, whisper) — porque TODOS llevan la ruta del
+    /// proyecto en sus argumentos. SIGTERM y, a lo que quede, SIGKILL. Verifica que murió.
+    static func detenerProyecto(_ proyecto: URL, done: @escaping (Bool) -> Void = { _ in }) {
+        cancelado = true
+        proc?.terminate(); proc = nil
+        let patron = proyecto.lastPathComponent   // p.ej. "rafaelamaster_run": único por proyecto
+        DispatchQueue.global(qos: .userInitiated).async {
+            matar(["-TERM", "-f", patron])
+            Thread.sleep(forTimeInterval: 0.8)
+            matar(["-KILL", "-f", patron])         // forzado a lo que ignore el TERM (torch/C)
+            Thread.sleep(forTimeInterval: 0.4)
+            var vivo = sigueVivo(proyecto)
+            if vivo { matar(["-KILL", "-f", patron]); Thread.sleep(forTimeInterval: 0.4); vivo = sigueVivo(proyecto) }
+            DispatchQueue.main.async { done(!vivo) }
+        }
+    }
+
+    private static func matar(_ args: [String]) {
         let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        p.arguments = ["-f", proyecto.lastPathComponent + "/run"]
+        p.arguments = args; p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return }; p.waitUntilExit()
+    }
+
+    /// ¿Queda ALGÚN proceso vivo de este proyecto? (para confirmar el Detener en la UI).
+    static func sigueVivo(_ proyecto: URL) -> Bool {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", proyecto.lastPathComponent]
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-        try? p.run(); p.waitUntilExit()
+        do { try p.run() } catch { return false }; p.waitUntilExit()
+        return p.terminationStatus == 0
     }
 
     /// Extrae una PISTA legible del dataset.log para decirle al usuario qué pasó
@@ -383,12 +407,12 @@ enum EntrenadorPiper {
     /// ¿El loop de entrenamiento ya arrancó? (la barra/época o los params aparecen en el
     /// log). Señal de "arranco" fiable: el 1er checkpoint recién sale a ~200 pasos.
     private static func logEntrenando(_ proyecto: URL) -> Bool {
-        let log = (try? String(contentsOf: proyecto.appendingPathComponent("piper.log"), encoding: .utf8)) ?? ""
+        let log = colaLog(proyecto.appendingPathComponent("piper.log"))
         return log.contains("Epoch 0") || log.contains("it/s") || log.contains("Trainable params")
     }
     /// ¿El fit terminó de verdad? (Lightning imprime el motivo de parada).
     static func termino(_ proyecto: URL) -> Bool {
-        let log = (try? String(contentsOf: proyecto.appendingPathComponent("piper.log"), encoding: .utf8)) ?? ""
+        let log = colaLog(proyecto.appendingPathComponent("piper.log"))
         return log.contains("max_steps=") && log.contains("reached") || log.contains("`Trainer.fit` stopped")
     }
 
@@ -404,6 +428,20 @@ enum EntrenadorPiper {
 
     private static func mtime(_ u: URL) -> Date {
         (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+    }
+
+    /// Lee SOLO la cola (últimos `kb` KB) de un archivo. piper.log crece a decenas de MB
+    /// (la barra de tqdm escribe una línea por refresco); leerlo entero cada 2s trababa la
+    /// UI. La cola basta para el estado actual (barra, época, fin, últimas líneas).
+    static func colaLog(_ url: URL, kb: Int = 96) -> String {
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? fh.close() }
+        let size = (try? fh.seekToEnd()) ?? 0
+        let n = UInt64(kb * 1024)
+        if size > n { try? fh.seek(toOffset: size - n) }
+        else { try? fh.seek(toOffset: 0) }
+        let data = (try? fh.readToEnd()) ?? Data()
+        return String(decoding: data, as: UTF8.self).replacingOccurrences(of: "\r", with: "\n")
     }
 
     /// ¿Sigue vivo un proceso de entrenamiento de ESTE proyecto? (aunque la app se cerró y
@@ -448,10 +486,8 @@ enum EntrenadorPiper {
     /// Progreso VIVO combinado con % y texto dinámico. Sabe en qué FASE va (1 dataset,
     /// 2 entrenamiento), calcula el % de cada una y dice qué está pasando ahora mismo.
     static func progresoVivo(_ proyecto: URL, etapas: Int) -> Vivo {
-        let piLog = (try? String(contentsOf: proyecto.appendingPathComponent("piper.log"), encoding: .utf8))?
-            .replacingOccurrences(of: "\r", with: "\n") ?? ""
-        let dsLog = (try? String(contentsOf: proyecto.appendingPathComponent("dataset.log"), encoding: .utf8))?
-            .replacingOccurrences(of: "\r", with: "\n") ?? ""
+        let piLog = colaLog(proyecto.appendingPathComponent("piper.log"))
+        let dsLog = colaLog(proyecto.appendingPathComponent("dataset.log"))
         let vivo = procesoVivo(proyecto)
         let fin = termino(proyecto)
         // piper.log con contenido = ya estamos en FASE 2 (aunque aún esté armando la caché).
@@ -551,10 +587,8 @@ enum EntrenadorPiper {
 
     static func snapshot(_ proyecto: URL, etapas: Int) -> Snapshot {
         let v = progresoVivo(proyecto, etapas: etapas)
-        let piLog = (try? String(contentsOf: proyecto.appendingPathComponent("piper.log"), encoding: .utf8))?
-            .replacingOccurrences(of: "\r", with: "\n") ?? ""
-        let dsLog = (try? String(contentsOf: proyecto.appendingPathComponent("dataset.log"), encoding: .utf8))?
-            .replacingOccurrences(of: "\r", with: "\n") ?? ""
+        let piLog = colaLog(proyecto.appendingPathComponent("piper.log"))
+        let dsLog = colaLog(proyecto.appendingPathComponent("dataset.log"))
         let enFase2 = v.fase == 2
         let its = ultimoDouble(piLog, "([0-9.]+)it/s")
         let eta = (enFase2 && its > 0 && v.total > v.paso) ? Int(Double(v.total - v.paso) / its / 60.0) : 0

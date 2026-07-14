@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.33.0"
+    static let numero = "0.34.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.34.0", "2026-07-14", [
+            "BITÁCORA VIVA al entrenar una voz Piper: ves en la app, refrescándose solo, la FASE (1/2), el porcentaje real, paso/total, época, velocidad (it/s), tiempo estimado (ETA), CPU, RAM, disco, fragmentos, checkpoints y errores — más el registro imprimiéndose en vivo. Todo queda también en dataset.log y piper.log",
+            "“⏹ Detener del todo”: el botón mata el entrenamiento DE RAÍZ (y sus procesos: torch, Whisper, ffmpeg) y te confirma que no quedó nada corriendo. Tú tienes el control, sin depender de nadie",
+            "MUCHO más rápido en Apple Silicon: el entrenamiento usa solo los núcleos veloces (incluir los lentos lo dejaba clavado sin avanzar). De no arrancar en 25 min a ~1.4s por paso",
+            "Progreso correcto: el porcentaje ya no se queda pegado cerca de 0 (se calcula el paso global bien). Reentrenar reusa el dataset ya hecho (no re-transcribe) y no mezcla cortes viejos",
+        ]),
         ("0.33.0", "2026-07-14", [
             "ENTRENAR una voz PIPER (rápida, ⚡): hornea una voz FIJA que habla casi al instante (~5× tiempo real). Desde Biblioteca de voces → carpeta de audios + nombre + persona → entrena en segundo plano y eliges el mejor corte escuchándolo. XTTS se queda para clonar con máxima calidad",
             "CALIDAD parametrizable (Media/Alta/Baja): Media usa base en ESPAÑOL (recomendada); Alta es más nítida pero más lenta; Baja es la más veloz. Alta/Baja parten de base en inglés y se adaptan a tu español",

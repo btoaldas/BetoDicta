@@ -40,6 +40,7 @@ struct EntrenadorPiperView: View {
     @State private var pasoActual = 0
     @State private var pctVivo: Double = 0
     @State private var snap: EntrenadorPiper.Snapshot?
+    @State private var deteniendo = false
 
     @State private var checkpoints: [(paso: Int, url: URL)] = []
     @State private var estado = ""
@@ -182,11 +183,18 @@ struct EntrenadorPiperView: View {
                         }
 
                         if entrenando {
-                            Button("Detener") {
-                                if let p = proyecto { EntrenadorPiper.detenerProyecto(p) } else { EntrenadorPiper.detener() }
-                                entrenando = false; timer?.invalidate()
-                            }.controlSize(.small)
-                            Text("Puedes cerrar la ventana e incluso BetoDicta: sigue en segundo plano. Al reabrir, la bitácora vuelve (y si se apagó la compu, aparece “Reanudar”). Todo queda también en dataset.log y piper.log.").font(.caption2).foregroundStyle(.secondary)
+                            Button(deteniendo ? "Deteniendo…" : "⏹ Detener del todo") {
+                                deteniendo = true; faseTxt = "Deteniendo todo (matando procesos)…"; timer?.invalidate()
+                                if let p = proyecto {
+                                    EntrenadorPiper.detenerProyecto(p) { ok in
+                                        deteniendo = false; entrenando = false; snap = nil; pctVivo = 0
+                                        faseTxt = ok ? "✓ Detenido del todo — nada quedó corriendo. Ya puedes reentrenar."
+                                                     : "⚠ Algo sigue vivo. Vuelve a pulsar Detener."
+                                        if !ok { reanudable = p }
+                                    }
+                                } else { EntrenadorPiper.detener(); deteniendo = false; entrenando = false; faseTxt = "Detenido." }
+                            }.controlSize(.small).disabled(deteniendo)
+                            Text("“Detener del todo” mata el entrenamiento de raíz (y sus procesos). Puedes cerrar la ventana o salir de BetoDicta: sigue en segundo plano y al reabrir la bitácora vuelve. Todo queda en dataset.log y piper.log.").font(.caption2).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -300,17 +308,24 @@ struct EntrenadorPiperView: View {
 
     private func tick() {
         guard let proyecto else { return }
-        let s = EntrenadorPiper.snapshot(proyecto, etapas: etapas)
-        snap = s; pctVivo = s.pct; faseTxt = s.texto; pasoActual = s.paso
-        checkpoints = EntrenadorPiper.checkpoints(proyecto)
-        if s.termino {
-            entrenando = false; timer?.invalidate()
-            faseTxt = "✓ Terminó — escucha y elige el mejor checkpoint abajo."
-        } else if !s.activo {
-            entrenando = false; timer?.invalidate()
-            if !checkpoints.isEmpty { reanudable = proyecto
-                faseTxt = "Se detuvo — elige un checkpoint abajo o pulsa Reanudar." }
-            else { faseTxt = "Se detuvo (revisa la bitácora)." }
+        let etapasAhora = etapas
+        // Todo el IO (leer logs, pgrep/ps/du) va en BACKGROUND; solo publicamos a @State en main.
+        DispatchQueue.global(qos: .utility).async {
+            let s = EntrenadorPiper.snapshot(proyecto, etapas: etapasAhora)
+            let cks = EntrenadorPiper.checkpoints(proyecto)
+            DispatchQueue.main.async {
+                guard entrenando || snap != nil else { return }
+                snap = s; pctVivo = s.pct; faseTxt = s.texto; pasoActual = s.paso; checkpoints = cks
+                if s.termino {
+                    entrenando = false; timer?.invalidate()
+                    faseTxt = "✓ Terminó — escucha y elige el mejor checkpoint abajo."
+                } else if !s.activo {
+                    entrenando = false; timer?.invalidate()
+                    if !cks.isEmpty { reanudable = proyecto
+                        faseTxt = "Se detuvo — elige un checkpoint abajo o pulsa Reanudar." }
+                    else { faseTxt = "Se detuvo (revisa la bitácora)." }
+                }
+            }
         }
     }
 
