@@ -40,45 +40,104 @@ enum ContactosWA {
     }
     static func vaciar() { try? FileManager.default.removeItem(at: archivo) }
 
-    /// Importa desde CSV (nombre,numero por línea) o JSON ([{nombre,numero}]). Suma a lo existente. Devuelve el total.
-    @discardableResult static func importar(_ url: URL) -> Int {
-        guard let txt = try? String(contentsOf: url, encoding: .utf8) else { return importados().count }
+    struct ImportResult { let validos: Int; let invalidos: Int; let total: Int; let detalle: String }
+
+    /// Parser CSV REAL (comillas, comas dentro de campos, "" escapadas). Soporta ',' y ';'.
+    static func parseCSV(_ text: String) -> [[String]] {
+        let sep: Character = {
+            let primera = text.prefix(while: { $0 != "\n" && $0 != "\r" })
+            return (primera.contains(";") && !primera.contains(",")) ? ";" : ","
+        }()
+        // Swift agrupa "\r\n" como UN solo Character (grapheme) → normalizamos a "\n".
+        let norm = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var rows: [[String]] = []; var row: [String] = []; var field = ""; var q = false
+        var it = norm.makeIterator(); var pend: Character? = nil
+        func next() -> Character? { if let p = pend { pend = nil; return p }; return it.next() }
+        while let c = next() {
+            if q {
+                if c == "\"" {
+                    if let n = next() { if n == "\"" { field.append("\"") } else { q = false; pend = n } }
+                    else { q = false }
+                } else { field.append(c) }
+            } else if c == "\"" {
+                q = true
+            } else if c == sep {
+                row.append(field); field = ""
+            } else if c == "\n" {
+                row.append(field); rows.append(row); row = []; field = ""
+            } else if c == "\r" {
+                // fin de línea Windows: se ignora (el \n cierra la fila)
+            } else {
+                field.append(c)
+            }
+        }
+        if !field.isEmpty || !row.isEmpty { row.append(field); rows.append(row) }
+        return rows.map { $0.map { $0.trimmingCharacters(in: .whitespaces) } }
+    }
+    /// Primer número de un campo (Google separa varios con ":::").
+    private static func primerNumero(_ v: String) -> String {
+        soloNumero(v.components(separatedBy: ":::").first ?? v)
+    }
+    /// Analiza el texto CSV → contactos (PURA, sin guardar; testeable). Detecta la
+    /// cabecera (Google/Gmail: Name/First Name/Last Name + "Phone N - Value").
+    static func analizarCSV(_ txt: String) -> (nuevos: [ContactoWA], validos: Int, invalidos: Int, detalle: String) {
+        let rows = parseCSV(txt)
+        guard rows.count > 1 else { return ([], 0, 0, "CSV vacío o sin filas") }
+        let hn = rows[0].map { norm($0) }
+        let iName = hn.firstIndex { $0 == "name" || $0 == "nombre" || $0.contains("display name") || $0.contains("nombre completo") }
+        let iFirst = hn.firstIndex { $0.contains("first name") || $0.contains("given name") }
+        let iLast = hn.firstIndex { $0.contains("last name") || $0.contains("family name") }
+        var phoneCols = hn.indices.filter { hn[$0].contains("phone") && hn[$0].contains("value") }   // Google "Phone 1 - Value"
+        if phoneCols.isEmpty {
+            let claves = ["numero", "number", "phone", "tel", "movil", "mobile", "celular", "whatsapp"]
+            phoneCols = hn.indices.filter { h in claves.contains { hn[h].contains($0) } }
+        }
+        var nuevos: [ContactoWA] = []; var validos = 0, invalidos = 0
+        if iName != nil || iFirst != nil, !phoneCols.isEmpty {
+            for r in rows.dropFirst() where r.contains(where: { !$0.isEmpty }) {
+                let nombre: String = {
+                    if let iName, iName < r.count, !r[iName].isEmpty { return r[iName] }
+                    let f = (iFirst.flatMap { $0 < r.count ? r[$0] : nil }) ?? ""
+                    let l = (iLast.flatMap { $0 < r.count ? r[$0] : nil }) ?? ""
+                    return [f, l].filter { !$0.isEmpty }.joined(separator: " ")
+                }()
+                let num = phoneCols.compactMap { $0 < r.count ? primerNumero(r[$0]) : nil }.first { !$0.isEmpty } ?? ""
+                if !nombre.isEmpty, !num.isEmpty { nuevos.append(ContactoWA(nombre: nombre, numero: num)); validos += 1 } else { invalidos += 1 }
+            }
+            return (nuevos, validos, invalidos, "CSV cabecera (nombre col \(iName ?? iFirst ?? -1), tel cols \(phoneCols))")
+        }
+        for r in rows where r.count >= 2 {   // sin cabecera: nombre,numero
+            let num = primerNumero(r[1])
+            if !r[0].isEmpty, !num.isEmpty { nuevos.append(ContactoWA(nombre: r[0], numero: num)); validos += 1 } else { invalidos += 1 }
+        }
+        return (nuevos, validos, invalidos, "CSV sin cabecera (2 columnas)")
+    }
+
+    /// Importa CSV (incl. export de Google/Gmail) o JSON. Devuelve conteo válidos/inválidos.
+    @discardableResult static func importar(_ url: URL) -> ImportResult {
+        guard let txt = try? String(contentsOf: url, encoding: .utf8) else {
+            Log.write("import contactos: no pude leer \(url.lastPathComponent)")
+            return ImportResult(validos: 0, invalidos: 0, total: importados().count, detalle: "no se pudo leer el archivo")
+        }
         var cs = importados()
+        var validos = 0, invalidos = 0, detalle = ""
         if url.pathExtension.lowercased() == "json",
            let arr = try? JSONSerialization.jsonObject(with: Data(txt.utf8)) as? [[String: Any]] {
             for o in arr {
                 let n = (o["nombre"] as? String) ?? (o["name"] as? String) ?? ""
-                let raw = o["numero"] ?? o["number"] ?? o["telefono"] ?? o["phone"] ?? ""
-                let num = soloNumero(String(describing: raw))
-                if !n.isEmpty { cs.append(ContactoWA(nombre: n, numero: num)) }
+                let num = primerNumero(String(describing: o["numero"] ?? o["number"] ?? o["telefono"] ?? o["phone"] ?? ""))
+                if !n.isEmpty, !num.isEmpty { cs.append(ContactoWA(nombre: n, numero: num)); validos += 1 } else { invalidos += 1 }
             }
+            detalle = "JSON"
         } else {
-            // CSV con detección de columnas por CABECERA (soporta exports de
-            // Google/Gmail/teléfono: "Name","Phone 1 - Value", etc.).
-            let lineas = txt.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map(String.init)
-            let sep: Character = (lineas.first?.contains(";") == true && lineas.first?.contains(",") == false) ? ";" : ","
-            func cols(_ l: String) -> [String] { l.components(separatedBy: String(sep)).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"")) } }
-            let cab = (lineas.first.map(cols) ?? []).map { norm($0) }
-            let iNom = cab.firstIndex { $0.contains("nombre") || $0.contains("name") }
-            let clavesTel = ["numero", "number", "phone", "tel", "movil", "mobile", "celular", "whatsapp"]
-            let iTel = cab.firstIndex { col in clavesTel.contains { col.contains($0) } }
-            if let iNom, let iTel {
-                for l in lineas.dropFirst() {
-                    let c = cols(l); guard c.count > max(iNom, iTel) else { continue }
-                    let n = c[iNom], num = soloNumero(c[iTel])
-                    if !n.isEmpty, !num.isEmpty { cs.append(ContactoWA(nombre: n, numero: num)) }
-                }
-            } else {   // sin cabecera reconocida: nombre,numero
-                for l in lineas {
-                    let c = cols(l); guard c.count >= 2 else { continue }
-                    if !c[0].isEmpty, !soloNumero(c[1]).isEmpty { cs.append(ContactoWA(nombre: c[0], numero: soloNumero(c[1]))) }
-                }
-            }
+            let a = analizarCSV(txt)
+            cs.append(contentsOf: a.nuevos); validos = a.validos; invalidos = a.invalidos; detalle = a.detalle
         }
         var vistos = Set<String>()
         let dedup = cs.filter { !$0.numero.isEmpty && vistos.insert("\(norm($0.nombre))|\($0.numero)").inserted }
         guardar(dedup)
-        return dedup.count
+        Log.write("import contactos: \(detalle) → válidos=\(validos) inválidos=\(invalidos) total-guardados=\(dedup.count)")
+        return ImportResult(validos: validos, invalidos: invalidos, total: dedup.count, detalle: detalle)
     }
     static func plantillaCSV() -> String {
         "nombre,numero\nAlberto Aldás,593999999999\nMaría López,593988888888\n"

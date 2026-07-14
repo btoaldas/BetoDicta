@@ -46,11 +46,16 @@ struct ModosView: View {
     @State private var idiomasVer = 0   // fuerza refrescar el picker tras añadir uno
     @State private var usarMacWA = ContactosWA.usarMac()
     @State private var contactosVer = 0
+    @State private var resultadoImport = ""
 
     private func importarContactos() {
-        let p = NSOpenPanel(); p.allowedContentTypes = [.commaSeparatedText, .json, .plainText]
+        let p = NSOpenPanel(); p.allowedContentTypes = [.commaSeparatedText, .json, .plainText, .text]
         p.allowsMultipleSelection = false
-        if p.runModal() == .OK, let u = p.url { _ = ContactosWA.importar(u); contactosVer += 1 }
+        if p.runModal() == .OK, let u = p.url {
+            let r = ContactosWA.importar(u)
+            resultadoImport = "✅ \(r.validos) importados · \(r.invalidos) inválidos · \(r.total) en total"
+            contactosVer += 1
+        }
     }
     private func exportarContactos(_ formato: String) {
         let p = NSSavePanel(); p.nameFieldStringValue = "contactos_whatsapp.\(formato)"
@@ -262,6 +267,9 @@ struct ModosView: View {
                         Button("Exportar JSON") { exportarContactos("json") }.controlSize(.small)
                         Toggle("Contactos de Mac", isOn: $usarMacWA).toggleStyle(.switch).controlSize(.mini)
                             .onChange(of: usarMacWA) { _, v in Config.set("wa_usar_contactos_mac", to: v) }
+                    }
+                    if !resultadoImport.isEmpty {
+                        Text(resultadoImport).font(.caption).foregroundStyle(.green)
                     }
                     Text("Di \"modo whatsapp, a Alberto, hola qué tal\" → busca a Alberto y abre su chat. Si hay varios, eliges. Importa CSV/JSON (o export de Google/Gmail: detecta columnas Nombre/Teléfono). Exportar vacío = te da un ejemplo del formato. Si no encuentra el nombre, cae a Contactos de Mac.")
                         .font(.caption2).foregroundStyle(.secondary)

@@ -501,6 +501,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 && u2 == "https://wa.me/?text=hola" && u3 == "https://wa.me/+593999?text=hola"
             ok = ok && urlOk
             print("WATEST \(urlOk ? "OK" : "✗") urls: \(u1) | \(u2) | \(u3)")
+            // CSV estilo Google: comas dentro de comillas, First/Last, "Phone 1 - Value", ::: multi.
+            let gcsv = "First Name,Last Name,Phone 1 - Value\r\nAlberto,\"Aldás, Jr\",+593 99 123 4567\nMaría,López,0988888888 ::: 022222222\n,,\nSinTel,Pérez,\n"
+            let a = ContactosWA.analizarCSV(gcsv)
+            let csvOk = a.validos == 2 && a.invalidos == 1
+                && a.nuevos.first?.nombre == "Alberto Aldás, Jr" && a.nuevos.first?.numero == "+593991234567"
+                && a.nuevos.last?.numero == "0988888888"
+            ok = ok && csvOk
+            print("WATEST \(csvOk ? "OK" : "✗") csv-google: válidos=\(a.validos) inválidos=\(a.invalidos)")
             print("WATEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
