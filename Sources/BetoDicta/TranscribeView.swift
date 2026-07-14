@@ -35,6 +35,9 @@ struct TranscribeView: View {
     @State private var resultado = ""
     @State private var trabajando = false
     @State private var grabaciones: [Grabacion] = []
+    // Modo a aplicar a lo transcrito (Buscar no aplica: abre navegador, no da texto).
+    @State private var modoId = "dictado"
+    @State private var modos: [Modo] = ModosStore.todos().filter { $0.base != "buscar" }
     @ObservedObject private var preview = AudioPreview.shared
 
     struct Grabacion: Identifiable {
@@ -48,6 +51,20 @@ struct TranscribeView: View {
         VStack(alignment: .leading, spacing: 16) {
             Label("Transcribir audio", systemImage: "waveform.badge.magnifyingglass")
                 .font(.headline).foregroundStyle(acentoTr)
+
+            // Modo a aplicar (agiliza: vale para subir archivo Y re-transcribir)
+            HStack(spacing: 8) {
+                Text("Procesar como:").font(.caption).foregroundStyle(.secondary)
+                Picker("", selection: $modoId) {
+                    ForEach(modos, id: \.id) { m in
+                        Label(m.nombre, systemImage: m.icono).tag(m.id)
+                    }
+                }.labelsHidden().frame(width: 220).disabled(trabajando)
+            }
+            Text(modoId == "dictado"
+                 ? "Dictado = solo limpieza (glosario/puntuación). Elige Correo, Oficio, Traducir… para darle formato o traducir lo transcrito con la IA de ese modo."
+                 : "Se transcribe y luego se aplica el modo \(ModosStore.modo(modoId).nombre) con su IA. Configúralo en Ajustes → Modos.")
+                .font(.caption2).foregroundStyle(.secondary)
 
             // Subir archivo nuevo
             tarjeta("Subir un archivo", "square.and.arrow.up") {
@@ -127,15 +144,28 @@ struct TranscribeView: View {
     private func procesar(_ url: URL, etiqueta: String) {
         trabajando = true; estado = etiqueta; resultado = ""
         transcribeFile(url: url, model: Config.model() == "scribe_v2_realtime" ? "scribe_v2" : Config.model()) { r in
-            trabajando = false
             switch r {
             case .success(let texto):
-                let limpio = applyReplacements(texto)
-                resultado = limpio
-                estado = "Listo · \(limpio.count) caracteres"
+                aplicarModo(applyReplacements(texto))
             case .failure(let e):
+                trabajando = false
                 estado = "⚠️ \(e.localizedDescription)"
             }
+        }
+    }
+
+    /// Aplica el modo elegido al texto transcrito. Dictado = solo el texto limpio;
+    /// otros pasan por su IA (Correo/Oficio/…/Traducir/Asistente).
+    private func aplicarModo(_ texto: String) {
+        let modo = ModosStore.modo(modoId)
+        guard modo.id != "dictado", modo.base != "buscar" else {
+            trabajando = false; resultado = texto
+            estado = "Listo · \(texto.count) caracteres"; return
+        }
+        estado = "Aplicando modo \(modo.nombre)…"
+        LLMPostProcess.procesarModo(texto, modo: modo) { out in
+            trabajando = false; resultado = out
+            estado = "Listo (\(modo.nombre)) · \(out.count) caracteres"
         }
     }
 
