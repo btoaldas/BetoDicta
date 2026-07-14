@@ -396,6 +396,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("REVTEST \(ok1 && ok2 && ok3 ? "TODO OK" : "✗ FALLA")")
             exit(ok1 && ok2 && ok3 ? 0 : 3)
         }
+        // Prueba del modo BUSCAR: BETODICTA_BUSCARTEST=1 (construcción de URL, sin abrir nada).
+        if ProcessInfo.processInfo.environment["BETODICTA_BUSCARTEST"] == "1" {
+            let casos: [(String, String, String, String?)] = [
+                ("google", "hola mundo", "", "https://www.google.com/search?q=hola%20mundo"),
+                ("duckduckgo", "gatos", "", "https://duckduckgo.com/?q=gatos"),
+                ("personalizado", "x y", "https://s.com/?q={q}", "https://s.com/?q=x%20y"),
+                ("personalizado", "z", "sin-placeholder", "https://www.google.com/search?q=z"),
+                ("spotlight", "algo", "", nil),
+            ]
+            var ok = true
+            for (id, q, custom, esp) in casos {
+                let r = Buscadores.url(id, query: q, custom: custom)
+                let bien = (r == esp); ok = ok && bien
+                print("BUSCARTEST \(bien ? "OK" : "✗") \(id) \"\(q)\" → \(r ?? "nil")")
+            }
+            print("BUSCARTEST \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
@@ -1729,6 +1747,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if m.id != modo.id { Log.log(.ia, "modo por contexto → \(m.nombre) [\(ctx.nombre)]") }
             modo = m
         }
+        // Modo BUSCAR: no pega texto — abre el buscador con lo dictado como consulta.
+        if modo.base == "buscar" {
+            ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history)
+            return
+        }
         let seguir: (String) -> Void = { [weak self] texto in
             self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)
         }
@@ -1770,6 +1793,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             Log.write("  ✓ entregado:  \(text)")
             finishDelivery(text, rawText: rawText, wav: wav, history: history)
+        }
+    }
+
+    /// Modo Buscar: abre el buscador elegido con la consulta dictada (web o Spotlight).
+    private func ejecutarBusqueda(_ query: String, modo: Modo, wav: Data, history: HistoryWriter?) {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = modo.buscador.isEmpty ? "google" : modo.buscador
+        Log.write("  🔎 buscar (\(Buscadores.nombre(id))): \(q)")
+        history?.finish(wav: wav, finalText: "🔎 \(Buscadores.nombre(id)): \(q)")
+        if let s = Buscadores.url(id, query: q, custom: modo.prompt), let url = URL(string: s) {
+            NSWorkspace.shared.open(url)
+        } else {
+            // Spotlight: ⌘Espacio y pega la consulta (tú eliges el resultado).
+            abrirSpotlight()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { pasteText(q) }
+        }
+        playSound("Glass")
+        if !recorder.isRecording {
+            setIcono(.reposo)
+            panel.updateForzado("🔎 " + q)
+            panel.hide(after: 1.6)
         }
     }
 

@@ -26,14 +26,16 @@ struct Modo: Codable, Identifiable {
     var palabraVoz: String       // frase al inicio del dictado que activa este modo
     var apps: [String]           // apps (nombre o bundle id) que activan este modo
     var sitios: [String]         // dominios/URLs que activan este modo (en navegador)
+    var buscador: String         // solo base "buscar": google/bing/duckduckgo/…/spotlight/personalizado
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
-         esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = []) {
+         esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = [],
+         buscador: String = "google") {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
-        self.apps = apps; self.sitios = sitios
+        self.apps = apps; self.sitios = sitios; self.buscador = buscador
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -50,6 +52,7 @@ struct Modo: Codable, Identifiable {
         palabraVoz = (try? c.decode(String.self, forKey: .palabraVoz)) ?? ""
         apps = (try? c.decode([String].self, forKey: .apps)) ?? []
         sitios = (try? c.decode([String].self, forKey: .sitios)) ?? []
+        buscador = (try? c.decode(String.self, forKey: .buscador)) ?? "google"
     }
 }
 
@@ -76,6 +79,8 @@ enum ModosStore {
         Modo(id: "asistente", nombre: "Asistente", icono: "sparkles", base: "responder",
              prompt: "El dictado es una instrucción o pregunta. Responde o redacta lo pedido de forma útil, directa y concisa, en español (salvo que se pida otro idioma). Devuelve solo la respuesta, sin preámbulos.",
              palabraVoz: "modo asistente"),
+        Modo(id: "buscar", nombre: "Buscar", icono: "magnifyingglass", base: "buscar",
+             palabraVoz: "modo buscar", buscador: "google"),
     ]
 
     static func todos() -> [Modo] {
@@ -264,5 +269,33 @@ enum Idiomas {
         var props = Config.idiomasPersonales(); props.append(n)
         Config.set("idiomas_personales", to: props)
         return n
+    }
+}
+
+// MARK: - Buscadores para el modo "Buscar"
+
+enum Buscadores {
+    /// id, nombre visible, plantilla URL con {q} (nil = Spotlight local ⌘Espacio).
+    static let base: [(id: String, nombre: String, url: String?)] = [
+        ("google", "Google", "https://www.google.com/search?q={q}"),
+        ("bing", "Bing", "https://www.bing.com/search?q={q}"),
+        ("duckduckgo", "DuckDuckGo", "https://duckduckgo.com/?q={q}"),
+        ("youtube", "YouTube", "https://www.youtube.com/results?search_query={q}"),
+        ("maps", "Google Maps", "https://www.google.com/maps/search/{q}"),
+        ("spotlight", "Spotlight (⌘Espacio en la Mac)", nil),
+        ("personalizado", "Personalizado (URL con {q})", nil),
+    ]
+    static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
+    static func plantilla(_ id: String) -> String? { base.first { $0.id == id }?.url }
+    /// URL final para la consulta. nil = Spotlight (no es URL). `custom` = plantilla
+    /// del modo cuando id=="personalizado" (debe tener {q}; si no, cae a Google).
+    static func url(_ id: String, query: String, custom: String = "") -> String? {
+        guard id != "spotlight" else { return nil }
+        let tpl = id == "personalizado"
+            ? (custom.contains("{q}") ? custom : "https://www.google.com/search?q={q}")
+            : (plantilla(id) ?? "https://www.google.com/search?q={q}")
+        var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
+        let enc = query.addingPercentEncoding(withAllowedCharacters: cs) ?? query
+        return tpl.replacingOccurrences(of: "{q}", with: enc)
     }
 }

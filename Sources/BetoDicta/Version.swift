@@ -6,11 +6,19 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.20.11"
+    static let numero = "0.21.0"
     static let fecha = "2026-07-13"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.21.0", "2026-07-13", [
+            "NUEVO: MODOS — decide qué hacer con lo dictado. Además de Dictado (pulir), elige Correo, Oficio, Tarea, Nota, Traducir, Asistente o Buscar; cada modo con su propia IA y su prompt. Cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra, como el proveedor",
+            "El modo elegido al vuelo es de UN SOLO USO: se aplica a ese dictado y vuelve al modo POR DEFECTO (configúralo en Ajustes → Modos; puedes dejarlo fijo apagando el interruptor)",
+            "Activa un modo POR VOZ (empieza el dictado con 'modo tarea …'), POR APP o POR SITIO WEB (ej. en Outlook usa Correo; en Quipux usa Oficio)",
+            "Modo TRADUCIR con selector de idioma (con banderita) y opción de agregar los idiomas que quieras",
+            "Modo BUSCAR: dictas y se abre el buscador con tu consulta — Google, Bing, DuckDuckGo, YouTube, Google Maps, Spotlight (⌘Espacio) o una URL propia",
+            "Crea tus PROPIOS modos con nombre, comportamiento, prompt e IA a tu gusto",
+        ]),
         ("0.20.11", "2026-07-13", [
             "En Modelos, los motores que transcriben EN VIVO (texto mientras hablas) llevan ahora una etiqueta 'EN VIVO': locales Nemotron/Voxtral Realtime, ElevenLabs realtime, y los de nube por WebSocket (Deepgram, Soniox, AssemblyAI, Speechmatics, Gladia). Verde = activo; gris = lo soporta, actívalo en Avanzado",
             "Speechmatics en vivo más robusto: si su conexión falla, ahora cae al plan B al instante y con el motivo en el registro (antes se demoraba y no decía por qué)",

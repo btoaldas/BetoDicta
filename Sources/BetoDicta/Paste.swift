@@ -30,6 +30,16 @@ func pasteText(_ text: String) {
     }
 }
 
+/// Abre Spotlight (⌘Espacio) — para el modo Buscar en la Mac.
+func abrirSpotlight() {
+    let src = CGEventSource(stateID: .combinedSessionState)
+    let down = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_Space), keyDown: true)
+    let up = CGEvent(keyboardEventSource: src, virtualKey: CGKeyCode(kVK_Space), keyDown: false)
+    down?.flags = .maskCommand; up?.flags = .maskCommand
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
+}
+
 /// Pulsa Return (o Shift+Return) — para los flags "Enter / Shift+Enter al
 /// terminar el dictado". Se llama con un pequeño retraso tras pegar.
 func presionarRetorno(shift: Bool) {

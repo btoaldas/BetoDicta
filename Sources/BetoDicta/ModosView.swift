@@ -143,6 +143,7 @@ struct ModosView: View {
                     Text("Pulir / reescribir").tag("pulir")
                     Text("Traducir").tag("traducir")
                     Text("Responder (asistente)").tag("responder")
+                    Text("Buscar (web / Spotlight)").tag("buscar")
                 }.labelsHidden().frame(width: 200)
             }
         }
@@ -195,35 +196,54 @@ struct ModosView: View {
             }
             .id(idiomasVer)
         }
-        // Prompt (salvo Dictado, que usa la limpieza estándar)
-        if b.wrappedValue.id != "dictado" {
+        // Buscar: buscador destino (web o Spotlight) + URL personalizada. Sin IA ni prompt.
+        if b.wrappedValue.base == "buscar" {
+            HStack {
+                Text("Buscar en:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: b.buscador) {
+                    ForEach(Buscadores.base, id: \.id) { item in Text(item.nombre).tag(item.id) }
+                }.labelsHidden().frame(width: 240)
+            }
+            if b.wrappedValue.buscador == "personalizado" {
+                HStack {
+                    Text("URL:").font(.caption).frame(width: 90, alignment: .leading)
+                    TextField("https://ejemplo.com/buscar?q={q}", text: b.prompt)
+                        .textFieldStyle(.roundedBorder).frame(width: 280)
+                }
+            }
+            Text("Dictas y se abre el buscador con tu consulta (usa {q} donde va el texto). Spotlight abre ⌘Espacio en tu Mac. Sin IA.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        // Prompt (salvo Dictado/Traducir/Buscar, que no usan prompt libre)
+        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" && b.wrappedValue.base != "traducir" {
             Text("Instrucción para la IA (prompt):").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: b.prompt)
                 .font(.callout).frame(height: 70)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.3)))
-        } else {
+        } else if b.wrappedValue.id == "dictado" {
             Text("El modo Dictado usa la limpieza estándar (puntuación, muletillas, glosario). Su 'estilo' se ajusta en Ajustes → Pulido.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
-        // IA propia del modo (o global de pulido)
-        HStack {
-            Text("IA de este modo:").font(.caption).frame(width: 110, alignment: .leading)
-            Picker("", selection: b.proveedorId) {
-                Text("Global (la de Pulido)").tag("")
-                ForEach(iasPulido, id: \.id) { ia in
-                    Text(ia.proveedorCorto).tag(ia.id)
-                }
-            }.labelsHidden().frame(width: 220)
-        }
-        // Modelo (opcional): solo si eligió una IA específica
-        if !b.wrappedValue.proveedorId.isEmpty {
+        // IA propia del modo (no aplica a Buscar, que no usa IA)
+        if b.wrappedValue.base != "buscar" {
             HStack {
-                Text("Modelo:").font(.caption).frame(width: 110, alignment: .leading)
-                TextField("(default del proveedor)", text: b.modelo).textFieldStyle(.roundedBorder).frame(width: 220)
+                Text("IA de este modo:").font(.caption).frame(width: 110, alignment: .leading)
+                Picker("", selection: b.proveedorId) {
+                    Text("Global (la de Pulido)").tag("")
+                    ForEach(iasPulido, id: \.id) { ia in
+                        Text(ia.proveedorCorto).tag(ia.id)
+                    }
+                }.labelsHidden().frame(width: 220)
             }
+            if !b.wrappedValue.proveedorId.isEmpty {
+                HStack {
+                    Text("Modelo:").font(.caption).frame(width: 110, alignment: .leading)
+                    TextField("(default del proveedor)", text: b.modelo).textFieldStyle(.roundedBorder).frame(width: 220)
+                }
+            }
+            Text("Consejo: deja la IA en 'Global' para usar la misma que pules; o elige una específica (ej. una potente para 'Asistente', una gratis para 'Tarea').")
+                .font(.caption2).foregroundStyle(.secondary)
         }
-        Text("Consejo: deja la IA en 'Global' para usar la misma que pules; o elige una específica (ej. una potente para 'Asistente', una gratis para 'Tarea').")
-            .font(.caption2).foregroundStyle(.secondary)
         // Borrar (solo modos propios; los base no se borran)
         if !b.wrappedValue.esFijo {
             Button(role: .destructive) {

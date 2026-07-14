@@ -387,6 +387,29 @@ Así *Quipux*, *Kipux* y *Guipux* caen en códigos casi idénticos (`KIPUKS`, `G
 
 Menú de la barra → **"Traducir al dictar"** → elige idioma (inglés, portugués, francés…). Dictas en español y se pega traducido. Los términos de tu glosario NO se traducen (nombres propios quedan intactos). Necesita key de Groq. **"Desactivado"** vuelve al español normal.
 
+## 16 bis. Modos — qué hacer con lo dictado
+
+Un **modo** decide cómo se procesa tu dictado. Se configura en **Ajustes → Modos** y se cambia al vuelo desde el **notch** (etiqueta arriba-izquierda) o el **menú de la barra → Modo**, igual que eliges proveedor.
+
+Modos base:
+
+- **Dictado** (por defecto): comportamiento de siempre (pulir + traducir si los tienes activos).
+- **Correo / Oficio / Tarea / Nota**: reescriben tu dictado con ese formato.
+- **Traducir**: traduce a un idioma que eliges de una **lista con banderita** (y puedes **agregar** los idiomas que quieras).
+- **Asistente**: trata tu dictado como una instrucción y redacta la respuesta.
+- **Buscar**: no pega texto — **abre el buscador con tu consulta**. Eliges **Google, Bing, DuckDuckGo, YouTube, Google Maps, Spotlight (⌘Espacio en tu Mac)** o una **URL propia** (usa `{q}` donde va el texto). Sin IA.
+
+Cada modo (menos Dictado/Buscar) usa **su propia IA y su propio prompt** — o la IA global de Pulido. Puedes crear tus **propios** modos con el botón **+** (nombre, comportamiento, prompt, IA).
+
+**Un solo uso (por defecto ON):** el modo que eliges en el notch/menú se aplica **solo a ese dictado** y luego vuelve al **modo por defecto**. Marca el por defecto con **"Poner por defecto"**. Si prefieres que el modo elegido se quede fijo, apaga el interruptor *"El modo elegido al vuelo es de un solo uso"*.
+
+**Activación automática:**
+
+- **Por voz** — empieza el dictado con la frase del modo (ej. *"modo tarea comprar la comida"*): se aplica ese modo y la frase se quita. Edita/vacía cada frase en Ajustes → Modos.
+- **Por app / sitio web** — pon en cada modo las **apps** (ej. Outlook) o **sitios** (ej. `quipux.gob.ec`) donde debe aplicarse solo. La primera vez, los sitios piden permiso de Automatización para leer la URL del navegador.
+
+Precedencia: **voz > app/sitio > el modo elegido a mano**.
+
 ## 17. Pestaña Historial
 
 ![Pestaña Historial](img/historial.png)
