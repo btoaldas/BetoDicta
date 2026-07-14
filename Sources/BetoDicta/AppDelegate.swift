@@ -339,6 +339,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de progreso en vivo: BETODICTA_PROGTEST=<proyecto> (lee train.log)
+        if let p = ProcessInfo.processInfo.environment["BETODICTA_PROGTEST"], !p.isEmpty {
+            let pr = Entrenador.leerProgreso(URL(fileURLWithPath: p))
+            print("PROGTEST paso=\(pr.paso) total=\(pr.total) loss=\(pr.loss) → \(pr.texto)")
+            exit(0)
+        }
         // Prueba de persona auto (Whisper): BETODICTA_AUTOPERSONA=<carpeta_refs>
         if let c = ProcessInfo.processInfo.environment["BETODICTA_AUTOPERSONA"], !c.isEmpty {
             let p = Entrenador.personaDesdeAudios(carpetaAudios: URL(fileURLWithPath: c), nombre: "Prueba", stamp: "t")

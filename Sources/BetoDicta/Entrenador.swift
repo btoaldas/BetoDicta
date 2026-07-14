@@ -90,7 +90,7 @@ enum Entrenador {
     static var proyectosDir: URL { Config.dir.appendingPathComponent("entrenamientos") }
     private static var trainProc: Process?
 
-    struct Progreso { var fase: String; var paso: Int; var total: Int; var texto: String }
+    struct Progreso { var fase: String; var paso: Int; var total: Int; var texto: String; var loss: Double = 0 }
 
     /// Lanza un entrenamiento: FASE dataset (Whisper) → FASE train (background).
     /// `stamp` = marca de tiempo para el nombre del proyecto (se pasa desde afuera:
@@ -315,10 +315,19 @@ enum Entrenador {
             guard let m = ms.last, let r = Range(m.range(at: 1), in: log) else { return nil }
             return Int(log[r])
         }
+        func ultimoD(_ patron: String) -> Double? {
+            guard let re = try? NSRegularExpression(pattern: patron) else { return nil }
+            let ms = re.matches(in: log, range: NSRange(log.startIndex..., in: log))
+            guard let m = ms.last, let r = Range(m.range(at: 1), in: log) else { return nil }
+            return Double(log[r])
+        }
         let paso = ultimo("GLOBAL_STEP: (\\d+)") ?? 0
         let total = ultimo("~(\\d+) pasos") ?? 0
+        let loss = ultimoD("loss: ([0-9.]+)") ?? 0
+        let pct = total > 0 ? Int(Double(paso) / Double(total) * 100) : 0
         return Progreso(fase: "train", paso: paso, total: total,
-                        texto: total > 0 ? "Paso \(paso) de \(total)" : "Preparando…")
+                        texto: total > 0 ? "Paso \(paso) de \(total) (\(pct)%)" + (loss > 0 ? " · loss \(String(format: "%.3f", loss))" : "") : "Preparando…",
+                        loss: loss)
     }
 
     private static func registroTieneStep(_ log: URL) -> Bool {

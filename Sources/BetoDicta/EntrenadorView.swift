@@ -38,6 +38,8 @@ struct EntrenadorView: View {
 
     @State private var ranking: [Entrenador.RankCheckpoint] = []
     @State private var estado = ""
+    @State private var prog = Entrenador.Progreso(fase: "", paso: 0, total: 0, texto: "")
+    private let acento = Color.accentColor
 
     var body: some View {
         ScrollView {
@@ -86,11 +88,16 @@ struct EntrenadorView: View {
                     }
                 }
 
-                // 3) Progreso
+                // 3) Progreso EN VIVO
                 if entrenando || !faseTxt.isEmpty {
                     grupo {
                         Text("Progreso").font(.subheadline)
-                        Text(faseTxt).font(.caption)
+                        if prog.total > 0 {
+                            ProgressView(value: Double(prog.paso), total: Double(prog.total)).tint(acento)
+                        } else if entrenando {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(faseTxt).font(.caption).monospacedDigit()
                         if entrenando { Button("Detener") { Entrenador.detener(); entrenando = false; timer?.invalidate() }.controlSize(.small) }
                     }
                 }
@@ -106,6 +113,11 @@ struct EntrenadorView: View {
                                     onFin: { ok in estado = ok ? "Listo — elige abajo" : "No se pudo validar"
                                         ranking = Entrenador.rankingValidacion(proyecto: proyecto) })
                             }.controlSize(.small)
+                        }
+                        // Gráfica de validación (validacion.png) si existe.
+                        if let img = graficaValidacion() {
+                            Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 240)
+                                .cornerRadius(6)
                         }
                         ForEach(Array(ranking.enumerated()), id: \.offset) { i, c in
                             HStack {
@@ -164,10 +176,11 @@ struct EntrenadorView: View {
 
     private func seguirProgreso() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
+        // Estado del train EN VIVO: relee train.log cada 3s (paso/total/loss + barra).
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             guard let proyecto else { return }
             let p = Entrenador.leerProgreso(proyecto)
-            faseTxt = "train: \(p.texto)"
+            prog = p; faseTxt = "train: \(p.texto)"
         }
     }
 
@@ -201,6 +214,12 @@ struct EntrenadorView: View {
             case .faltaModelo: estado = "No pude emitir (falta el modelo)."
             }
         }
+    }
+
+    private func graficaValidacion() -> NSImage? {
+        guard let proyecto else { return nil }
+        let png = proyecto.appendingPathComponent("validacion.png")
+        return FileManager.default.fileExists(atPath: png.path) ? NSImage(contentsOf: png) : nil
     }
 
     private func borrarCheckpoint(_ ckpt: URL) {
