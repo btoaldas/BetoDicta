@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.32.0"
+    static let numero = "0.33.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.33.0", "2026-07-14", [
+            "ENTRENAR una voz PIPER (rápida, ⚡): hornea una voz FIJA que habla casi al instante (~5× tiempo real). Desde Biblioteca de voces → carpeta de audios + nombre + persona → entrena en segundo plano y eliges el mejor corte escuchándolo. XTTS se queda para clonar con máxima calidad",
+            "CALIDAD parametrizable (Media/Alta/Baja): Media usa base en ESPAÑOL (recomendada); Alta es más nítida pero más lenta; Baja es la más veloz. Alta/Baja parten de base en inglés y se adaptan a tu español",
+            "Progreso EN VIVO con porcentaje y fases: ves “transcribiendo X de Y (%)” y luego “paso X de Y (%)”, minuto a minuto. Registra todo en logs",
+            "Resumible de verdad: puedes cerrar la ventana e incluso salir de BetoDicta; el entrenamiento sigue en segundo plano y al reabrir el progreso vuelve a aparecer. Si se apaga la compu, “Reanudar” continúa desde el último corte",
+            "Todo funciona en cualquier Mac: lo pesado (motor, base ~0.8-1 GB por calidad) se descarga bajo demanda de fuentes verificadas (rhasspy/piper-checkpoints); nada pesado en la app. Avisa si falta ffmpeg o las herramientas de Apple",
+        ]),
         ("0.32.0", "2026-07-14", [
             "ENTRENAR una voz nueva DENTRO de BetoDicta (🎓 en Clon local): eliges una carpeta de audios + nombre, la app recomienda las etapas según cuánta voz haya, entrena en segundo plano con progreso EN VIVO + gráfica, y al final eliges el mejor corte (escuchas cada uno) → sale tu paquete portable. La persona (cómo habla) se saca sola",
             "Muchos más motores de voz en la nube: OpenAI, Google Gemini, Deepgram, Cartesia, Inworld, PlayHT, Azure — cada uno con su voz/modelo y streaming (WebSocket) configurable, con tu key",

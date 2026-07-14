@@ -32,6 +32,7 @@
 22. [La caja negra: tus datos](#22-la-caja-negra-tus-datos)
 23. [Solución de problemas](#23-solución-de-problemas)
 24. [Preguntas frecuentes](#24-preguntas-frecuentes)
+25. [Voz propia: biblioteca y entrenamiento](#25-voz-propia-biblioteca-y-entrenamiento)
 
 ---
 
@@ -560,6 +561,48 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 **¿Qué tan pesada es?** La app pesa ~32 MB. Los modelos locales van de 74 MB (Whisper Tiny) a 3.2 GB (Voxtral 3B) — tú eliges cuáles descargar. Los modelos cargan en RAM solo al dictar y se descargan solos tras ~2 minutos sin uso.
 
 **¿Dónde pido una función nueva?** En [GitHub Issues](https://github.com/btoaldas/BetoDicta/issues/new) — las ideas son bienvenidas.
+
+---
+
+## 25. Voz propia: biblioteca y entrenamiento
+
+BetoDicta puede hablar con **tu propia voz** (o la de un ser querido), 100 % local. Se abre desde **la barra → Biblioteca de voces**. Hay dos motores de voz, y conviven:
+
+- **XTTS** — clona una voz con mucha calidad y flexibilidad, pero habla **~a tiempo real** (más lento).
+- **Piper** — hornea una voz **fija** que luego habla **casi al instante** (~5× tiempo real, sin torch). Ideal para respuestas rápidas.
+
+Ambos se entrenan desde una **carpeta de audios** de una sola persona (mientras más voz limpia, mejor; con ~1 a 6 horas rinde muy bien). Nada de esto viaja por internet: el motor de voz vive aislado en tu carpeta personal.
+
+### Entrenar una voz Piper (rápida)
+
+1. Biblioteca de voces → **⚡ Entrenar voz Piper (rápida)**.
+2. **Preparar el entrenador** (una vez): baja las herramientas y arma el motor de entrenamiento.
+3. Elige la **carpeta de audios**, ponle **nombre** y, si quieres, una **persona/prompt** (cómo habla; si lo dejas vacío se genera de los audios).
+4. Elige la **calidad** (ver abajo) y, si falta, **descarga su base** (una sola vez).
+5. **Entrenar**. BetoDicta:
+   - **Fase 1** — transcribe y prepara los audios (Whisper): verás *"X de Y archivos (%)"* y cuántos fragmentos lleva.
+   - **Fase 2** — entrena: verás *"paso X de Y (%)"* en vivo, con barra de porcentaje.
+6. Guarda **varios checkpoints**. Puedes **escuchar** cualquiera y **usar el que más te guste** (los últimos suelen sonar mejor). Ese se registra como voz ⚡ en tu biblioteca.
+
+**Corre en segundo plano y es resumible.** Puedes **cerrar la ventana e incluso salir de BetoDicta**: el entrenamiento sigue. Al reabrir, el progreso **vuelve a aparecer solo**. Si se apagó la computadora, aparece **“Reanudar”** y continúa desde el último checkpoint (no re-transcribe lo ya hecho).
+
+### Calidad: media, alta, baja
+
+| Calidad | Qué es | Base |
+|---|---|---|
+| **Media** (recomendada) | 22 kHz, natural y rápida | **en español** (davefx) |
+| **Alta** | Red más grande = más nítida, pero **más lenta al hablar** | en inglés (lessac), se adapta al español |
+| **Baja** | 16 kHz, la más veloz y liviana, menor fidelidad | en inglés (lessac) |
+
+Para español, **Media es la mejor opción**: es la única con base nativa en español. **Alta** y **Baja** solo existen con base en inglés; el entrenamiento las **adapta a tu español** (tu audio manda), así que **no se “dañan” ni pasa nada malo** si les envías audio en español — solo necesitan más etapas y hablan un poco más lento. Empieza con **Media**; si quieres, prueba **Alta** y compara escuchando. Nada se pierde: entrenas, escuchas, eliges.
+
+### Requisitos y descargas
+
+- **ffmpeg** (para preparar el audio): si falta, la app avisa — instálalo con `brew install ffmpeg`.
+- **Herramientas de Apple** (solo la primera vez, para compilar una pieza): si faltan, la app avisa — `xcode-select --install`.
+- Las piezas **pesadas se descargan bajo demanda y con tu permiso** (motor de voz, checkpoint base ~0.8–1 GB por calidad). Nada pesado viaja en la app ni en el repositorio.
+
+> Créditos: Piper (OHF-Voice/rhasspy, GPL-3.0), checkpoints base de `rhasspy/piper-checkpoints`, Coqui XTTS, PyTorch, Whisper, espeak-ng. Ver [CREDITS.md](../CREDITS.md).
 
 ---
 

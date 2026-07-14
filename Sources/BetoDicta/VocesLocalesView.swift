@@ -219,7 +219,9 @@ struct VocesLocalesEditor: View {
 
             HStack {
                 Button("🎓 Entrenar una voz nueva") { EntrenadorWindow.show() }.controlSize(.small)
-                    .help("Crea un clon desde una carpeta de audios (dentro de BetoDicta)")
+                    .help("Crea un clon XTTS desde una carpeta de audios (calidad, clona al vuelo)")
+                Button("⚡ Entrenar voz Piper (rápida)") { EntrenadorPiperWindow.show() }.controlSize(.small)
+                    .help("Hornea una voz FIJA veloz (.onnx) desde una carpeta de audios")
                 Button("⬆︎ Subir voz (paquete)") { subirPaquete() }.controlSize(.small)
                     .help("Elige una carpeta de paquete de voz portable (con voz_gen.py)")
                 Button("⚡ Subir voz rápida (.onnx)") { subirPiper() }.controlSize(.small)

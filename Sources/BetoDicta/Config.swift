@@ -174,6 +174,10 @@ struct Config {
     static func ttsXttsCmd() -> String { (json()["tts_xtts_cmd"] as? String) ?? "" }
     /// Voz LOCAL clonada seleccionada de la biblioteca (id). Vacío = la primera.
     static func ttsVozLocal() -> String { (json()["tts_voz_local"] as? String) ?? "" }
+    /// Entrenador Piper: URL del checkpoint base (fine-tune). Vacío = default conocido.
+    static func piperBaseURL() -> String { (json()["piper_base_url"] as? String) ?? "" }
+    /// Entrenador Piper: tamaño de lote (batch). Default 8 (CPU 64GB). Parametrizable.
+    static func piperBatch() -> Int { (json()["piper_batch"] as? Int) ?? 8 }
     /// Preactivar el servidor XTTS residente (modelo cargado en RAM) cuando el clon
     /// local es el motor activo → respuesta rápida. Default ON. Parametrizable.
     static func ttsXttsPreactivar() -> Bool { (json()["tts_xtts_preactivar"] as? Bool) ?? true }

@@ -268,6 +268,16 @@ enum VozEngine {
 
     static func desinstalar() { try? FileManager.default.removeItem(at: dir) }
 
+    // Wrappers públicos para que otros módulos (EntrenadorPiper) reusen uv + el runner.
+    static func uvBin(_ onProgreso: @escaping (String) -> Void) throws -> String {
+        try localizarObajarUv(onProgreso)
+    }
+    @discardableResult
+    static func correrUv(_ exe: String, _ args: [String],
+                         _ onLinea: @escaping (String) -> Void) throws -> String {
+        try correr(exe, args, onLinea)
+    }
+
     // MARK: Utilidades
 
     enum Err: Error, LocalizedError {
