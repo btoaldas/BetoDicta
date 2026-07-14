@@ -339,6 +339,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba del motor PIPER: BETODICTA_PIPERTEST=<onnx> → sintetiza rápido
+        if let onnx = ProcessInfo.processInfo.environment["BETODICTA_PIPERTEST"], !onnx.isEmpty {
+            let t0 = Date()
+            PiperTTS.decir(onnx: URL(fileURLWithPath: onnx), texto: "Hola mi hijo, esta es una prueba de voz rápida con Piper. Chao chao.") { url in
+                if let url, let d = try? Data(contentsOf: url) {
+                    try? d.write(to: URL(fileURLWithPath: "/tmp/betodicta_piper.wav"))
+                    print("PIPERTEST OK → \(d.count) bytes en \(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
+                } else { print("PIPERTEST FALLÓ") }
+                exit(0)
+            }
+            RunLoop.main.run(); return
+        }
         // Prueba de recursos: BETODICTA_RECURSOS=1 → info + recomendación
         if ProcessInfo.processInfo.environment["BETODICTA_RECURSOS"] == "1" {
             let i = Recursos.info(); let r = Recursos.recomendar(i)

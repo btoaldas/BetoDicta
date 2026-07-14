@@ -136,6 +136,22 @@ struct VocesLocalesEditor: View {
         }
     }
 
+    private func subirPiper() {
+        let panel = NSOpenPanel()
+        panel.title = "Elige la voz Piper (.onnx)"
+        panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+        panel.allowedFileTypes = ["onnx"]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        estado = "Importando la voz rápida…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let v = VocesLocales.importarPiper(desde: url)
+            DispatchQueue.main.async {
+                estado = v != nil ? "Voz rápida “\(v!.nombre)” agregada ⚡" : "No pude importar el .onnx (¿está su .onnx.json al lado?)."
+                refrescar()
+            }
+        }
+    }
+
     private func muestras(_ v: VozLocal) {
         let panel = NSOpenPanel()
         panel.title = "Muestras de voz para “\(v.nombre)” (wav 10-30s)"
@@ -177,6 +193,7 @@ struct VocesLocalesEditor: View {
                             Image(systemName: activa == v.id ? "largecircle.fill.circle" : "circle")
                         }.buttonStyle(.plain)
                         Text(v.nombre).font(.callout)
+                        if !v.onnx.isEmpty { Text("⚡").font(.caption2).help("Voz rápida (Piper)") }
                         if !v.persona.isEmpty { Text("· persona ✓").font(.caption2).foregroundStyle(.secondary) }
                         Spacer()
                         Button("🔊") {
@@ -205,6 +222,8 @@ struct VocesLocalesEditor: View {
                     .help("Crea un clon desde una carpeta de audios (dentro de BetoDicta)")
                 Button("⬆︎ Subir voz (paquete)") { subirPaquete() }.controlSize(.small)
                     .help("Elige una carpeta de paquete de voz portable (con voz_gen.py)")
+                Button("⚡ Subir voz rápida (.onnx)") { subirPiper() }.controlSize(.small)
+                    .help("Voz Piper (.onnx): rápida, casi instantánea")
                 Button("➕ Agregar voz") { mostrarAgregar.toggle() }.controlSize(.small)
                 Button("🔍 Detectar mis voces (VozClonPOC)") {
                     detectadas = VocesLocales.detectarDeVozClon()

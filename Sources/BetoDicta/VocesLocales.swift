@@ -22,12 +22,15 @@ struct VozLocal: Codable, Identifiable, Equatable {
                               // está, se corre con el MOTOR interno (VozEngine), no con cmd.
     var streaming: Bool = true // POR VOZ (no global): suena por trozos mientras genera
                                // (XTTS inference_stream). Si off → genera completo y suena.
+    var onnx: String = ""      // ruta a una voz PIPER (.onnx). Si está, se usa el motor
+                               // PIPER (voz FIJA, ~5x tiempo real, casi instantánea) en vez
+                               // de XTTS. Es el carril RÁPIDO. XTTS se queda para lo demás.
 
     // Decode tolerante: JSON viejos sin campos nuevos siguen cargando.
-    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete, streaming }
-    init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "", streaming: Bool = true) {
+    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete, streaming, onnx }
+    init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "", streaming: Bool = true, onnx: String = "") {
         self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona
-        self.paquete = paquete; self.streaming = streaming
+        self.paquete = paquete; self.streaming = streaming; self.onnx = onnx
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -37,6 +40,7 @@ struct VozLocal: Codable, Identifiable, Equatable {
         persona = (try? c.decode(String.self, forKey: .persona)) ?? ""
         paquete = (try? c.decode(String.self, forKey: .paquete)) ?? ""
         streaming = (try? c.decode(Bool.self, forKey: .streaming)) ?? true
+        onnx = (try? c.decode(String.self, forKey: .onnx)) ?? ""
     }
 }
 
@@ -72,10 +76,10 @@ enum VocesLocales {
     }
 
     static func borrar(_ id: String) {
-        // Si la voz tenía un paquete GESTIONADO (bajo voces/<id>), bórralo también.
-        if let v = todas().first(where: { $0.id == id }), !v.paquete.isEmpty,
-           v.paquete.hasPrefix(vocesDir.path) {
-            try? FileManager.default.removeItem(atPath: v.paquete)
+        // Borra la carpeta gestionada de esta voz (paquete XTTS o .onnx Piper), si existe.
+        let carpeta = vocesDir.appendingPathComponent(id)
+        if FileManager.default.fileExists(atPath: carpeta.path) {
+            try? FileManager.default.removeItem(at: carpeta)
         }
         guardar(todas().filter { $0.id != id })
         if Config.ttsVozLocal() == id { Config.set("tts_voz_local", to: todas().first?.id ?? "") }
@@ -224,6 +228,27 @@ enum VocesLocales {
             if !lineas.contains(rel) { lineas.append(rel) }
         }
         try? lineas.joined(separator: "\n").write(to: dst.appendingPathComponent("ref_list.txt"), atomically: true, encoding: .utf8)
+    }
+
+    /// SUBIR una voz PIPER (.onnx) — carril rápido. Copia el .onnx (+ su .json) a
+    /// voces/<id>/ y la registra. Devuelve la voz o nil.
+    @discardableResult
+    static func importarPiper(desde onnx: URL, nombre: String? = nil) -> VozLocal? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: onnx.path) else { return nil }
+        let nom = nombre ?? onnx.deletingPathExtension().lastPathComponent
+        let v = agregar(nombre: nom, cmd: "", persona: "", paquete: "")
+        try? fm.createDirectory(at: vocesDir, withIntermediateDirectories: true)
+        let dst = vocesDir.appendingPathComponent(v.id); try? fm.removeItem(at: dst)
+        try? fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        let onnxDst = dst.appendingPathComponent("voz.onnx")
+        do { try fm.copyItem(at: onnx, to: onnxDst) } catch { borrar(v.id); return nil }
+        // el .json de config (mismo nombre + .json) es necesario para Piper.
+        let json = URL(fileURLWithPath: onnx.path + ".json")
+        if fm.fileExists(atPath: json.path) { try? fm.copyItem(at: json, to: URL(fileURLWithPath: onnxDst.path + ".json")) }
+        var list = todas()
+        if let i = list.firstIndex(where: { $0.id == v.id }) { list[i].onnx = onnxDst.path; guardar(list) }
+        return todas().first { $0.id == v.id }
     }
 
     /// DESCARGAR/exportar el paquete de una voz a una carpeta destino (para llevarlo).

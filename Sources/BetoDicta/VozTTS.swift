@@ -92,7 +92,16 @@ enum Voz {
                 }
             }
         case "xtts_local":
-            // Voz con PAQUETE + motor interno listo → lo corre BetoDicta solo.
+            // Si la voz activa es PIPER (.onnx) → carril RÁPIDO (voz fija, ~instantánea).
+            if let voz = VocesLocales.activa(), !voz.onnx.isEmpty, PiperTTS.disponible {
+                PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: texto) { url in
+                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) } else {
+                        Log.log(.ia, "TTS Piper falló → siguiente motor"); siguiente()
+                    }
+                }
+                return
+            }
+            // Voz con PAQUETE + motor interno listo → lo corre BetoDicta solo (XTTS).
             // Si no, cae al comando (bootstrap/externo). Si nada → siguiente motor.
             if let voz = VocesLocales.activa(), !voz.paquete.isEmpty, VozEngine.estado() == .listo {
                 let pkg = URL(fileURLWithPath: voz.paquete)
