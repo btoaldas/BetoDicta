@@ -9,11 +9,17 @@ import Foundation
 // Fire-and-forget; no bloquea nada; con "Connection: close" (conexión fresca).
 
 enum CalientaRed {
+    /// Despierta el túnel de red, sea cual sea la VPN (o ninguna). Es solo tráfico
+    /// HTTP normal: agnóstico de OpenVPN/WireGuard/PPTP/… y sin VPN es inofensivo.
+    /// SIEMPRE fire-and-forget: nunca bloquea ni detiene el dictado, pase lo que pase.
     static func despertar() {
+        guard Config.calentarRed() else { return }
         let base = ChatIA.seleccionada()?.base ?? "https://api.groq.com"
-        guard let u = URL(string: base) else { return }
+        // Si el pulido es LOCAL (localhost) no hay túnel que despertar → no gastes nada.
+        guard let u = URL(string: base), let host = u.host?.lowercased(),
+              !["localhost", "127.0.0.1", "::1"].contains(host) else { return }
         var r = URLRequest(url: u); r.httpMethod = "HEAD"; r.timeoutInterval = 6
         r.setValue("close", forHTTPHeaderField: "Connection")
-        URLSession.shared.dataTask(with: r) { _, _, _ in }.resume()
+        URLSession.shared.dataTask(with: r) { _, _, _ in }.resume()   // resultado ignorado
     }
 }

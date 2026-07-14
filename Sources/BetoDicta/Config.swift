@@ -139,6 +139,8 @@ struct Config {
     static func ttsVelocidad() -> Double { (json()["tts_velocidad"] as? Double) ?? 0.5 }
     /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.
     static func buscadoresPersonales() -> [[String: String]] { (json()["buscadores_personales"] as? [[String: String]]) ?? [] }
+    /// Despertar el túnel de red al grabar (mitiga latencia del 1er dictado con VPN). Default ON.
+    static func calentarRed() -> Bool { (json()["calentar_red"] as? Bool) ?? true }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

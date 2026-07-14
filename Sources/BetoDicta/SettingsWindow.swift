@@ -93,6 +93,7 @@ final class SettingsModel: ObservableObject {
     @Published var modoSemPalabras: Double { didSet { Config.set("modo_sem_palabras", to: Int(modoSemPalabras)) } }
     @Published var modoSemUmbral: Double { didSet { Config.set("modo_sem_umbral", to: modoSemUmbral) } }
     @Published var logModos: Bool { didSet { Config.set("log_modos", to: logModos) } }
+    @Published var calentarRed: Bool { didSet { Config.set("calentar_red", to: calentarRed) } }
     @Published var ttsActivo: Bool { didSet { Config.set("tts_activo", to: ttsActivo) } }
     @Published var ttsVoz: String { didSet { Config.set("tts_voz", to: ttsVoz) } }
     @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
@@ -136,6 +137,7 @@ final class SettingsModel: ObservableObject {
         modoSemPalabras = Double(Config.modoSemanticoPalabras())
         modoSemUmbral = Config.modoSemanticoUmbral()
         logModos = Config.logModos()
+        calentarRed = Config.calentarRed()
         ttsActivo = Config.ttsActivo()
         ttsVoz = Config.ttsVoz()
         ttsVelocidad = Config.ttsVelocidad()
@@ -728,6 +730,10 @@ struct SettingsView: View {
                                 TTS.hablar("Hola Alberto. Soy BetoDicta y ya puedo hablarte. Este es el primer paso del modo agente.")
                             }.controlSize(.small)
                         }
+                        Divider()
+                        Toggle("Despertar la red al grabar (mitiga latencia con VPN)", isOn: $m.calentarRed)
+                        Text("Si usas VPN (WireGuard/OpenVPN/etc.) que 'duerme' cuando está inactiva, el 1er dictado podía tardar ~14s. Esto despierta la red mientras hablas. Es un pedido diminuto, nunca frena el dictado, y funciona con cualquier VPN o ninguna. Apágalo si no lo quieres.")
+                            .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         Toggle("Registro detallado de modos (para analizar y mejorar)", isOn: $m.logModos)
                         Text("Guarda cada decisión de modos/acciones (por voz/cadena/contexto/semántico, con score) en ~/.betodicta/logs/modos.jsonl — para revisar qué reconoció bien y afinar. Ábrelo desde Ajustes → Modos (icono de lupa). 100% local.")
