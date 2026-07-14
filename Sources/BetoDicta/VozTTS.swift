@@ -57,9 +57,24 @@ enum Voz {
             // Respaldo final: no falla. Reproduce con la voz de macOS.
             TTS.hablar(texto) { done?() }
         case "elevenlabs":
-            ElevenLabsTTS.decir(texto) { data in
-                if let data { reproducir(data, done) } else {
-                    Log.log(.ia, "TTS ElevenLabs falló → siguiente motor"); siguiente()
+            // Streaming WS (suena mientras se genera); si falla, cae al batch mp3;
+            // si el batch también falla, al siguiente motor.
+            if Config.ttsElevenStreaming() {
+                ElevenLabsStreamTTS.hablar(texto) { ok in
+                    if ok { done?() } else {
+                        Log.log(.ia, "TTS ElevenLabs WS falló → batch")
+                        ElevenLabsTTS.decir(texto) { data in
+                            if let data { reproducir(data, done) } else {
+                                Log.log(.ia, "TTS ElevenLabs batch falló → siguiente motor"); siguiente()
+                            }
+                        }
+                    }
+                }
+            } else {
+                ElevenLabsTTS.decir(texto) { data in
+                    if let data { reproducir(data, done) } else {
+                        Log.log(.ia, "TTS ElevenLabs falló → siguiente motor"); siguiente()
+                    }
                 }
             }
         case "xtts_local":

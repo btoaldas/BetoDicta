@@ -99,6 +99,7 @@ final class SettingsModel: ObservableObject {
     @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
     @Published var ttsProveedor: String { didSet { Config.set("tts_proveedor", to: ttsProveedor) } }
     @Published var ttsElevenVoz: String { didSet { Config.set("tts_eleven_voz", to: ttsElevenVoz) } }
+    @Published var ttsElevenStreaming: Bool { didSet { Config.set("tts_eleven_streaming", to: ttsElevenStreaming) } }
     @Published var ttsXttsCmd: String { didSet { Config.set("tts_xtts_cmd", to: ttsXttsCmd) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
@@ -146,6 +147,7 @@ final class SettingsModel: ObservableObject {
         ttsVelocidad = Config.ttsVelocidad()
         ttsProveedor = Config.ttsProveedor()
         ttsElevenVoz = Config.ttsElevenVoz()
+        ttsElevenStreaming = Config.ttsElevenStreaming()
         ttsXttsCmd = Config.ttsXttsCmd()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
@@ -746,7 +748,8 @@ struct SettingsView: View {
                                     TextField("qoHnXuIkkICzacInt72I", text: $m.ttsElevenVoz)
                                         .textFieldStyle(.roundedBorder).frame(width: 260)
                                 }
-                                Text("Tu voz clonada de ElevenLabs (usa tu ELEVENLABS_API_KEY de la pestaña Modelos). Modelo eleven_flash_v2_5 (baja latencia). El streaming por WebSocket llega en la siguiente sub-fase.")
+                                Toggle("Streaming por WebSocket (suena mientras se genera)", isOn: $m.ttsElevenStreaming)
+                                Text("Tu voz clonada de ElevenLabs (usa tu ELEVENLABS_API_KEY de la pestaña Modelos). Modelo eleven_flash_v2_5 (baja latencia). Con streaming, el audio empieza a sonar en ~75-130ms (PCM por WebSocket); si falla, cae al modo normal.")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             if m.ttsProveedor == "xtts_local" {

@@ -361,6 +361,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de TTS ElevenLabs por STREAMING WS: BETODICTA_TTSWS=<texto>
+        // conecta el WebSocket, captura el PCM a /tmp/betodicta_ws.wav y sale.
+        if let txt = ProcessInfo.processInfo.environment["BETODICTA_TTSWS"], !txt.isEmpty {
+            print("TTSWS: voz=\(Config.ttsElevenVoz()) modelo=\(Config.ttsElevenModelo())")
+            let salida = URL(fileURLWithPath: "/tmp/betodicta_ws.wav")
+            ElevenLabsStreamTTS.capturarWav(txt, salida: salida) { ok in
+                if ok, let d = try? Data(contentsOf: salida) {
+                    print("TTSWS OK → \(d.count) bytes WAV → \(salida.path)")
+                } else { print("TTSWS FALLÓ (sin audio por WS)") }
+                exit(0)
+            }
+            RunLoop.main.run()
+            return
+        }
         // Prueba de activación de modo por VOZ: BETODICTA_VOZTEST=1 comprueba
         // la detección + recorte de la frase disparadora y sale.
         if ProcessInfo.processInfo.environment["BETODICTA_VOZTEST"] == "1" {

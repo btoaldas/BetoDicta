@@ -147,6 +147,8 @@ struct Config {
     /// voice_id de ElevenLabs para TTS (tu voz clonada "Bto"). Vacío = usar el default.
     static func ttsElevenVoz() -> String { (json()["tts_eleven_voz"] as? String) ?? "qoHnXuIkkICzacInt72I" }
     static func ttsElevenModelo() -> String { (json()["tts_eleven_modelo"] as? String) ?? "eleven_flash_v2_5" }
+    /// Streaming por WebSocket para ElevenLabs (suena mientras se genera). Default ON.
+    static func ttsElevenStreaming() -> Bool { (json()["tts_eleven_streaming"] as? Bool) ?? true }
     /// Comando de shell para tu clon LOCAL XTTS (VozClonPOC). {texto} y {salida}
     /// se sustituyen. Vacío = motor no configurado (failover). Parametrizable.
     /// (Compat: se usa si no hay voces en la biblioteca [[VocesLocales]].)
