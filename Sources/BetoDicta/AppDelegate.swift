@@ -448,7 +448,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let casos: [(String, String, String, String?)] = [
                 ("correo", "hola mundo", "", "mailto:?body=hola%20mundo"),
                 ("outlook", "buenos días", "", "ms-outlook://compose?body=buenos%20d%C3%ADas"),
-                ("whatsapp", "hola", "", "whatsapp://send?text=hola"),
                 ("url", "acta 5", "https://quipux.gob.ec/buscar?q={q}", "https://quipux.gob.ec/buscar?q=acta%205"),
                 ("finder", "algo", "", nil),      // solo abrir app → sin URL
                 ("notas", "x", "", nil),          // solo abrir app → sin URL
@@ -459,6 +458,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let bien = (r == esp); ok = ok && bien
                 print("ACCTEST \(bien ? "OK" : "✗") \(id) → \(r ?? "nil (abrir app: \(Acciones.bundle(id)))")")
             }
+            // WhatsApp failover: con app → whatsapp://; sin app → wa.me
+            let waApp = Acciones.whatsapp(texto: "hola", app: true) == "whatsapp://send?text=hola"
+            let waWeb = Acciones.whatsapp(texto: "hola", app: false) == "https://wa.me/?text=hola"
+            ok = ok && waApp && waWeb
+            print("ACCTEST \(waApp && waWeb ? "OK" : "✗") whatsapp app→whatsapp:// web→wa.me")
             print("ACCTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
@@ -1865,7 +1869,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let id = modo.accion.isEmpty ? "correo" : modo.accion
         Log.write("  ▶︎ acción (\(Acciones.nombre(id))): \(t)")
         history?.finish(wav: wav, finalText: "▶︎ \(Acciones.nombre(id)): \(t)")
-        if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
+        if id == "whatsapp" {
+            // Failover: app de escritorio si está; si no, wa.me (web) + sugerir instalarla.
+            let tieneApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Acciones.bundle("whatsapp")) != nil
+            if let url = URL(string: Acciones.whatsapp(texto: t, app: tieneApp)) { NSWorkspace.shared.open(url) }
+            if !tieneApp, !recorder.isRecording {
+                panel.flash("💡 Instala WhatsApp de escritorio para abrirlo directo", segundos: 3)
+            }
+        } else if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
             NSWorkspace.shared.open(url)
         } else {
             // Solo abrir app: deja el texto en el portapapeles para pegar + abre el bundle.

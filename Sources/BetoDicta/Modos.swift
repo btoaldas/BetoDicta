@@ -370,6 +370,13 @@ enum Acciones {
     ]
     static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
     static func bundle(_ id: String) -> String { base.first { $0.id == id }?.bundle ?? "" }
+    /// WhatsApp con FAILOVER: app de escritorio (whatsapp://) si está instalada,
+    /// si no la web wa.me. El llamador decide `app` (¿hay app de escritorio?).
+    static func whatsapp(texto: String, app: Bool) -> String {
+        var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
+        let enc = texto.addingPercentEncoding(withAllowedCharacters: cs) ?? texto
+        return app ? "whatsapp://send?text=\(enc)" : "https://wa.me/?text=\(enc)"
+    }
     /// URL/esquema final con el texto (nil = acción de SOLO abrir app, sin URL).
     /// `custom` = plantilla del usuario cuando id=="url" (debe tener {q}).
     static func url(_ id: String, texto: String, custom: String = "") -> String? {
