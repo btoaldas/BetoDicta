@@ -509,6 +509,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 && a.nuevos.last?.numero == "0988888888"
             ok = ok && csvOk
             print("WATEST \(csvOk ? "OK" : "✗") csv-google: válidos=\(a.validos) inválidos=\(a.invalidos)")
+            // CSV Google en ESPAÑOL (Nombre/Apellidos/Teléfono 1 - Valor)
+            let scsv = "Nombre,Apellidos,Teléfono 1 - Valor\nAlberto,Aldás,593999999999\n"
+            let sa = ContactosWA.analizarCSV(scsv)
+            let sOk = sa.validos == 1 && sa.nuevos.first?.nombre == "Alberto Aldás" && sa.nuevos.first?.numero == "593999999999"
+            ok = ok && sOk
+            print("WATEST \(sOk ? "OK" : "✗") csv-español: \(sa.nuevos.first?.nombre ?? "-")|\(sa.nuevos.first?.numero ?? "-")")
+            // vCard (iPhone/Android/iCloud/Outlook): FN o N, varias TEL, bloques BEGIN/END
+            let vcf = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Alberto Aldás\r\nTEL;TYPE=CELL:+593 99 123 4567\r\nEND:VCARD\r\nBEGIN:VCARD\nN:López;María;;;\nTEL:0988888888\nEND:VCARD\nBEGIN:VCARD\nFN:SinTel\nEND:VCARD\n"
+            let vc = ContactosWA.analizarVCard(vcf)
+            let vcOk = vc.validos == 2 && vc.invalidos == 1
+                && vc.nuevos.first?.nombre == "Alberto Aldás" && vc.nuevos.first?.numero == "+593991234567"
+                && vc.nuevos.last?.nombre == "María López" && vc.nuevos.last?.numero == "0988888888"
+            ok = ok && vcOk
+            print("WATEST \(vcOk ? "OK" : "✗") vcard: válidos=\(vc.validos) inválidos=\(vc.invalidos) 1º=\(vc.nuevos.first?.nombre ?? "-")")
             print("WATEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }

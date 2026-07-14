@@ -49,11 +49,12 @@ struct ModosView: View {
     @State private var resultadoImport = ""
 
     private func importarContactos() {
-        let p = NSOpenPanel(); p.allowedContentTypes = [.commaSeparatedText, .json, .plainText, .text]
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.commaSeparatedText, .json, .plainText, .text, .vCard]
         p.allowsMultipleSelection = false
         if p.runModal() == .OK, let u = p.url {
             let r = ContactosWA.importar(u)
-            resultadoImport = "✅ \(r.validos) importados · \(r.invalidos) inválidos · \(r.total) en total"
+            resultadoImport = "✅ \(r.validos) importados (\(r.detalle)) · \(r.invalidos) inválidos · \(r.total) en total"
             contactosVer += 1
         }
     }

@@ -84,9 +84,10 @@ enum ContactosWA {
         let rows = parseCSV(txt)
         guard rows.count > 1 else { return ([], 0, 0, "CSV vacío o sin filas") }
         let hn = rows[0].map { norm($0) }
-        let iName = hn.firstIndex { $0 == "name" || $0 == "nombre" || $0.contains("display name") || $0.contains("nombre completo") }
-        let iFirst = hn.firstIndex { $0.contains("first name") || $0.contains("given name") }
-        let iLast = hn.firstIndex { $0.contains("last name") || $0.contains("family name") }
+        // Nombre COMPLETO solo si el encabezado lo es de verdad (no "First Name").
+        let iName = hn.firstIndex { $0 == "name" || $0.contains("display name") || $0.contains("full name") || $0.contains("nombre completo") }
+        let iFirst = hn.firstIndex { $0.contains("first name") || $0.contains("given name") || $0 == "nombre" || $0 == "primer nombre" || $0 == "nombres" }
+        let iLast = hn.firstIndex { $0.contains("last name") || $0.contains("family name") || $0 == "apellido" || $0 == "apellidos" || $0 == "surname" }
         var phoneCols = hn.indices.filter { hn[$0].contains("phone") && hn[$0].contains("value") }   // Google "Phone 1 - Value"
         if phoneCols.isEmpty {
             let claves = ["numero", "number", "phone", "tel", "movil", "mobile", "celular", "whatsapp"]
@@ -113,7 +114,35 @@ enum ContactosWA {
         return (nuevos, validos, invalidos, "CSV sin cabecera (2 columnas)")
     }
 
-    /// Importa CSV (incl. export de Google/Gmail) o JSON. Devuelve conteo válidos/inválidos.
+    /// Analiza vCard (.vcf, el formato de iPhone/Android/iCloud/Outlook). PURA.
+    static func analizarVCard(_ txt: String) -> (nuevos: [ContactoWA], validos: Int, invalidos: Int, detalle: String) {
+        var out: [ContactoWA] = []; var v = 0, inv = 0
+        var fn = "", nParts = "", tel = ""
+        func valor(_ l: String) -> String { l.firstIndex(of: ":").map { String(l[l.index(after: $0)...]) } ?? "" }
+        func nombreDeN(_ s: String) -> String {
+            let c = s.components(separatedBy: ";")
+            let given = c.count > 1 ? c[1] : "", family = c.first ?? ""
+            return [given, family].filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        func flush() {
+            let nombre = (fn.isEmpty ? nombreDeN(nParts) : fn).trimmingCharacters(in: .whitespaces)
+            if !nombre.isEmpty, !tel.isEmpty { out.append(ContactoWA(nombre: nombre, numero: tel)); v += 1 }
+            else if !nombre.isEmpty || !tel.isEmpty { inv += 1 }
+            fn = ""; nParts = ""; tel = ""
+        }
+        for raw in txt.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").split(separator: "\n") {
+            let l = String(raw), up = l.uppercased()
+            let prop = (l.firstIndex(of: ":").map { String(l[..<$0]) } ?? l).uppercased()
+            if up.hasPrefix("BEGIN:VCARD") { fn = ""; nParts = ""; tel = "" }
+            else if up.hasPrefix("END:VCARD") { flush() }
+            else if prop == "FN" || prop.hasPrefix("FN;") { fn = valor(l) }
+            else if prop == "N" || prop.hasPrefix("N;") { if fn.isEmpty { nParts = valor(l) } }
+            else if prop.contains("TEL"), tel.isEmpty { tel = primerNumero(valor(l)) }
+        }
+        return (out, v, inv, "vCard (teléfono/iCloud/Outlook)")
+    }
+
+    /// Importa CSV (Google/Gmail/Outlook/Edge), JSON o vCard (.vcf, teléfonos). Auto-detecta.
     @discardableResult static func importar(_ url: URL) -> ImportResult {
         guard let txt = try? String(contentsOf: url, encoding: .utf8) else {
             Log.write("import contactos: no pude leer \(url.lastPathComponent)")
@@ -121,7 +150,12 @@ enum ContactosWA {
         }
         var cs = importados()
         var validos = 0, invalidos = 0, detalle = ""
-        if url.pathExtension.lowercased() == "json",
+        let ext = url.pathExtension.lowercased()
+        let esVCard = ext == "vcf" || txt.uppercased().contains("BEGIN:VCARD")
+        if esVCard {
+            let a = analizarVCard(txt)
+            cs.append(contentsOf: a.nuevos); validos = a.validos; invalidos = a.invalidos; detalle = a.detalle
+        } else if ext == "json" || txt.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("["),
            let arr = try? JSONSerialization.jsonObject(with: Data(txt.utf8)) as? [[String: Any]] {
             for o in arr {
                 let n = (o["nombre"] as? String) ?? (o["name"] as? String) ?? ""
