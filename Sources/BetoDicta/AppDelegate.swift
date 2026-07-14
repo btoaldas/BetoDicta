@@ -323,19 +323,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Prueba de activación de modo por VOZ: BETODICTA_VOZTEST=1 comprueba
         // la detección + recorte de la frase disparadora y sale.
         if ProcessInfo.processInfo.environment["BETODICTA_VOZTEST"] == "1" {
-            let casos: [(String, String?, String)] = [
-                ("modo tarea comprar la comida mañana", "tarea", "comprar la comida mañana"),
-                ("modo correo dile a Mark que reviso el Quipux", "correo", "dile a Mark que reviso el Quipux"),
-                ("MODO TAREA hacer algo importante", "tarea", "hacer algo importante"),
-                ("revisé el kipux del gad sin frase", nil, ""),
+            // (texto, idEsperado, limpioEsperado, argEsperado) — arg = idioma o buscador si aplica.
+            let casos: [(String, String?, String, String?)] = [
+                ("modo tarea comprar la comida mañana", "tarea", "comprar la comida mañana", nil),
+                ("modo correo dile a Mark que reviso el Quipux", "correo", "dile a Mark que reviso el Quipux", nil),
+                ("MODO TAREA hacer algo importante", "tarea", "hacer algo importante", nil),
+                ("revisé el kipux del gad sin frase", nil, "", nil),
+                ("modo traducir quichua hola cómo estás", "traducir", "hola cómo estás", "quichua"),
+                ("modo traducir al inglés buenos días", "traducir", "buenos días", "inglés"),
+                ("modo traducir buenos días", "traducir", "buenos días", nil),   // sin idioma → default
+                ("modo buscar google gatos en el tejado", "buscar", "gatos en el tejado", "google"),
+                ("modo buscar en bing recetas", "buscar", "recetas", "bing"),
+                ("modo buscar restaurantes cerca", "buscar", "restaurantes cerca", nil), // sin buscador → default
             ]
             var ok = true
-            for (texto, idEsp, limpioEsp) in casos {
+            for (texto, idEsp, limpioEsp, argEsp) in casos {
                 let r = ModosStore.detectarPorVoz(texto)
                 let idOk = (r?.0.id == idEsp)
                 let limpioOk = (idEsp == nil) || (r?.1 == limpioEsp)
-                ok = ok && idOk && limpioOk
-                print("VOZTEST \(idOk && limpioOk ? "OK" : "✗") \"\(texto)\" → \(r.map { "[\($0.0.id)] \"\($0.1)\"" } ?? "nil")")
+                // arg dado = override esperado; arg nil = debe quedar el default del modo.
+                let argOk: Bool = {
+                    guard let m = r?.0 else { return true }
+                    if m.base == "traducir" { return m.idiomaDestino == (argEsp ?? ModosStore.modo(m.id).idiomaDestino) }
+                    if m.base == "buscar"   { return m.buscador == (argEsp ?? ModosStore.modo(m.id).buscador) }
+                    return true
+                }()
+                ok = ok && idOk && limpioOk && argOk
+                let extra = r.map { $0.0.base == "traducir" ? " idioma=\($0.0.idiomaDestino)" : ($0.0.base == "buscar" ? " buscador=\($0.0.buscador)" : "") } ?? ""
+                print("VOZTEST \(idOk && limpioOk && argOk ? "OK" : "✗") \"\(texto)\" → \(r.map { "[\($0.0.id)] \"\($0.1)\"\(extra)" } ?? "nil")")
             }
             print("VOZTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)

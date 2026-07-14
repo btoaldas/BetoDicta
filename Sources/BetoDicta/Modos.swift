@@ -176,9 +176,36 @@ enum ModosStore {
         // Recorta la frase del texto original (trimmeado; folding conserva el
         // largo, así que dropFirst(len) quita justo la frase disparadora).
         let orig = texto.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sinFrase = String(orig.dropFirst(min(len, orig.count)))
+        var sinFrase = String(orig.dropFirst(min(len, orig.count)))
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n").union(.whitespaces))
-        return (modo, sinFrase)
+        // ARGUMENTO tras la frase mágica: parametriza el modo SOLO por este dictado.
+        //   "modo traducir quichua <texto>" → traduce al quichua (no al default).
+        //   "modo buscar google <consulta>" → busca en Google.
+        // Si el 1er token no es idioma/buscador conocido, todo es el texto/consulta.
+        var m = modo
+        if m.base == "traducir" {
+            if let (idioma, resto) = tomarArg(sinFrase, fillers: ["a", "al"], reconocer: Idiomas.reconocer) {
+                m.idiomaDestino = idioma; sinFrase = resto
+            }
+        } else if m.base == "buscar" {
+            if let (eng, resto) = tomarArg(sinFrase, fillers: ["en"], reconocer: Buscadores.reconocer) {
+                m.buscador = eng; sinFrase = resto
+            }
+        }
+        return (m, sinFrase)
+    }
+
+    /// Separa un filler opcional + el 1er token; si `reconocer` lo acepta, devuelve
+    /// (valor canónico, resto). nil si no matchea (el texto queda intacto).
+    private static func tomarArg(_ texto: String, fillers: [String],
+                                 reconocer: (String) -> String?) -> (String, String)? {
+        var tokens = texto.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        guard !tokens.isEmpty else { return nil }
+        if tokens.count > 1, fillers.contains(normalizar(tokens[0])) { tokens.removeFirst() }  // "al", "en"
+        guard let primero = tokens.first, let canon = reconocer(primero) else { return nil }
+        let resto = tokens.dropFirst().joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n"))
+        return (canon, resto)
     }
 
     // MARK: Activación por CONTEXTO (app / sitio web al frente)
@@ -243,8 +270,18 @@ enum Idiomas {
         ("griego", "🇬🇷"), ("hebreo", "🇮🇱"), ("vietnamita", "🇻🇳"), ("tailandés", "🇹🇭"),
         ("indonesio", "🇮🇩"), ("sueco", "🇸🇪"), ("noruego", "🇳🇴"), ("danés", "🇩🇰"),
         ("finés", "🇫🇮"), ("checo", "🇨🇿"), ("rumano", "🇷🇴"), ("húngaro", "🇭🇺"),
-        ("kichwa", "🇪🇨"), ("shuar", "🇪🇨"),
+        ("kichwa", "🇪🇨"), ("quichua", "🇪🇨"), ("shuar", "🇪🇨"),
     ]
+    private static func norm(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// Si `token` nombra un idioma conocido (base o propio), devuelve su nombre
+    /// canónico; si no, nil (para el argumento por voz de "modo traducir <idioma>").
+    static func reconocer(_ token: String) -> String? {
+        let n = norm(token)
+        return todos().first { norm($0.nombre) == n }?.nombre
+    }
     /// Todos: base + los que el usuario agregó (bandera genérica para los propios).
     static func todos() -> [(nombre: String, bandera: String)] {
         var vistos = Set(base.map { $0.nombre.lowercased() })
@@ -287,6 +324,16 @@ enum Buscadores {
     ]
     static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
     static func plantilla(_ id: String) -> String? { base.first { $0.id == id }?.url }
+    /// Si `token` nombra un buscador (id o 1ª palabra del nombre), devuelve su id;
+    /// si no, nil (para "modo buscar <buscador> <consulta>"). Alias comunes incluidos.
+    static func reconocer(_ token: String) -> String? {
+        let n = token.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let alias = ["ddg": "duckduckgo", "duck": "duckduckgo", "yt": "youtube",
+                     "mapas": "maps", "spot": "spotlight"]
+        if let a = alias[n] { return a }
+        return base.first { $0.id == n || $0.nombre.lowercased().hasPrefix(n) && !n.isEmpty }?.id
+    }
     /// URL final para la consulta. nil = Spotlight (no es URL). `custom` = plantilla
     /// del modo cuando id=="personalizado" (debe tener {q}; si no, cae a Google).
     static func url(_ id: String, query: String, custom: String = "") -> String? {
