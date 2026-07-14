@@ -17,12 +17,50 @@ enum AgenteHermes {
     private static var proc: Process?        // proceso hermes en curso (para cancelar)
     private static var cancelado = false
 
-    /// CANCELAR: mata el proceso de Hermes en curso (si lo hay). El usuario manda.
+    /// CANCELAR DE RAÍZ: Hermes corre el agente EN su proceso y lanza las herramientas
+    /// (shell, browser, etc.) como procesos HIJOS. Matar solo el principal las deja
+    /// HUÉRFANAS (siguen corriendo → el trabajo NO se cancela). Así que matamos el ÁRBOL
+    /// completo: congelamos el padre (que no lance más), matamos todos sus descendientes y
+    /// luego el padre. Confirmado por auditoría (2026-07-14).
     static func cancelar() {
         cancelado = true
-        proc?.terminate(); proc = nil
+        if let p = proc, p.isRunning { matarArbol(p.processIdentifier) }
+        proc = nil
     }
     static var enCurso: Bool { proc?.isRunning ?? false }
+
+    // Verificado por ejecución (2026-07-14, equivalente en Python): matar los GRUPOS de las
+    // herramientas MIENTRAS hermes sigue vivo (sus grupos están intactos), y a hermes AL
+    // FINAL. Sin SIGSTOP (interfería). Así muere el árbol entero: hermes + tools + nietos.
+    private static func matarArbol(_ pid: Int32) {
+        // Descendientes (BFS por pgrep -P), con hermes aún vivo.
+        var desc: [Int32] = []
+        var frontera = [pid]
+        while let x = frontera.popLast() {
+            for h in hijos(x) where !desc.contains(h) { desc.append(h); frontera.append(h) }
+        }
+        // Hermes corre CADA herramienta en su PROPIO process group. Matar el grupo entero
+        // (kill -pgid) mata también nietos que pgrep -P no alcance. Nunca el grupo de la app.
+        let miGrupo = getpgrp()
+        let grupoHermes = grupoDe(pid)
+        var grupos = Set<Int32>()
+        for c in desc { let g = grupoDe(c); if g > 1, g != miGrupo, g != grupoHermes { grupos.insert(g) } }
+        for g in grupos { kill(-g, SIGKILL) }            // grupos de herramientas (hermes aún vivo)
+        for c in desc.reversed() { kill(c, SIGKILL) }    // + cada descendiente directo
+        kill(pid, SIGKILL)                               // + hermes al final (corta el bucle)
+    }
+    private static func hijos(_ pid: Int32) -> [Int32] {
+        salidaDe("/usr/bin/pgrep", ["-P", "\(pid)"]).split(whereSeparator: { $0 == "\n" || $0 == " " }).compactMap { Int32($0) }
+    }
+    private static func grupoDe(_ pid: Int32) -> Int32 {
+        Int32(salidaDe("/bin/ps", ["-o", "pgid=", "-p", "\(pid)"]).trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+    private static func salidaDe(_ exe: String, _ args: [String]) -> String {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: exe); p.arguments = args
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return "" }; p.waitUntilExit()
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    }
 
     /// Ruta del binario hermes (parametrizable; por defecto ~/.local/bin/hermes).
     static func binario() -> String {

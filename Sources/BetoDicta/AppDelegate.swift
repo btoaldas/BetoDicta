@@ -1675,6 +1675,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if recorder.isRecording {
             stopAndTranscribe()
         } else {
+            // BARGE-IN: si el agente está pensando/hablando, FN lo INTERRUMPE de raíz y
+            // arranca a grabar lo nuevo. Ese nuevo dictado va como el SIGUIENTE turno —
+            // Hermes mantiene la sesión (--resume), así que conserva el contexto y retoma
+            // la conversación con lo que acabas de decir. Natural, como interrumpir a alguien.
+            if agenteActivo || AgenteHermes.enCurso || Voz.hablando { cancelarTodo() }
             startDictation()
         }
     }
