@@ -415,8 +415,14 @@ enum Acciones {
 
 extension ModosStore {
     private static let conectores: Set<String> = [
-        "a", "al", "y", "e", "en", "para", "con", "de", "la", "el", "lo", "los", "las"
+        "a", "al", "y", "e", "en", "para", "con", "de", "la", "el", "lo", "los", "las",
+        "modo"   // el usuario repite "modo" por etapa ("modo traducir modo buscar")
     ]
+    /// Normaliza un token para MATCHEAR verbos: sin acentos/mayúsculas y SIN la
+    /// puntuación pegada ("traducir," "Google." → "traducir" "google").
+    private static func limpioTok(_ s: String) -> String {
+        normalizar(s).trimmingCharacters(in: CharacterSet(charactersIn: ",.;:!?¡¿\"'«»()-—"))
+    }
     // verbo (1 palabra tras "modo") → id de modo TRANSFORM
     private static let verbosTransform: [String: String] = [
         "traducir": "traducir", "traduce": "traducir", "traduccion": "traducir",
@@ -444,11 +450,11 @@ extension ModosStore {
         var accion: Modo? = nil
         var i = 0
         while i < tokens.count {
-            let w = normalizar(tokens[i])
-            if conectores.contains(w) { i += 1; continue }
+            let w = limpioTok(tokens[i])
+            if w.isEmpty || conectores.contains(w) { i += 1; continue }
             if let tid = verbosTransform[w] {
                 var m = modo(tid); i += 1
-                if m.base == "traducir", i < tokens.count, let idi = Idiomas.reconocer(tokens[i]) {
+                if m.base == "traducir", i < tokens.count, let idi = Idiomas.reconocer(limpioTok(tokens[i])) {
                     m.idiomaDestino = idi; i += 1
                 }
                 transforms.append(m); continue
@@ -458,7 +464,7 @@ extension ModosStore {
                 if acc == "buscar" {
                     var b = modo("buscar")
                     if let eng = Buscadores.reconocer(w) { b.buscador = eng }
-                    else if i < tokens.count, let eng = Buscadores.reconocer(tokens[i]) { b.buscador = eng; i += 1 }
+                    else if i < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[i])) { b.buscador = eng; i += 1 }
                     accion = b
                 } else {
                     accion = Modo(id: "cadena-\(acc)", nombre: Acciones.nombre(acc),

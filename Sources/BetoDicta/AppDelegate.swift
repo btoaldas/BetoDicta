@@ -453,6 +453,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 ("modo correo y traducir inglés hola mundo", ["traducir:inglés"], "correo", "hola mundo"),
                 ("modo traducir inglés whatsapp hola", ["traducir:inglés"], "whatsapp", "hola"),
                 ("modo traducir google gatos negros", ["traducir:*"], "buscar:google", "gatos negros"),
+                ("modo traducir, modo buscar, hacer la merienda hoy", ["traducir:*"], "buscar:google", "hacer la merienda hoy"), // coma + "modo" repetido
+                ("Modo traducir quichua a WhatsApp, cómo estás amigo", ["traducir:quichua"], "whatsapp", "cómo estás amigo"),
                 ("modo tarea comprar pan", [], "NIL", ""),   // 1 etapa → cadena nil (lo maneja el modo único)
             ]
             var ok = true
