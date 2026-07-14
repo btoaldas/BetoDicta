@@ -419,6 +419,8 @@ Cada modo de texto usa **su propia IA y su propio prompt** — o la IA global de
 
 Precedencia: **voz > app/sitio > el modo elegido a mano**.
 
+**Reconocimiento inteligente de modos** (opt-in, *Ajustes → Avanzado*): con esto encendido, la app entiende el llamado de un modo **aunque lo digas de mil formas** — *"modo mándale un WhatsApp a Ana"*, *"modo tradúceme al inglés"*, *"modo apúntame una tarea"* — usando **embeddings** (por significado). Solo actúa si empiezas con **"modo"** (o una mal-escucha como *mudo/molde*) y el reconocimiento exacto no acertó; si nada se parece lo suficiente, sigue como texto normal. Es **parametrizable**: cuántas palabras del inicio se analizan y la sensibilidad (umbral). Y **entrenable por ti**: en *Ajustes → Modos*, cada modo tiene un campo **"Ejemplos"** donde agregas tus propias formas de pedirlo — se procesan con **tu** motor de embeddings (Ollama local o el que elijas). La primera vez calienta los vectores en segundo plano.
+
 **Modos encadenados (pipeline por voz):** puedes juntar un transform + una acción en una sola frase — la palabra mágica es **"modo"** y luego dices los pasos. Ej.: *"modo traducir quichua a correo, hacer la merienda hoy"* → traduce a quichua y abre un correo con ese texto. *"modo traducir inglés whatsapp, nos vemos mañana"* → traduce y abre WhatsApp con el texto. Es **orden-independiente**: *"modo correo y traducir inglés, hola"* hace lo mismo. Los conectores (a, y, al, en…) se ignoran; lo que no sea un paso conocido es el **contenido**. Si solo dices un paso, funciona como el modo normal.
 
 ## 17. Pestaña Historial

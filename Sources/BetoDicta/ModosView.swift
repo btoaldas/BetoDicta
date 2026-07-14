@@ -179,6 +179,18 @@ struct ModosView: View {
             Text("Separa VARIAS con coma (failover ante mal-escuchas del STT). La más larga que calce gana.")
                 .font(.caption2).foregroundStyle(.secondary).padding(.leading, 98)
         }
+        // Frases de ejemplo para el reconocimiento INTELIGENTE (embeddings)
+        if b.wrappedValue.id != "dictado" {
+            HStack(alignment: .top) {
+                Text("Ejemplos:").font(.caption).frame(width: 90, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField("ej. mándale un whatsapp, escribir por whatsapp", text: listaTexto(b.ejemplosVoz))
+                        .textFieldStyle(.roundedBorder).frame(width: 300)
+                    Text("Formas NATURALES de pedir este modo (para el reconocimiento inteligente por significado). Tus frases se embeben con TU motor. Sepáralas con coma.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
         // Triggers por contexto (app / sitio). Dictado no dispara por contexto.
         if b.wrappedValue.id != "dictado" {
             HStack(alignment: .top) {

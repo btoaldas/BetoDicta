@@ -127,6 +127,10 @@ struct Config {
     /// Reconocimiento SEMÁNTICO de modos por voz (capa 3, embeddings): entiende el
     /// llamado del modo aunque lo digas de mil formas. Default OFF (opt-in).
     static func modoSemantico() -> Bool { (json()["modo_semantico"] as? Bool) ?? false }
+    /// Cuántas palabras del inicio se analizan como "zona-comando" (parametrizable).
+    static func modoSemanticoPalabras() -> Int { (json()["modo_sem_palabras"] as? Int) ?? 5 }
+    /// Umbral de cercanía (coseno) para aceptar un modo: más alto = más estricto.
+    static func modoSemanticoUmbral() -> Double { (json()["modo_sem_umbral"] as? Double) ?? 0.5 }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

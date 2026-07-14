@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.26.0"
+    static let numero = "0.27.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.27.0", "2026-07-14", [
+            "Reconocimiento INTELIGENTE de modos por voz (Ajustes → Avanzado, opt-in): entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"modo apúntame una tarea…\") con embeddings. Solo actúa si empieza con \"modo\" (o mal-escuchas: mudo/molde/…) y el exacto no acertó; si nada se parece, sigue como texto normal",
+            "Es parametrizable (cuántas palabras del inicio se analizan + sensibilidad) y ENTRENABLE por ti: en Ajustes → Modos, cada modo tiene un campo \"Ejemplos\" para agregar TUS formas de pedirlo, procesadas con tu motor de embeddings (Ollama local o el que elijas)",
+        ]),
         ("0.26.0", "2026-07-14", [
             "Glosario inteligente (Ajustes → Avanzado, opt-in): en el pulido manda a la IA solo los términos del glosario afines a lo que dictaste (con embeddings), no todos. Prompt más corto = pulido MÁS RÁPIDO, y escala aunque tu glosario crezca a cientos de términos",
             "Importar contactos de WhatsApp desde cualquier lado: auto-detecta vCard (.vcf de teléfono/iCloud/Outlook), CSV de Google/Gmail (inglés y español) y de Outlook/Edge, o CSV/JSON simple; te dice cuántos válidos/inválidos",

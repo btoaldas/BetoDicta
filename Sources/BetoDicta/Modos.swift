@@ -29,16 +29,17 @@ struct Modo: Codable, Identifiable {
     var buscador: String         // solo base "buscar": google/bing/duckduckgo/…/spotlight/personalizado
     var almacen: String          // "tarea"|"nota"|"" — guarda lo procesado en la lista local
     var accion: String           // solo base "accion": id del preset (correo/outlook/whatsapp/…/url)
+    var ejemplosVoz: [String]    // frases de ejemplo del usuario para el reconocimiento semántico
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
          esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = [],
-         buscador: String = "google", almacen: String = "", accion: String = "correo") {
+         buscador: String = "google", almacen: String = "", accion: String = "correo", ejemplosVoz: [String] = []) {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
         self.apps = apps; self.sitios = sitios; self.buscador = buscador; self.almacen = almacen
-        self.accion = accion
+        self.accion = accion; self.ejemplosVoz = ejemplosVoz
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -58,6 +59,7 @@ struct Modo: Codable, Identifiable {
         buscador = (try? c.decode(String.self, forKey: .buscador)) ?? "google"
         almacen = (try? c.decode(String.self, forKey: .almacen)) ?? ""
         accion = (try? c.decode(String.self, forKey: .accion)) ?? "correo"
+        ejemplosVoz = (try? c.decode([String].self, forKey: .ejemplosVoz)) ?? []
     }
 }
 
@@ -578,6 +580,7 @@ extension ModosStore {
                 e += ["traducir a \(m.idiomaDestino)"]
             }
         }
+        e += m.ejemplosVoz   // frases que el usuario agregó (su propio "entrenamiento")
         return e.filter { !$0.isEmpty }
     }
 
@@ -602,12 +605,13 @@ extension ModosStore {
         // (ej. "comprar pan") diluye el embedding. Hasta la 1ª coma o 4 palabras.
         var cmdN = toks.count
         if let coma = toks.firstIndex(where: { $0.contains(",") }) { cmdN = coma + 1 }
-        cmdN = min(cmdN, 4)
+        cmdN = min(cmdN, max(2, Config.modoSemanticoPalabras()))   // parametrizable
         let comando = toks.prefix(cmdN).joined(separator: " ")
         let contenido = toks.dropFirst(cmdN).joined(separator: " ")
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n"))
+        let umbral = Config.modoSemanticoUmbral()
         EmbeddingSearch.mejorModo(comando: comando, modos: pares) { id, score in
-            guard let id, score >= 0.5, let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
+            guard let id, score >= umbral, let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
             // Acciones con destinatario (whatsapp/correo): el contenido conserva TODO
             // lo dicho tras "modo" (para que "a Nombre" siga presente). Transforms:
             // solo lo que sigue a la zona-comando.

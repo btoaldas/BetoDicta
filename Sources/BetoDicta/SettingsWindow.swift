@@ -90,6 +90,8 @@ final class SettingsModel: ObservableObject {
     @Published var busquedaSemantica: Bool { didSet { Config.set("busqueda_semantica", to: busquedaSemantica) } }
     @Published var glosarioInteligente: Bool { didSet { Config.set("glosario_inteligente", to: glosarioInteligente) } }
     @Published var modoSemantico: Bool { didSet { Config.set("modo_semantico", to: modoSemantico) } }
+    @Published var modoSemPalabras: Double { didSet { Config.set("modo_sem_palabras", to: Int(modoSemPalabras)) } }
+    @Published var modoSemUmbral: Double { didSet { Config.set("modo_sem_umbral", to: modoSemUmbral) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
@@ -127,6 +129,8 @@ final class SettingsModel: ObservableObject {
         busquedaSemantica = Config.busquedaSemantica()
         glosarioInteligente = Config.glosarioInteligente()
         modoSemantico = Config.modoSemantico()
+        modoSemPalabras = Double(Config.modoSemanticoPalabras())
+        modoSemUmbral = Config.modoSemanticoUmbral()
         pushToTalk = Config.pushToTalk()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
@@ -701,8 +705,18 @@ struct SettingsView: View {
                         Text("En el pulido, envía a la IA SOLO los términos del glosario afines a lo que dictaste (con embeddings), no los 80+. Prompt más corto = más rápido, y escala aunque tu glosario crezca. Usa el motor de embeddings de arriba; la 1ª vez calienta los vectores en segundo plano (mientras, usa el glosario normal).")
                             .font(.caption).foregroundStyle(.secondary)
                         Toggle("Reconocimiento inteligente de modos por voz (semántico)", isOn: $m.modoSemantico)
-                        Text("Entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"modo tradúceme al inglés…\"). Solo actúa si empieza con \"modo\" (o mal-escuchas: mudo/molde/…) y el exacto no reconoció; si ninguno se parece, sigue como texto normal. Usa el motor de embeddings; la 1ª vez calienta en 2º plano.")
+                        Text("Entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"modo tradúceme al inglés…\"). Solo actúa si empieza con \"modo\" (o mal-escuchas: mudo/molde/…) y el exacto no reconoció; si ninguno se parece, sigue como texto normal. Usa el motor de embeddings; la 1ª vez calienta en 2º plano. Agrega tus propias frases por modo en Ajustes → Modos.")
                             .font(.caption).foregroundStyle(.secondary)
+                        if m.modoSemantico {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Palabras del inicio a analizar: \(Int(m.modoSemPalabras))").font(.caption)
+                                Slider(value: $m.modoSemPalabras, in: 2...10, step: 1).tint(acento).frame(width: 260)
+                                Text("Cuántas palabras del comando se miran (menos = intención más limpia; más = frases largas).").font(.caption2).foregroundStyle(.secondary)
+                                Text("Sensibilidad (umbral): \(String(format: "%.2f", m.modoSemUmbral))").font(.caption)
+                                Slider(value: $m.modoSemUmbral, in: 0.35...0.75, step: 0.05).tint(acento).frame(width: 260)
+                                Text("Más alto = más estricto (menos falsos, pero puede no reconocer). Más bajo = más permisivo.").font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
                         Divider()
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Espera del pulido con IA: \(Int(m.pulidoTimeout)) s").font(.subheadline)
