@@ -414,6 +414,8 @@ Cada modo de texto usa **su propia IA y su propio prompt** — o la IA global de
 
 Precedencia: **voz > app/sitio > el modo elegido a mano**.
 
+**Modos encadenados (pipeline por voz):** puedes juntar un transform + una acción en una sola frase — la palabra mágica es **"modo"** y luego dices los pasos. Ej.: *"modo traducir quichua a correo, hacer la merienda hoy"* → traduce a quichua y abre un correo con ese texto. *"modo traducir inglés whatsapp, nos vemos mañana"* → traduce y abre WhatsApp con el texto. Es **orden-independiente**: *"modo correo y traducir inglés, hola"* hace lo mismo. Los conectores (a, y, al, en…) se ignoran; lo que no sea un paso conocido es el **contenido**. Si solo dices un paso, funciona como el modo normal.
+
 ## 17. Pestaña Historial
 
 ![Pestaña Historial](img/historial.png)

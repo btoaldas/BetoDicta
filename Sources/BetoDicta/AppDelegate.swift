@@ -446,6 +446,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("BUSCARTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
+        // Prueba de CADENAS por voz: BETODICTA_CADTEST=1 (parseo, sin ejecutar).
+        if ProcessInfo.processInfo.environment["BETODICTA_CADTEST"] == "1" {
+            let casos: [(String, [String], String?, String)] = [
+                ("modo traducir quichua correo hacer la merienda hoy", ["traducir:quichua"], "correo", "hacer la merienda hoy"),
+                ("modo correo y traducir inglés hola mundo", ["traducir:inglés"], "correo", "hola mundo"),
+                ("modo traducir inglés whatsapp hola", ["traducir:inglés"], "whatsapp", "hola"),
+                ("modo traducir google gatos negros", ["traducir:*"], "buscar:google", "gatos negros"),
+                ("modo tarea comprar pan", [], "NIL", ""),   // 1 etapa → cadena nil (lo maneja el modo único)
+            ]
+            var ok = true
+            for (texto, expT, expA, expC) in casos {
+                let r = ModosStore.detectarCadena(texto)
+                if expA == "NIL" {
+                    let bien = (r == nil); ok = ok && bien
+                    print("CADTEST \(bien ? "OK" : "✗") nil ← \"\(texto)\""); continue
+                }
+                guard let r else { ok = false; print("CADTEST ✗ (dio nil) \"\(texto)\""); continue }
+                let tGot = r.transforms.map { $0.base == "traducir" ? "traducir:\($0.idiomaDestino)" : $0.id }
+                let aGot = r.accion.map { $0.base == "buscar" ? "buscar:\($0.buscador)" : $0.accion }
+                let tOk = tGot.count == expT.count && zip(tGot, expT).allSatisfy { g, e in
+                    e.hasSuffix(":*") ? g.hasPrefix(String(e.dropLast(1))) : g == e
+                }
+                let bien = tOk && aGot == expA && r.contenido == expC; ok = ok && bien
+                print("CADTEST \(bien ? "OK" : "✗") \(tGot) → \(aGot ?? "-") | \"\(r.contenido)\"")
+            }
+            print("CADTEST \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
+        }
         // Prueba del modo ACCIÓN: BETODICTA_ACCTEST=1 (construcción de URL, sin abrir nada).
         if ProcessInfo.processInfo.environment["BETODICTA_ACCTEST"] == "1" {
             let casos: [(String, String, String, String?)] = [
@@ -1785,6 +1813,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             avisarSiLibre("(silencio)")
             return
         }
+        // MODOS ENCADENADOS por voz (Fase 6): "modo traducir quichua a correo …"
+        // = pipeline (transforms → acción). Solo con 2+ etapas; si no, sigue el
+        // flujo de modo único. Va ANTES para que la cadena mande sobre lo demás.
+        if Config.modoPorVoz(), let cad = ModosStore.detectarCadena(textoFinal) {
+            let etapas = cad.transforms.map { $0.nombre } + (cad.accion.map { [$0.nombre] } ?? [])
+            Log.log(.ia, "cadena por voz: \(etapas.joined(separator: " → "))")
+            if cad.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if !recorder.isRecording { panel.flash("🎤 Cadena sin contenido — dilo con el texto", segundos: 2) }
+                history?.finish(wav: wav, finalText: "")
+                return
+            }
+            correrCadena(cad.transforms, indice: 0, texto: cad.contenido,
+                         accion: cad.accion, wav: wav, history: history)
+            return
+        }
         // El MODO decide qué hacer con lo dictado. Se CONGELA al cerrar el dictado
         // (modoSnapshot, pasado por stopAndTranscribe) para no depender del global
         // compartido: dos dictados solapados jamás se pisan el modo. Precedencia:
@@ -1870,6 +1913,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             Log.write("  ✓ entregado:  \(text)")
             finishDelivery(text, rawText: rawText, wav: wav, history: history)
+        }
+    }
+
+    /// Fase 6: corre una CADENA — aplica los transforms en secuencia sobre el texto
+    /// y, al final, ejecuta la ACCIÓN (o pega si no hay). Cada transform es async
+    /// (procesarModo), así que se encadena por recursión.
+    private func correrCadena(_ transforms: [Modo], indice: Int, texto: String,
+                              accion: Modo?, wav: Data, history: HistoryWriter?) {
+        guard indice < transforms.count else {
+            if let acc = accion {
+                if acc.base == "buscar" { ejecutarBusqueda(texto, modo: acc, wav: wav, history: history) }
+                else { ejecutarAccion(texto, modo: acc, wav: wav, history: history) }
+            } else {
+                Log.write("  ✓ entregado (cadena): \(texto)")
+                finishDelivery(texto, rawText: texto, wav: wav, history: history)
+            }
+            return
+        }
+        let m = transforms[indice]
+        if !recorder.isRecording { panel.update("✨ \(m.nombre)…") }
+        LLMPostProcess.procesarModo(texto, modo: m) { [weak self] out in
+            Log.write("  ↳ \(m.nombre): \(out)")
+            self?.correrCadena(transforms, indice: indice + 1, texto: out,
+                               accion: accion, wav: wav, history: history)
         }
     }
 

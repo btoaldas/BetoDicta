@@ -385,6 +385,7 @@ enum Acciones {
     ]
     static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
     static func bundle(_ id: String) -> String { base.first { $0.id == id }?.bundle ?? "" }
+    static func valido(_ id: String) -> Bool { base.contains { $0.id == id } }
     /// WhatsApp con FAILOVER: app de escritorio (whatsapp://) si está instalada,
     /// si no la web wa.me. El llamador decide `app` (¿hay app de escritorio?).
     static func whatsapp(texto: String, app: Bool) -> String {
@@ -402,5 +403,74 @@ enum Acciones {
         var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
         let enc = texto.addingPercentEncoding(withAllowedCharacters: cs) ?? texto
         return tpl.replacingOccurrences(of: "{q}", with: enc)
+    }
+}
+
+// MARK: - Modos ENCADENADOS por voz (pipeline: transforms + acción final) — Fase 6
+//
+// "modo traducir quichua a correo outlook <texto>" → traduce a quichua, luego abre
+// Outlook con ese texto. Orden-independiente ("modo correo y traducir quichua …"):
+// los transforms se aplican en orden y la ACCIÓN final abre app/URL con el resultado.
+// Solo se activa con 2+ etapas; 1 etapa la maneja detectarPorVoz normal (sin regresión).
+
+extension ModosStore {
+    private static let conectores: Set<String> = [
+        "a", "al", "y", "e", "en", "para", "con", "de", "la", "el", "lo", "los", "las"
+    ]
+    // verbo (1 palabra tras "modo") → id de modo TRANSFORM
+    private static let verbosTransform: [String: String] = [
+        "traducir": "traducir", "traduce": "traducir", "traduccion": "traducir",
+        "oficio": "oficio", "tarea": "tarea", "nota": "nota",
+        "asistente": "asistente", "responde": "asistente", "resume": "asistente", "resumir": "asistente",
+    ]
+    // verbo → preset de ACCIÓN ("buscar" es especial: lleva buscador)
+    private static let verbosAccion: [String: String] = [
+        "correo": "correo", "email": "correo", "enviar": "correo", "mail": "correo", "mailto": "correo",
+        "outlook": "outlook",
+        "whatsapp": "whatsapp", "wasap": "whatsapp", "guasap": "whatsapp", "wasa": "whatsapp",
+        "notas": "notas", "finder": "finder", "recordatorios": "recordatorios",
+        "calendario": "calendario", "mensajes": "mensajes",
+        "buscar": "buscar", "busca": "buscar", "google": "buscar", "bing": "buscar",
+        "duckduckgo": "buscar", "youtube": "buscar", "maps": "buscar", "mapas": "buscar",
+    ]
+
+    /// Parsea una CADENA de voz. nil si no empieza con "modo" o si hay <2 etapas.
+    static func detectarCadena(_ texto: String) -> (transforms: [Modo], accion: Modo?, contenido: String)? {
+        var tokens = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        guard let f = tokens.first, normalizar(f) == "modo" else { return nil }
+        tokens.removeFirst()
+        var transforms: [Modo] = []
+        var accion: Modo? = nil
+        var i = 0
+        while i < tokens.count {
+            let w = normalizar(tokens[i])
+            if conectores.contains(w) { i += 1; continue }
+            if let tid = verbosTransform[w] {
+                var m = modo(tid); i += 1
+                if m.base == "traducir", i < tokens.count, let idi = Idiomas.reconocer(tokens[i]) {
+                    m.idiomaDestino = idi; i += 1
+                }
+                transforms.append(m); continue
+            }
+            if let acc = verbosAccion[w] {
+                i += 1
+                if acc == "buscar" {
+                    var b = modo("buscar")
+                    if let eng = Buscadores.reconocer(w) { b.buscador = eng }
+                    else if i < tokens.count, let eng = Buscadores.reconocer(tokens[i]) { b.buscador = eng; i += 1 }
+                    accion = b
+                } else {
+                    accion = Modo(id: "cadena-\(acc)", nombre: Acciones.nombre(acc),
+                                  icono: "bolt.fill", base: "accion", accion: acc)
+                }
+                continue
+            }
+            break   // token desconocido → aquí empieza el contenido
+        }
+        guard transforms.count + (accion != nil ? 1 : 0) >= 2 else { return nil }
+        let contenido = tokens[i...].joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n"))
+        return (transforms, accion, contenido)
     }
 }

@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.23.0"
+    static let numero = "0.24.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.24.0", "2026-07-14", [
+            "Modos ENCADENADOS por voz: junta un paso + una acción en una frase — \"modo traducir quichua a correo, hacer la merienda\" traduce y abre un correo con el texto; \"modo traducir inglés whatsapp, nos vemos\" traduce y abre WhatsApp. Orden-independiente y con conectores (a, y, en…) que se ignoran",
+            "Frases de voz MÚLTIPLES por modo (failover ante mal-escuchas del STT): cada modo acepta varias separadas por coma (ej. Tarea: \"modo tarea, mudo tarea, molde tarea\"). Añade las tuyas en Ajustes → Modos",
+            "WhatsApp con failover: abre la app de escritorio si la tienes, si no wa.me (web) y te sugiere instalarla",
+            "Arreglo: decir solo el comando sin texto (\"modo tarea\" y nada más) ya no crea una tarea vacía — te avisa",
+        ]),
         ("0.23.0", "2026-07-14", [
             "Tareas y notas (nueva pestaña): dicta con el modo Tarea o Nota (o \"modo tarea …\") y se guardan en una lista LOCAL en tu Mac. Marca hechas, borra, limpia o agrega a mano",
             "Nuevo modo ACCIÓN: dicta y se abre una app o página con tu texto — Nuevo correo (mailto), Outlook, WhatsApp, o abre Notas/Recordatorios/Calendario/Finder/Mensajes (copia el texto para pegar), o TU propia URL con {q} (ej. Quipux). Sin IA — hazlo un modo propio con su frase de voz (ej. \"modo whatsapp …\")",
