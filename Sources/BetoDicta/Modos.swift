@@ -22,12 +22,14 @@ struct Modo: Codable, Identifiable {
     var modelo: String           // "" = default del proveedor elegido
     var idiomaDestino: String    // solo "traducir"
     var esFijo: Bool             // base (no se borra) vs propio del usuario
+    var palabraVoz: String       // frase al inicio del dictado que activa este modo
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
-         proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés", esFijo: Bool = true) {
+         proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
+         esFijo: Bool = true, palabraVoz: String = "") {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
-        self.idiomaDestino = idiomaDestino; self.esFijo = esFijo
+        self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -41,6 +43,7 @@ struct Modo: Codable, Identifiable {
         modelo = (try? c.decode(String.self, forKey: .modelo)) ?? ""
         idiomaDestino = (try? c.decode(String.self, forKey: .idiomaDestino)) ?? "inglés"
         esFijo = (try? c.decode(Bool.self, forKey: .esFijo)) ?? false
+        palabraVoz = (try? c.decode(String.self, forKey: .palabraVoz)) ?? ""
     }
 }
 
@@ -51,16 +54,22 @@ enum ModosStore {
     static let base: [Modo] = [
         Modo(id: "dictado", nombre: "Dictado", icono: "mic.fill", base: "pulir", prompt: ""),
         Modo(id: "correo", nombre: "Correo", icono: "envelope.fill", base: "pulir",
-             prompt: "Reescribe el dictado como un CORREO ELECTRÓNICO claro y bien estructurado: saludo, cuerpo y despedida. Conserva el significado; ajusta el tono (formal por defecto) según lo dictado. Devuelve solo el correo."),
+             prompt: "Reescribe el dictado como un CORREO ELECTRÓNICO claro y bien estructurado: saludo, cuerpo y despedida. Conserva el significado; ajusta el tono (formal por defecto) según lo dictado. Devuelve solo el correo.",
+             palabraVoz: "modo correo"),
         Modo(id: "oficio", nombre: "Oficio", icono: "doc.text.fill", base: "pulir",
-             prompt: "Reescribe el dictado como un OFICIO o memorando FORMAL e institucional, en registro correcto y respetuoso. Conserva el fondo. Devuelve solo el texto del oficio."),
+             prompt: "Reescribe el dictado como un OFICIO o memorando FORMAL e institucional, en registro correcto y respetuoso. Conserva el fondo. Devuelve solo el texto del oficio.",
+             palabraVoz: "modo oficio"),
         Modo(id: "tarea", nombre: "Tarea", icono: "checklist", base: "pulir",
-             prompt: "Convierte el dictado en una TAREA breve y accionable: una sola línea, empieza con un verbo en infinitivo, sin relleno. Devuelve solo la tarea."),
+             prompt: "Convierte el dictado en una TAREA breve y accionable: una sola línea, empieza con un verbo en infinitivo, sin relleno. Devuelve solo la tarea.",
+             palabraVoz: "modo tarea"),
         Modo(id: "nota", nombre: "Nota", icono: "note.text", base: "pulir",
-             prompt: "Ordena el dictado como una NOTA clara y legible: puntuación correcta, sin muletillas; usa viñetas si hay varios puntos. Conserva todo el contenido. Devuelve solo la nota."),
-        Modo(id: "traducir", nombre: "Traducir", icono: "globe", base: "traducir", idiomaDestino: "inglés"),
+             prompt: "Ordena el dictado como una NOTA clara y legible: puntuación correcta, sin muletillas; usa viñetas si hay varios puntos. Conserva todo el contenido. Devuelve solo la nota.",
+             palabraVoz: "modo nota"),
+        Modo(id: "traducir", nombre: "Traducir", icono: "globe", base: "traducir", idiomaDestino: "inglés",
+             palabraVoz: "modo traducir"),
         Modo(id: "asistente", nombre: "Asistente", icono: "sparkles", base: "responder",
-             prompt: "El dictado es una instrucción o pregunta. Responde o redacta lo pedido de forma útil, directa y concisa, en español (salvo que se pida otro idioma). Devuelve solo la respuesta, sin preámbulos."),
+             prompt: "El dictado es una instrucción o pregunta. Responde o redacta lo pedido de forma útil, directa y concisa, en español (salvo que se pida otro idioma). Devuelve solo la respuesta, sin preámbulos.",
+             palabraVoz: "modo asistente"),
     ]
 
     static func todos() -> [Modo] {
@@ -90,5 +99,45 @@ enum ModosStore {
     static func fijarActivo(_ id: String) {
         Config.set("modo_activo", to: id)
         Log.log(.config, "modo activo → \(modo(id).nombre)")
+    }
+
+    // MARK: Modos propios (crear / borrar)
+    static func crear(nombre: String) -> Modo {
+        let m = Modo(id: "propio-\(UUID().uuidString.prefix(8))",
+                     nombre: nombre.isEmpty ? "Mi modo" : nombre,
+                     icono: "wand.and.stars", base: "pulir", esFijo: false)
+        var lista = todos(); lista.append(m); guardar(lista)
+        return m
+    }
+    static func borrar(_ id: String) {
+        var lista = todos()
+        lista.removeAll { $0.id == id && !$0.esFijo }   // los base no se borran
+        guardar(lista)
+        if Config.modoActivo() == id { fijarActivo("dictado") }
+    }
+
+    // MARK: Activación por VOZ
+    private static func normalizar(_ s: String) -> String {
+        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// Si el dictado EMPIEZA con la palabra de voz de algún modo, devuelve ese
+    /// modo y el texto SIN la frase disparadora. nil si ninguno coincide. El
+    /// modo con la frase más LARGA gana (evita que "modo" choque con "modo correo").
+    static func detectarPorVoz(_ texto: String) -> (Modo, String)? {
+        let t = normalizar(texto)
+        var mejor: (Modo, Int)? = nil
+        for m in todos() where !m.palabraVoz.isEmpty {
+            let frase = normalizar(m.palabraVoz)
+            guard !frase.isEmpty, t.hasPrefix(frase) else { continue }
+            if mejor == nil || frase.count > mejor!.1 { mejor = (m, frase.count) }
+        }
+        guard let (modo, len) = mejor else { return nil }
+        // Recorta la frase del texto original (trimmeado; folding conserva el
+        // largo, así que dropFirst(len) quita justo la frase disparadora).
+        let orig = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sinFrase = String(orig.dropFirst(min(len, orig.count)))
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n").union(.whitespaces))
+        return (modo, sinFrase)
     }
 }

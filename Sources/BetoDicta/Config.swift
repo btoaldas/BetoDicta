@@ -99,6 +99,10 @@ struct Config {
     /// Modo activo (qué hacer con lo dictado): "dictado" (default) / correo / oficio /
     /// tarea / nota / traducir / asistente / propio. Se elige en caliente.
     static func modoActivo() -> String { (json()["modo_activo"] as? String) ?? "dictado" }
+    /// Activar un modo por VOZ: si el dictado empieza con la frase de un modo
+    /// (ej. "modo tarea comprar la comida"), se usa ese modo y se quita la frase.
+    /// Default ON (los modos base traen su frase; edítalas o vacíalas en Modos).
+    static func modoPorVoz() -> Bool { (json()["modo_por_voz"] as? Bool) ?? true }
     static func embeddingBase() -> String { (json()["embedding_base"] as? String) ?? "http://localhost:11434" }
     static func embeddingModelo() -> String { (json()["embedding_modelo"] as? String) ?? "bge-m3" }
     static func embeddingKeyEnv() -> String { (json()["embedding_key_env"] as? String) ?? "OPENAI_API_KEY" }

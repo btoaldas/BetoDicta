@@ -19,6 +19,16 @@ final class ModosModel: ObservableObject {
         guard let i = modos.firstIndex(where: { $0.id == id }) else { return nil }
         return Binding(get: { self.modos[i] }, set: { self.modos[i] = $0; self.guardar() })
     }
+    func crear() -> String {
+        let m = ModosStore.crear(nombre: "Mi modo")
+        modos = ModosStore.todos()
+        return m.id
+    }
+    func borrar(_ id: String) {
+        ModosStore.borrar(id)
+        modos = ModosStore.todos(); activo = Config.modoActivo()
+        (NSApp.delegate as? AppDelegate)?.refrescarModoNotch()
+    }
 }
 
 struct ModosView: View {
@@ -28,12 +38,25 @@ struct ModosView: View {
     /// IAs de pulido conectadas (para el selector por modo).
     private var iasPulido: [ChatIA] { ChatIA.conectadasPulido }
 
+    @State private var porVoz = Config.modoPorVoz()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Modos — qué hacer con lo dictado", systemImage: "wand.and.stars")
-                .font(.headline).foregroundStyle(acentoMo)
-            Text("El MODO decide cómo se procesa tu dictado: solo pulir (Dictado), o formatearlo como correo, oficio, tarea, nota, traducirlo o responder. Elígelo al vuelo desde el notch (arriba-izquierda) o el menú de la barra. Cada modo puede usar su propia IA y su propio prompt.")
+            HStack {
+                Label("Modos — qué hacer con lo dictado", systemImage: "wand.and.stars")
+                    .font(.headline).foregroundStyle(acentoMo)
+                Spacer()
+                Button { expandido = m.crear() } label: { Image(systemName: "plus") }
+                    .help("Crear un modo propio")
+            }
+            Text("El MODO decide cómo se procesa tu dictado: solo pulir (Dictado), o formatearlo como correo, oficio, tarea, nota, traducirlo o responder. Elígelo al vuelo desde el notch (arriba-izquierda) o el menú de la barra. Cada modo usa su propia IA y su propio prompt.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            Toggle("Activar un modo POR VOZ", isOn: $porVoz)
+                .toggleStyle(.switch).controlSize(.mini)
+                .onChange(of: porVoz) { _, v in Config.set("modo_por_voz", to: v) }
+            Text("Si lo enciendes y empiezas el dictado con la frase de un modo (ej. \"modo tarea comprar la comida\"), ese modo se aplica solo a ese dictado y la frase se quita. Edita o vacía cada frase abajo.")
+                .font(.caption2).foregroundStyle(.secondary)
 
             ForEach(m.modos) { modo in
                 tarjetaModo(modo)
@@ -74,6 +97,26 @@ struct ModosView: View {
 
     @ViewBuilder private func editor(_ b: Binding<Modo>) -> some View {
         Divider()
+        // Modo PROPIO: nombre + comportamiento base editables.
+        if !b.wrappedValue.esFijo {
+            HStack {
+                Text("Nombre:").font(.caption).frame(width: 90, alignment: .leading)
+                TextField("Mi modo", text: b.nombre).textFieldStyle(.roundedBorder).frame(width: 200)
+            }
+            HStack {
+                Text("Comportamiento:").font(.caption).frame(width: 110, alignment: .leading)
+                Picker("", selection: b.base) {
+                    Text("Pulir / reescribir").tag("pulir")
+                    Text("Traducir").tag("traducir")
+                    Text("Responder (asistente)").tag("responder")
+                }.labelsHidden().frame(width: 200)
+            }
+        }
+        // Palabra de voz (para activar por voz)
+        HStack {
+            Text("Frase de voz:").font(.caption).frame(width: 90, alignment: .leading)
+            TextField("ej. modo tarea (vacío = sin voz)", text: b.palabraVoz).textFieldStyle(.roundedBorder).frame(width: 240)
+        }
         // Traducir: idioma destino
         if b.wrappedValue.base == "traducir" {
             HStack {
@@ -110,5 +153,12 @@ struct ModosView: View {
         }
         Text("Consejo: deja la IA en 'Global' para usar la misma que pules; o elige una específica (ej. una potente para 'Asistente', una gratis para 'Tarea').")
             .font(.caption2).foregroundStyle(.secondary)
+        // Borrar (solo modos propios; los base no se borran)
+        if !b.wrappedValue.esFijo {
+            Button(role: .destructive) {
+                expandido = nil; m.borrar(b.wrappedValue.id)
+            } label: { Label("Borrar este modo", systemImage: "trash") }
+            .controlSize(.small)
+        }
     }
 }

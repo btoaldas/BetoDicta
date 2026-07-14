@@ -317,6 +317,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba de activación de modo por VOZ: BETODICTA_VOZTEST=1 comprueba
+        // la detección + recorte de la frase disparadora y sale.
+        if ProcessInfo.processInfo.environment["BETODICTA_VOZTEST"] == "1" {
+            let casos: [(String, String?, String)] = [
+                ("modo tarea comprar la comida mañana", "tarea", "comprar la comida mañana"),
+                ("modo correo dile a Mark que reviso el Quipux", "correo", "dile a Mark que reviso el Quipux"),
+                ("MODO TAREA hacer algo importante", "tarea", "hacer algo importante"),
+                ("revisé el kipux del gad sin frase", nil, ""),
+            ]
+            var ok = true
+            for (texto, idEsp, limpioEsp) in casos {
+                let r = ModosStore.detectarPorVoz(texto)
+                let idOk = (r?.0.id == idEsp)
+                let limpioOk = (idEsp == nil) || (r?.1 == limpioEsp)
+                ok = ok && idOk && limpioOk
+                print("VOZTEST \(idOk && limpioOk ? "OK" : "✗") \"\(texto)\" → \(r.map { "[\($0.0.id)] \"\($0.1)\"" } ?? "nil")")
+            }
+            print("VOZTEST \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 3)
+        }
         // Prueba de la verificación de firma del updater (seguridad):
         // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
         // aceptaría (mismo cert que ESTA app) y sale.
@@ -1607,8 +1627,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             avisarSiLibre("(silencio)")
             return
         }
-        // El MODO activo decide qué hacer con lo dictado.
-        let modo = ModosStore.activo()
+        // El MODO decide qué hacer con lo dictado. Por defecto, el modo activo;
+        // pero si el dictado EMPIEZA con la frase de voz de un modo ("modo tarea
+        // …"), ese modo manda solo por este dictado (y se quita la frase).
+        var modo = ModosStore.activo()
+        if Config.modoPorVoz(), let (m, limpio) = ModosStore.detectarPorVoz(textoFinal) {
+            if m.id != modo.id { Log.log(.ia, "modo por voz → \(m.nombre)") }
+            modo = m
+            textoFinal = limpio
+        }
         let seguir: (String) -> Void = { [weak self] texto in
             self?.talVezTraducir(texto, rawText: crudo, wav: wav, history: history)
         }
