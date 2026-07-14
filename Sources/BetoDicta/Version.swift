@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.28.0"
+    static let numero = "0.29.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.29.0", "2026-07-14", [
+            "Muchos más buscadores en el modo Buscar: Wikipedia, Gmail, Outlook/Hotmail, Facebook, Amazon, MercadoLibre, X (Twitter), GitHub — y puedes AGREGAR los tuyos (nombre + URL con {q})",
+            "Embeddings LOCALES por defecto (Ollama bge-m3): el glosario inteligente, el reconocimiento de modos y la búsqueda semántica corren en tu Mac — gratis, privados, sin internet ni latencia. Y si no tienes ningún motor, la app sigue funcionando igual (sin error ni demora)",
+            "Menos latencia con VPN: la app 'despierta' la red mientras hablas (WireGuard/OpenVPN/etc. que duermen el túnel ya no te hacen esperar en el primer dictado)",
+            "Pulido más robusto ante caídas: reintento con conexión fresca y, si sigue fallando, salto al siguiente proveedor; nunca se queda colgado",
+            "Voz del sistema (texto → voz): BetoDicta ya puede LEERTE respuestas en voz (voz de macOS, gratis) — primer paso del Modo Agente. En Ajustes → Avanzado",
+        ]),
         ("0.28.0", "2026-07-14", [
             "Reconocimiento inteligente de modos MÁS PRECISO: la zona-comando se ajusta sola (ventana dinámica) — corta donde la intención se entiende y conserva el resto como contenido (ej. \"modo mándale un WhatsApp a Ana, nos vemos\" reconoce WhatsApp y guarda \"a Ana, nos vemos\")",
             "El sistema se MEJORA A SÍ MISMO: nuevo \"Mejorar modos\" (Ajustes → Modos, icono varita) — analiza el registro y te dice qué reconoció mal, con un clic agregas los comandos no reconocidos como ejemplos, o pide sugerencias a tu IA. Y un registro detallado en ~/.betodicta/logs/modos.jsonl (opcional)",
