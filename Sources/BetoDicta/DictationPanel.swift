@@ -18,6 +18,7 @@ final class DictationPanel {
     private let keycap = NSTextField(labelWithString: "fn")
     private let motorLabel = MotorLabel(labelWithString: "")
     private let modoLabel = MotorLabel(labelWithString: "")   // arriba-izq: modo activo
+    private var fondo: NSView?                                 // forma negra (para el latido "pensando")
 
     /// Clic sobre el letrero del motor (o el fn): abrir el selector rápido.
     var onMotorClick: (() -> Void)? {
@@ -72,6 +73,7 @@ final class DictationPanel {
         background.layer?.cornerRadius = 12
         background.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         panel.contentView = background
+        fondo = background
 
         // Ala izquierda: el latido (a la altura del notch)
         background.addSubview(meter)
@@ -238,16 +240,41 @@ final class DictationPanel {
     private(set) var enRespuestaIA = false
     private let colorIA = NSColor(calibratedRed: 0.45, green: 0.72, blue: 1.0, alpha: 1)
 
-    /// Abre el notch en modo RESPUESTA DE IA con el texto (mientras el agente habla).
-    func respuestaIA(_ texto: String) {
+    /// El agente está PENSANDO: notch late (pulso) + con qué IA trabaja (local/Hermes/
+    /// OpenClaw). Súper básico — solo se ve que está pensando. `ia` = nombre a mostrar.
+    func pensando(ia: String) {
         guard Config.panelVisible() else { return }
         enRespuestaIA = true
         reposicionar()
         meter.isHidden = true
         modoLabel.stringValue = "🤖 IA"
+        motorLabel.stringValue = ia.uppercased()
+        motorLabel.textColor = colorIA
+        label.textColor = colorIA
+        label.stringValue = "pensando…"
+        panel.orderFrontRegardless()
+        pulsar(true)
+    }
+
+    /// Muestra la RESPUESTA de la IA (mientras habla). Sigue latiendo suave.
+    func respuestaIA(_ texto: String) {
+        guard Config.panelVisible() else { return }
+        if !enRespuestaIA { pensando(ia: "local") }   // por si no pasó por "pensando"
         label.textColor = colorIA
         label.stringValue = texto.replacingOccurrences(of: "\n", with: " ")
         panel.orderFrontRegardless()
+    }
+
+    /// Latido del notch entero (pulso de opacidad). "Está pensando/hablando".
+    private func pulsar(_ on: Bool) {
+        guard let l = fondo?.layer else { return }
+        if on {
+            let a = CABasicAnimation(keyPath: "opacity")
+            a.fromValue = 1.0; a.toValue = 0.55; a.duration = 0.75
+            a.autoreverses = true; a.repeatCount = .infinity
+            a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            l.add(a, forKey: "pulso")
+        } else { l.removeAnimation(forKey: "pulso"); l.opacity = 1 }
     }
 
     /// Actualiza el texto de la respuesta (si la IA lo entrega en trozos).
@@ -260,10 +287,12 @@ final class DictationPanel {
     func finRespuestaIA() {
         guard enRespuestaIA else { return }
         enRespuestaIA = false
+        pulsar(false)
         label.textColor = .white
+        motorLabel.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)
         meter.isHidden = false
         setModo(ModosStore.activo())   // restaura el letrero de modo
-        hide(after: 1.2)
+        hide(after: 1.5)
     }
 
     /// Letrero del motor activo, encima del fn. Verde = texto en vivo;

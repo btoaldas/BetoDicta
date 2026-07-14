@@ -2253,7 +2253,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             } else { seguir(textoFinal) }
         } else {
-            if !recorder.isRecording { panel.update("✨ \(modo.nombre)…") }
+            // Agente: notch que LATE ("pensando") con la IA que trabaja. Los demás modos: normal.
+            if !recorder.isRecording {
+                if modo.base == "agente" {
+                    let ia = LLMPostProcess.iaDeModo(modo)?.proveedorCorto ?? "local"
+                    panel.pensando(ia: ia)
+                } else { panel.update("✨ \(modo.nombre)…") }
+            }
             let almacen = modo.almacen
             LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
                 Log.write("  3·modo \(modo.nombre): \(resultado)")
@@ -2267,16 +2273,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Modo Agente (Fase 7.2): además de pegar el texto, LO DICE por voz
                 // (si la Voz del sistema está activa). Falla suave: si no hay TTS, solo pega.
                 if modo.base == "agente", !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Notch de RESPUESTA DE IA: muestra lo que responde mientras habla
-                    // (distinto al de dictado). Se cierra al terminar de hablar.
+                    // Notch de RESPUESTA DE IA (distinto al de dictado): muestra lo que
+                    // responde mientras habla; se cierra al terminar. El agente es
+                    // conversacional — NO pega salvo que actives "pegar" (a futuro, según
+                    // la intención). Así no hace las cosas del dictado.
                     self?.panel.respuestaIA(resultado)
                     if Config.ttsActivo() {
                         Voz.decir(resultado) { self?.panel.finRespuestaIA() }   // motor elegido → … → macOS
                     } else {
-                        self?.panel.finRespuestaIA()   // sin voz: se muestra un momento y se cierra
+                        self?.panel.finRespuestaIA()
                     }
+                    self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history, pegar: Config.agentePega())
+                } else {
+                    self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
                 }
-                self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
             }
         }
     }
@@ -2445,27 +2455,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func finishDelivery(_ text: String, rawText: String, wav: Data, history: HistoryWriter?) {
+    private func finishDelivery(_ text: String, rawText: String, wav: Data, history: HistoryWriter?, pegar: Bool = true) {
         // El .txt guarda SOLO lo entregado, limpio. El crudo queda en el log.
         history?.finish(wav: wav, finalText: text)
-        // Flags "al terminar": espacio al final (pegado con el texto) + Enter /
-        // Shift+Enter (teclas tras pegar). Todos opt-in.
-        let textoAPegar = Config.espacioAlTerminar() ? text + " " : text
-        pasteText(textoAPegar)
-        if Config.enterAlTerminar() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { presionarRetorno(shift: false) }
-        } else if Config.shiftEnterAlTerminar() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { presionarRetorno(shift: true) }
+        if pegar {
+            // Flags "al terminar": espacio al final (pegado con el texto) + Enter /
+            // Shift+Enter (teclas tras pegar). Todos opt-in.
+            let textoAPegar = Config.espacioAlTerminar() ? text + " " : text
+            pasteText(textoAPegar)
+            if Config.enterAlTerminar() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { presionarRetorno(shift: false) }
+            } else if Config.shiftEnterAlTerminar() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { presionarRetorno(shift: true) }
+            }
+            // Vigilar el campo: si corriges el texto ahí (antes de enviarlo), la
+            // app aprende de esa corrección. No aplica con traducción activa.
+            Aprendizaje.recordarContexto(pegado: text, traducido: Config.translate())
         }
-        // Vigilar el campo: si corriges el texto ahí (antes de enviarlo), la
-        // app aprende de esa corrección. No aplica con traducción activa.
-        Aprendizaje.recordarContexto(pegado: text, traducido: Config.translate())
         playSound("Glass")
         if !recorder.isRecording { setIcono(.reposo) }
         // (El "un solo uso" ya se consumió al CERRAR el dictado en stopAndTranscribe;
         //  no se revierte aquí para no pisar el modo de un dictado solapado.)
-        // Si ya hay otro dictado grabando, no pisar su panel.
-        if !recorder.isRecording {
+        // Si ya hay otro dictado grabando, no pisar su panel (ni el notch de IA).
+        if pegar, !recorder.isRecording {
             panel.updateForzado("✓ " + text)
             panel.hide(after: 1.8)
         }

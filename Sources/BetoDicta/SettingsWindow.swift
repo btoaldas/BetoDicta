@@ -98,6 +98,7 @@ final class SettingsModel: ObservableObject {
     @Published var ttsVoz: String { didSet { Config.set("tts_voz", to: ttsVoz) } }
     @Published var ttsVelocidad: Double { didSet { Config.set("tts_velocidad", to: ttsVelocidad) } }
     @Published var ttsProveedor: String { didSet { Config.set("tts_proveedor", to: ttsProveedor); Voz.preactivarLocal() } }
+    @Published var agentePega: Bool { didSet { Config.set("agente_pega", to: agentePega) } }
     @Published var ttsElevenVoz: String { didSet { Config.set("tts_eleven_voz", to: ttsElevenVoz) } }
     @Published var ttsElevenStreaming: Bool { didSet { Config.set("tts_eleven_streaming", to: ttsElevenStreaming) } }
     @Published var ttsXttsCmd: String { didSet { Config.set("tts_xtts_cmd", to: ttsXttsCmd) } }
@@ -146,6 +147,7 @@ final class SettingsModel: ObservableObject {
         ttsVoz = Config.ttsVoz()
         ttsVelocidad = Config.ttsVelocidad()
         ttsProveedor = Config.ttsProveedor()
+        agentePega = Config.agentePega()
         ttsElevenVoz = Config.ttsElevenVoz()
         ttsElevenStreaming = Config.ttsElevenStreaming()
         ttsXttsCmd = Config.ttsXttsCmd()
@@ -721,6 +723,9 @@ struct SettingsView: View {
                         Divider()
                         Text("Voz del sistema (texto → voz) — Modo Agente").font(.subheadline)
                         Toggle("Que BetoDicta pueda HABLARTE (TTS)", isOn: $m.ttsActivo)
+                        Toggle("El Agente PEGA su respuesta donde estés (además de decirla)", isOn: $m.agentePega)
+                        Text("Apagado (default): el Agente es conversacional — muestra la respuesta en su notch y la habla, sin pegar. Enciéndelo si quieres el texto en tu documento. A futuro será inteligente según lo que pidas.")
+                            .font(.caption2).foregroundStyle(.secondary)
                         Text("El Modo Agente te lee respuestas en voz. Elige el motor; si el elegido falla (sin key, sin red, sin clon), cae al siguiente y termina en la voz de macOS — nunca se queda mudo.")
                             .font(.caption).foregroundStyle(.secondary)
                         if m.ttsActivo {

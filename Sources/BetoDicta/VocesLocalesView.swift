@@ -28,7 +28,7 @@ struct MotorVozControl: View {
                 Toggle("Preactivar (modelo en RAM → respuesta rápida)", isOn: $preactivar)
                     .font(.caption)
                     .onChange(of: preactivar) { _, v in Config.set("tts_xtts_preactivar", to: v); Voz.preactivarLocal() }
-                Text("Mantiene el clon cargado en memoria mientras es tu voz activa: el Agente responde en ~1-2s en vez de recargar el modelo (~15s) cada vez. Usa algo de RAM. \(XttsServer.corriendo ? "🟢 activo ahora" : "")")
+                Text("⚠️ Mantiene el clon (~2 GB) cargado en RAM mientras es tu voz activa: el Agente responde en ~1-2s en vez de recargar el modelo (~15s) cada vez. Si tu Mac va justa de memoria, apágalo (la 1ª respuesta tardará más). \(XttsServer.corriendo ? "🟢 en RAM ahora" : "⚪️ no cargado")")
                     .font(.caption2).foregroundStyle(.secondary)
             case .instalando:
                 Text("⏳ Instalando el motor de voz…").font(.caption)

@@ -141,6 +141,11 @@ struct Config {
     static func ttsActivo() -> Bool { (json()["tts_activo"] as? Bool) ?? false }
     static func ttsVoz() -> String { (json()["tts_voz"] as? String) ?? "" }
     static func ttsVelocidad() -> Double { (json()["tts_velocidad"] as? Double) ?? 0.5 }
+    /// El Modo Agente PEGA su respuesta donde estés (como el dictado). Default OFF:
+    /// el agente es conversacional (notch + voz); actívalo si quieres el texto pegado.
+    /// A futuro será inteligente según la intención (pedir texto → pega; preguntar → no).
+    static func agentePega() -> Bool { (json()["agente_pega"] as? Bool) ?? false }
+
     /// Motor de TTS: "apple" (voz de macOS) | "elevenlabs" (voz clonada Bto) |
     /// "xtts_local" (tu clon local). Cascada de failover parametrizable.
     static func ttsProveedor() -> String { (json()["tts_proveedor"] as? String) ?? "apple" }
