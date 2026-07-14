@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.31.0"
+    static let numero = "0.32.0"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.32.0", "2026-07-14", [
+            "ENTRENAR una voz nueva DENTRO de BetoDicta (🎓 en Clon local): eliges una carpeta de audios + nombre, la app recomienda las etapas según cuánta voz haya, entrena en segundo plano con progreso EN VIVO + gráfica, y al final eliges el mejor corte (escuchas cada uno) → sale tu paquete portable. La persona (cómo habla) se saca sola",
+            "Muchos más motores de voz en la nube: OpenAI, Google Gemini, Deepgram, Cartesia, Inworld, PlayHT, Azure — cada uno con su voz/modelo y streaming (WebSocket) configurable, con tu key",
+            "Subir un clon de FUERA aunque venga incompleto: BetoDicta arma lo que falta; si no trae muestras te las pide (➕🎙); si no trae persona la genera transcribiendo las muestras (🧠)",
+            "Motor de voz propio y aislado que corre tus clones (se instala con un botón; no toca tu sistema)",
+        ]),
         ("0.31.0", "2026-07-14", [
             "Motor de voz INTERNO y aislado: BetoDicta corre tus clones con su propio Python (se instala con un botón, ~3-4 GB bajo ~/.betodicta/, no toca tu sistema). Ya no dependes de herramientas externas",
             "SUBIR y DESCARGAR voces: importa un paquete de voz portable (⬆︎) o descárgalo para llevarlo (⬇︎). Cada voz lleva su persona (cómo habla)",
