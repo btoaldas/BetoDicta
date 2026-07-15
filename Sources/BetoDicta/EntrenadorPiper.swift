@@ -26,6 +26,7 @@ enum EntrenadorPiper {
     static var wrapURL: URL { raizDir.appendingPathComponent("train_wrap.py") }
     static var dsScriptURL: URL { raizDir.appendingPathComponent("piper_ds.py") }
     static var setupURL: URL { raizDir.appendingPathComponent("piper_setup.py") }
+    static var valScriptURL: URL { raizDir.appendingPathComponent("piper_val.py") }
     private static var proc: Process?
     private static var sitePackages: URL {
         VozEngine.dir.appendingPathComponent("venv/lib/python3.11/site-packages")
@@ -147,6 +148,56 @@ enum EntrenadorPiper {
         try? piperDsPy.data(using: .utf8)?.write(to: dsScriptURL)
         try? trainWrapPy.data(using: .utf8)?.write(to: wrapURL)
         try? setupPy.data(using: .utf8)?.write(to: setupURL)
+        try? valPy.data(using: .utf8)?.write(to: valScriptURL)
+    }
+
+    // MARK: Validación — puntuar checkpoints (inteligibilidad Whisper + parecido d-vector)
+
+    struct RankPiper { var paso: Int; var inteligible: Double; var parecido: Double; var score: Double; var ckpt: URL? }
+
+    /// Corre piper_val.py: por cada checkpoint genera 5 frases, mide INTELIGIBILIDAD con
+    /// Whisper (transcribe y compara) y PARECIDO de voz con d-vector vs los audios reales,
+    /// deja validacion.csv + validacion.png. Así nunca eliges a ciegas entre basura.
+    static func validar(_ proyecto: URL, onProgreso: @escaping (String) -> Void,
+                        onFin: @escaping (Bool) -> Void) {
+        escribirScripts()
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = Process(); p.executableURL = VozEngine.pythonURL
+            p.arguments = [valScriptURL.path, proyecto.path]
+            p.environment = entorno()
+            let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+            pipe.fileHandleForReading.readabilityHandler = { fh in
+                if let s = String(data: fh.availableData, encoding: .utf8) {
+                    for l in s.split(separator: "\n") where l.contains("[val]") || l.contains("[OK") {
+                        DispatchQueue.main.async { onProgreso(String(l)) }
+                    }
+                }
+            }
+            do { try p.run() } catch { DispatchQueue.main.async { onFin(false) }; return }
+            p.waitUntilExit()
+            pipe.fileHandleForReading.readabilityHandler = nil
+            let ok = FileManager.default.fileExists(atPath: proyecto.appendingPathComponent("validacion.csv").path)
+            DispatchQueue.main.async { onFin(ok) }
+        }
+    }
+
+    /// Lee validacion.csv → ranking del mejor al peor (por score). Mapea a los .ckpt.
+    static func rankingPiper(_ proyecto: URL) -> [RankPiper] {
+        guard let csv = try? String(contentsOf: proyecto.appendingPathComponent("validacion.csv"), encoding: .utf8) else { return [] }
+        let cks = checkpoints(proyecto)
+        var out: [RankPiper] = []
+        for (i, l) in csv.split(separator: "\n").enumerated() where i > 0 {
+            let c = l.split(separator: ",")
+            guard c.count >= 4, let paso = Int(c[0]), let it = Double(c[1]), let sm = Double(c[2]), let sc = Double(c[3]) else { continue }
+            out.append(RankPiper(paso: paso, inteligible: it, parecido: sm, score: sc,
+                                 ckpt: cks.first { $0.paso == paso }?.url))
+        }
+        return out.sorted { $0.score > $1.score }
+    }
+
+    static func graficaValidacion(_ proyecto: URL) -> URL? {
+        let png = proyecto.appendingPathComponent("validacion.png")
+        return FileManager.default.fileExists(atPath: png.path) ? png : nil
     }
 
     // MARK: Descargar la base (fine-tune) — bajo demanda con permiso
@@ -955,5 +1006,86 @@ enum EntrenadorPiper {
         ok = bool(glob.glob(os.path.join(nested, "core*.so")))
         print("[i] monotonic_align compilado:", ok, flush=True)
     print("[OK] setup vits listo", flush=True)
+    """#
+
+    /// Validación: por cada checkpoint, genera 5 frases, mide INTELIGIBILIDAD (Whisper
+    /// transcribe y compara con el texto) + PARECIDO de voz (d-vector vs audios reales),
+    /// escribe validacion.csv + validacion.png y dice cuál es el mejor. Marca la basura.
+    private static let valPy = #"""
+    #!/usr/bin/env python3
+    import os, sys, subprocess, difflib, unicodedata, re, shutil
+    import numpy as np
+    PROJ=sys.argv[1]; PY=sys.executable
+    CK=os.path.join(PROJ,"ckpts"); REF=os.path.join(PROJ,"dataset","audio"); OUT=os.path.join(PROJ,"val")
+    os.makedirs(OUT,exist_ok=True)
+    FRASES=["Hola mijo cómo estás, espero que estés muy bien.",
+            "El río suena entre las piedras del camino.",
+            "Hoy hace un día muy bonito para caminar.",
+            "Te mando un abrazo grande y muchos cariños.",
+            "Mañana vamos a cocinar algo rico."]
+    def norm(s):
+        s=unicodedata.normalize("NFD",s.lower()); s="".join(c for c in s if unicodedata.category(c)!="Mn")
+        return re.sub(r"[^a-z0-9 ]","",s).split()
+    def isim(a,b): return difflib.SequenceMatcher(None,norm(a),norm(b)).ratio()
+    def stepof(f):
+        m=re.search(r"(\d+)",f.replace("step=","")); return int(m.group(1)) if m else 0
+    if not os.path.isdir(CK) or not [f for f in os.listdir(CK) if f.endswith(".ckpt")]:
+        print("[OK] sin checkpoints",flush=True); sys.exit(0)
+    print("[val] cargando modelos (Whisper + d-vector)…",flush=True)
+    import mlx_whisper
+    from resemblyzer import VoiceEncoder, preprocess_wav
+    enc=VoiceEncoder()
+    refs=[os.path.join(REF,f) for f in sorted(os.listdir(REF)) if f.endswith(".wav")][:25] if os.path.isdir(REF) else []
+    ref_emb=None
+    if refs:
+        try: ref_emb=np.mean([enc.embed_utterance(preprocess_wav(r)) for r in refs],axis=0)
+        except Exception as e: print("[val] (sin ref de voz:",e,")",flush=True)
+    cks=sorted([f for f in os.listdir(CK) if f.endswith(".ckpt")],key=stepof)
+    rows=[]
+    for ck in cks:
+        st=stepof(ck); onnx=os.path.join(OUT,ck+".onnx")
+        subprocess.run([PY,"-m","piper.train.export_onnx","--checkpoint",os.path.join(CK,ck),"--output-file",onnx],capture_output=True)
+        cfg=os.path.join(PROJ,"config.json")
+        if os.path.exists(cfg): shutil.copy(cfg,onnx+".json")
+        intel=[]; sims=[]
+        for i,fr in enumerate(FRASES):
+            wav=os.path.join(OUT,f"{st}_{i}.wav")
+            subprocess.run([PY,"-m","piper","-m",onnx,"-f",wav],input=fr.encode(),capture_output=True)
+            if not os.path.exists(wav): continue
+            try: t=mlx_whisper.transcribe(wav,path_or_hf_repo="mlx-community/whisper-large-v3-turbo",language="es")["text"]
+            except Exception: t=""
+            intel.append(isim(fr,t))
+            if ref_emb is not None:
+                try: sims.append(float(np.dot(ref_emb,enc.embed_utterance(preprocess_wav(wav)))))
+                except Exception: pass
+        it=float(np.mean(intel)) if intel else 0.0
+        sm=float(np.mean(sims)) if sims else 0.0
+        score=it*0.6+(sm if it>=0.5 else 0.0)*0.4
+        rows.append((st,it,sm,score))
+        print(f"[val] paso {st}: inteligible={it:.2f} parecido={sm:.2f} score={score:.2f}",flush=True)
+        for i in range(len(FRASES)):
+            w=os.path.join(OUT,f"{st}_{i}.wav")
+            if i>0 and os.path.exists(w):
+                try: os.remove(w)
+                except OSError: pass
+    with open(os.path.join(PROJ,"validacion.csv"),"w") as f:
+        f.write("paso,inteligibilidad,parecido,score\n")
+        for r in rows: f.write(f"{r[0]},{r[1]:.3f},{r[2]:.3f},{r[3]:.3f}\n")
+    try:
+        import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
+        s=[r[0] for r in rows]
+        plt.figure(figsize=(8,4.2))
+        plt.plot(s,[r[1] for r in rows],"-o",label="inteligibilidad (Whisper)")
+        plt.plot(s,[r[2] for r in rows],"-s",label="parecido de voz (d-vector)")
+        plt.plot(s,[r[3] for r in rows],"-^",lw=2.2,label="score final")
+        plt.axhline(0.5,color="red",ls="--",alpha=0.4,label="mínimo inteligible")
+        plt.ylim(0,1); plt.xlabel("paso"); plt.ylabel("0 a 1"); plt.legend(fontsize=8); plt.grid(alpha=0.3)
+        plt.title("Validación de checkpoints Piper (más arriba = mejor)")
+        plt.tight_layout(); plt.savefig(os.path.join(PROJ,"validacion.png"),dpi=100)
+    except Exception as e: print("[val] (sin gráfica:",e,")",flush=True)
+    best=max(rows,key=lambda r:r[3]) if rows else None
+    if best and best[1]>=0.5: print(f"[OK] mejor=paso{best[0]} score={best[3]:.2f} — sí es usable",flush=True)
+    elif best: print(f"[OK] ninguno inteligible (mejor paso{best[0]} intel={best[1]:.2f}) — necesita MÁS entrenamiento",flush=True)
+    else: print("[OK] sin checkpoints",flush=True)
     """#
 }

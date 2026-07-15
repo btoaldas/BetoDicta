@@ -44,6 +44,9 @@ struct EntrenadorPiperView: View {
     @State private var pulso = false
 
     @State private var checkpoints: [(paso: Int, url: URL)] = []
+    @State private var ranking: [EntrenadorPiper.RankPiper] = []
+    @State private var validando = false
+    @State private var valEstado = ""
     @State private var estado = ""
     @State private var reanudable: URL?
     @State private var calidad = "medium"
@@ -208,19 +211,53 @@ struct EntrenadorPiperView: View {
                     }
                 }
 
-                // 3) Checkpoints — escuchar / elegir el mejor / exportar
+                // 3) Elegir el mejor — validar (Whisper + d-vector) + gráfica + ranking
                 if let proyecto, !checkpoints.isEmpty {
                     grupo {
-                        HStack { Text("Elegir el mejor").font(.subheadline); Spacer()
-                            Button("↻") { checkpoints = EntrenadorPiper.checkpoints(proyecto) }.controlSize(.mini).help("Refrescar") }
-                        Text("Escucha cualquiera y usa el que más se parezca. Los últimos suelen sonar mejor.").font(.caption2).foregroundStyle(.secondary)
-                        ForEach(Array(checkpoints.enumerated()), id: \.offset) { i, c in
-                            HStack {
-                                Text("\(i == checkpoints.count - 1 ? "🏆 " : "")paso \(c.paso)").font(.caption)
-                                Spacer()
-                                Button("🔊") { escuchar(c.url) }.controlSize(.mini)
-                                Button("Usar este") { exportar(c.url) }.controlSize(.mini)
-                                Button("🗑") { borrar(c.url) }.controlSize(.mini).help("Descartar")
+                        HStack {
+                            Text("Elegir el mejor").font(.subheadline); Spacer()
+                            Button(validando ? "Validando…" : "📊 Validar y graficar") {
+                                validando = true; valEstado = "Generando muestras y midiendo…"; ranking = []
+                                EntrenadorPiper.validar(proyecto, onProgreso: { valEstado = $0 },
+                                    onFin: { ok in
+                                        validando = false; ranking = EntrenadorPiper.rankingPiper(proyecto)
+                                        valEstado = !ok ? "No se pudo validar"
+                                            : (ranking.first.map { $0.inteligible >= 0.5 ? "✓ El mejor está marcado 🏆" : "⚠ Ninguno quedó inteligible — necesita MÁS entrenamiento" } ?? "")
+                                    })
+                            }.controlSize(.small).disabled(validando)
+                        }
+                        Text("Mide inteligibilidad (Whisper) + parecido de voz (d-vector) de cada checkpoint. Así no eliges a ciegas entre basura.").font(.caption2).foregroundStyle(.secondary)
+                        if !valEstado.isEmpty {
+                            Text(valEstado).font(.caption2)
+                                .foregroundStyle(validando ? Color.secondary : ((ranking.first?.inteligible ?? 0) >= 0.5 ? Color.green : Color.orange))
+                        }
+                        if let png = EntrenadorPiper.graficaValidacion(proyecto), let img = NSImage(contentsOf: png) {
+                            Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 220).cornerRadius(6)
+                        }
+                        if !ranking.isEmpty {
+                            ForEach(Array(ranking.enumerated()), id: \.offset) { i, r in
+                                HStack(spacing: 6) {
+                                    Text("\(i == 0 && r.inteligible >= 0.5 ? "🏆 " : "")paso \(r.paso)").font(.caption)
+                                    Text(r.inteligible >= 0.5 ? "✓ ok" : "basura").font(.caption2)
+                                        .foregroundStyle(r.inteligible >= 0.5 ? .green : .red)
+                                    Text("intel \(Int(r.inteligible*100))% · voz \(Int(r.parecido*100))%").font(.caption2).foregroundStyle(.secondary)
+                                    Spacer()
+                                    if let u = r.ckpt {
+                                        Button("🔊") { escuchar(u) }.controlSize(.mini)
+                                        Button("Usar") { exportar(u) }.controlSize(.mini).disabled(r.inteligible < 0.5)
+                                        Button("🗑") { borrar(u) }.controlSize(.mini)
+                                    }
+                                }
+                            }
+                        } else {
+                            Text("Escucha cualquiera, o pulsa Validar para puntuarlos y graficarlos.").font(.caption2).foregroundStyle(.secondary)
+                            ForEach(Array(checkpoints.enumerated()), id: \.offset) { _, c in
+                                HStack {
+                                    Text("paso \(c.paso)").font(.caption); Spacer()
+                                    Button("🔊") { escuchar(c.url) }.controlSize(.mini)
+                                    Button("Usar este") { exportar(c.url) }.controlSize(.mini)
+                                    Button("🗑") { borrar(c.url) }.controlSize(.mini).help("Descartar")
+                                }
                             }
                         }
                     }

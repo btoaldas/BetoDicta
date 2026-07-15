@@ -6,11 +6,15 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.38.0-beta"
+    static let numero = "0.39.0-beta"
     static let fecha = "2026-07-14"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.39.0-beta", "2026-07-14", [
+            "Validación de voz Piper: al terminar el entrenamiento, pulsa “Validar y graficar” y BetoDicta genera muestras de cada checkpoint, mide INTELIGIBILIDAD (Whisper transcribe y compara) + PARECIDO de voz (d-vector), dibuja una GRÁFICA y marca el mejor — o te avisa si TODOS salieron mal (para que nunca elijas basura a ciegas)",
+            "Diagnóstico: el entrenamiento Piper necesita MUCHÍSimas más épocas (no 5000 pasos) para salir inteligible; la validación ahora lo deja clarísimo con números y gráfica",
+        ]),
         ("0.38.0-beta", "2026-07-14", [
             "Cancelar al agente ahora lo mata DE RAÍZ, no solo el bypass: auditamos y vimos que Hermes corría el trabajo (y sus herramientas: shell, etc.) como procesos aparte que quedaban VIVOS al cancelar. Ahora se mata el árbol completo (Hermes + sus herramientas + subprocesos) — el trabajo se detiene de verdad",
             "BARGE-IN: mientras la IA responde, pulsa fn y la INTERRUMPES para decirle otra cosa — se corta lo actual y grabas lo nuevo, que sigue la MISMA conversación (Hermes conserva el contexto). Como interrumpir a alguien; más natural para hablar de ida y vuelta",
