@@ -217,7 +217,7 @@ enum VozEngine {
     /// recarga el modelo por respuesta). Lo levanta BetoDicta cuando el clon local es
     /// el motor activo (preactivar).
     private static let serverPy = """
-    import os, sys, json, warnings
+    import os, sys, json, warnings, threading
     warnings.filterwarnings("ignore")
     os.environ["COQUI_TOS_AGREED"]="1"; os.environ.setdefault("CUDA_VISIBLE_DEVICES","")
     import torch
@@ -242,7 +242,18 @@ enum VozEngine {
     class H(BaseHTTPRequestHandler):
         def log_message(self,*a): pass
         def do_GET(self):
-            self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+            if self.path.startswith("/health"):
+                body=json.dumps({"motor":"betodicta-xtts","paquete":os.path.realpath(PKG),"pid":os.getpid()}).encode()
+                self.send_response(200); self.send_header("Content-Type","application/json")
+                self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+            elif self.path.startswith("/shutdown"):
+                self.send_response(200); self.end_headers(); self.wfile.write(b"bye")
+                self.wfile.flush()
+                # Salida dura y breve: torch puede dejar pools C vivos incluso después de
+                # serve_forever.shutdown(). El proceso es solo este servidor y no guarda datos.
+                threading.Timer(0.10,lambda: os._exit(0)).start()
+            else:
+                self.send_response(404); self.end_headers()
         def do_POST(self):
             n=int(self.headers.get("Content-Length",0)); txt=self.rfile.read(n).decode("utf-8")
             self.send_response(200); self.send_header("Content-Type","application/octet-stream"); self.end_headers()

@@ -222,7 +222,7 @@ struct EntrenadorPiperView: View {
                                     onFin: { ok in
                                         validando = false; ranking = EntrenadorPiper.rankingPiper(proyecto)
                                         valEstado = !ok ? "No se pudo validar"
-                                            : (ranking.first.map { $0.inteligible >= 0.5 ? "✓ El mejor está marcado 🏆" : "⚠ Ninguno quedó inteligible — necesita MÁS entrenamiento" } ?? "")
+                                            : (ranking.first.map { $0.inteligible >= 0.5 ? "✓ El mejor está marcado 🏆" : "⚠ Entrenamiento rechazado: revisa dataset/base; no sumes pasos a ciegas" } ?? "")
                                     })
                             }.controlSize(.small).disabled(validando)
                         }

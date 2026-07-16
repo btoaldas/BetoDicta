@@ -13,7 +13,7 @@ import AVFoundation
 //   • El error ".view size not compatible" del backward era un BUG SOLO-MPS de PyTorch
 //     (pytorch#142344). Se arregla FORZANDO CPU en el Trainer (--trainer.accelerator cpu).
 //     Con eso torch 2.5.1 entrena sin tocar nada (la voz XTTS de mamá queda intacta).
-//   • Fine-tune desde la base con contador en 0: train_wrap.py + PIPER_FINETUNE_RESET=1.
+//   • Fine-tune FRESCO: carga SOLO los pesos de la base; Adam y schedulers arrancan nuevos.
 //   • Export ONNX funciona en Apple Silicon; el config del entreno = <modelo>.onnx.json.
 //   • Resumible: si se apaga la compu, se reanuda desde el último checkpoint del proyecto.
 //
@@ -269,6 +269,11 @@ enum EntrenadorPiper {
             if !reanudar {
                 try? fm.removeItem(at: proyecto.appendingPathComponent("ckpts"))
                 try? fm.removeItem(at: proyecto.appendingPathComponent("run"))
+                try? fm.removeItem(at: proyecto.appendingPathComponent("cache"))
+                try? fm.removeItem(at: proyecto.appendingPathComponent("config.json"))
+                try? fm.removeItem(at: proyecto.appendingPathComponent("validacion.csv"))
+                try? fm.removeItem(at: proyecto.appendingPathComponent("validacion.png"))
+                try? fm.removeItem(at: proyecto.appendingPathComponent("validacion"))
             }
 
             // FASE 1 — dataset. Se construye SOLO si aún no existe uno usable (así reintentar
@@ -310,12 +315,13 @@ enum EntrenadorPiper {
             DispatchQueue.main.async { onProgreso(Progreso(paso: 0, total: etapas, epoca: 0, texto: "Arrancando el entrenamiento…")) }
             let ckptsDir = proyecto.appendingPathComponent("ckpts")
             try? fm.createDirectory(at: ckptsDir, withIntermediateDirectories: true)
-            // ¿Reanudar? → último checkpoint del proyecto (sin reset). Si no → base (con reset a 0).
+            // ¿Reanudar? → Lightning recupera TODO el último checkpoint. Proyecto nuevo →
+            // NO se restaura el checkpoint: el wrapper carga SOLO sus pesos en on_fit_start,
+            // de modo que Adam/schedulers empiezan frescos (la base trae 1.6 M pasos).
             let reanuda = ultimoCheckpoint(proyecto)
-            let ckptPath = (reanudar && reanuda != nil) ? reanuda!.path : baseCkpt(cal.id).path
             let cada = max(200, etapas / 5)
             let tr = Process(); tr.executableURL = VozEngine.pythonURL
-            tr.arguments = [
+            var argumentos = [
                 wrapURL.path, "fit",
                 "--data.csv_path", meta.path,
                 "--data.audio_dir", dsDir.appendingPathComponent("audio").path,
@@ -335,11 +341,13 @@ enum EntrenadorPiper {
                 "--trainer.callbacks.every_n_train_steps", "\(cada)",
                 "--trainer.callbacks.save_top_k", "-1",
                 "--trainer.callbacks.filename", "paso{step}",
-                "--ckpt_path", ckptPath,
             ] + cal.modelArgs   // params de arquitectura de la calidad (high/low); medium = vacío
+            if reanudar, let reanuda { argumentos += ["--ckpt_path", reanuda.path] }
+            tr.arguments = argumentos
             var env = entorno()
-            // Reset del contador SOLO cuando arrancamos desde la base (proyecto nuevo).
-            if !(reanudar && reanuda != nil) { env["PIPER_FINETUNE_RESET"] = "1" }
+            env.removeValue(forKey: "PIPER_INIT_WEIGHTS")
+            // Proyecto nuevo: pesos de la base, pero optimizadores/schedulers RECIÉN creados.
+            if !(reanudar && reanuda != nil) { env["PIPER_INIT_WEIGHTS"] = baseCkpt(cal.id).path }
             // Limitar torch a los núcleos RÁPIDOS (performance): en Apple Silicon incluir los
             // efficiency frena cada op al ritmo del más lento (CPU 100% sin avanzar).
             let pc = "\(nucleosRapidos())"
@@ -763,7 +771,8 @@ enum EntrenadorPiper {
     /// registra en la biblioteca como voz Piper rápida, con su persona (prompt). `prompt`
     /// = cómo habla la persona (parámetro del usuario). Pesado; corre en background.
     static func exportarYregistrar(proyecto: URL, checkpoint: URL, nombre: String, prompt: String,
-                                   stamp: String, completion: @escaping (VozLocal?, String) -> Void) {
+                                   stamp: String, vozExistenteId: String? = nil,
+                                   completion: @escaping (VozLocal?, String) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
             let tmp = fm.temporaryDirectory.appendingPathComponent("piperexp_\(stamp)")
@@ -784,13 +793,16 @@ enum EntrenadorPiper {
             if fm.fileExists(atPath: cfg.path) {
                 try? fm.copyItem(at: cfg, to: URL(fileURLWithPath: onnx.path + ".json"))
             }
-            // Registrar (VocesLocales copia el .onnx + .json a la carpeta gestionada).
-            guard var voz = VocesLocales.importarPiper(desde: onnx, nombre: nombre) else {
+            // Registrar como voz nueva, o VINCULAR al XTTS que la enseñó (destilación).
+            let registrada = vozExistenteId.flatMap { VocesLocales.vincularPiper(desde: onnx, a: $0) }
+                ?? (vozExistenteId == nil ? VocesLocales.importarPiper(desde: onnx, nombre: nombre) : nil)
+            guard var voz = registrada else {
                 DispatchQueue.main.async { completion(nil, "No pude registrar la voz.") }; return
             }
             try? fm.removeItem(at: tmp)
             // Persona (cómo habla) — la que el usuario escribió, o autogenerada de los audios.
             var persona = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            if persona.isEmpty, vozExistenteId != nil { persona = voz.persona }
             if persona.isEmpty {
                 persona = Entrenador.personaDesdeAudios(
                     carpetaAudios: proyecto.appendingPathComponent("dataset/audio"),
@@ -802,7 +814,10 @@ enum EntrenadorPiper {
                     list[i].persona = persona; VocesLocales.guardar(list); voz = list[i]
                 }
             }
-            DispatchQueue.main.async { completion(voz, "✓ Voz “\(nombre)” lista (Piper rápida) y agregada a tu biblioteca.") }
+            let msg = vozExistenteId == nil
+                ? "✓ Voz “\(nombre)” lista (Piper rápida) y agregada a tu biblioteca."
+                : "✓ Versión rápida ONNX vinculada a “\(nombre)”. Conservaste también XTTS."
+            DispatchQueue.main.async { completion(voz, msg) }
         }
     }
 
@@ -853,6 +868,9 @@ enum EntrenadorPiper {
     private static let pinsPiper = [
         "piper-tts", "lightning>=2,<3", "cython>=3,<4",
         "jsonargparse[signatures]>=4.27.7", "onnx", "tensorboardx",
+        // Dataset + control de calidad. También hacen falta si el usuario IMPORTÓ un
+        // XTTS y nunca abrió antes el entrenador XTTS completo.
+        "mlx-whisper", "resemblyzer", "librosa", "soundfile", "matplotlib",
     ]
 
     // MARK: Scripts embebidos (nada depende de carpetas del usuario)
@@ -907,8 +925,9 @@ enum EntrenadorPiper {
     print(f"[OK] clips={kept} {tot/60:.1f}min | rechazados: {rej}",flush=True)
     """#
 
-    /// Wrapper del fit: arregla torch 2.5 (weights_only) + hparams viejos, y con
-    /// PIPER_FINETUNE_RESET=1 arranca el contador en 0 (fine-tune de pesos, no resume).
+    /// Wrapper del fit: arregla torch 2.5 (weights_only) + hparams viejos. Para un
+    /// proyecto NUEVO, PIPER_INIT_WEIGHTS carga solo state_dict en on_fit_start: el
+    /// optimizador y los schedulers quedan realmente nuevos. Reanudar sí restaura todo.
     private static let trainWrapPy = #"""
     import inspect, os, torch, sys
     # Apple Silicon: torch reparte cada op entre TODOS los núcleos, pero los efficiency
@@ -923,7 +942,7 @@ enum EntrenadorPiper {
     from piper.train.vits.dataset import VitsDataModule
     _m_keys = set(inspect.signature(VitsModel.__init__).parameters) - {"self"}
     _d_keys = set(inspect.signature(VitsDataModule.__init__).parameters) - {"self"}
-    _reset = os.environ.get("PIPER_FINETUNE_RESET", "0") == "1"
+    _init_weights = os.environ.get("PIPER_INIT_WEIGHTS", "").strip()
     _orig = torch.load
     def _load(*a, **k):
         k["weights_only"] = False
@@ -935,11 +954,21 @@ enum EntrenadorPiper {
             dhp = ck.get("datamodule_hyper_parameters")
             if isinstance(dhp, dict):
                 ck["datamodule_hyper_parameters"] = {x: dhp[x] for x in list(dhp) if x in _d_keys}
-            if _reset:
-                ck["global_step"] = 0; ck["epoch"] = 0
-                for kk in ("loops", "callbacks"): ck.pop(kk, None)
         return ck
     torch.load = _load
+    # Warm-start COMPLETO de pesos con estado de optimizador VACÍO. Trainer crea Adam antes
+    # de on_fit_start y éste conserva referencias a los mismos parámetros, por lo que cargar
+    # state_dict aquí actualiza el modelo sin heredar los 1.6 M pasos de la base.
+    _orig_fit_start = VitsModel.on_fit_start
+    def _fit_start(self):
+        _orig_fit_start(self)
+        if not _init_weights:
+            return
+        ck = _orig(_init_weights, map_location="cpu", weights_only=False)
+        state = ck.get("state_dict", ck) if isinstance(ck, dict) else ck
+        self.load_state_dict(state, strict=True)
+        print("[BD] pesos base cargados; optimizadores frescos", flush=True)
+    VitsModel.on_fit_start = _fit_start
     # Progreso EN VIVO propio: Lightning NO emite su barra al log cuando la salida es un
     # archivo (no-TTY). Imprimimos el paso nosotros con flush=True (garantizado en vivo).
     # La bitácora de BetoDicta parsea "[BD] step=N".

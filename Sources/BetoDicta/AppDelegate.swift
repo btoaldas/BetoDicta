@@ -196,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         WhisperServer.apagar(motivo: "salida de la app")
         VoxtralServer.apagar(motivo: "salida de la app")
+        XttsServer.detener()   // no dejar 2 GB huérfanos ni duplicar el servidor al reabrir
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -496,6 +497,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             RunLoop.main.run()
             return
         }
+        // Prueba de la ruta XTTS → dataset exacto → Piper/ONNX.
+        // BETODICTA_DESTILATEST=corpus valida el generador sin tocar datos.
+        // BETODICTA_DESTILATEST=<id voz> sintetiza solo BETODICTA_DESTILACOUNT frases.
+        if let arg = ProcessInfo.processInfo.environment["BETODICTA_DESTILATEST"], !arg.isEmpty {
+            if arg == "corpus" {
+                let c = DestiladorPiper.corpus(cantidad: 2400)
+                let ok = c.count == 2400 && Set(c).count == 2400 && c.allSatisfy { !$0.contains("|") && !$0.contains("\n") }
+                print("DESTILATEST corpus=\(c.count) únicos=\(Set(c).count) seguro=\(ok)")
+                exit(ok ? 0 : 2)
+            }
+            guard let voz = VocesLocales.todas().first(where: { $0.id == arg }) else {
+                print("DESTILATEST ✗ voz no encontrada: \(arg)"); exit(2)
+            }
+            let n = Int(ProcessInfo.processInfo.environment["BETODICTA_DESTILACOUNT"] ?? "4") ?? 4
+            DestiladorPiper.prepararDataset(voz: voz, cantidad: max(4, n), calidadId: "medium",
+                onProgreso: { print($0) }, completion: { ok, msg, p, clips in
+                    print("DESTILATEST \(ok ? "OK" : "FALLA") clips=\(clips) proyecto=\(p.path) · \(msg)")
+                    exit(ok ? 0 : 3)
+                })
+            return
+        }
+        // Prueba corta del fine-tune limpio: usa el dataset destilado ya preparado, espera
+        // el primer paso real y detiene. Verifica que el log confirme optimizadores frescos.
+        if let id = ProcessInfo.processInfo.environment["BETODICTA_PIPERFRESHTEST"], !id.isEmpty {
+            guard let voz = VocesLocales.todas().first(where: { $0.id == id }) else {
+                print("PIPERFRESHTEST ✗ voz no encontrada"); exit(2)
+            }
+            let p = DestiladorPiper.proyecto(voz)
+            guard DestiladorPiper.clipsListos(p) >= max(4, Config.piperBatch()) else {
+                print("PIPERFRESHTEST ✗ faltan clips destilados (mínimo batch)"); exit(3)
+            }
+            EntrenadorPiper.entrenar(carpeta: nil, nombre: voz.nombre, stamp: DestiladorPiper.stamp(voz),
+                                     etapas: 1000, calidadId: "medium", reanudar: false,
+                onProgreso: { print("PIPERFRESHTEST \($0.texto)") },
+                onArranco: { ok, msg, proyecto in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        var dioPaso = false
+                        for _ in 0..<180 {
+                            let l = EntrenadorPiper.colaLog(proyecto.appendingPathComponent("piper.log"))
+                            if l.contains("[BD] step=") { dioPaso = true; break }
+                            if !EntrenadorPiper.procesoVivo(proyecto) { break }
+                            Thread.sleep(forTimeInterval: 1)
+                        }
+                        EntrenadorPiper.detenerProyecto(proyecto) { _ in
+                            let log = EntrenadorPiper.colaLog(proyecto.appendingPathComponent("piper.log"))
+                            let fresco = log.contains("pesos base cargados; optimizadores frescos")
+                            print("PIPERFRESHTEST arranco=\(ok) pasoReal=\(dioPaso) fresco=\(fresco) · \(msg)")
+                            exit(ok && dioPaso && fresco ? 0 : 4)
+                        }
+                    }
+                })
+            return
+        }
         // Prueba del recomendador de entrenamiento: BETODICTA_PLANTEST=1
         if ProcessInfo.processInfo.environment["BETODICTA_PLANTEST"] == "1" {
             for m in [40.0, 90, 150, 300, 480] {
@@ -520,6 +574,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }.resume()
                 }
                 pedir(1) { pedir(2) { XttsServer.detener(); exit(0) } }
+            }
+            RunLoop.main.run(); return
+        }
+        // Prueba en dos ejecuciones del servidor huérfano: `leave` lo deja vivo adrede;
+        // `adopt` debe reutilizarlo en <2s y apagarlo limpiamente al final.
+        if let modo = ProcessInfo.processInfo.environment["BETODICTA_XTTSADOPTTEST"],
+           let voz = VocesLocales.activa(), !voz.paquete.isEmpty {
+            let t = Date()
+            XttsServer.asegurar(paquete: URL(fileURLWithPath: voz.paquete)) { listo in
+                let dt = Date().timeIntervalSince(t)
+                if modo == "leave" {
+                    print("XTTSADOPT leave listo=\(listo) carga=\(String(format: "%.1f", dt))s")
+                    exit(listo ? 0 : 2) // deja el hijo adrede; `adopt` lo recogerá
+                }
+                let adopto = listo && dt < 2.0 && XttsServer.proceso == nil
+                print("XTTSADOPT adopt listo=\(listo) adoptado=\(adopto) carga=\(String(format: "%.2f", dt))s")
+                XttsServer.detener()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { exit(adopto ? 0 : 3) }
             }
             RunLoop.main.run(); return
         }

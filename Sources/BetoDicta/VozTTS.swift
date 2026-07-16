@@ -37,7 +37,8 @@ enum Voz {
     /// respuesta rápida). Se llama al arrancar y al cambiar de motor/voz. No bloquea.
     static func preactivarLocal() {
         guard Config.ttsActivo(), Config.ttsProveedor() == "xtts_local", Config.ttsXttsPreactivar(),
-              VozEngine.estado() == .listo, let voz = VocesLocales.activa(), !voz.paquete.isEmpty else {
+              VozEngine.estado() == .listo, let voz = VocesLocales.activa(), !voz.paquete.isEmpty,
+              voz.onnx.isEmpty || voz.variante != "onnx" else {
             XttsServer.detener(); return   // si ya no aplica, libera la RAM del modelo
         }
         XttsServer.asegurar(paquete: URL(fileURLWithPath: voz.paquete)) { listo in
@@ -115,8 +116,11 @@ enum Voz {
                 }
             }
         case "xtts_local":
-            // Si la voz activa es PIPER (.onnx) → carril RÁPIDO (voz fija, ~instantánea).
-            if let voz = VocesLocales.activa(), !voz.onnx.isEmpty, PiperTTS.disponible {
+            // Una misma persona puede tener DOS variantes vinculadas. La elegida manda;
+            // una voz que solo tiene ONNX sigue entrando al carril rápido automáticamente.
+            let local = VocesLocales.activa()
+            let usaPiper = local.map { !$0.onnx.isEmpty && ($0.paquete.isEmpty || $0.variante == "onnx") } ?? false
+            if let voz = local, usaPiper, PiperTTS.disponible {
                 PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: texto) { url in
                     if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) } else {
                         Log.log(.ia, "TTS Piper falló → siguiente motor"); siguiente()
@@ -126,7 +130,7 @@ enum Voz {
             }
             // Voz con PAQUETE + motor interno listo → lo corre BetoDicta solo (XTTS).
             // Si no, cae al comando (bootstrap/externo). Si nada → siguiente motor.
-            if let voz = VocesLocales.activa(), !voz.paquete.isEmpty, VozEngine.estado() == .listo {
+            if let voz = local, !voz.paquete.isEmpty, VozEngine.estado() == .listo {
                 let pkg = URL(fileURLWithPath: voz.paquete)
                 let batch: () -> Void = {
                     VozEngine.correrPaquete(carpeta: pkg, texto: texto) { url in
@@ -188,7 +192,10 @@ enum Voz {
             if let url, let data = try? Data(contentsOf: url) { reproducir(data, nil, done) }
             else { DispatchQueue.main.async { done?() } }
         }
-        if !voz.paquete.isEmpty, VozEngine.estado() == .listo {
+        let usaPiper = !voz.onnx.isEmpty && (voz.paquete.isEmpty || voz.variante == "onnx")
+        if usaPiper, PiperTTS.disponible {
+            PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: saludo, completion: cb)
+        } else if !voz.paquete.isEmpty, VozEngine.estado() == .listo {
             VozEngine.correrPaquete(carpeta: URL(fileURLWithPath: voz.paquete), texto: saludo, completion: cb)
         } else {
             XttsLocalTTS.decirCon(cmd: voz.cmd, texto: saludo, completion: cb)

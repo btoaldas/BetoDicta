@@ -16,8 +16,9 @@ enum XttsServer {
     private static let salud = "http://127.0.0.1:8791/health"
     private static var ultimoUso = Date()      // para dormir por inactividad
     private static var vigia: Timer?
+    private static var adoptado = false
 
-    static var corriendo: Bool { proceso?.isRunning == true }
+    static var corriendo: Bool { proceso?.isRunning == true || adoptado }
 
     /// Marca que se acaba de usar (para el reloj de inactividad).
     static func tocar() { ultimoUso = Date() }
@@ -42,6 +43,21 @@ enum XttsServer {
         guard VozEngine.estado() == .listo else { onListo(false); return }
         tocar()
         if corriendo && paqueteActivo == paquete.path { onListo(true); return }
+        // Si BetoDicta se cerró a la fuerza, el Python puede quedar adoptado por launchd.
+        // Reúsalo si es la MISMA voz: evita cargar 2 GB otra vez y chocar con el puerto.
+        if let s = saludActual(), s.motor == "betodicta-xtts" {
+            if s.paquete == paquete.path {
+                proceso = nil; adoptado = true; paqueteActivo = paquete.path
+                onListo(true); return
+            }
+            pedirApagado()   // otra voz ocupa el puerto; apágala antes de cambiar
+            for _ in 0..<20 where saludActual() != nil { Thread.sleep(forTimeInterval: 0.1) }
+        } else if respondeSalud() {
+            // Migración desde el servidor de versiones viejas: respondía solo "ok" y no
+            // podía identificarse ni apagarse por HTTP. Mata ÚNICAMENTE nuestro script.
+            matarServidorLegacy()
+            for _ in 0..<20 where respondeSalud() { Thread.sleep(forTimeInterval: 0.1) }
+        }
         detener()
         VozEngine.asegurarServerPy()
         paqueteActivo = paquete.path
@@ -57,7 +73,7 @@ enum XttsServer {
         p.environment = env
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
         do { try p.run() } catch { onListo(false); return }
-        proceso = p
+        proceso = p; adoptado = false
         // Sondear /health hasta ~40s (la 1ª carga del modelo tarda).
         DispatchQueue.global().async {
             for _ in 0..<80 {
@@ -69,7 +85,11 @@ enum XttsServer {
         }
     }
 
-    static func detener() { proceso?.terminate(); proceso = nil; paqueteActivo = "" }
+    static func detener() {
+        if proceso?.isRunning == true { proceso?.terminate() }
+        else if adoptado { pedirApagado() }
+        proceso = nil; adoptado = false; paqueteActivo = ""
+    }
 
     /// Corta la VOZ en curso (streaming o lotes) SIN matar el servidor residente (así la
     /// próxima respuesta sigue siendo rápida). Para el botón/tecla Cancelar.
@@ -78,14 +98,46 @@ enum XttsServer {
         stream?.parar(); stream = nil
     }
 
-    private static func ping() -> Bool {
-        guard let u = URL(string: salud) else { return false }
+    private struct Salud: Decodable { let motor: String; let paquete: String; let pid: Int }
+
+    private static func saludActual() -> Salud? {
+        guard let u = URL(string: salud) else { return nil }
         var r = URLRequest(url: u); r.timeoutInterval = 1
-        let sem = DispatchSemaphore(value: 0); var ok = false
+        let sem = DispatchSemaphore(value: 0); var valor: Salud?
         URLSession.shared.dataTask(with: r) { d, resp, _ in
+            if (resp as? HTTPURLResponse)?.statusCode == 200, let d {
+                valor = try? JSONDecoder().decode(Salud.self, from: d)
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 1.5); return valor
+    }
+
+    private static func ping() -> Bool { saludActual()?.motor == "betodicta-xtts" }
+
+    private static func respondeSalud() -> Bool {
+        guard let u = URL(string: salud) else { return false }
+        var r = URLRequest(url: u); r.timeoutInterval = 0.5
+        let sem = DispatchSemaphore(value: 0); var ok = false
+        URLSession.shared.dataTask(with: r) { _, resp, _ in
             ok = (resp as? HTTPURLResponse)?.statusCode == 200; sem.signal()
         }.resume()
-        _ = sem.wait(timeout: .now() + 1.5); return ok
+        _ = sem.wait(timeout: .now() + 0.8); return ok
+    }
+
+    private static func matarServidorLegacy() {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        p.arguments = ["-TERM", "-f", VozEngine.serverPyURL.path + ".*\(puerto)"]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        do { try p.run(); p.waitUntilExit() } catch { }
+    }
+
+    private static func pedirApagado() {
+        guard let u = URL(string: "http://127.0.0.1:\(puerto)/shutdown") else { return }
+        var r = URLRequest(url: u); r.timeoutInterval = 1
+        let sem = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: r) { _, _, _ in sem.signal() }.resume()
+        _ = sem.wait(timeout: .now() + 1.5)
     }
 
     private static var player: AVAudioPlayer?
@@ -182,8 +234,12 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
     }
     func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let r = acum.count / 4; if r > 0 { encolar(r) }
+        guard recibio else { finish(false); return }
+        // Marcador silencioso al FINAL de la cola. Su callback ocurre cuando CoreAudio ya
+        // reprodujo todo; antes avisábamos a los 0.4 s y una respuesta siguiente podía
+        // reemplazar este player y cortar la frase todavía pendiente.
+        encolarFinal(recibio && error == nil)
         if !sonando { arrancar() }
-        finish(recibio && error == nil)
     }
     private func arrancar() { empezar?(); empezar = nil; player.play(); sonando = true }
 
@@ -197,8 +253,13 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
             guard let out = pcm.floatChannelData?[0] else { return }; for i in 0..<n { out[i] = f[i] } }
         player.scheduleBuffer(pcm); progr += n
     }
+    private func encolarFinal(_ ok: Bool) {
+        guard let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 1) else { finish(ok); return }
+        pcm.frameLength = 1; pcm.floatChannelData?[0][0] = 0
+        player.scheduleBuffer(pcm, completionCallbackType: .dataPlayedBack) { [weak self] _ in self?.finish(ok) }
+    }
     private func finish(_ ok: Bool) {
         if terminado { return }; terminado = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.done?(ok); self.done = nil }
+        DispatchQueue.main.async { self.done?(ok); self.done = nil }
     }
 }

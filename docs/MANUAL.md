@@ -278,11 +278,12 @@ Tres formas, de la más rápida a la más completa:
   - **Voz de macOS** (default): gratis, local, sin setup. Eliges voz + velocidad.
   - **ElevenLabs — tu voz clonada**: tu voz "Bto" en la nube (usa tu `ELEVENLABS_API_KEY`), modelo `eleven_flash_v2_5`. Con **streaming por WebSocket** (opción, default ON) el audio **empieza a sonar en ~75-130ms** mientras se genera; si el streaming falla, cae al modo normal.
   - **Otros motores de nube**: **OpenAI, Google Gemini, Deepgram, Cartesia, Inworld, PlayHT, Azure**. Cada uno parametrizable (voz, modelo, y **streaming con/sin WebSocket por proveedor**) con tu propia key. Sin key → se salta al siguiente motor, nunca truena.
-  - **Clon local**: tus voces **clonadas** corriendo 100% offline. Tienes una **biblioteca de voces**: agregas/subes/eliges cuál habla, y cada voz lleva su **persona** (cómo habla esa persona) — el Agente **redacta en ese estilo** antes de leerlo. Cada voz tiene su propio **streaming** (activable **por voz**): suena **mientras se genera** (1er sonido en ~1-2s) o, apagado, genera completo y luego suena. Gratis, sin internet.
+  - **Clon local**: tus voces **clonadas** corriendo 100% offline. Tienes una **biblioteca de voces**: agregas/subes/eliges cuál habla, y cada voz lleva su **persona** (cómo habla esa persona) — el Agente **redacta en ese estilo** antes de leerlo. Una misma persona puede conservar dos variantes intercambiables: **Calidad (XTTS)** y **⚡ Rápida (Piper/ONNX)**. XTTS tiene streaming activable **por voz**; ONNX habla casi al instante. Gratis, sin internet.
   - **Motor de voz** (para correr los clones): BetoDicta trae el suyo **aislado** — pulsas **"Instalar motor de voz"** (descarga ~3-4 GB de Python + IA, bajo `~/.betodicta/voz-engine/`, no toca tu sistema, borrable). Después, 100% local.
+  - Si mantienes XTTS precargado, al reabrir BetoDicta **reutiliza** el servidor correcto en vez de cargar otra copia; al salir normalmente lo apaga y libera la RAM. Nunca debe quedar una cascada de servidores huérfanos consumiendo CPU/memoria.
   - La **voz de macOS** ya suena al instante (no necesita streaming); ElevenLabs tiene su streaming por WebSocket. El streaming se configura **por cada motor/voz**, no en forma global.
   - Botón **"Probar voz"** usa el motor y la voz elegidos.
-- **Paquete de voz portable**: una voz clonada se guarda/comparte como un **paquete autocontenido** (modelo + su persona + instrucciones). **⬆︎ Subir voz** lo mete a BetoDicta en cualquier Mac; **⬇︎** lo **descarga** para llevarlo; y funciona incluso **sin BetoDicta**. Libre y sin ataduras.
+- **Paquete de voz portable**: una voz clonada se guarda/comparte como un **paquete autocontenido** (modelo + su persona + instrucciones). Si creaste su versión rápida, el portable lleva **XTTS + ONNX vinculados**. **⬆︎ Subir voz** lo mete a BetoDicta en cualquier Mac; **⬇︎** lo **descarga** para llevarlo; y funciona incluso **sin BetoDicta**. Libre y sin ataduras.
   - **Subir uno de fuera:** si el clon viene incompleto (solo el modelo, sin config/voz/persona), BetoDicta **arma lo que falta** solo. Si no trae **muestras** de la voz, te las pide (**➕🎙**). Si no trae **persona**, la **genera** transcribiendo las muestras (**🧠**).
 - **Entrenar una voz nueva** (**🎓** en *Clon local*): creas un clon **desde cero** dentro de BetoDicta.
   1. Eliges una **carpeta con audios** de UNA persona + un **nombre**.
@@ -578,7 +579,19 @@ BetoDicta puede hablar con **tu propia voz** (o la de un ser querido), 100 % loc
 - **XTTS** — clona una voz con mucha calidad y flexibilidad, pero habla **~a tiempo real** (más lento).
 - **Piper** — hornea una voz **fija** que luego habla **casi al instante** (~5× tiempo real, sin torch). Ideal para respuestas rápidas.
 
-Ambos se entrenan desde una **carpeta de audios** de una sola persona (mientras más voz limpia, mejor; con ~1 a 6 horas rinde muy bien). Nada de esto viaja por internet: el motor de voz vive aislado en tu carpeta personal.
+Puedes entrenarlos desde una **carpeta de audios** de una sola persona (mientras más voz limpia, mejor; con ~1 a 6 horas rinde muy bien). Si ya tienes un XTTS que suena bien, también puedes usarlo como maestro para crear su versión ONNX sin volver al dataset original. Nada de esto viaja por internet: el motor de voz vive aislado en tu carpeta personal.
+
+### Crear una versión rápida desde un XTTS que ya suena bien
+
+En la fila de una voz XTTS pulsa **Crear ⚡**. No es una conversión directa del archivo —XTTS y Piper son redes distintas— sino una **destilación local**:
+
+1. BetoDicta crea un corpus español variado y hace que tu XTTS lo lea.
+2. Cada audio queda asociado al **texto exacto** que se le pidió: no arrastra anuncios, música, otras voces ni errores de transcripción del dataset original.
+3. Piper parte de una base española, carga sus **pesos**, pero inicia optimizadores y calendarios **nuevos**; no hereda el entrenamiento envejecido de la base.
+4. Al terminar, BetoDicta mide **inteligibilidad con Whisper** y **parecido de voz**. Solo vincula automáticamente un corte que supere el umbral seguro; si ninguno pasa, conserva XTTS y te manda a la vista avanzada para escuchar/revisar, sin activar una voz dañada.
+5. En la biblioteca eliges **Calidad** o **⚡ Rápida** para esa misma persona. Crear ONNX nunca borra XTTS.
+
+El plan es parametrizable: **Prueba** (recorrido corto, no voz final), **Recomendado** (~45–60 min sintéticos), **Alta fidelidad** (~1.5–2 h) o **Máximo** (~3–4 h), y puedes editar las actualizaciones. Si amplías el corpus o se interrumpe, reutiliza los clips válidos y continúa. El entrenamiento es de fondo, se puede detener/reanudar y muestra progreso. Para español empieza con la base **Media**, que es la base nativa española.
 
 ### Entrenar una voz Piper (rápida)
 

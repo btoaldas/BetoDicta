@@ -196,6 +196,15 @@ struct VocesLocalesEditor: View {
                         if !v.onnx.isEmpty { Text("⚡").font(.caption2).help("Voz rápida (Piper)") }
                         if !v.persona.isEmpty { Text("· persona ✓").font(.caption2).foregroundStyle(.secondary) }
                         Spacer()
+                        if !v.paquete.isEmpty, !v.onnx.isEmpty {
+                            Picker("", selection: Binding(
+                                get: { v.variante },
+                                set: { VocesLocales.fijarVariante(v.id, $0); refrescar(); Voz.preactivarLocal() })) {
+                                Text("Calidad").tag("xtts")
+                                Text("⚡ Rápida").tag("onnx")
+                            }.pickerStyle(.menu).frame(width: 92)
+                                .help("Esta misma persona tiene XTTS (más calidad) y ONNX (más rápida)")
+                        }
                         Button("🔊") {
                             estado = "Generando “\(v.nombre)”…"
                             Voz.probarVozLocal(v) { estado = "" }
@@ -204,6 +213,10 @@ struct VocesLocalesEditor: View {
                             Button("🧠") { generarPersona(v) }.controlSize(.small).help("Generar la persona (cómo habla) transcribiendo sus muestras")
                         }
                         if !v.paquete.isEmpty {
+                            Button(v.onnx.isEmpty ? "Crear ⚡" : "Recrear ⚡") {
+                                DestiladorPiperWindow.show(voz: v)
+                            }.controlSize(.small)
+                                .help("Destilar esta voz XTTS a una variante Piper/ONNX rápida, sin borrar la original")
                             Toggle("stream", isOn: Binding(
                                 get: { v.streaming },
                                 set: { VocesLocales.fijarStreaming(v.id, $0); refrescar() }))

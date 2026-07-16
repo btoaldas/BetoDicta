@@ -1,0 +1,250 @@
+import SwiftUI
+import AppKit
+
+final class DestiladorPiperWindow {
+    static var win: NSWindow?
+    static var vozID = ""
+
+    static func show(voz: VozLocal) {
+        if let w = win, vozID == voz.id {
+            w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
+        }
+        win?.close(); vozID = voz.id
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 700),
+                         styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                         backing: .buffered, defer: false)
+        w.title = "Crear versión rápida ONNX · BetoDicta"
+        w.center(); w.isReleasedWhenClosed = false
+        w.contentView = NSHostingView(rootView: DestiladorPiperView(vozID: voz.id))
+        win = w; w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+struct DestiladorPiperView: View {
+    let vozID: String
+    @State private var cantidad = 600
+    @State private var etapas = 3000
+    @State private var calidad = "medium"
+    @State private var preparando = false
+    @State private var bajando = false
+    @State private var trabajando = false
+    @State private var generandoDataset = false
+    @State private var validando = false
+    @State private var fase = ""
+    @State private var estado = ""
+    @State private var proyecto: URL?
+    @State private var snap: EntrenadorPiper.Snapshot?
+    @State private var checkpoints: [(paso: Int, url: URL)] = []
+    @State private var ranking: [EntrenadorPiper.RankPiper] = []
+    @State private var timer: Timer?
+    @State private var refresco = 0
+
+    private var voz: VozLocal? { VocesLocales.todas().first { $0.id == vozID } }
+    private var opcion: DestiladorPiper.Tamano {
+        DestiladorPiper.tamanos.first { $0.id == cantidad } ?? DestiladorPiper.tamanos[1]
+    }
+    private var motorListo: Bool { let _ = refresco; return VozEngine.estado() == .listo }
+    private var entrenadorListo: Bool { let _ = refresco; return EntrenadorPiper.listo }
+    private var baseLista: Bool { let _ = refresco; return EntrenadorPiper.baseListo(calidad) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Crear versión rápida ONNX").font(.title3).bold()
+                Text("Voz de origen: \(voz?.nombre ?? "no encontrada")").font(.subheadline)
+                Text("No se cambia el archivo XTTS. BetoDicta hace una destilación local: XTTS habla frases conocidas, Piper aprende de ese audio limpio y se exporta a ONNX. La voz conserva sus dos variantes: Calidad XTTS y Rápida ONNX.")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                grupo {
+                    Label("1. Herramientas locales", systemImage: "shippingbox")
+                        .font(.subheadline).bold()
+                    if !motorListo {
+                        Text("Falta el motor local aislado de BetoDicta.").font(.caption)
+                        Button(preparando ? "Instalando…" : "Instalar motor local") {
+                            preparando = true; estado = "Preparando Python aislado…"
+                            VozEngine.instalar(onProgreso: { s in DispatchQueue.main.async { estado = s } }) { _, msg in
+                                preparando = false; estado = msg; refresco += 1
+                            }
+                        }.disabled(preparando)
+                    } else if !entrenadorListo {
+                        Text("El motor XTTS está listo; falta habilitar el entrenador Piper.").font(.caption)
+                        Button(preparando ? "Preparando…" : "Preparar entrenador Piper") {
+                            preparando = true; estado = "Preparando…"
+                            EntrenadorPiper.preparar(onProgreso: { s in DispatchQueue.main.async { estado = s } }) { _, msg in
+                                preparando = false; estado = msg; refresco += 1
+                            }
+                        }.disabled(preparando)
+                    } else {
+                        Text("✓ XTTS y entrenador Piper listos.").font(.caption).foregroundStyle(.green)
+                    }
+                    if entrenadorListo, !baseLista {
+                        Button(bajando ? "Descargando…" : "Descargar base \(EntrenadorPiper.calidad(calidad).etiqueta)") {
+                            bajando = true; estado = "Descargando base…"
+                            EntrenadorPiper.descargarBase(calidadId: calidad, onProgreso: { s in DispatchQueue.main.async { estado = s } }) { _, msg in
+                                bajando = false; estado = msg; refresco += 1
+                            }
+                        }.disabled(bajando)
+                        Text("Se descarga una sola vez y solo al pulsar este botón.").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+
+                grupo {
+                    Label("2. Plan de destilación", systemImage: "slider.horizontal.3")
+                        .font(.subheadline).bold()
+                    Picker("Corpus", selection: $cantidad) {
+                        ForEach(DestiladorPiper.tamanos) { t in Text(t.etiqueta).tag(t.id) }
+                    }.pickerStyle(.segmented)
+                        .onChange(of: cantidad) { _, _ in etapas = opcion.etapas }
+                    Text(opcion.detalle).font(.caption2).foregroundStyle(.secondary)
+                    HStack {
+                        Text("Actualizaciones:").font(.caption)
+                        TextField("", value: $etapas, format: .number)
+                            .textFieldStyle(.roundedBorder).frame(width: 80)
+                        Text("recomendadas \(opcion.etapas); tú decides").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Picker("Base", selection: $calidad) {
+                        ForEach(EntrenadorPiper.calidades, id: \.id) { Text($0.etiqueta).tag($0.id) }
+                    }.pickerStyle(.segmented)
+                    Text(EntrenadorPiper.calidad(calidad).nota).font(.caption2).foregroundStyle(.secondary)
+                    Text("Puedes cerrar esta ventana o BetoDicta: el entrenamiento continúa y se puede reanudar desde un checkpoint.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+
+                grupo {
+                    Label("3. Crear y comprobar", systemImage: "bolt.fill")
+                        .font(.subheadline).bold()
+                    if trabajando {
+                        if let snap {
+                            ProgressView(value: snap.avanceGlobal)
+                            Text("\(fase) · \(Int(snap.avanceGlobal * 100))% · paso \(snap.paso)/\(snap.total)")
+                                .font(.caption).monospacedDigit()
+                        } else {
+                            ProgressView()
+                            Text(fase).font(.caption)
+                        }
+                        Button("Detener (se puede continuar después)") { detener() }.controlSize(.small)
+                    } else {
+                        HStack {
+                            Button(voz?.onnx.isEmpty == false ? "Recrear versión rápida" : "Crear versión rápida") { iniciar() }
+                                .disabled(voz == nil || !entrenadorListo || !baseLista || etapas < 50)
+                            if let p = proyecto, !EntrenadorPiper.checkpoints(p).isEmpty, !EntrenadorPiper.termino(p) {
+                                Button("Reanudar") { reanudar() }
+                            }
+                            Button("Vista avanzada") { EntrenadorPiperWindow.show() }.controlSize(.small)
+                        }
+                    }
+                    if validando { Text("Validando inteligibilidad y parecido antes de activar…").font(.caption) }
+                    if !ranking.isEmpty, let r = ranking.first {
+                        Text("Mejor corte: paso \(r.paso) · inteligibilidad \(Int(r.inteligible*100))% · parecido \(Int(r.parecido*100))%")
+                            .font(.caption)
+                    }
+                    if !estado.isEmpty { Text(estado).font(.caption).foregroundStyle(.secondary) }
+                    if let p = proyecto {
+                        Text("Proyecto: \(p.path)").font(.caption2).foregroundStyle(.tertiary).textSelection(.enabled)
+                    }
+                }
+
+                if voz?.onnx.isEmpty == false {
+                    Label("Esta voz ya tiene XTTS + ONNX. Elige cuál usar en la biblioteca de voces.", systemImage: "checkmark.seal.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+            }.padding(16)
+        }
+        .onAppear {
+            guard let v = voz else { return }
+            let p = DestiladorPiper.proyecto(v); proyecto = p
+            if EntrenadorPiper.procesoVivo(p) {
+                trabajando = true; generandoDataset = false; fase = "Entrenando"; seguir()
+            }
+        }
+        .onDisappear { timer?.invalidate() }
+    }
+
+    @ViewBuilder private func grupo<C: View>(@ViewBuilder _ contenido: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 7) { contenido() }
+            .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.06)).cornerRadius(8)
+    }
+
+    private func iniciar() {
+        guard let v = voz else { return }
+        trabajando = true; generandoDataset = true; snap = nil; ranking = []; fase = "XTTS está creando el dataset exacto…"
+        estado = "Los clips válidos existentes se reutilizan."
+        DestiladorPiper.prepararDataset(voz: v, cantidad: cantidad, calidadId: calidad,
+            onProgreso: { estado = $0 }, completion: { ok, msg, p, _ in
+                proyecto = p; estado = msg; generandoDataset = false
+                guard ok else { trabajando = false; return }
+                arrancarEntreno(v, reanudar: false)
+            })
+    }
+
+    private func arrancarEntreno(_ v: VozLocal, reanudar: Bool) {
+        fase = reanudar ? "Reanudando Piper…" : "Entrenando Piper con optimizadores frescos…"
+        EntrenadorPiper.entrenar(carpeta: nil, nombre: v.nombre, stamp: DestiladorPiper.stamp(v),
+                                 etapas: etapas, calidadId: calidad, reanudar: reanudar,
+            onProgreso: { fase = $0.texto },
+            onArranco: { ok, msg, p in
+                proyecto = p; estado = msg
+                if ok { fase = "Entrenando Piper"; seguir() }
+                else { trabajando = false }
+            })
+    }
+
+    private func reanudar() {
+        guard let v = voz else { return }
+        trabajando = true; generandoDataset = false; arrancarEntreno(v, reanudar: true)
+    }
+
+    private func seguir() {
+        timer?.invalidate(); tick()
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in tick() }
+    }
+
+    private func tick() {
+        guard let p = proyecto else { return }
+        let total = etapas
+        DispatchQueue.global(qos: .utility).async {
+            let s = EntrenadorPiper.snapshot(p, etapas: total)
+            let ck = EntrenadorPiper.checkpoints(p)
+            DispatchQueue.main.async {
+                snap = s; checkpoints = ck
+                if s.termino {
+                    timer?.invalidate(); validarYVincular()
+                } else if !s.activo, !ck.isEmpty {
+                    timer?.invalidate(); trabajando = false
+                    estado = "El entrenamiento se detuvo. Puedes reanudarlo desde el último checkpoint."
+                }
+            }
+        }
+    }
+
+    private func validarYVincular() {
+        guard !validando, let p = proyecto, let v = voz else { return }
+        validando = true; fase = "Validando el resultado"; estado = "BetoDicta no activará una voz ininteligible."
+        EntrenadorPiper.validar(p, onProgreso: { estado = $0 }) { ok in
+            ranking = ok ? EntrenadorPiper.rankingPiper(p) : []
+            guard let mejor = ranking.first, let ckpt = mejor.ckpt, mejor.inteligible >= 0.75 else {
+                validando = false; trabajando = false
+                estado = "No se vinculó: ningún corte superó 75% de inteligibilidad. No sigas sumando pasos a ciegas; revisa la vista avanzada."
+                return
+            }
+            estado = "Exportando el mejor corte a ONNX…"
+            EntrenadorPiper.exportarYregistrar(proyecto: p, checkpoint: ckpt, nombre: v.nombre,
+                                               prompt: v.persona, stamp: "destila-final",
+                                               vozExistenteId: v.id) { _, msg in
+                validando = false; trabajando = false; fase = "Completado"; estado = msg; refresco += 1
+            }
+        }
+    }
+
+    private func detener() {
+        timer?.invalidate()
+        if generandoDataset {
+            DestiladorPiper.detener(); trabajando = false; estado = "Destilación detenida; los clips válidos quedaron guardados."
+        } else if let p = proyecto {
+            EntrenadorPiper.detenerProyecto(p) { _ in
+                trabajando = false; estado = "Entrenamiento detenido; puedes reanudarlo después."
+            }
+        }
+    }
+}

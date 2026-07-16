@@ -25,12 +25,15 @@ struct VozLocal: Codable, Identifiable, Equatable {
     var onnx: String = ""      // ruta a una voz PIPER (.onnx). Si está, se usa el motor
                                // PIPER (voz FIJA, ~5x tiempo real, casi instantánea) en vez
                                // de XTTS. Es el carril RÁPIDO. XTTS se queda para lo demás.
+    var variante: String = "xtts" // cuando existen ambos: "xtts" (calidad) u "onnx" (rápida)
 
     // Decode tolerante: JSON viejos sin campos nuevos siguen cargando.
-    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete, streaming, onnx }
-    init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "", streaming: Bool = true, onnx: String = "") {
+    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete, streaming, onnx, variante }
+    init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "", streaming: Bool = true,
+         onnx: String = "", variante: String = "") {
         self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona
         self.paquete = paquete; self.streaming = streaming; self.onnx = onnx
+        self.variante = variante.isEmpty ? (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts") : variante
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -41,6 +44,9 @@ struct VozLocal: Codable, Identifiable, Equatable {
         paquete = (try? c.decode(String.self, forKey: .paquete)) ?? ""
         streaming = (try? c.decode(Bool.self, forKey: .streaming)) ?? true
         onnx = (try? c.decode(String.self, forKey: .onnx)) ?? ""
+        let guardada = (try? c.decode(String.self, forKey: .variante)) ?? ""
+        variante = ["xtts", "onnx"].contains(guardada)
+            ? guardada : (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts")
     }
 }
 
@@ -97,6 +103,18 @@ enum VocesLocales {
     static func fijarStreaming(_ id: String, _ on: Bool) {
         var list = todas()
         if let i = list.firstIndex(where: { $0.id == id }) { list[i].streaming = on; guardar(list) }
+    }
+
+    /// El mismo clon puede conservar su versión de CALIDAD (XTTS) y su versión RÁPIDA
+    /// (Piper/ONNX). La elección es por voz, no global, y nunca borra la otra variante.
+    static func fijarVariante(_ id: String, _ variante: String) {
+        var list = todas()
+        guard let i = list.firstIndex(where: { $0.id == id }) else { return }
+        let pedida = variante == "onnx" ? "onnx" : "xtts"
+        guard (pedida == "onnx" && !list[i].onnx.isEmpty)
+                || (pedida == "xtts" && !list[i].paquete.isEmpty) else { return }
+        list[i].variante = pedida
+        guardar(list)
     }
 
     /// Carpeta donde BetoDicta guarda los paquetes de voz importados (gestionados).
@@ -191,7 +209,12 @@ enum VocesLocales {
         }
         // 8) Fijar ruta + estado.
         var list = todas()
-        if let i = list.firstIndex(where: { $0.id == v.id }) { list[i].paquete = dst.path; guardar(list) }
+        if let i = list.firstIndex(where: { $0.id == v.id }) {
+            list[i].paquete = dst.path; list[i].variante = "xtts"; guardar(list)
+        }
+        // Un paquete portable puede traer también la variante rápida vinculada.
+        let rapida = origen.appendingPathComponent("rapida/voz.onnx")
+        if fm.fileExists(atPath: rapida.path) { _ = vincularPiper(desde: rapida, a: v.id, activar: false) }
         let voz = todas().first { $0.id == v.id } ?? v
         return refLines.isEmpty ? .faltaMuestras(voz) : .ok(voz)
     }
@@ -247,8 +270,34 @@ enum VocesLocales {
         let json = URL(fileURLWithPath: onnx.path + ".json")
         if fm.fileExists(atPath: json.path) { try? fm.copyItem(at: json, to: URL(fileURLWithPath: onnxDst.path + ".json")) }
         var list = todas()
-        if let i = list.firstIndex(where: { $0.id == v.id }) { list[i].onnx = onnxDst.path; guardar(list) }
+        if let i = list.firstIndex(where: { $0.id == v.id }) {
+            list[i].onnx = onnxDst.path; list[i].variante = "onnx"; guardar(list)
+        }
         return todas().first { $0.id == v.id }
+    }
+
+    /// Vincula un Piper/ONNX a una voz XTTS YA existente. Es la salida de la destilación:
+    /// una sola persona, dos carriles intercambiables, sin duplicarla en la biblioteca.
+    @discardableResult
+    static func vincularPiper(desde onnx: URL, a id: String, activar: Bool = true) -> VozLocal? {
+        let fm = FileManager.default
+        var list = todas()
+        guard let i = list.firstIndex(where: { $0.id == id }), fm.fileExists(atPath: onnx.path) else { return nil }
+        let json = URL(fileURLWithPath: onnx.path + ".json")
+        guard fm.fileExists(atPath: json.path) else { return nil }
+        let dstDir = vocesDir.appendingPathComponent(id).appendingPathComponent("rapida")
+        try? fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
+        let dst = dstDir.appendingPathComponent("voz.onnx")
+        let dstJSON = URL(fileURLWithPath: dst.path + ".json")
+        do {
+            try? fm.removeItem(at: dst); try? fm.removeItem(at: dstJSON)
+            try fm.copyItem(at: onnx, to: dst)
+            try fm.copyItem(at: json, to: dstJSON)
+        } catch { return nil }
+        list[i].onnx = dst.path
+        if activar { list[i].variante = "onnx" }
+        guardar(list)
+        return list[i]
     }
 
     /// DESCARGAR/exportar el paquete de una voz a una carpeta destino (para llevarlo).
@@ -261,7 +310,23 @@ enum VocesLocales {
         let nombreCarpeta = "Voz-" + voz.id
         let destino = carpetaDestino.appendingPathComponent(nombreCarpeta)
         try? fm.removeItem(at: destino)
-        do { try fm.copyItem(at: origen, to: destino); return destino }
+        do {
+            try fm.copyItem(at: origen, to: destino)
+            // El portable lleva las DOS variantes. Al importarlo en otro Mac, BetoDicta
+            // recupera XTTS + ONNX y deja XTTS seleccionado hasta que el usuario cambie.
+            if !voz.onnx.isEmpty, fm.fileExists(atPath: voz.onnx) {
+                let rapida = destino.appendingPathComponent("rapida")
+                try? fm.removeItem(at: rapida)
+                try fm.createDirectory(at: rapida, withIntermediateDirectories: true)
+                let src = URL(fileURLWithPath: voz.onnx)
+                try fm.copyItem(at: src, to: rapida.appendingPathComponent("voz.onnx"))
+                let js = URL(fileURLWithPath: voz.onnx + ".json")
+                if fm.fileExists(atPath: js.path) {
+                    try fm.copyItem(at: js, to: rapida.appendingPathComponent("voz.onnx.json"))
+                }
+            }
+            return destino
+        }
         catch { return nil }
     }
 
