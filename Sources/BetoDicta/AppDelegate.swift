@@ -199,6 +199,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Prueba pura del detector de doble pulsación (sin abrir micrófono/UI).
+        if ProcessInfo.processInfo.environment["BETODICTA_DOBLEFNTEST"] == "1" {
+            var g = DoublePressGate()
+            let t0 = Date(timeIntervalSince1970: 1_000)
+            g.armar(en: t0)
+            let rapida = g.consumirSiCorresponde(en: t0.addingTimeInterval(0.30), ventana: 0.45)
+            let consumida = !g.armada
+            g.armar(en: t0)
+            let tardia = g.consumirSiCorresponde(en: t0.addingTimeInterval(0.60), ventana: 0.45)
+            let vencidaLimpia = !g.armada
+            let todoBien = rapida && consumida && !tardia && vencidaLimpia
+            print("DOBLEFNTEST rápida=\(rapida) consumida=\(consumida) tardía=\(tardia) vencidaLimpia=\(vencidaLimpia)")
+            print("DOBLEFNTEST \(todoBien ? "TODO OK" : "✗ FALLA")")
+            exit(todoBien ? 0 : 2)
+        }
         // Prueba de la detección STT local: BETODICTA_STTTEST=1 imprime qué
         // servidores locales pueden transcribir (whisper) y sale.
         if ProcessInfo.processInfo.environment["BETODICTA_STTTEST"] == "1" {
@@ -1453,6 +1468,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Aplica (o re-aplica) la tecla de dictado leyendo la config actual.
     private func applyBinding() {
         if let ref = hotKeyRef { UnregisterEventHotKey(ref); hotKeyRef = nil }
+        doblePulsacion.reiniciar()
+        comboActivadoPorDoble = false
+        comboArmed = false
         let parts = tecla.lowercased().split(separator: "+").map(String.init)
         let modNames = ["fn", "cmd", "command", "ctrl", "control", "opt", "alt", "option", "shift"]
         let keyPart = parts.last.flatMap { modNames.contains($0) ? nil : $0 }
@@ -1567,7 +1585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                               MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             let delegate = Unmanaged<AppDelegate>.fromOpaque(userData!).takeUnretainedValue()
             DispatchQueue.main.async {
-                if hotKeyID.id == 1 { delegate.toggle() }
+                if hotKeyID.id == 1 { delegate.pulsarAtajoCarbon() }
                 if hotKeyID.id == 2 { delegate.cancelarTodo() }   // Esc = cancela dictado O agente/voz
                 if hotKeyID.id == 3 { delegate.aprenderDeSeleccion() }
             }
@@ -1593,6 +1611,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var comboArmed = false
     private var comboUsedWithKey = false
+    private var comboActivadoPorDoble = false
+    private var doblePulsacion = DoublePressGate()
+
+    /// Carbon solo informa key-down (F1–F12 o tecla+modificadores). En modo
+    /// toque basta para aplicar la misma regla: doble para arrancar, una para parar.
+    private func pulsarAtajoCarbon() {
+        if recorder.isRecording {
+            doblePulsacion.reiniciar()
+            toggle()
+            return
+        }
+        guard Config.doblePulsacionActivar() else {
+            toggle()
+            return
+        }
+        let ahora = Date()
+        if doblePulsacion.consumirSiCorresponde(en: ahora, ventana: Config.doblePulsacionVentana()) {
+            Log.write("hotkey: doble pulsación reconocida — iniciar")
+            toggle()
+        } else {
+            doblePulsacion.armar(en: ahora)
+            Log.write("hotkey: primera pulsación — esperando segunda")
+        }
+    }
 
     /// Convierte los flags actuales al conjunto de nombres ("fn","ctrl"…).
     private func activeMods(_ f: NSEvent.ModifierFlags) -> Set<String> {
@@ -1616,13 +1658,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let flagsHandler: (NSEvent) -> Void = { [weak self] event in
             guard let self, !self.comboMods.isEmpty else { return }
             let active = self.activeMods(event.modifierFlags)
-            if active == self.comboMods {
+            if active == self.comboMods, !self.comboArmed {
                 self.comboArmed = true          // combo exacto presionado
                 self.comboUsedWithKey = false
-                // Push-to-talk: al PRESIONAR empieza a grabar. El estado se
-                // evalúa DENTRO del bloque para no encolar dobles starts ni
-                // carrera con el evento de soltar.
-                if Config.pushToTalk() {
+                self.comboActivadoPorDoble = false
+
+                if Config.doblePulsacionActivar(), !self.recorder.isRecording {
+                    // La segunda pulsación ARRANCA al bajar la tecla. Así, en
+                    // push-to-talk se puede mantener esta segunda y hablar.
+                    if self.doblePulsacion.consumirSiCorresponde(
+                        en: Date(), ventana: Config.doblePulsacionVentana()
+                    ) {
+                        self.comboActivadoPorDoble = true
+                        Log.write("hotkey: doble pulsación reconocida — iniciar")
+                        DispatchQueue.main.async {
+                            guard !self.recorder.isRecording else { return }
+                            self.toggle()
+                        }
+                    }
+                } else if Config.pushToTalk() {
+                    // Push-to-talk normal: al PRESIONAR empieza a grabar.
                     DispatchQueue.main.async {
                         guard !self.recorder.isRecording else { return }
                         self.startDictation()
@@ -1630,17 +1685,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             } else if self.comboArmed, active.isEmpty || !self.comboMods.isSubset(of: active) {
                 self.comboArmed = false
+                let usadoConTecla = self.comboUsedWithKey
+                let activoPorDoble = self.comboActivadoPorDoble
+                self.comboActivadoPorDoble = false
                 if Config.pushToTalk() {
-                    let usadoConTecla = self.comboUsedWithKey
-                    DispatchQueue.main.async {
-                        guard self.recorder.isRecording else { return }
-                        // Si fn se usó como modificador de atajo (fn+flecha…),
-                        // descarta en silencio; solo transcribe si fue mantener.
-                        if usadoConTecla { self.cancelDictation(silencioso: true) }
-                        else { self.stopAndTranscribe() }
+                    if Config.doblePulsacionActivar() {
+                        if activoPorDoble {
+                            self.doblePulsacion.reiniciar()
+                            DispatchQueue.main.async {
+                                guard self.recorder.isRecording else { return }
+                                // Segunda pulsación mantenida: al soltar termina.
+                                if usadoConTecla { self.cancelDictation(silencioso: true) }
+                                else { self.stopAndTranscribe() }
+                            }
+                        } else if !usadoConTecla {
+                            self.doblePulsacion.armar()
+                            Log.write("hotkey: primera pulsación — mantén la segunda para hablar")
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            guard self.recorder.isRecording else { return }
+                            // Si fn se usó como modificador de atajo (fn+flecha…),
+                            // descarta en silencio; solo transcribe si fue mantener.
+                            if usadoConTecla { self.cancelDictation(silencioso: true) }
+                            else { self.stopAndTranscribe() }
+                        }
                     }
-                } else if !self.comboUsedWithKey {
-                    DispatchQueue.main.async { self.toggle() }   // modo toque: dispara al soltar
+                } else if activoPorDoble {
+                    // En modo toque, soltar la segunda NO detiene: ya empezó al
+                    // presionarla y queda grabando hasta una pulsación posterior.
+                    if usadoConTecla {
+                        DispatchQueue.main.async {
+                            if self.recorder.isRecording { self.cancelDictation(silencioso: true) }
+                        }
+                    }
+                } else if !usadoConTecla {
+                    if self.recorder.isRecording {
+                        self.doblePulsacion.reiniciar()
+                        DispatchQueue.main.async { self.toggle() } // una pulsación detiene
+                    } else if Config.doblePulsacionActivar() {
+                        self.doblePulsacion.armar()
+                        Log.write("hotkey: primera pulsación — esperando segunda")
+                    } else {
+                        DispatchQueue.main.async { self.toggle() } // modo toque normal
+                    }
                 }
             }
         }
@@ -2601,4 +2689,3 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 }
-

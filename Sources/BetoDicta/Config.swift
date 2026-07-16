@@ -78,6 +78,14 @@ struct Config {
     /// Push-to-talk: mantener la tecla presionada graba, soltarla termina
     /// (en vez del modo toque-para-empezar / toque-para-terminar). Default OFF.
     static func pushToTalk() -> Bool { (json()["hold_para_hablar"] as? Bool) ?? false }
+    /// Evita activaciones accidentales: en reposo exige dos pulsaciones rápidas.
+    /// Para detener basta una. En push-to-talk, la segunda se mantiene presionada.
+    static func doblePulsacionActivar() -> Bool { (json()["doble_pulsacion_activar"] as? Bool) ?? false }
+    /// Tiempo máximo entre el final de la primera pulsación y el inicio de la
+    /// segunda. 0,45 s se siente como el doble clic estándar del Mac.
+    static func doblePulsacionVentana() -> Double {
+        min(1.0, max(0.25, (json()["doble_pulsacion_ventana"] as? Double) ?? 0.45))
+    }
     /// Salvaguarda anti-inyección: si el texto PULIDO por la IA diverge
     /// groseramente del dictado (crece desmedido o mete comandos que el
     /// original no tenía), entrega el ORIGINAL. NUNCA bloquea, solo cae a tus
@@ -380,4 +388,3 @@ struct Config {
         return rules.filter { $0.activo ?? true }
     }
 }
-

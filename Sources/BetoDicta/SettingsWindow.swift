@@ -105,6 +105,18 @@ final class SettingsModel: ObservableObject {
     @Published var ttsElevenStreaming: Bool { didSet { Config.set("tts_eleven_streaming", to: ttsElevenStreaming) } }
     @Published var ttsXttsCmd: String { didSet { Config.set("tts_xtts_cmd", to: ttsXttsCmd) } }
     @Published var pushToTalk: Bool { didSet { Config.set("hold_para_hablar", to: pushToTalk) } }
+    @Published var doblePulsacion: Bool {
+        didSet {
+            Config.set("doble_pulsacion_activar", to: doblePulsacion)
+            NotificationCenter.default.post(name: .betoHotkeyChanged, object: nil)
+        }
+    }
+    @Published var doblePulsacionVentana: Double {
+        didSet {
+            Config.set("doble_pulsacion_ventana", to: doblePulsacionVentana)
+            NotificationCenter.default.post(name: .betoHotkeyChanged, object: nil)
+        }
+    }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
         didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }
@@ -156,6 +168,8 @@ final class SettingsModel: ObservableObject {
         ttsElevenStreaming = Config.ttsElevenStreaming()
         ttsXttsCmd = Config.ttsXttsCmd()
         pushToTalk = Config.pushToTalk()
+        doblePulsacion = Config.doblePulsacionActivar()
+        doblePulsacionVentana = Config.doblePulsacionVentana()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
         shiftEnterAlTerminar = Config.shiftEnterAlTerminar()
@@ -533,6 +547,19 @@ struct SettingsView: View {
                      ? "Grabas mientras tengas la tecla presionada; al soltarla, termina y transcribe. Funciona con fn o combinaciones de modificadores (ctrl+opt…), no con F1–F12."
                      : "Modo toque: un toque empieza, otro toque termina. Actívalo para grabar solo mientras mantienes la tecla (fn o modificadores).")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle("Doble pulsación para activar", isOn: $m.doblePulsacion)
+                if m.doblePulsacion {
+                    HStack {
+                        Text("Rapidez del doble toque")
+                        Slider(value: $m.doblePulsacionVentana, in: 0.25...1.0, step: 0.05)
+                        Text(String(format: "%.2f s", m.doblePulsacionVentana))
+                            .monospacedDigit().frame(width: 48, alignment: .trailing)
+                    }
+                    Text(m.pushToTalk
+                         ? "Toca una vez; en la segunda pulsación mantén la tecla para grabar y suéltala para terminar."
+                         : "En reposo, dos pulsaciones rápidas inician. Una sola pulsación detiene el dictado.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 fila("Micrófono") {
                     Picker("", selection: $m.microfono) {
                         Text("Integrado del Mac (recomendado)").tag("")
