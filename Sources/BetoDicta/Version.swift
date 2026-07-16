@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.39.0-beta"
-    static let fecha = "2026-07-14"
+    static let numero = "0.40.0"
+    static let fecha = "2026-07-16"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.40.0", "2026-07-16", [
+            "VERSIÓN ESTABLE: restaura el canal releases/latest de GitHub para que las instalaciones antiguas vuelvan a encontrar y recibir actualizaciones",
+            "Actualizador compatible con ESTABLES Y BETAS: canal Automático, Solo estables o Estables y beta; si GitHub latest excluye prereleases, usa la lista general como failover",
+            "Revisión periódica configurable cada 1, 3, 6, 12 o 24 horas, más botones visibles para Comprobar de nuevo y Reintentar sin reiniciar BetoDicta",
+            "Activación opcional con doble pulsación: dos toques para iniciar y uno para detener; con push-to-talk, mantén el segundo toque y suelta para transcribir",
+        ]),
         ("0.39.0-beta", "2026-07-14", [
             "Validación de voz Piper: al terminar el entrenamiento, pulsa “Validar y graficar” y BetoDicta genera muestras de cada checkpoint, mide INTELIGIBILIDAD (Whisper transcribe y compara) + PARECIDO de voz (d-vector), dibuja una GRÁFICA y marca el mejor — o te avisa si TODOS salieron mal (para que nunca elijas basura a ciegas)",
             "Diagnóstico: el entrenamiento Piper necesita MUCHÍSimas más épocas (no 5000 pasos) para salir inteligible; la validación ahora lo deja clarísimo con números y gráfica",

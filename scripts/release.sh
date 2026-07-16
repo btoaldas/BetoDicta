@@ -46,12 +46,14 @@ echo ""; echo "── Recordatorio: motores de terceros ──"
 bash scripts/check-deps.sh 2>/dev/null || true
 echo ""
 
-# ── Versión coherente (Version.swift == Info.plist) ────────────────────────
-VSWIFT=$(grep -Eo 'static let numero = "[^"]+"' Sources/BetoDicta/Version.swift | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+')
+# ── Versión coherente (Info.plist usa la base numérica; Swift puede ser beta) ─
+VSWIFT=$(sed -n 's/.*static let numero = "\([^"]*\)".*/\1/p' Sources/BetoDicta/Version.swift | head -1)
+VBASE=${VSWIFT%%-*}
 VPLIST=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
-[ "$VSWIFT" = "$VPLIST" ] || fail "Versión no coincide: Version.swift=$VSWIFT vs Info.plist=$VPLIST"
+[ "$VBASE" = "$VPLIST" ] || fail "Versión no coincide: Version.swift=$VSWIFT (base $VBASE) vs Info.plist=$VPLIST"
 V="$VSWIFT"
-ok "Versión $V (Version.swift == Info.plist)"
+IS_PRE=0; [[ "$V" == *-* ]] && IS_PRE=1
+ok "Versión $V (base de bundle $VPLIST)"
 
 # ── Gate 3: manual + README tocados en este ciclo (desde el último tag) ─────
 git fetch --tags -q 2>/dev/null || true
@@ -68,7 +70,7 @@ ok "Historial de novedades incluye $V"
 # Sin pipe (evita el problema SIGPIPE+pipefail): consulta directa del tag.
 git rev-parse -q --verify "refs/tags/v$V" >/dev/null 2>&1 && fail "El tag v$V ya existe (¿versión sin subir?)"
 make dmg >/tmp/bd-release.log 2>&1 || { tail -20 /tmp/bd-release.log; fail "make dmg falló"; }
-DMG="build/BetoDicta-$V.dmg"
+DMG="build/BetoDicta-$VBASE.dmg"
 [ -f "$DMG" ] || fail "No se generó $DMG"
 # Capturamos a variable: con pipefail, `codesign … | grep -q` haría que grep
 # cierre el pipe temprano → codesign recibe SIGPIPE (141) → falso fallo.
@@ -92,17 +94,27 @@ hdiutil detach "$VOL" >/dev/null 2>&1 || true; trap - EXIT
 # ── Gate 5: publicar (DMG versionado + estable para brew) ──────────────────
 cp "$DMG" "build/BetoDicta.dmg"
 NOTES="${NOTES:-Ver historial en Créditos.}"
-gh release create "v$V" --title "BetoDicta $V" --notes "$NOTES" "$DMG" "build/BetoDicta.dmg" \
+PRE_FLAG=()
+[ "$IS_PRE" = 1 ] && PRE_FLAG=(--prerelease)
+gh release create "v$V" --title "BetoDicta $V" --notes "$NOTES" "${PRE_FLAG[@]}" "$DMG" "build/BetoDicta.dmg" \
   || fail "gh release create falló"
 ok "Release v$V publicado"
 
-# ── Gate 6: verificación post-release (latest + brew) ──────────────────────
+# ── Gate 6: estable verifica latest+brew; beta verifica su tag+asset ───────
 sleep 2
-LATEST=$(gh api "repos/btoaldas/BetoDicta/releases/latest" --jq '.tag_name')
-[ "$LATEST" = "v$V" ] || fail "latest=$LATEST (esperaba v$V)"
-RED=$(curl -sI -o /dev/null -w "%{http_code} %{redirect_url}" https://github.com/btoaldas/BetoDicta/releases/latest/download/BetoDicta.dmg)
-echo "$RED" | grep -q "v$V/BetoDicta.dmg" || fail "brew estable no apunta a v$V ($RED)"
-ok "latest=v$V · brew estable → v$V"
+if [ "$IS_PRE" = 1 ]; then
+  PRE=$(gh api "repos/btoaldas/BetoDicta/releases/tags/v$V" --jq '(.tag_name == "v'"$V"'" and .prerelease == true)')
+  [ "$PRE" = "true" ] || fail "v$V no quedó marcado como prerelease"
+  RED=$(curl -sI -o /dev/null -w "%{http_code} %{redirect_url}" "https://github.com/btoaldas/BetoDicta/releases/download/v$V/BetoDicta.dmg")
+  echo "$RED" | grep -Eq '^200|^302' || fail "asset beta v$V no responde ($RED)"
+  ok "prerelease v$V · asset beta accesible (latest estable no se altera)"
+else
+  LATEST=$(gh api "repos/btoaldas/BetoDicta/releases/latest" --jq '.tag_name')
+  [ "$LATEST" = "v$V" ] || fail "latest=$LATEST (esperaba v$V)"
+  RED=$(curl -sI -o /dev/null -w "%{http_code} %{redirect_url}" https://github.com/btoaldas/BetoDicta/releases/latest/download/BetoDicta.dmg)
+  echo "$RED" | grep -q "v$V/BetoDicta.dmg" || fail "brew estable no apunta a v$V ($RED)"
+  ok "latest=v$V · brew estable → v$V"
+fi
 
 echo ""
 echo "🥅 Release v$V COMPLETO. La app instalada (versión anterior) verá 'Actualizar a v$V'"

@@ -44,6 +44,7 @@ bundle: build/release/$(APP)
 dmg: bundle
 	rm -f build/BetoDicta-*.dmg
 	@V=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist); \
+	if perl -e '$$SIG{ALRM}=sub{exit 1}; alarm 5; exec @ARGV' /usr/bin/osascript -e 'tell application "Finder" to get name of every disk' >/dev/null 2>&1 && \
 	create-dmg \
 		--volname "BetoDicta $$V" \
 		--window-size 560 400 \
@@ -51,7 +52,17 @@ dmg: bundle
 		--icon "BetoDicta.app" 140 160 \
 		--app-drop-link 420 160 \
 		--add-file "LÉEME primero.txt" packaging/LEEME-primero.txt 280 300 \
-		"build/BetoDicta-$$V.dmg" "$(BUNDLE)" && \
+		"build/BetoDicta-$$V.dmg" "$(BUNDLE)"; then \
+		true; \
+	else \
+		echo "Finder no respondió; reintentando DMG sin AppleScript…"; \
+		rm -f "build/BetoDicta-$$V.dmg"; \
+		create-dmg --skip-jenkins \
+			--volname "BetoDicta $$V" \
+			--app-drop-link 420 160 \
+			--add-file "LÉEME primero.txt" packaging/LEEME-primero.txt 280 300 \
+			"build/BetoDicta-$$V.dmg" "$(BUNDLE)"; \
+	fi; \
 	echo "DMG listo: build/BetoDicta-$$V.dmg"
 
 install: bundle

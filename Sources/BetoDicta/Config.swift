@@ -72,6 +72,18 @@ struct Config {
     /// Si encuentra actualización al abrir, la instala sola (sin pedir). OFF
     /// por defecto: reinstalar+reiniciar es una acción grande, es opt-in.
     static func autoactualizar() -> Bool { (json()["autoactualizar"] as? Bool) ?? false }
+    /// Canal: auto sigue betas solo cuando la app instalada ya es beta; una
+    /// versión estable permanece estable. "beta" incluye beta + estable.
+    static func canalActualizaciones() -> String {
+        let c = (json()["canal_actualizaciones"] as? String) ?? "auto"
+        return ["auto", "estable", "beta"].contains(c) ? c : "auto"
+    }
+    /// Revisión tipo cron mientras BetoDicta permanece abierto. Solo consulta;
+    /// no instala nada salvo que Autoactualizar esté activado explícitamente.
+    static func actualizacionPeriodica() -> Bool { (json()["actualizacion_periodica"] as? Bool) ?? true }
+    static func actualizacionIntervaloHoras() -> Double {
+        min(24, max(1, (json()["actualizacion_intervalo_horas"] as? Double) ?? 6))
+    }
     /// Muestra el aviso de privacidad cuando el pulido usa una IA de NUBE o un
     /// gateway de terceros (tu texto sale de tu Mac). Default ON. Parametrizable.
     static func avisoNube() -> Bool { (json()["aviso_privacidad_nube"] as? Bool) ?? true }

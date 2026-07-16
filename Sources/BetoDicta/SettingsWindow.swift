@@ -84,6 +84,24 @@ final class SettingsModel: ObservableObject {
     @Published var pulidoTimeout: Double { didSet { Config.set("pulido_timeout_seg", to: pulidoTimeout) } }
     @Published var buscarUpdateAlAbrir: Bool { didSet { Config.set("buscar_update_al_abrir", to: buscarUpdateAlAbrir) } }
     @Published var autoactualizar: Bool { didSet { Config.set("autoactualizar", to: autoactualizar) } }
+    @Published var canalActualizaciones: String {
+        didSet {
+            Config.set("canal_actualizaciones", to: canalActualizaciones)
+            Updater.verificarTrasCambiarCanal()
+        }
+    }
+    @Published var actualizacionPeriodica: Bool {
+        didSet {
+            Config.set("actualizacion_periodica", to: actualizacionPeriodica)
+            Updater.iniciarMonitoreo()
+        }
+    }
+    @Published var actualizacionIntervalo: Double {
+        didSet {
+            Config.set("actualizacion_intervalo_horas", to: actualizacionIntervalo)
+            Updater.iniciarMonitoreo()
+        }
+    }
     @Published var avisoNube: Bool { didSet { Config.set("aviso_privacidad_nube", to: avisoNube) } }
     @Published var salvaguardaInyeccion: Bool { didSet { Config.set("salvaguarda_inyeccion", to: salvaguardaInyeccion) } }
     @Published var sttStreaming: Bool { didSet { Config.set("stt_streaming", to: sttStreaming) } }
@@ -147,6 +165,9 @@ final class SettingsModel: ObservableObject {
         pulidoTimeout = Config.pulidoTimeout()
         buscarUpdateAlAbrir = Config.buscarUpdateAlAbrir()
         autoactualizar = Config.autoactualizar()
+        canalActualizaciones = Config.canalActualizaciones()
+        actualizacionPeriodica = Config.actualizacionPeriodica()
+        actualizacionIntervalo = Config.actualizacionIntervaloHoras()
         avisoNube = Config.avisoNube()
         salvaguardaInyeccion = Config.salvaguardaInyeccion()
         sttStreaming = Config.sttStreaming()
@@ -428,7 +449,7 @@ struct SettingsView: View {
     }
 
     // ---- Pie del sidebar: versión + actualización con un clic ----
-    @State private var estadoUpdate: Updater.Estado = Updater.disponibleAlArrancar ?? .reposo
+    @State private var estadoUpdate: Updater.Estado = Updater.ultimoEstado
     @State private var mostrarNotas = false
     @State private var keyInputs: [String: String] = [:]
     @State private var detectTrigger = 0
@@ -456,16 +477,19 @@ struct SettingsView: View {
                 Label("Buscando…", systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption2).foregroundStyle(.secondary)
             case .alDia:
-                // Clicable: permite volver a verificar aunque el auto-check haya
-                // dado "al día" (si no, .onAppear solo re-verifica desde .reposo).
-                Button {
-                    estadoUpdate = .buscando
-                    Updater.verificar { estadoUpdate = $0 }
-                } label: {
+                VStack(alignment: .leading, spacing: 3) {
                     Label("Ya estás en la última versión", systemImage: "checkmark.circle.fill")
                         .font(.caption2).foregroundStyle(.green)
+                    if let ultima = Updater.ultimaRevision {
+                        Text("Revisado \(ultima.formatted(date: .omitted, time: .shortened))")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Button("Comprobar de nuevo") {
+                        estadoUpdate = .buscando
+                        Updater.verificar { estadoUpdate = $0 }
+                    }
+                    .buttonStyle(.plain).font(.caption2).foregroundStyle(acento)
                 }
-                .buttonStyle(.plain).help("Volver a verificar")
             case .disponible(let v, let dmg, let notas):
                 VStack(alignment: .leading, spacing: 4) {
                     Button {
@@ -495,14 +519,15 @@ struct SettingsView: View {
                     ProgressView(value: p).frame(width: 140).tint(acento)
                 }
             case .error(let msg):
-                Button {
-                    estadoUpdate = .buscando
-                    Updater.verificar { estadoUpdate = $0 }
-                } label: {
+                VStack(alignment: .leading, spacing: 3) {
                     Label(msg, systemImage: "exclamationmark.triangle")
                         .font(.caption2).foregroundStyle(.orange)
+                    Button("Reintentar") {
+                        estadoUpdate = .buscando
+                        Updater.verificar { estadoUpdate = $0 }
+                    }
+                    .buttonStyle(.plain).font(.caption2).foregroundStyle(acento)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 16).padding(.bottom, 12)
@@ -514,8 +539,9 @@ struct SettingsView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: Updater.notificacion)) { _ in
-            // La búsqueda de arranque terminó con el panel ya abierto.
-            if let e = Updater.disponibleAlArrancar { estadoUpdate = e }
+            // Arranque, revisión periódica o cambio de canal: refleja cualquier
+            // resultado, no solo cuando existe una versión nueva.
+            estadoUpdate = Updater.ultimoEstado
         }
     }
 
@@ -731,9 +757,30 @@ struct SettingsView: View {
                         Toggle("Buscar actualización al abrir", isOn: $m.buscarUpdateAlAbrir)
                         Text("Al arrancar, revisa en silencio si hay versión nueva y te lo muestra aquí abajo. Nunca instala nada sin permiso.")
                             .font(.caption).foregroundStyle(.secondary)
+                        fila("Canal de actualizaciones") {
+                            Picker("", selection: $m.canalActualizaciones) {
+                                Text("Automático (recomendado)").tag("auto")
+                                Text("Solo estables").tag("estable")
+                                Text("Estables y beta").tag("beta")
+                            }.labelsHidden().frame(width: 220)
+                        }
+                        Text("Automático sigue betas si esta copia ya es beta; cuando uses una versión estable, no te ofrece betas. Así el paso a producción no rompe el actualizador.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Revisar periódicamente mientras BetoDicta está abierto", isOn: $m.actualizacionPeriodica)
+                        if m.actualizacionPeriodica {
+                            fila("Cada") {
+                                Picker("", selection: $m.actualizacionIntervalo) {
+                                    Text("1 hora").tag(1.0)
+                                    Text("3 horas").tag(3.0)
+                                    Text("6 horas").tag(6.0)
+                                    Text("12 horas").tag(12.0)
+                                    Text("24 horas").tag(24.0)
+                                }.labelsHidden().frame(width: 120)
+                            }
+                        }
                         Toggle("Autoactualizar (instalar sola la versión nueva)", isOn: $m.autoactualizar)
-                            .disabled(!m.buscarUpdateAlAbrir)
-                        Text("Si encuentra una actualización al abrir, la baja e instala sola (la app se reinicia). Si está apagado, solo te avisa y tú decides.")
+                            .disabled(!m.buscarUpdateAlAbrir && !m.actualizacionPeriodica)
+                        Text("Si encuentra una actualización al abrir o en una revisión periódica, la baja e instala sola (la app se reinicia). Si está apagado, solo te avisa y tú decides.")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         Toggle("Avisos de privacidad al pulir con IA de nube/terceros", isOn: $m.avisoNube)

@@ -12,6 +12,27 @@ import Security
 enum Updater {
     static let repo = "btoaldas/BetoDicta"
 
+    private struct Asset: Decodable {
+        let name: String
+        let browserDownloadURL: String
+        enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadURL = "browser_download_url"
+        }
+    }
+
+    private struct Release: Decodable {
+        let tagName: String
+        let prerelease: Bool
+        let draft: Bool
+        let body: String?
+        let assets: [Asset]
+        enum CodingKeys: String, CodingKey {
+            case tagName = "tag_name"
+            case prerelease, draft, body, assets
+        }
+    }
+
     enum Estado: Equatable {
         case reposo
         case buscando
@@ -26,69 +47,182 @@ enum Updater {
     /// y el menú de la barra (para el ítem "Actualización disponible"). Se
     /// setea solo cuando hay versión nueva.
     static var disponibleAlArrancar: Estado?
+    /// Último resultado de cualquier búsqueda: arranque, manual o periódica.
+    /// Permite que una ventana abierta deje de mostrar eternamente "al día".
+    static private(set) var ultimoEstado: Estado = .reposo
+    static private(set) var ultimaRevision: Date?
     /// Aviso a la UI de que cambió `disponibleAlArrancar` (menú/panel refrescan).
     static let notificacion = Notification.Name("betoUpdateDisponible")
     /// ¿Hay un dictado en curso? Lo inyecta AppDelegate. Sirve para NO
     /// auto-instalar (que reinicia la app) a mitad de una grabación.
     static var estaGrabando: () -> Bool = { false }
+    private static var timerRevision: Timer?
+    private static var verificando = false
+    private static var completionsPendientes: [(Estado) -> Void] = []
+    private static var reverificarPorCambioDeCanal = false
 
     /// Búsqueda al abrir la app (silenciosa). Todo esto corre en el hilo main
     /// (verificar completa en main), así que `disponibleAlArrancar` no compite
     /// con las lecturas de la UI/menú.
     static func buscarAlArrancar() {
         guard Config.buscarUpdateAlAbrir() else { return }
-        verificar { estado in
-            guard case .disponible(let v, let dmg, _) = estado else { return }
-            // Autoactualizar: instala sola, PERO nunca a mitad de un dictado
-            // (cortaría la grabación). Si está grabando, difiere y avisa.
-            if Config.autoactualizar() && !estaGrabando() {
-                Log.log(.sistema, "autoactualizar: bajando e instalando v\(v)…")
-                actualizar(dmg: dmg) { _ in }
-                return
-            }
-            // Cachea + avisa para que el usuario actualice a mano (botón abajo-izq
-            // y ítem del menú). Al auto-instalar no cachea, para no ofrecer un
-            // botón redundante mientras ya se instala.
-            disponibleAlArrancar = estado
-            NotificationCenter.default.post(name: notificacion, object: nil)
-            if Config.autoactualizar() {
-                Log.log(.sistema, "autoactualizar diferido: hay un dictado en curso; te aviso para instalar al terminar")
-            } else {
-                Log.log(.sistema, "actualización v\(v) disponible (activa Autoactualizar para instalarla sola)")
-            }
+        verificar { manejarAutomatico($0, origen: "arranque") }
+    }
+
+    /// Revisión tipo cron dentro de la app. Se reprograma al cambiar el ajuste;
+    /// Timer usa el run loop común para seguir funcionando con menús abiertos.
+    static func iniciarMonitoreo() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { iniciarMonitoreo() }
+            return
+        }
+        timerRevision?.invalidate()
+        timerRevision = nil
+        guard Config.actualizacionPeriodica() else {
+            Log.log(.sistema, "actualización periódica: desactivada")
+            return
+        }
+        let segundos = Config.actualizacionIntervaloHoras() * 3_600
+        let t = Timer(timeInterval: segundos, repeats: true) { _ in
+            verificar { manejarAutomatico($0, origen: "periódica") }
+        }
+        t.tolerance = min(300, segundos * 0.1)
+        RunLoop.main.add(t, forMode: .common)
+        timerRevision = t
+        Log.log(.sistema, "actualización periódica: cada \(Config.actualizacionIntervaloHoras()) h")
+    }
+
+    /// Cambiar de canal mientras una consulta está en vuelo no debe reutilizar
+    /// el resultado del canal anterior: agenda una nueva ronda al terminar.
+    static func verificarTrasCambiarCanal() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { verificarTrasCambiarCanal() }
+            return
+        }
+        if verificando {
+            reverificarPorCambioDeCanal = true
+        } else {
+            verificar { _ in }
         }
     }
 
-    /// Consulta el último release publicado. 100% asíncrono: sin internet,
-    /// URLSession falla rápido (no espera el timeout) y esto NO bloquea la UI
-    /// — buscarAlArrancar ignora el error, así que abrir sin red es instantáneo.
+    private static func manejarAutomatico(_ estado: Estado, origen: String) {
+        guard case .disponible(let v, let dmg, _) = estado else { return }
+        // Autoactualizar nunca corta un dictado. Si estaba grabando, la versión
+        // permanece visible y la próxima ronda vuelve a intentarlo.
+        if Config.autoactualizar(), !estaGrabando() {
+            Log.log(.sistema, "autoactualizar (\(origen)): bajando e instalando v\(v)…")
+            actualizar(dmg: dmg) { _ in }
+        } else if Config.autoactualizar() {
+            Log.log(.sistema, "autoactualizar diferido: hay un dictado en curso")
+        } else {
+            Log.log(.sistema, "actualización v\(v) disponible (\(origen))")
+        }
+    }
+
+    /// Consulta releases estables Y prereleases. GitHub `/releases/latest`
+    /// excluye betas y devuelve 404 cuando todos son beta; por eso el canal beta
+    /// usa la lista general y el estable conserva `latest` con failover a lista.
+    /// Las llamadas simultáneas se consolidan en una sola consulta.
     static func verificar(completion: @escaping (Estado) -> Void) {
-        var req = URLRequest(url: URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!)
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { verificar(completion: completion) }
+            return
+        }
+        completionsPendientes.append(completion)
+        guard !verificando else { return }
+        verificando = true
+
+        let incluyeBeta: Bool
+        switch Config.canalActualizaciones() {
+        case "beta": incluyeBeta = true
+        case "estable": incluyeBeta = false
+        default: incluyeBeta = Version.numero.contains("-")
+        }
+        let lista = URL(string: "https://api.github.com/repos/\(repo)/releases?per_page=30")!
+        let estable = URL(string: "https://api.github.com/repos/\(repo)/releases/latest")!
+        let endpoints = incluyeBeta ? [lista, estable] : [estable, lista]
+        consultar(endpoints, indice: 0, incluyeBeta: incluyeBeta) { estado in
+            DispatchQueue.main.async { finalizarVerificacion(estado) }
+        }
+    }
+
+    private static func consultar(_ endpoints: [URL], indice: Int, incluyeBeta: Bool,
+                                  completion: @escaping (Estado) -> Void) {
+        guard indice < endpoints.count else {
+            completion(.error("no pude consultar GitHub")); return
+        }
+        let endpoint = endpoints[indice]
+        var req = URLRequest(url: endpoint)
         req.timeoutInterval = 10
+        req.cachePolicy = .reloadIgnoringLocalCacheData
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        URLSession.shared.dataTask(with: req) { data, _, err in
-            DispatchQueue.main.async {
-                guard err == nil, let data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let tag = json["tag_name"] as? String else {
-                    completion(.error("no pude consultar GitHub")); return
-                }
-                let remota = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-                guard esMasNueva(remota, que: Version.numero) else {
-                    Log.log(.sistema, "actualización: ya en la última (v\(Version.numero))")
-                    completion(.alDia); return
-                }
-                guard let assets = json["assets"] as? [[String: Any]],
-                      let dmg = assets.compactMap({ $0["browser_download_url"] as? String })
-                          .first(where: { $0.hasSuffix(".dmg") }),
-                      let url = URL(string: dmg) else {
-                    completion(.error("el release v\(remota) no trae DMG")); return
-                }
-                let notas = (json["body"] as? String) ?? ""
-                Log.log(.sistema, "actualización disponible: v\(remota)")
-                completion(.disponible(version: remota, dmg: url, notas: notas))
+        req.setValue("BetoDicta/\(Version.numero)", forHTTPHeaderField: "User-Agent")
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        req.setValue("close", forHTTPHeaderField: "Connection")
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard error == nil, status == 200, let data else {
+                Log.log(.sistema, "actualización: endpoint \(endpoint.lastPathComponent) falló HTTP \(status) \(error?.localizedDescription ?? "") — failover")
+                consultar(endpoints, indice: indice + 1, incluyeBeta: incluyeBeta, completion: completion)
+                return
             }
+            let decoder = JSONDecoder()
+            let releases: [Release]
+            if let lista = try? decoder.decode([Release].self, from: data) {
+                releases = lista
+            } else if let uno = try? decoder.decode(Release.self, from: data) {
+                releases = [uno]
+            } else {
+                Log.log(.sistema, "actualización: respuesta inválida — failover")
+                consultar(endpoints, indice: indice + 1, incluyeBeta: incluyeBeta, completion: completion)
+                return
+            }
+
+            let candidatas = releases.filter { r in
+                guard !r.draft else { return false }
+                if incluyeBeta { return true }
+                return !r.prerelease && !normalizar(r.tagName).contains("-")
+            }
+            guard let release = candidatas.max(by: { compararVersiones($0.tagName, $1.tagName) < 0 }) else {
+                // Un latest válido sin candidato puede ocurrir por metadatos
+                // incoherentes; prueba la lista antes de concluir.
+                if indice + 1 < endpoints.count {
+                    consultar(endpoints, indice: indice + 1, incluyeBeta: incluyeBeta, completion: completion)
+                } else {
+                    completion(.alDia)
+                }
+                return
+            }
+            let remota = normalizar(release.tagName)
+            guard esMasNueva(remota, que: Version.numero) else {
+                Log.log(.sistema, "actualización: al día v\(Version.numero), canal \(incluyeBeta ? "beta" : "estable")")
+                completion(.alDia); return
+            }
+            let asset = release.assets.first(where: { $0.name == "BetoDicta.dmg" })
+                ?? release.assets.first(where: { $0.name.lowercased().hasSuffix(".dmg") })
+            guard let asset, let url = URL(string: asset.browserDownloadURL), url.scheme == "https" else {
+                completion(.error("el release v\(remota) no trae DMG")); return
+            }
+            Log.log(.sistema, "actualización disponible: v\(remota) [\(release.prerelease ? "beta" : "estable")]")
+            completion(.disponible(version: remota, dmg: url, notas: release.body ?? ""))
         }.resume()
+    }
+
+    private static func finalizarVerificacion(_ estado: Estado) {
+        verificando = false
+        ultimaRevision = Date()
+        ultimoEstado = estado
+        if case .disponible = estado { disponibleAlArrancar = estado }
+        if case .alDia = estado { disponibleAlArrancar = nil }
+        let callbacks = completionsPendientes
+        completionsPendientes.removeAll()
+        callbacks.forEach { $0(estado) }
+        NotificationCenter.default.post(name: notificacion, object: nil)
+        if reverificarPorCambioDeCanal {
+            reverificarPorCambioDeCanal = false
+            verificar { _ in }
+        }
     }
 
     /// Descarga el DMG y se auto-reemplaza: monta, copia a /Applications,
@@ -167,16 +301,48 @@ enum Updater {
         task.resume()
     }
 
-    /// Comparación de versiones numéricas ("0.16.0" > "0.15.0").
+    /// SemVer suficiente para estable/beta: 0.39.0 es posterior a
+    /// 0.39.0-beta; 0.40.0-beta es posterior a cualquier 0.39.x.
     static func esMasNueva(_ a: String, que b: String) -> Bool {
-        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
-        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
-        for i in 0..<max(pa.count, pb.count) {
-            let x = i < pa.count ? pa[i] : 0
-            let y = i < pb.count ? pb[i] : 0
-            if x != y { return x > y }
+        compararVersiones(a, b) > 0
+    }
+
+    private static func normalizar(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.lowercased().hasPrefix("v") { s.removeFirst() }
+        return s
+    }
+
+    private static func compararVersiones(_ a: String, _ b: String) -> Int {
+        func partes(_ raw: String) -> ([Int], String?) {
+            let sinBuild = normalizar(raw).split(separator: "+", maxSplits: 1).first.map(String.init) ?? "0"
+            let p = sinBuild.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+            let numeros = p[0].split(separator: ".").map { comp -> Int in
+                Int(comp.prefix { $0.isNumber }) ?? 0
+            }
+            return (numeros, p.count > 1 && !p[1].isEmpty ? String(p[1]) : nil)
         }
-        return false
+        let (na, prea) = partes(a), (nb, preb) = partes(b)
+        for i in 0..<max(na.count, nb.count) {
+            let x = i < na.count ? na[i] : 0
+            let y = i < nb.count ? nb[i] : 0
+            if x != y { return x < y ? -1 : 1 }
+        }
+        if prea == nil, preb != nil { return 1 }
+        if prea != nil, preb == nil { return -1 }
+        guard let prea, let preb else { return 0 }
+        let ia = prea.split(separator: ".").map(String.init)
+        let ib = preb.split(separator: ".").map(String.init)
+        for i in 0..<max(ia.count, ib.count) {
+            if i >= ia.count { return -1 }
+            if i >= ib.count { return 1 }
+            if ia[i] == ib[i] { continue }
+            if let x = Int(ia[i]), let y = Int(ib[i]) { return x < y ? -1 : 1 }
+            if Int(ia[i]) != nil { return -1 } // identificador numérico precede al textual
+            if Int(ib[i]) != nil { return 1 }
+            return ia[i] < ib[i] ? -1 : 1
+        }
+        return 0
     }
 
     // MARK: - Verificación de firma e integridad del DMG

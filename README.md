@@ -41,7 +41,7 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 - **Failover multi-motor**: cascada arrastrable; si uno falla, salta al siguiente solo. Un gateway propio también puede transcribir (no solo pulir)
 - **Modelos locales descargables desde la app**: Whisper (tiny→large-v3), Voxtral Mini 3B y Realtime 4B, Nemotron 3.5, Canary 1B Flash
 - **Panel abraza-notch**: latido de voz a la izquierda del notch, tecla a la derecha, teleprompter de una línea debajo — negro puro, como si fuera parte del hardware
-- **Tecla `fn`** (o F1–F12, configurable) — toque limpio para empezar/terminar, las combinaciones fn+otra-tecla no lo disparan
+- **Tecla `fn`** (o F1–F12, configurable) — toque limpio para empezar/terminar, las combinaciones fn+otra-tecla no lo disparan; opcionalmente exige **doble pulsación para iniciar** y una para detener
 - **Keyterms**: tu vocabulario personal viaja al modelo — nombres propios y términos técnicos salen bien a la primera
 - **Reemplazos**: correcciones automáticas post-transcripción (palabra completa, sin distinguir mayúsculas)
 - **Pulido con cualquier IA + elige el modelo**: pule/traduce con Groq, OpenAI, Mistral, OpenRouter, DeepSeek, xAI, **Anthropic (Claude)**, **Gemini (Google)** o tu gateway propio — o **local** (LM Studio/Ollama, sin que nada salga de tu Mac). Eliges el **modelo** de cada proveedor al vuelo y, si publica precios (OpenRouter), ves el **costo por modelo** (`$in/$out` o `gratis`). Aviso de privacidad al usar nube/terceros
@@ -54,6 +54,7 @@ Hecho en Ecuador 🇪🇨 para el español latino — nació porque los dictados
 - **Salvaguarda anti-inyección** (opt-in): si un gateway de terceros devuelve texto anómalo (comandos shell que no dictaste), pega tu dictado original
 - **Ayuda por proveedor**: cada IA de nube (chat y voz) trae un icono de ayuda con explicación instantánea y un enlace **"Conseguir clave"** que abre la página oficial de su API key
 - **Copiar último dictado**: rescate en un clic desde el menú
+- **Actualizador estable/beta**: canal automático, solo estable o estable+beta; consulta al abrir y periódicamente (1–24 h), permite comprobar a mano y usa failover cuando GitHub excluye las prereleases de `latest`
 
 ## Requisitos
 

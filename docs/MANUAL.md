@@ -485,19 +485,21 @@ Todos tus dictados, buscables:
 
 ## 20. Actualizar la app
 
-La app **te avisa sola**. Al abrirla revisa en silencio si hay versión nueva (esto se puede apagar en *Ajustes → Avanzado → "Buscar actualización al abrir"*). Si la hay, lo ves en dos lugares:
+La app **te avisa sola**. Al abrirla revisa en silencio si hay versión nueva y, por defecto, vuelve a comprobar **cada 6 horas mientras permanezca abierta**. Ambas cosas son configurables en *Ajustes → Avanzado*. Si la hay, lo ves en dos lugares:
 
 - **Abajo a la izquierda** del panel de Configuración: botón **"Actualizar a vX"** y un enlace **"Ver novedades"** (para leer los cambios *antes* de actualizar).
 - En el **menú de la barra**: un ítem **"⬆︎ Actualización disponible…"** que abre Configuración.
 
 Al pulsar **"Actualizar a vX"** la app descarga el DMG (con **barra de porcentaje**), se reinstala y se reabre sola. Un clic, cero pasos manuales. Al terminar te muestra las **novedades** de la versión.
 
-Si prefieres no revisar nada a mano, activa **Autoactualizar** (*Ajustes → Avanzado*): cuando encuentre una versión nueva al abrir, la baja e instala sola. Y siempre puedes forzar la búsqueda con **"Verificar actualización"** en el pie.
+Si prefieres no revisar nada a mano, activa **Autoactualizar** (*Ajustes → Avanzado*): cuando encuentre una versión nueva al abrir o en la revisión periódica, la baja e instala sola. Siempre puedes forzar la búsqueda con **"Verificar actualización"** o **"Comprobar de nuevo"** en el pie.
+
+**Estables y beta:** el canal **Automático** (recomendado) sigue versiones beta únicamente cuando la copia instalada ya es beta; una copia estable solo recibe estables. También puedes escoger **Solo estables** o **Estables y beta**. El actualizador consulta la lista de releases como respaldo, porque el endpoint `latest` de GitHub no incluye pre-releases.
 
 - Si no hay nada: "Ya estás en la última versión".
 - El historial completo de cambios de cada versión está en **Créditos**.
 
-> **Gobernanza — todo parametrizable**: "Buscar actualización al abrir" (por defecto **encendido**) y "Autoactualizar" (por defecto **apagado**, porque reinstala y reinicia) viven en *Ajustes → Avanzado*. Nada se instala sin tu permiso salvo que actives Autoactualizar.
+> **Gobernanza — todo parametrizable**: búsqueda al abrir, canal estable/beta, revisión periódica (1–24 h) y Autoactualizar viven en *Ajustes → Avanzado*. Nada se instala sin tu permiso salvo que actives Autoactualizar.
 
 ## 21. Apoya el proyecto
 
