@@ -122,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard recorder.isRecording else { return }
         disarmEsc()
         media.dictationEnded()
+        PreviewVivo.detener()
         silenceTimer?.invalidate()
         silenceTimer = nil
         liveTimer?.invalidate()
@@ -416,6 +417,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     print("PIPERTEST OK → \(d.count) bytes en \(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
                 } else { print("PIPERTEST FALLÓ") }
                 exit(0)
+            }
+            RunLoop.main.run(); return
+        }
+        // Prueba del preview vivo: BETODICTA_PREVIEWTEST=<wav 16k mono pcm16> → parciales
+        if let w = ProcessInfo.processInfo.environment["BETODICTA_PREVIEWTEST"], !w.isEmpty {
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: w)) else { print("PREVIEWTEST sin wav"); exit(1) }
+            let pcm = data.count > 44 ? data.subdata(in: 44..<data.count) : data
+            var vistos = 0
+            print("PREVIEWTEST disponible=\(PreviewVivo.disponible)")
+            PreviewVivo.iniciar { p in vistos += 1; print("PREVIEWTEST parcial[\(vistos)]: \(p)") }
+            DispatchQueue.global().async {
+                Thread.sleep(forTimeInterval: 2)   // deja arrancar el analyzer
+                var i = 0
+                while i < pcm.count {
+                    let fin = min(i + 8000, pcm.count)   // ~0.25s por trozo
+                    PreviewVivo.alimentar(pcm.subdata(in: i..<fin))
+                    Thread.sleep(forTimeInterval: 0.2)   // ~ritmo real
+                    i = fin
+                }
+                Thread.sleep(forTimeInterval: 12)   // margen: 1ª carga del modelo tarda
+                PreviewVivo.detener()
+                Thread.sleep(forTimeInterval: 1)
+                print("PREVIEWTEST fin — parciales=\(vistos)")
+                exit(vistos > 0 ? 0 : 1)
             }
             RunLoop.main.run(); return
         }
@@ -1939,6 +1964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Nada se pierde y no hay espera de "Conectando…".
         recorder.onChunk = { [weak self] chunk in
             history.append(chunk: chunk)
+            PreviewVivo.alimentar(chunk)   // copia al preview nativo (si está activo)
             // Serializado en main: orden garantizado hacia el motor en vivo.
             DispatchQueue.main.async { self?.entregarVivo(chunk) }
         }
@@ -1975,6 +2001,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             panel.setMotor(Self.nombreMotor(primero), enVivo: false)
             startLiveLocal(history: history)
+            // Sin motor en vivo real → PREVIEW nativo (Apple, macOS 26): el notch muestra
+            // lo que vas diciendo. Solo visual; la transcripción real sigue siendo la
+            // cascada al soltar. Si el whisper local llega a pintar parciales de verdad,
+            // startLiveLocal apaga este preview.
+            PreviewVivo.iniciar { [weak self] parcial in
+                guard let self, self.recorder.isRecording else { return }
+                self.panel.update("💬 \(parcial)")
+            }
         }
     }
 
@@ -2202,6 +2236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Solo pintar si ESTE dictado sigue vivo (no el siguiente)
                 if case .success(let texto) = r, self.recorder.isRecording,
                    self.history === history, !texto.isEmpty {
+                    PreviewVivo.detener()   // el parcial REAL (whisper) manda; fuera el preview
                     self.lastPartial = texto
                     self.panel.setMotor("Whisper", enVivo: true)
                     self.panel.update(texto)
@@ -2215,6 +2250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         disarmEsc()
         setIcono(.procesando)
         media.dictationEnded()
+        PreviewVivo.detener()   // fin del preview nativo; la cascada real toma el mando
         silenceTimer?.invalidate()
         silenceTimer = nil
         liveTimer?.invalidate()

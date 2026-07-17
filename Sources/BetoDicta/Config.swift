@@ -93,6 +93,9 @@ struct Config {
     /// Evita activaciones accidentales: en reposo exige dos pulsaciones rápidas.
     /// Para detener basta una. En push-to-talk, la segunda se mantiene presionada.
     static func doblePulsacionActivar() -> Bool { (json()["doble_pulsacion_activar"] as? Bool) ?? false }
+    /// Preview EN VIVO en el notch (transcriptor nativo de Apple, macOS 26): mientras
+    /// grabas, ves lo que vas diciendo. Solo visual; no toca la transcripción real.
+    static func previewVivo() -> Bool { (json()["preview_vivo"] as? Bool) ?? true }
     /// Tiempo máximo entre el final de la primera pulsación y el inicio de la
     /// segunda. 0,45 s se siente como el doble clic estándar del Mac.
     static func doblePulsacionVentana() -> Double {

@@ -135,6 +135,7 @@ final class SettingsModel: ObservableObject {
             NotificationCenter.default.post(name: .betoHotkeyChanged, object: nil)
         }
     }
+    @Published var previewVivo: Bool { didSet { Config.set("preview_vivo", to: previewVivo) } }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
         didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }
@@ -191,6 +192,7 @@ final class SettingsModel: ObservableObject {
         pushToTalk = Config.pushToTalk()
         doblePulsacion = Config.doblePulsacionActivar()
         doblePulsacionVentana = Config.doblePulsacionVentana()
+        previewVivo = Config.previewVivo()
         espacioAlTerminar = Config.espacioAlTerminar()
         enterAlTerminar = Config.enterAlTerminar()
         shiftEnterAlTerminar = Config.shiftEnterAlTerminar()
@@ -584,6 +586,11 @@ struct SettingsView: View {
                     Text(m.pushToTalk
                          ? "Toca una vez; en la segunda pulsación mantén la tecla para grabar y suéltala para terminar."
                          : "En reposo, dos pulsaciones rápidas inician. Una sola pulsación detiene el dictado.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Toggle("Ver en vivo lo que dices (notch)", isOn: $m.previewVivo)
+                if m.previewVivo {
+                    Text("Mientras grabas, el notch muestra lo que vas diciendo (💬, transcriptor nativo de Apple, macOS 26). Es solo visual: la transcripción real sigue siendo tu cascada de modelos.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 fila("Micrófono") {
