@@ -114,6 +114,14 @@ final class SettingsModel: ObservableObject {
     @Published var modoSemantico: Bool { didSet { Config.set("modo_semantico", to: modoSemantico) } }
     @Published var modoSemPalabras: Double { didSet { Config.set("modo_sem_palabras", to: Int(modoSemPalabras)) } }
     @Published var modoSemUmbral: Double { didSet { Config.set("modo_sem_umbral", to: modoSemUmbral) } }
+    @Published var modoSemMargen: Double { didSet { Config.set("modo_sem_margen", to: modoSemMargen) } }
+    @Published var modoGramatical: Bool { didSet { Config.set("modo_gramatical", to: modoGramatical) } }
+    @Published var modoConfirmacionSeg: Double { didSet { Config.set("modo_confirmacion_seg", to: modoConfirmacionSeg) } }
+    @Published var modoAutoMejora: Bool { didSet { Config.set("modo_auto_mejora", to: modoAutoMejora) } }
+    @Published var modoIAEnrutamiento: Bool { didSet { Config.set("modo_ia_enrutamiento", to: modoIAEnrutamiento) } }
+    @Published var modoIAProveedor: String { didSet { Config.set("modo_ia_proveedor", to: modoIAProveedor) } }
+    @Published var modoIATimeout: Double { didSet { Config.set("modo_ia_timeout", to: modoIATimeout) } }
+    @Published var modoIAPalabras: Double { didSet { Config.set("modo_ia_palabras", to: Int(modoIAPalabras)) } }
     @Published var logModos: Bool { didSet { Config.set("log_modos", to: logModos) } }
     @Published var calentarRed: Bool { didSet { Config.set("calentar_red", to: calentarRed) } }
     @Published var ahorroGlobal: Bool { didSet { Config.set("ahorro_global", to: ahorroGlobal) } }
@@ -190,6 +198,14 @@ final class SettingsModel: ObservableObject {
         modoSemantico = Config.modoSemantico()
         modoSemPalabras = Double(Config.modoSemanticoPalabras())
         modoSemUmbral = Config.modoSemanticoUmbral()
+        modoSemMargen = Config.modoSemanticoMargen()
+        modoGramatical = Config.modoGramatical()
+        modoConfirmacionSeg = Config.modoConfirmacionSegundos()
+        modoAutoMejora = Config.modoAutoMejora()
+        modoIAEnrutamiento = Config.modoIAEnrutamiento()
+        modoIAProveedor = Config.modoIAProveedor()
+        modoIATimeout = Config.modoIATimeout()
+        modoIAPalabras = Double(Config.modoIAPalabras())
         logModos = Config.logModos()
         calentarRed = Config.calentarRed()
         ahorroGlobal = Config.ahorroGlobal()
@@ -888,10 +904,23 @@ struct SettingsView: View {
                         Text("Guarda cada decisión de modos/acciones (por voz/cadena/contexto/semántico, con score) en ~/.betodicta/logs/modos.jsonl — para revisar qué reconoció bien y afinar. Ábrelo desde Ajustes → Modos (icono de lupa). 100% local.")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
-                        EmbeddingMotorPicker().disabled(!m.busquedaSemantica && !m.glosarioInteligente)
+                        EmbeddingMotorPicker().disabled(!m.busquedaSemantica && !m.glosarioInteligente && !m.modoSemantico)
                         Toggle("Glosario inteligente (pulido más rápido)", isOn: $m.glosarioInteligente)
                         Text("En el pulido, envía a la IA SOLO los términos del glosario afines a lo que dictaste (con embeddings), no los 80+. Prompt más corto = más rápido, y escala aunque tu glosario crezca. Usa el motor de embeddings de arriba; la 1ª vez calienta los vectores en segundo plano (mientras, usa el glosario normal).")
                             .font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        Toggle("Entender pedidos naturales y cadenas de acciones", isOn: $m.modoGramatical)
+                        Text("Entiende «por favor traduce esto y envíalo por correo» sin exigir la palabra modo. Analiza relaciones verbales, no sustantivos sueltos; antes de ejecutar muestra un plan claro para confirmar.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if m.modoGramatical {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Tiempo para leer la confirmación: \(Int(m.modoConfirmacionSeg)) s").font(.caption)
+                                Slider(value: $m.modoConfirmacionSeg, in: 6...30, step: 1)
+                                    .tint(acento).frame(width: 260)
+                                Text("Fn confirma con una sola pulsación. X, clic o esperar descartan únicamente el plan y continúan con el modo normal.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
                         Toggle("Cambiar el modo EN VIVO mientras hablo", isOn: $m.modoVivo)
                         Text("Si el dictado empieza con \"modo agente\", \"modo traducir quichua\", etc., el nombre y color del notch cambian apenas se reconoce. Solo examina el inicio y cada grabación conserva su propia decisión.")
                             .font(.caption).foregroundStyle(.secondary)
@@ -915,7 +944,7 @@ struct SettingsView: View {
                             }
                         }
                         Toggle("Reconocimiento inteligente de modos por voz (semántico)", isOn: $m.modoSemantico)
-                        Text("Entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"modo tradúceme al inglés…\"). Solo actúa si empieza con \"modo\" (o mal-escuchas: mudo/molde/…) y el exacto no reconoció; si ninguno se parece, sigue como texto normal. Usa el motor de embeddings; la 1ª vez calienta en 2º plano. Agrega tus propias frases por modo en Ajustes → Modos.")
+                        Text("Entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"por favor necesito traducir…\"). En comandos explícitos exige una separación clara entre el 1.º y 2.º candidato; en pedidos naturales pregunta antes de actuar. Si no hay coincidencia, sigue como texto normal. Usa el motor de embeddings; la 1ª vez calienta en 2º plano. Agrega tus propias frases por modo en Ajustes → Modos.")
                             .font(.caption).foregroundStyle(.secondary)
                         if m.modoSemantico {
                             VStack(alignment: .leading, spacing: 2) {
@@ -925,6 +954,30 @@ struct SettingsView: View {
                                 Text("Sensibilidad (umbral): \(String(format: "%.2f", m.modoSemUmbral))").font(.caption)
                                 Slider(value: $m.modoSemUmbral, in: 0.35...0.75, step: 0.05).tint(acento).frame(width: 260)
                                 Text("Más alto = más estricto (menos falsos, pero puede no reconocer). Más bajo = más permisivo.").font(.caption2).foregroundStyle(.secondary)
+                                Text("Separación entre 1.º y 2.º candidato: \(String(format: "%.2f", m.modoSemMargen))").font(.caption)
+                                Slider(value: $m.modoSemMargen, in: 0.02...0.20, step: 0.01).tint(acento).frame(width: 260)
+                                Text("Si dos modos quedan demasiado cerca, no adivina: muestra la ambigüedad en la confirmación.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        Toggle("Aprender de mis Sí/No y afinar el umbral", isOn: $m.modoAutoMejora)
+                        Text("Guarda solo estadísticas locales y mueve el umbral semántico en pasos pequeños (0,02 máx.). Las acciones externas siempre se confirman.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Toggle("Usar una IA activa solo como último árbitro", isOn: $m.modoIAEnrutamiento)
+                        if m.modoIAEnrutamiento {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Picker("IA para desempatar", selection: $m.modoIAProveedor) {
+                                    Text("La IA activa de Pulido").tag("")
+                                    ForEach(ChatIA.conectadasPulido, id: \.id) { ia in
+                                        Text(ia.etiqueta).tag(ia.id)
+                                    }
+                                }.frame(maxWidth: 430)
+                                Text("Máximo que puede leer del inicio: \(Int(m.modoIAPalabras)) palabras").font(.caption)
+                                Slider(value: $m.modoIAPalabras, in: 6...30, step: 1).tint(acento).frame(width: 260)
+                                Text("Espera máxima del árbitro: \(String(format: "%.1f", m.modoIATimeout)) s").font(.caption)
+                                Slider(value: $m.modoIATimeout, in: 1.5...8, step: 0.5).tint(acento).frame(width: 260)
+                                Text("Solo recibe la zona de intención y el catálogo de modos. Si no hay IA, falla o tarda, continúa sin bloquear.")
+                                    .font(.caption2).foregroundStyle(.secondary)
                             }
                         }
                         Divider()

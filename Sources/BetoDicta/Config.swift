@@ -161,6 +161,29 @@ struct Config {
     /// Capa GRAMATICAL: reconoce el verbo del modo en cualquier conjugación
     /// ("tradúceme esto", "quiero traducir…"). Ambiguo → pregunta con mini-modal.
     static func modoGramatical() -> Bool { (json()["modo_gramatical"] as? Bool) ?? true }
+    /// Tiempo para leer una propuesta expandida. Al vencer, NO cancela: continúa
+    /// con el modo normal, igual que pulsar X.
+    static func modoConfirmacionSegundos() -> Double {
+        min(30, max(6, (json()["modo_confirmacion_seg"] as? Double) ?? 14))
+    }
+    /// Ajuste local y acotado del umbral semántico a partir de los sí/no del modal.
+    static func modoAutoMejora() -> Bool { (json()["modo_auto_mejora"] as? Bool) ?? true }
+    /// Diferencia mínima entre el mejor modo semántico y el segundo para no adivinar.
+    static func modoSemanticoMargen() -> Double {
+        min(0.20, max(0.02, (json()["modo_sem_margen"] as? Double) ?? 0.06))
+    }
+    /// Último árbitro opcional: una IA activa interpreta solo la zona de intención
+    /// cuando reglas y embeddings no pueden decidir. Nunca bloquea el dictado.
+    static func modoIAEnrutamiento() -> Bool { (json()["modo_ia_enrutamiento"] as? Bool) ?? true }
+    /// Vacío = la IA global de Pulido. Si el proveedor elegido deja de estar
+    /// conectado, cae de forma transparente a la global o no usa IA.
+    static func modoIAProveedor() -> String { (json()["modo_ia_proveedor"] as? String) ?? "" }
+    static func modoIATimeout() -> Double {
+        min(8, max(1.5, (json()["modo_ia_timeout"] as? Double) ?? 3.0))
+    }
+    static func modoIAPalabras() -> Int {
+        min(30, max(6, (json()["modo_ia_palabras"] as? Int) ?? 16))
+    }
     /// Una pausa al inicio confirma que terminó la orden "modo X", pero NO detiene
     /// la grabación. Permite continuar hablando naturalmente tras pensar. Default ON.
     static func modoVivoPausa() -> Bool { (json()["modo_vivo_pausa"] as? Bool) ?? true }

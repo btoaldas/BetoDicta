@@ -181,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// CANCELA lo que esté en curso. Recording → descarta. Agente/voz → mata Hermes,
     /// invalida respuestas en vuelo, corta el audio, cierra el notch. Idempotente.
     func cancelarTodo() {
+        if hayConfirmacion { resolverConfirmacion(acepta: false); return }
         if recorder.isRecording { cancelDictation(); return }
         let habia = agenteActivo || AgenteHermes.enCurso || Voz.hablando
         agenteToken += 1          // invalida CUALQUIER respuesta en vuelo (Hermes o IA local)
@@ -498,7 +499,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // MATRIZ QA paramétrica: BETODICTA_MATRIZTEST=<tsv> con líneas:
         //   frase <TAB> esperado(id|-|cadena) [<TAB> textoEsperado] [<TAB> arg=valor]
-        // Ejercita el ModoResolver completo (cadena → exacto → difuso) + argumentos + recorte.
+        // Ejercita cadena → exacto → difuso → plan natural + argumentos + recorte.
         if let ruta = ProcessInfo.processInfo.environment["BETODICTA_MATRIZTEST"], !ruta.isEmpty {
             guard let tsv = try? String(contentsOf: URL(fileURLWithPath: ruta), encoding: .utf8) else {
                 print("MATRIZTEST sin archivo"); exit(1)
@@ -518,15 +519,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     detId = m.modo.id; detTexto = m.textoLimpio
                     if m.modo.base == "traducir" { detArg = "idioma=\(m.modo.idiomaDestino)" }
                     if m.modo.base == "buscar" { detArg = "buscador=\(m.modo.buscador)" }
-                } else if let (cad, desc) = ModoResolver.detectarCadenaColoquial(frase) {
-                    detId = "cadenacol"; detTexto = cad.contenido
-                    detArg = "etapas=" + cad.transforms.map(\.id).joined(separator: "+")
-                        + (cad.accion.map { "→\($0.accion)" } ?? "") + " | " + desc
-                } else if let (m, certeza) = ModoResolver.detectarGramatical(frase) {
-                    detId = (certeza == .directo ? "gram:" : "pregunta:") + m.modo.id
-                    detTexto = m.textoLimpio
-                    if m.modo.base == "traducir" { detArg = "idioma=\(m.modo.idiomaDestino)" }
-                    if m.modo.base == "buscar" { detArg = "buscador=\(m.modo.buscador)" }
+                } else if let p = ModoPlanificador.detectarNatural(frase) {
+                    detId = "plan"; detTexto = p.cadena.contenido
+                    let t = p.cadena.transforms.map(\.id)
+                    let a = p.cadena.acciones.map { $0.modo.base == "buscar" ? "buscar:\($0.modo.buscador)" : $0.modo.accion }
+                    detArg = "etapas=" + (t + a).joined(separator: "+")
                 }
                 var ok = detId == esperado
                 if ok, c.count >= 3, !c[2].isEmpty, c[2] != "*" { ok = detTexto == c[2] }
@@ -1368,7 +1365,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Tocar el cuerpo del notch cancela lo que esté en curso (grabación / agente / voz).
         panel.onCancelar = { [weak self] in
             guard let self else { return }
-            if self.confirmacionModo != nil || self.confirmacionCadena != nil { self.resolverConfirmacion(acepta: false); return }
+            if self.hayConfirmacion { self.resolverConfirmacion(acepta: false); return }
             self.cancelarTodo()
         }
         panel.onMotorClick = { [weak self] in
@@ -1888,7 +1885,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return letters[name]
     }
 
-    /// Handler Carbon único: id 1 = tecla de dictado, id 2 = Esc (cancelar).
+    /// Handler Carbon único: id 1 = dictado, 2 = Esc, 3 = aprender, 4 = X del modal.
     private func installCarbonHandler() {
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
@@ -1901,12 +1898,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if hotKeyID.id == 1 { delegate.pulsarAtajoCarbon() }
                 if hotKeyID.id == 2 { delegate.cancelarTodo() }   // Esc = cancela dictado O agente/voz
                 if hotKeyID.id == 3 { delegate.aprenderDeSeleccion() }
+                if hotKeyID.id == 4 { delegate.resolverConfirmacion(acepta: false) }
             }
             return noErr
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
     }
 
     private var escHotKeyRef: EventHotKeyRef?
+    private var confirmXHotKeyRef: EventHotKeyRef?
 
     /// Esc se apropia SOLO durante el dictado — sin permisos extra.
     private func armEsc() {
@@ -1922,14 +1921,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// X se apropia SOLO mientras la pregunta está visible. Carbon consume la tecla,
+    /// por lo que no termina escribiendo una "x" en el documento del usuario.
+    private func armConfirmX() {
+        guard confirmXHotKeyRef == nil else { return }
+        let id = EventHotKeyID(signature: OSType(0x42544443), id: 4)
+        let estado = RegisterEventHotKey(UInt32(kVK_ANSI_X), 0, id,
+                                         GetApplicationEventTarget(), 0, &confirmXHotKeyRef)
+        if estado != noErr {
+            confirmXHotKeyRef = nil
+            Log.write("modal: no pude reservar X (OSStatus \(estado)); clic/timeout siguen disponibles")
+        }
+    }
+
+    private func disarmConfirmX() {
+        if let ref = confirmXHotKeyRef { UnregisterEventHotKey(ref); confirmXHotKeyRef = nil }
+    }
+
     private var comboArmed = false
     private var comboUsedWithKey = false
     private var comboActivadoPorDoble = false
+    private var comboConfirmacionConsumida = false
     private var doblePulsacion = DoublePressGate()
 
     /// Carbon solo informa key-down (F1–F12 o tecla+modificadores). En modo
     /// toque basta para aplicar la misma regla: doble para arrancar, una para parar.
     private func pulsarAtajoCarbon() {
+        if hayConfirmacion { doblePulsacion.reiniciar(); resolverConfirmacion(acepta: true); return }
         if recorder.isRecording {
             doblePulsacion.reiniciar()
             toggle()
@@ -1975,6 +1993,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.comboArmed = true          // combo exacto presionado
                 self.comboUsedWithKey = false
                 self.comboActivadoPorDoble = false
+                self.comboConfirmacionConsumida = false
+
+                // La confirmación tiene su propia semántica: UNA pulsación acepta,
+                // aunque el arranque normal del dictado esté configurado a doble Fn.
+                if self.hayConfirmacion {
+                    self.comboConfirmacionConsumida = true
+                    self.doblePulsacion.reiniciar()
+                    DispatchQueue.main.async { self.resolverConfirmacion(acepta: true) }
+                    return
+                }
 
                 if Config.doblePulsacionActivar(), !self.recorder.isRecording {
                     // La segunda pulsación ARRANCA al bajar la tecla. Así, en
@@ -2001,6 +2029,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let usadoConTecla = self.comboUsedWithKey
                 let activoPorDoble = self.comboActivadoPorDoble
                 self.comboActivadoPorDoble = false
+                if self.comboConfirmacionConsumida {
+                    self.comboConfirmacionConsumida = false
+                    self.doblePulsacion.reiniciar()
+                    return
+                }
                 if Config.pushToTalk() {
                     if Config.doblePulsacionActivar() {
                         if activoPorDoble {
@@ -2074,7 +2107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func toggle() {
         // Mini-modal (modo o cadena) pendiente: esta pulsación de fn es el "sí".
-        if confirmacionModo != nil || confirmacionCadena != nil { resolverConfirmacion(acepta: true); return }
+        if hayConfirmacion { resolverConfirmacion(acepta: true); return }
         if recorder.isRecording {
             stopAndTranscribe()
         } else {
@@ -2757,88 +2790,193 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ModoResolver.resolver(texto: textoResolver, modoBase: modoBase,
                               contexto: contexto, vivo: vivo) { [weak self] resultado in
             DispatchQueue.main.async {
-                self?.aplicarResultadoModo(resultado, crudo: crudo, wav: wav, history: history)
+                self?.aplicarResultadoModo(resultado, crudo: crudo, textoNormal: textoResolver,
+                                           modoNormal: modoBase, wav: wav, history: history)
             }
         }
     }
 
-    // MARK: Mini-modal "¿Cambiar a modo X?" (capa gramatical ambigua)
+    // MARK: Confirmación ÚNICA de intención (modo o plan)
 
-    private var confirmacionModo: (match: ModoMatch, crudo: String, wav: Data, history: HistoryWriter?)?
-    private var confirmacionCadena: (cadena: ModoCadena, crudo: String, wav: Data, history: HistoryWriter?)?
+    private struct EntregaConfirmacion {
+        let crudo: String
+        let normal: String      // texto tras reemplazos/audio-match; X conserva este flujo
+        let modoNormal: Modo    // congelado al iniciar: otra sesión no lo puede pisar
+        let wav: Data
+        let history: HistoryWriter?
+    }
+    private enum ConfirmacionPendiente {
+        case modo(ModoMatch, EntregaConfirmacion)
+        case plan(ModoPreguntaPlan, EntregaConfirmacion)
+    }
+    private var confirmacion: ConfirmacionPendiente?
     private var confirmacionTimer: Timer?
+    private var hayConfirmacion: Bool { confirmacion != nil }
 
-    /// Modal para la CADENA coloquial: confirma todas las acciones de una.
-    private func preguntarCadenaColoquial(_ cad: ModoCadena, descripcion: String,
-                                          crudo: String, wav: Data, history: HistoryWriter?) {
-        confirmacionCadena = (cad, crudo, wav, history)
-        if let primero = cad.transforms.first { panel.setModoVivo(primero) }
-        panel.show("¿\(descripcion.uppercased())? \(tecla) = sí · clic = no")
-        playSound("Tink")
+    private func presentarConfirmacion(_ pregunta: ModoPreguntaPlan,
+                                       entrega: EntregaConfirmacion) {
+        // Una entrega vieja puede terminar mientras ya se graba la siguiente.
+        // Mostrar su pregunta secuestraría el fn que el usuario necesita para
+        // cerrar la grabación nueva; en ese caso degradamos al modo congelado.
+        guard !recorder.isRecording else {
+            ModosLog.registrar("plan_omitido", ["motivo": "nuevo_dictado_activo",
+                                                 "fuente": pregunta.fuente.rawValue])
+            continuarSinPlan(entrega); return
+        }
+        // Sin panel no hay manera honesta de pedir consentimiento. No dejamos el
+        // dictado esperando a ciegas: continúa inmediatamente en su modo normal.
+        guard Config.panelVisible() else { continuarSinPlan(entrega); return }
+        // Un solo estado evita que una pregunta de modo y otra de cadena queden
+        // pendientes a la vez usando el mismo timer.
         confirmacionTimer?.invalidate()
-        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
+        confirmacion = .plan(pregunta, entrega)
+        if let primero = pregunta.cadena.etapas.first { panel.setModoVivo(primero) }
+        let titulo = pregunta.detalles.count == 1
+            ? "¿Deseas \(pregunta.descripcion.lowercased())?"
+            : "¿Deseas hacer estas \(pregunta.detalles.count) acciones?"
+        panel.showConfirmation(title: titulo, details: pregunta.detalles,
+                               content: pregunta.cadena.contenido,
+                               alternatives: pregunta.alternativas,
+                               modoNormal: entrega.modoNormal.nombre)
+        playSound("Tink")
+        armConfirmX()
+        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
+                                                  repeats: false) { [weak self] _ in
             self?.resolverConfirmacion(acepta: false)
         }
     }
 
-    /// Pregunta en el notch. fn = sí · clic en el notch = no · 8 s sin respuesta = no.
-    private func preguntarCambioModo(_ match: ModoMatch, crudo: String, wav: Data,
-                                     history: HistoryWriter?) {
-        confirmacionModo = (match, crudo, wav, history)
-        panel.setModoVivo(match.modo)   // pinta el color del candidato (feedback visual)
-        panel.show("¿Cambiar a MODO \(match.modo.nombre.uppercased())? \(tecla) = sí · clic = no")
-        playSound("Tink")
+    /// Modal para la CADENA coloquial: confirma todas las acciones de una.
+    private func preguntarCadenaColoquial(_ cad: ModoCadena, descripcion: String,
+                                          crudo: String, textoNormal: String, modoNormal: Modo,
+                                          wav: Data, history: HistoryWriter?) {
+        var p = ModoPlanificador.pregunta(para: cad, fuente: .natural, confianza: 0.88)
+        p = ModoPreguntaPlan(cadena: p.cadena, descripcion: descripcion,
+                             detalles: p.detalles, alternativas: p.alternativas,
+                             fuente: p.fuente, confianza: p.confianza)
+        presentarConfirmacion(p, entrega: EntregaConfirmacion(crudo: crudo,
+                                                               normal: textoNormal,
+                                                               modoNormal: modoNormal,
+                                                               wav: wav, history: history))
+    }
+
+    /// Pregunta en el notch. fn = sí · X/clic/timeout = continuar sin el cambio.
+    private func preguntarCambioModo(_ match: ModoMatch, crudo: String, textoNormal: String,
+                                     modoNormal: Modo,
+                                     wav: Data, history: HistoryWriter?) {
+        let entrega = EntregaConfirmacion(crudo: crudo, normal: textoNormal,
+                                          modoNormal: modoNormal, wav: wav, history: history)
+        guard !recorder.isRecording else {
+            ModosLog.registrar("modo_omitido", ["motivo": "nuevo_dictado_activo",
+                                                 "modo": match.modo.id])
+            continuarSinPlan(entrega); return
+        }
+        guard Config.panelVisible() else { continuarSinPlan(entrega); return }
         confirmacionTimer?.invalidate()
-        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
+        confirmacion = .modo(match, entrega)
+        panel.setModoVivo(match.modo)
+        panel.showConfirmation(title: "¿Deseas usar el modo \(match.modo.nombre)?",
+                               details: [ModoPlanificador.descripcionEtapa(match.modo)],
+                               content: match.textoLimpio,
+                               alternatives: [], modoNormal: modoNormal.nombre)
+        playSound("Tink")
+        armConfirmX()
+        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
+                                                  repeats: false) { [weak self] _ in
             self?.resolverConfirmacion(acepta: false)
         }
     }
 
     func resolverConfirmacion(acepta: Bool) {
         confirmacionTimer?.invalidate(); confirmacionTimer = nil
-        // ¿Era una CADENA coloquial pendiente?
-        if let cc = confirmacionCadena {
-            confirmacionCadena = nil
+        disarmConfirmX()
+        panel.closeConfirmation()
+        guard let pendiente = confirmacion else { return }
+        confirmacion = nil
+
+        switch pendiente {
+        case .plan(let pregunta, let entrega):
             if acepta {
-                ModosLog.registrar("cadenacol_si", ["crudo": cc.crudo,
-                    "transforms": cc.cadena.transforms.map(\.id),
-                    "accion": cc.cadena.accion?.accion ?? ""])
-                correrCadena(cc.cadena.transforms, indice: 0, texto: cc.cadena.contenido,
-                             accion: cc.cadena.accion, wav: cc.wav, history: cc.history)
+                ModosLog.registrar("plan_si", ["crudo": entrega.crudo,
+                    "fuente": pregunta.fuente.rawValue,
+                    "confianza": pregunta.confianza,
+                    "transforms": pregunta.cadena.transforms.map(\.id),
+                    "acciones": pregunta.cadena.acciones.map { $0.modo.accion },
+                    "destinatarios": pregunta.cadena.acciones.compactMap(\.destinatario)])
+                ModoAutoMejora.registrar(fuente: pregunta.fuente.rawValue,
+                                         confianza: pregunta.confianza, aceptado: true)
+                // Agente único conserva su camino especializado (Hermes/OpenClaw,
+                // TTS y barge-in). Meterlo por procesarModo lo degradaría a chat plano.
+                if pregunta.cadena.transforms.count == 1,
+                   pregunta.cadena.transforms[0].base == "agente",
+                   pregunta.cadena.acciones.isEmpty {
+                    let m = pregunta.cadena.transforms[0]
+                    aplicarResultadoModo(.modo(ModoResolucion(modo: m,
+                                                              texto: pregunta.cadena.contenido,
+                                                              fuente: pregunta.fuente,
+                                                              match: nil)),
+                                         crudo: entrega.crudo, textoNormal: entrega.normal,
+                                         modoNormal: entrega.modoNormal,
+                                         wav: entrega.wav, history: entrega.history)
+                } else {
+                    correrCadena(pregunta.cadena.transforms, indice: 0,
+                                 texto: pregunta.cadena.contenido,
+                                 acciones: pregunta.cadena.acciones,
+                                 wav: entrega.wav, history: entrega.history)
+                }
             } else {
-                ModosLog.registrar("cadenacol_no", ["crudo": cc.crudo])
-                panel.setModo(ModosStore.activo())
-                aplicarResultadoModo(.modo(ModoResolucion(modo: ModosStore.activo(), texto: cc.crudo,
-                                                          fuente: .manual, match: nil)),
-                                     crudo: cc.crudo, wav: cc.wav, history: cc.history)
+                ModosLog.registrar("plan_no", ["crudo": entrega.crudo,
+                    "fuente": pregunta.fuente.rawValue, "confianza": pregunta.confianza])
+                ModoAutoMejora.registrar(fuente: pregunta.fuente.rawValue,
+                                         confianza: pregunta.confianza, aceptado: false)
+                continuarSinPlan(entrega)
             }
-            return
-        }
-        guard let c = confirmacionModo else { return }
-        confirmacionModo = nil
-        if acepta {
-            ModosLog.registrar("gramatical_si", ["modo": c.match.modo.id, "crudo": c.crudo])
-            aplicarResultadoModo(.modo(ModoResolucion(modo: c.match.modo, texto: c.match.textoLimpio,
-                                                      fuente: .gramatical, match: c.match)),
-                                 crudo: c.crudo, wav: c.wav, history: c.history)
-        } else {
-            ModosLog.registrar("gramatical_no", ["modo": c.match.modo.id, "crudo": c.crudo])
-            panel.setModo(ModosStore.activo())   // restaura color/tinte del modo real
-            aplicarResultadoModo(.modo(ModoResolucion(modo: ModosStore.activo(), texto: c.crudo,
-                                                      fuente: .manual, match: nil)),
-                                 crudo: c.crudo, wav: c.wav, history: c.history)
+
+        case .modo(let match, let entrega):
+            if acepta {
+                ModosLog.registrar("modo_si", ["modo": match.modo.id, "crudo": entrega.crudo,
+                                                "confianza": match.confianza])
+                ModoAutoMejora.registrar(fuente: match.fuente.rawValue,
+                                         confianza: match.confianza, aceptado: true)
+                aplicarResultadoModo(.modo(ModoResolucion(modo: match.modo, texto: match.textoLimpio,
+                                                          fuente: match.fuente, match: match)),
+                                     crudo: entrega.crudo, textoNormal: entrega.normal,
+                                     modoNormal: entrega.modoNormal,
+                                     wav: entrega.wav, history: entrega.history)
+            } else {
+                ModosLog.registrar("modo_no", ["modo": match.modo.id, "crudo": entrega.crudo,
+                                                "confianza": match.confianza])
+                ModoAutoMejora.registrar(fuente: match.fuente.rawValue,
+                                         confianza: match.confianza, aceptado: false)
+                continuarSinPlan(entrega)
+            }
         }
     }
 
+    /// X/clic/timeout NO cancelan el dictado: descartan únicamente la interpretación
+    /// de intención y continúan con el modo que ya estaba activo.
+    private func continuarSinPlan(_ entrega: EntregaConfirmacion) {
+        let normal = entrega.modoNormal
+        panel.setModo(normal)
+        aplicarResultadoModo(.modo(ModoResolucion(modo: normal, texto: entrega.normal,
+                                                  fuente: .manual, match: nil)),
+                             crudo: entrega.crudo, textoNormal: entrega.normal,
+                             modoNormal: normal,
+                             wav: entrega.wav, history: entrega.history)
+    }
+
     private func aplicarResultadoModo(_ resultado: ResultadoModo, crudo: String,
+                                      textoNormal: String? = nil,
+                                      modoNormal: Modo? = nil,
                                       wav: Data, history: HistoryWriter?) {
         switch resultado {
         case .cadena(let cad):
-            let etapas = cad.transforms.map(\.nombre) + (cad.accion.map { [$0.nombre] } ?? [])
+            let etapas = cad.transforms.map(\.nombre) + cad.acciones.map { $0.modo.nombre }
             Log.log(.ia, "cadena por voz: \(etapas.joined(separator: " → "))")
             ModosLog.registrar("cadena", ["crudo": crudo,
                 "transforms": cad.transforms.map(\.id),
-                "accion": cad.accion.map { $0.base == "buscar" ? "buscar:\($0.buscador)" : $0.accion } ?? "",
+                "acciones": cad.acciones.map { $0.modo.base == "buscar" ? "buscar:\($0.modo.buscador)" : $0.modo.accion },
+                "destinatarios": cad.acciones.compactMap(\.destinatario),
                 "contenido": cad.contenido])
             guard !cad.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 if !recorder.isRecording { panel.flash("🎤 Cadena sin contenido — dilo con el texto", segundos: 2) }
@@ -2846,25 +2984,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return
             }
             correrCadena(cad.transforms, indice: 0, texto: cad.contenido,
-                         accion: cad.accion, wav: wav, history: history)
+                         acciones: cad.acciones, wav: wav, history: history)
 
         case .preguntar(let match):
             // Intención AMBIGUA ("quiero traducir algo…"): mini-modal en el notch.
             // fn = sí (cambia al modo y despacha el contenido) · Esc/clic/8s = no
             // (se procesa como dictado normal, sin recortar nada).
-            preguntarCambioModo(match, crudo: crudo, wav: wav, history: history)
+            preguntarCambioModo(match, crudo: crudo, textoNormal: textoNormal ?? crudo,
+                                modoNormal: modoNormal ?? ModosStore.activo(),
+                                wav: wav, history: history)
             return
 
         case .preguntarCadena(let cad, let desc):
             // CADENA coloquial ("envía un correo que traduzca lo siguiente…"): el modal
             // confirma TODAS las acciones de una: "¿TRADUCIR y enviar por correo? fn = sí".
-            preguntarCadenaColoquial(cad, descripcion: desc, crudo: crudo, wav: wav, history: history)
+            preguntarCadenaColoquial(cad, descripcion: desc, crudo: crudo,
+                                     textoNormal: textoNormal ?? crudo,
+                                     modoNormal: modoNormal ?? ModosStore.activo(),
+                                     wav: wav, history: history)
+            return
+
+        case .preguntarPlan(let pregunta):
+            presentarConfirmacion(pregunta,
+                                   entrega: EntregaConfirmacion(crudo: crudo,
+                                                                normal: textoNormal ?? crudo,
+                                                                modoNormal: modoNormal ?? ModosStore.activo(),
+                                                                wav: wav, history: history))
             return
 
         case .modo(let r):
             let m = r.modo
             switch r.fuente {
-            case .exacto, .difuso, .gramatical, .vivoExacto, .vivoDifuso, .semantico:
+            case .exacto, .difuso, .gramatical, .natural, .planSemantico, .ia,
+                 .vivoExacto, .vivoDifuso, .semantico:
                 Log.log(.ia, "modo \(r.fuente.rawValue) → \(m.nombre)")
                 // OJO: el evento "semantico" con esquema completo ya lo escribe
                 // detectarSemantico (aceptado/comando/score, lo consume el auto-mejorador).
@@ -3024,11 +3176,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// y, al final, ejecuta la ACCIÓN (o pega si no hay). Cada transform es async
     /// (procesarModo), así que se encadena por recursión.
     private func correrCadena(_ transforms: [Modo], indice: Int, texto: String,
-                              accion: Modo?, wav: Data, history: HistoryWriter?) {
+                              acciones: [ModoAccionPlan], wav: Data,
+                              history: HistoryWriter?) {
         guard indice < transforms.count else {
-            if let acc = accion {
-                if acc.base == "buscar" { ejecutarBusqueda(texto, modo: acc, wav: wav, history: history) }
-                else { ejecutarAccion(texto, modo: acc, wav: wav, history: history) }
+            if !acciones.isEmpty {
+                ejecutarAcciones(acciones, indice: 0, texto: texto, wav: wav, history: history)
             } else {
                 Log.write("  ✓ entregado (cadena): \(texto)")
                 finishDelivery(texto, rawText: texto, wav: wav, history: history)
@@ -3040,7 +3192,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         LLMPostProcess.procesarModo(texto, modo: m) { [weak self] out in
             Log.write("  ↳ \(m.nombre): \(out)")
             self?.correrCadena(transforms, indice: indice + 1, texto: out,
-                               accion: accion, wav: wav, history: history)
+                               acciones: acciones, wav: wav, history: history)
+        }
+    }
+
+    /// Ejecuta N destinos sobre el mismo resultado transformado. El historial se
+    /// cierra una sola vez; cada acción se separa brevemente para evitar que dos
+    /// aperturas de apps compitan en el mismo ciclo de eventos.
+    private func ejecutarAcciones(_ acciones: [ModoAccionPlan], indice: Int,
+                                  texto: String, wav: Data, history: HistoryWriter?) {
+        guard indice < acciones.count else { return }
+        if indice == 0 {
+            let resumen = acciones.map { ModoPlanificador.descripcionEtapa($0.modo, destinatario: $0.destinatario) }
+                .joined(separator: " → ")
+            history?.finish(wav: wav, finalText: "▶︎ \(resumen): \(texto)")
+        }
+        let etapa = acciones[indice]
+        let continuar: () -> Void = { [weak self] in
+            guard indice + 1 < acciones.count else { return }
+            self?.ejecutarAcciones(acciones, indice: indice + 1, texto: texto,
+                                   wav: wav, history: nil)
+        }
+        if etapa.modo.base == "buscar" {
+            ejecutarBusqueda(texto, modo: etapa.modo, wav: wav, history: nil,
+                              completion: continuar)
+        } else {
+            ejecutarAccion(texto, modo: etapa.modo, destinatario: etapa.destinatario,
+                           wav: wav, history: nil, completion: continuar)
         }
     }
 
@@ -3054,13 +3232,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     /// Modal para elegir cuando varios contactos coinciden (ej. 10 "Alberto").
-    private func elegirContactoWA(_ matches: [ContactoWA], texto: String, app: Bool) {
+    private func elegirContactoWA(_ matches: [ContactoWA], texto: String, app: Bool,
+                                  aproximada: Bool = false) {
         let tope = 6
         let alert = NSAlert()
         alert.messageText = "¿A cuál contacto enviar?"
-        alert.informativeText = matches.count > tope
-            ? "\(matches.count) coinciden (muestro los \(tope) más probables). Elige a quién."
-            : "Varios coinciden. Elige a quién mandar el WhatsApp."
+        alert.informativeText = aproximada
+            ? "El nombre se oyó de forma aproximada. Confirma el contacto antes de abrir WhatsApp."
+            : (matches.count > tope
+                ? "\(matches.count) coinciden (muestro los \(tope) más probables). Elige a quién."
+                : "Varios coinciden. Elige a quién mandar el WhatsApp.")
         for m in matches.prefix(tope) {
             let mask = m.numero.count > 4 ? "…" + m.numero.suffix(4) : m.numero
             alert.addButton(withTitle: "\(m.nombre) (\(mask))")
@@ -3084,12 +3265,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func ejecutarAccion(_ texto: String, modo: Modo, wav: Data, history: HistoryWriter?) {
+    private func ejecutarAccion(_ texto: String, modo: Modo, destinatario: String? = nil,
+                                wav: Data, history: HistoryWriter?,
+                                completion: (() -> Void)? = nil) {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = modo.accion.isEmpty ? "correo" : modo.accion
         Log.write("  ▶︎ acción (\(Acciones.nombre(id))): \(t)")
         ModosLog.registrar("accion", ["accion": id, "texto": t])
         history?.finish(wav: wav, finalText: "▶︎ \(Acciones.nombre(id)): \(t)")
+        var esperaAsincrona = false
+        func completar() {
+            guard let completion else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: completion)
+        }
         switch id {
         case "spotlight":
             abrirSpotlight()
@@ -3097,22 +3285,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "whatsapp":
             let tieneApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Acciones.bundle("whatsapp")) != nil
             // ¿"enviar a <nombre>"? → resuelve el contacto y manda directo a su chat.
-            let (nombre, msg) = ContactosWA.objetivo(t)
+            let detectado = ContactosWA.objetivo(t)
+            let nombre = destinatario ?? detectado.0
+            let msg = destinatario == nil ? detectado.1 : t
             if let nombre {
-                ContactosWA.resolver(nombre) { [weak self] matches in
+                esperaAsincrona = true
+                ContactosWA.resolverDetallado(nombre) { [weak self] matches, aproximada in
                     ModosLog.registrar("whatsapp", ["nombre": nombre, "coincidencias": matches.count,
-                        "resultado": matches.count == 1 ? "directo" : (matches.count >= 2 ? "modal" : "sin_match"),
+                        "aproximada": aproximada,
+                        "resultado": matches.count == 1 && !aproximada ? "directo" : (matches.count >= 1 ? "modal" : "sin_match"),
                         "mensaje": msg])
-                    if matches.count == 1 {
+                    if matches.count == 1, !aproximada {
                         self?.abrirWA(numero: matches[0].numero, texto: msg, app: tieneApp)
-                    } else if matches.count >= 2 {
-                        self?.elegirContactoWA(matches, texto: msg, app: tieneApp)
+                    } else if !matches.isEmpty {
+                        self?.elegirContactoWA(matches, texto: msg, app: tieneApp,
+                                               aproximada: aproximada)
                     } else {
                         self?.abrirWA(numero: nil, texto: msg.isEmpty ? t : msg, app: tieneApp)
                         if self?.recorder.isRecording == false {
                             self?.panel.flash("No encontré a \(nombre) — elige el contacto", segundos: 3)
                         }
                     }
+                    completar()
                 }
             } else {
                 abrirWA(numero: nil, texto: t, app: tieneApp)
@@ -3145,10 +3339,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.updateForzado("▶︎ " + t)
             panel.hide(after: 1.6)
         }
+        if !esperaAsincrona { completar() }
     }
 
     /// Modo Buscar: abre el buscador elegido con la consulta dictada (web o Spotlight).
-    private func ejecutarBusqueda(_ query: String, modo: Modo, wav: Data, history: HistoryWriter?) {
+    private func ejecutarBusqueda(_ query: String, modo: Modo, wav: Data,
+                                  history: HistoryWriter?, completion: (() -> Void)? = nil) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = modo.buscador.isEmpty ? "google" : modo.buscador
         Log.write("  🔎 buscar (\(Buscadores.nombre(id))): \(q)")
@@ -3165,6 +3361,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             setIcono(.reposo)
             panel.updateForzado("🔎 " + q)
             panel.hide(after: 1.6)
+        }
+        if let completion {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: completion)
         }
     }
 

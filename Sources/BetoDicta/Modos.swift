@@ -86,6 +86,9 @@ enum ModosStore {
              palabraVoz: "modo nota, modo notas, moda nota, modo note", almacen: "nota"),
         Modo(id: "traducir", nombre: "Traducir", icono: "globe", base: "traducir", idiomaDestino: "inglés",
              palabraVoz: "modo traducir, modo traduce, modo traducción"),
+        Modo(id: "resumir", nombre: "Resumir", icono: "text.redaction", base: "pulir",
+             prompt: "Resume el texto con fidelidad y claridad. Conserva las ideas y datos importantes, elimina repeticiones y devuelve solo el resumen.",
+             palabraVoz: "modo resumir, modo resumen, modo sintetizar"),
         Modo(id: "asistente", nombre: "Asistente", icono: "sparkles", base: "responder",
              prompt: "El dictado es una instrucción o pregunta. Responde o redacta lo pedido de forma útil, directa y concisa, en español (salvo que se pida otro idioma). Devuelve solo la respuesta, sin preámbulos.",
              palabraVoz: "modo asistente, modo asistentes"),
@@ -93,7 +96,7 @@ enum ModosStore {
              palabraVoz: "modo buscar, modo busca, modo búsqueda, modo buscador", buscador: "google"),
         Modo(id: "agente", nombre: "Agente", icono: "sparkle", base: "agente",
              prompt: "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos.",
-             palabraVoz: "modo agente, modo asistente de voz, modo jarvis"),
+             palabraVoz: "modo agente, modo la gente, modo gente, modo asistente de voz, modo jarvis"),
     ]
 
     static func todos() -> [Modo] {
@@ -272,6 +275,18 @@ enum Idiomas {
     /// canónico; si no, nil (para el argumento por voz de "modo traducir <idioma>").
     static func reconocer(_ token: String) -> String? {
         let n = norm(token)
+        // Algunos STT devuelven el nombre del idioma en inglés o una forma
+        // fonética corta aunque el resto esté en español. Son alias observados,
+        // no fuzzy abierto: aquí equivocarse cambiaría el idioma de salida.
+        let alias: [String: String] = [
+            "english": "inglés", "spanish": "español", "portuguese": "portugués",
+            "french": "francés", "german": "alemán", "italian": "italiano",
+            "chinese": "chino", "japanese": "japonés", "korean": "coreano",
+            "russian": "ruso", "arabic": "árabe", "dutch": "neerlandés",
+            "greek": "griego", "hebrew": "hebreo", "quha": "quichua",
+            "quija": "quichua", "quigua": "quichua", "quichwa": "quichua"
+        ]
+        if let a = alias[n] { return a }
         return todos().first { norm($0.nombre) == n }?.nombre
     }
     /// Todos: base + los que el usuario agregó (bandera genérica para los propios).
@@ -423,10 +438,22 @@ enum Acciones {
 //
 // "modo traducir quichua a correo outlook <texto>" → traduce a quichua, luego abre
 // Outlook con ese texto. Orden-independiente ("modo correo y traducir quichua …"):
-// los transforms se aplican en orden y la ACCIÓN final abre app/URL con el resultado.
+// los transforms se aplican en orden y las ACCIONES finales reciben el mismo resultado.
 // Solo se activa con 2+ etapas; 1 etapa la maneja detectarPorVoz normal (sin regresión).
 
 extension ModosStore {
+    struct DeteccionSemantica {
+        let modo: Modo?
+        let textoLimpio: String
+        let comando: String
+        let score: Double
+        let segundoId: String?
+        let segundoScore: Double
+        let margen: Double
+        let superaUmbral: Bool
+        let inequívoco: Bool
+    }
+
     private static let conectores: Set<String> = [
         "a", "al", "y", "e", "en", "para", "con", "de", "la", "el", "lo", "los", "las",
         "modo"   // el usuario repite "modo" por etapa ("modo traducir modo buscar")
@@ -439,8 +466,9 @@ extension ModosStore {
     // verbo (1 palabra tras "modo") → id de modo TRANSFORM
     private static let verbosTransform: [String: String] = [
         "traducir": "traducir", "traduce": "traducir", "traduccion": "traducir",
+        "resumen": "resumir", "resumir": "resumir", "resume": "resumir", "sintetizar": "resumir",
         "oficio": "oficio", "tarea": "tarea", "nota": "nota",
-        "asistente": "asistente", "responde": "asistente", "resume": "asistente", "resumir": "asistente",
+        "asistente": "asistente", "responde": "asistente",
     ]
     // verbo → preset de ACCIÓN ("buscar" es especial: lleva buscador)
     private static let verbosAccion: [String: String] = [
@@ -455,8 +483,9 @@ extension ModosStore {
 
     // Capa 2 (sin IA): matcheo por RAÍZ. Tolera formas variables sin enumerar todo.
     private static let transformStems: [(String, String)] = [
-        ("traduc", "traducir"), ("ofici", "oficio"), ("tarea", "tarea"), ("nota", "nota"),
-        ("asist", "asistente"), ("resum", "asistente"), ("respond", "asistente"),
+        ("traduc", "traducir"), ("resum", "resumir"), ("sintet", "resumir"),
+        ("ofici", "oficio"), ("tarea", "tarea"), ("nota", "nota"),
+        ("asist", "asistente"), ("respond", "asistente"),
     ]
     private static let accionStems: [(String, String)] = [
         ("correo", "correo"), ("mail", "correo"), ("outlook", "outlook"),
@@ -484,14 +513,21 @@ extension ModosStore {
     }
 
     /// Parsea una CADENA de voz. nil si no empieza con "modo" o si hay <2 etapas.
-    static func detectarCadena(_ texto: String) -> (transforms: [Modo], accion: Modo?, contenido: String)? {
+    static func detectarCadena(_ texto: String) -> ModoCadena? {
         var tokens = texto.trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
         guard let f = tokens.first,
               ModoResolver.palabrasModoSeguras.contains(limpioTok(f)) else { return nil }
         tokens.removeFirst()
         var transforms: [Modo] = []
-        var accion: Modo? = nil
+        var acciones: [ModoAccionPlan] = []
+        func agregarAccion(_ m: Modo) {
+            let firma = m.base == "buscar" ? "buscar:\(m.buscador)" : m.accion
+            guard !acciones.contains(where: {
+                ($0.modo.base == "buscar" ? "buscar:\($0.modo.buscador)" : $0.modo.accion) == firma
+            }) else { return }
+            acciones.append(ModoAccionPlan(modo: m, destinatario: nil))
+        }
         var i = 0
         while i < tokens.count {
             let w = limpioTok(tokens[i])
@@ -515,29 +551,32 @@ extension ModosStore {
                     while j < tokens.count, conectores.contains(limpioTok(tokens[j])) { j += 1 }
                     if j < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[j])) { b.buscador = eng; i = j + 1 }
                 }
-                accion = b
+                agregarAccion(b)
             } else {
-                accion = Modo(id: "cadena-\(v.id)", nombre: Acciones.nombre(v.id),
-                              icono: "bolt.fill", base: "accion", accion: v.id)
+                var accion = Modo(id: "cadena-\(v.id)", nombre: Acciones.nombre(v.id),
+                                  icono: "bolt.fill", base: "accion", accion: v.id)
                 // "enviar POR CORREO/WHATSAPP…": el medio concreto tras el verbo genérico
                 // MANDA y se consume (antes quedaba pegado al contenido: el correo salía
                 // con "por correo hola equipo" adentro).
-                let puentes: Set<String> = ["por", "al", "a", "en", "el", "la", "un", "una"]
-                var j = i
-                while j < tokens.count,
-                      conectores.contains(limpioTok(tokens[j])) || puentes.contains(limpioTok(tokens[j])) { j += 1 }
-                if j < tokens.count, let v2 = resolverVerbo(tokens[j]),
-                   v2.tipo != "transform", v2.id != "buscar" {
-                    accion = Modo(id: "cadena-\(v2.id)", nombre: Acciones.nombre(v2.id),
-                                  icono: "bolt.fill", base: "accion", accion: v2.id)
-                    i = j + 1
+                if w == "enviar" {
+                    let puentes: Set<String> = ["por", "al", "a", "en", "el", "la", "un", "una"]
+                    var j = i
+                    while j < tokens.count,
+                          conectores.contains(limpioTok(tokens[j])) || puentes.contains(limpioTok(tokens[j])) { j += 1 }
+                    if j < tokens.count, let v2 = resolverVerbo(tokens[j]),
+                       v2.tipo != "transform", v2.id != "buscar" {
+                        accion = Modo(id: "cadena-\(v2.id)", nombre: Acciones.nombre(v2.id),
+                                      icono: "bolt.fill", base: "accion", accion: v2.id)
+                        i = j + 1
+                    }
                 }
+                agregarAccion(accion)
             }
         }
-        guard transforms.count + (accion != nil ? 1 : 0) >= 2 else { return nil }
+        guard transforms.count + acciones.count >= 2 else { return nil }
         let contenido = tokens[i...].joined(separator: " ")
             .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n"))
-        return (transforms, accion, contenido)
+        return ModoCadena(transforms: transforms, acciones: acciones, contenido: contenido)
     }
 }
 
@@ -568,7 +607,9 @@ extension ModosStore {
         case "tarea": e += ["agregar una tarea", "anotar un pendiente", "recuérdame hacer algo", "nueva tarea"]
         case "nota": e += ["tomar una nota", "apuntar una idea", "guardar una nota"]
         case "traducir": e += ["traducir esto", "traduce al inglés", "cómo se dice esto en otro idioma"]
+        case "resumir": e += ["resumir este texto", "hazme un resumen", "sintetiza lo siguiente", "condensa estas ideas"]
         case "asistente": e += ["responde esto", "ayúdame a redactar", "escribe una respuesta"]
+        case "agente": e += ["pregúntale al agente", "pregúntale a la gente", "consulta al agente", "modo jarvis"]
         case "buscar": e += ["buscar en google", "busca esto en internet", "googlear algo"]
         default:
             if m.base == "accion" {
@@ -596,16 +637,23 @@ extension ModosStore {
 
     /// Elige el modo por SIGNIFICADO. Si los vectores no están calientes, los
     /// calienta en 2º plano y devuelve nil (esta vez cae al comportamiento normal).
-    static func detectarSemantico(_ texto: String, done: @escaping (Modo?, String) -> Void) {
+    static func detectarSemanticoDetallado(_ texto: String,
+                                           done: @escaping (DeteccionSemantica) -> Void) {
         let pares = paresEjemplos()
         guard EmbeddingSearch.modosListos(pares) else {
             EmbeddingSearch.calentarModos(pares)
-            done(nil, texto); return
+            done(DeteccionSemantica(modo: nil, textoLimpio: texto, comando: "",
+                                    score: 0, segundoId: nil, segundoScore: 0,
+                                    margen: 0, superaUmbral: false, inequívoco: false)); return
         }
         var toks = texto.trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
         if let f = toks.first, esPalabraModo(f) { toks.removeFirst() }
-        guard !toks.isEmpty else { done(nil, texto); return }
+        guard !toks.isEmpty else {
+            done(DeteccionSemantica(modo: nil, textoLimpio: texto, comando: "",
+                                    score: 0, segundoId: nil, segundoScore: 0,
+                                    margen: 0, superaUmbral: false, inequívoco: false)); return
+        }
         // VENTANA DINÁMICA: crecemos la zona-comando palabra por palabra y nos
         // quedamos con la ventana de MAYOR score (donde la intención "consolida").
         // Así "mándale mensaje whatsapp | a Alberto, hola" corta bien: el comando
@@ -615,30 +663,66 @@ extension ModosStore {
         if let coma = toks.firstIndex(where: { $0.contains(",") }) { techo = min(techo, coma + 1) }
         let umbral = Config.modoSemanticoUmbral()
         let grupo = DispatchGroup(); let lk = NSLock()
-        var res: [(w: Int, id: String?, score: Double)] = []
+        var res: [(w: Int, primero: EmbeddingSearch.PuntajeModo?, segundo: EmbeddingSearch.PuntajeModo?)] = []
         for w in 1...techo {
             let cmd = toks.prefix(w).joined(separator: " ")
             grupo.enter()
-            EmbeddingSearch.mejorModo(comando: cmd, modos: pares) { id, score in
-                lk.lock(); res.append((w, id, score)); lk.unlock(); grupo.leave()
+            EmbeddingSearch.rankingModos(comando: cmd, modos: pares) { ranking in
+                lk.lock(); res.append((w, ranking.first, ranking.dropFirst().first)); lk.unlock(); grupo.leave()
             }
         }
         grupo.notify(queue: .main) {
-            let mejor = res.max { $0.score < $1.score }
+            let mejor = res.max { ($0.primero?.score ?? 0) < ($1.primero?.score ?? 0) }
             let comandoTxt = mejor.map { toks.prefix($0.w).joined(separator: " ") } ?? ""
+            let score = mejor?.primero?.score ?? 0
+            let segundoScore = mejor?.segundo?.score ?? 0
+            let margen = score - segundoScore
+            let supera = mejor?.primero != nil && score >= umbral
+            let inequivoco = supera && margen >= Config.modoSemanticoMargen()
             ModosLog.registrar("semantico", ["comando": comandoTxt, "ventana": mejor?.w ?? 0,
-                "mejor": mejor?.id ?? "-", "score": mejor?.score ?? 0, "umbral": umbral,
-                "aceptado": (mejor?.id != nil && (mejor?.score ?? 0) >= umbral)])
-            guard let mejor, let id = mejor.id, mejor.score >= umbral,
-                  let m = todos().first(where: { $0.id == id }) else { done(nil, texto); return }
+                "mejor": mejor?.primero?.id ?? "-", "score": score,
+                "segundo": mejor?.segundo?.id ?? "-", "segundo_score": segundoScore,
+                "margen": margen, "margen_min": Config.modoSemanticoMargen(),
+                "umbral": umbral, "aceptado": supera, "inequivoco": inequivoco])
+            guard let mejor, let id = mejor.primero?.id, supera,
+                  var m = todos().first(where: { $0.id == id }) else {
+                done(DeteccionSemantica(modo: nil, textoLimpio: texto, comando: comandoTxt,
+                                        score: score, segundoId: mejor?.segundo?.id,
+                                        segundoScore: segundoScore, margen: margen,
+                                        superaUmbral: false, inequívoco: false)); return
+            }
             // No dejes conectores finales ("a", "para"…) en el comando: van al
             // contenido, para que "…whatsapp a | Alberto" → contenido "a Alberto"
             // y objetivo() extraiga el destinatario.
             var w = mejor.w
             while w > 1, conectores.contains(limpioTok(toks[w - 1])) { w -= 1 }
+            // El embedding puede consolidar en "traducir"/"buscar" antes de oír
+            // el argumento. Si viene inmediatamente después, aplícalo y consúmelo.
+            var candidato = w
+            while candidato < toks.count,
+                  ["a", "al", "en", "idioma", "buscador"].contains(limpioTok(toks[candidato])) {
+                candidato += 1
+            }
+            if candidato < toks.count {
+                if m.base == "traducir", let idi = Idiomas.reconocer(limpioTok(toks[candidato])) {
+                    m.idiomaDestino = idi; w = candidato + 1
+                } else if m.base == "buscar", let b = Buscadores.reconocer(limpioTok(toks[candidato])) {
+                    m.buscador = b; w = candidato + 1
+                }
+            }
             let contenido = toks.dropFirst(w).joined(separator: " ")
                 .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:\n"))
-            done(m, contenido)
+            done(DeteccionSemantica(modo: m, textoLimpio: contenido,
+                                    comando: toks.prefix(w).joined(separator: " "),
+                                    score: score, segundoId: mejor.segundo?.id,
+                                    segundoScore: segundoScore, margen: margen,
+                                    superaUmbral: true, inequívoco: inequivoco))
+        }
+    }
+
+    static func detectarSemantico(_ texto: String, done: @escaping (Modo?, String) -> Void) {
+        detectarSemanticoDetallado(texto) { r in
+            done(r.inequívoco ? r.modo : nil, r.inequívoco ? r.textoLimpio : texto)
         }
     }
 }

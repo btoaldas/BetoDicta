@@ -244,21 +244,37 @@ enum EmbeddingSearch {
             lock.lock(); calentando = false; lock.unlock()
         }
     }
-    /// Embebe el comando y devuelve el id del modo más cercano (max de sus ejemplos) + score.
-    static func mejorModo(comando: String, modos: [(id: String, ejemplos: [String])], done: @escaping (String?, Double) -> Void) {
+    struct PuntajeModo {
+        let id: String
+        let score: Double
+    }
+
+    /// Devuelve el ranking completo. El margen entre 1º y 2º evita escoger un
+    /// modo por muy poco cuando dos intenciones se parecen (correo/Outlook, por
+    /// ejemplo). Los vectores de ejemplos siguen saliendo del caché local.
+    static func rankingModos(comando: String, modos: [(id: String, ejemplos: [String])],
+                             done: @escaping ([PuntajeModo]) -> Void) {
         embed(comando) { r in
-            guard case .success(let qv) = r else { DispatchQueue.main.async { done(nil, 0) }; return }
+            guard case .success(let qv) = r else { DispatchQueue.main.async { done([]) }; return }
             lock.lock(); let firma = firmaMotor
-            var best: (String, Double)? = nil
+            var puntajes: [PuntajeModo] = []
             for par in modos {
                 var maxS = 0.0
                 for ej in par.ejemplos {
                     if let e = cache["modoej:\(par.id):\(ej)"], e.motor == firma { maxS = max(maxS, coseno(qv, e.vec)) }
                 }
-                if best == nil || maxS > best!.1 { best = (par.id, maxS) }
+                puntajes.append(PuntajeModo(id: par.id, score: maxS))
             }
             lock.unlock()
-            DispatchQueue.main.async { done(best?.0, best?.1 ?? 0) }
+            puntajes.sort { $0.score > $1.score }
+            DispatchQueue.main.async { done(puntajes) }
+        }
+    }
+
+    /// Compatibilidad para búsqueda simple: primer elemento del ranking.
+    static func mejorModo(comando: String, modos: [(id: String, ejemplos: [String])], done: @escaping (String?, Double) -> Void) {
+        rankingModos(comando: comando, modos: modos) { ranking in
+            done(ranking.first?.id, ranking.first?.score ?? 0)
         }
     }
 

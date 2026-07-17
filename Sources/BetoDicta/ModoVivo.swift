@@ -23,6 +23,7 @@ enum ColorModo {
         "tarea":     NSColor(calibratedRed: 1.00, green: 0.62, blue: 0.26, alpha: 1),  // naranja
         "nota":      NSColor(calibratedRed: 0.98, green: 0.83, blue: 0.30, alpha: 1),  // amarillo
         "traducir":  NSColor(calibratedRed: 0.42, green: 0.78, blue: 1.00, alpha: 1),  // celeste
+        "resumir":   NSColor(calibratedRed: 0.78, green: 0.62, blue: 1.00, alpha: 1),  // lila
         "asistente": NSColor(calibratedRed: 0.62, green: 0.55, blue: 0.95, alpha: 1),  // violeta
         "buscar":    NSColor(calibratedRed: 0.42, green: 0.85, blue: 0.45, alpha: 1),  // verde
         "agente":    NSColor(calibratedRed: 0.93, green: 0.45, blue: 0.85, alpha: 1),  // magenta

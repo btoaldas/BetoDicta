@@ -6,7 +6,7 @@ import Contacts
 // Resuelve un NOMBRE a un NÚMERO para mandar directo al chat. Cascada:
 //   1) lista IMPORTADA por el usuario (CSV/JSON: nombre,numero)
 //   2) Contactos de macOS (permiso)
-// 0 coincidencias → avisa · 1 → envía directo · 2+ → modal para elegir.
+// 0 coincidencias → avisa · 1 exacta → directo · aproximada o 2+ → modal.
 
 struct ContactoWA: Identifiable {
     let id = UUID()
@@ -28,6 +28,7 @@ enum ContactosWA {
     static func importados() -> [ContactoWA] {
         guard let d = try? Data(contentsOf: archivo),
               let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: String]] else { return [] }
+        Config.protegerSecreto(archivo) // migra instalaciones antiguas a 0600
         return arr.compactMap {
             let n = $0["nombre"] ?? ""; let num = soloNumero($0["numero"] ?? "")
             return n.isEmpty ? nil : ContactoWA(nombre: n, numero: num)
@@ -36,7 +37,10 @@ enum ContactosWA {
     private static func guardar(_ cs: [ContactoWA]) {
         Config.asegurarDirSeguro()
         let arr = cs.map { ["nombre": $0.nombre, "numero": $0.numero] }
-        if let d = try? JSONSerialization.data(withJSONObject: arr) { try? d.write(to: archivo, options: .atomic) }
+        if let d = try? JSONSerialization.data(withJSONObject: arr) {
+            try? d.write(to: archivo, options: .atomic)
+            Config.protegerSecreto(archivo)
+        }
     }
     static func vaciar() { try? FileManager.default.removeItem(at: archivo) }
 
@@ -211,25 +215,57 @@ enum ContactosWA {
         }
     }
 
-    /// Resuelve un nombre a coincidencias (importados + Mac), dedup por número. Callback en MAIN.
-    static func resolver(_ nombre: String, _ done: @escaping ([ContactoWA]) -> Void) {
+    /// Coincidencia local y determinista. Exacto primero; solo si no existe usa
+    /// distancia por PALABRA ("Adalberto"→"Alberto"). El llamador recibe el flag
+    /// aproximado para obligar a confirmar incluso cuando solo haya un resultado.
+    static func coincidencias(_ nombre: String, en contactos: [ContactoWA])
+        -> (contactos: [ContactoWA], aproximada: Bool) {
         let n = norm(nombre).trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:!?¿¡"))
-        let base = importados().filter { !n.isEmpty && norm($0.nombre).contains(n) }
-        func terminar(_ extra: [ContactoWA]) {
-            var vistos = Set<String>()
-            var todo = (base + extra).filter { !$0.numero.isEmpty && vistos.insert($0.numero).inserted }
-            // Relevancia: primero los nombres que EMPIEZAN con lo dictado, luego los cortos.
-            todo.sort { a, b in
+        guard !n.isEmpty else { return ([], false) }
+        var vistos = Set<String>()
+        let unicos = contactos.filter { !$0.numero.isEmpty && vistos.insert($0.numero).inserted }
+        var exactos = unicos.filter { norm($0.nombre).contains(n) }
+        if !exactos.isEmpty {
+            exactos.sort { a, b in
                 let pa = norm(a.nombre).hasPrefix(n), pb = norm(b.nombre).hasPrefix(n)
                 return pa != pb ? pa : a.nombre.count < b.nombre.count
             }
-            DispatchQueue.main.async { done(todo) }
+            return (exactos, false)
         }
-        if usarMac() {
-            deMac { mac in terminar(mac.filter { !n.isEmpty && norm($0.nombre).contains(n) }) }
-        } else {
-            terminar([])
+
+        let q = n.split(separator: " ").map(String.init).filter { $0.count >= 4 }
+        guard !q.isEmpty else { return ([], false) }
+        var puntuados: [(ContactoWA, Double)] = []
+        for c in unicos {
+            let partes = norm(c.nombre).split(separator: " ").map(String.init).filter { $0.count >= 4 }
+            guard !partes.isEmpty else { continue }
+            var suma = 0.0, valido = true
+            for buscado in q {
+                let candidatos = partes.filter { $0.first == buscado.first }
+                let mejor = candidatos.map { ModoFuzzy.similitud(buscado, $0) }.max() ?? 0
+                if mejor < 0.72 { valido = false; break }
+                suma += mejor
+            }
+            if valido { puntuados.append((c, suma / Double(q.count))) }
         }
+        puntuados.sort { $0.1 == $1.1 ? $0.0.nombre.count < $1.0.nombre.count : $0.1 > $1.1 }
+        return (puntuados.map(\.0), !puntuados.isEmpty)
+    }
+
+    /// Resuelve un nombre (importados → Contactos de Mac), callback en MAIN.
+    static func resolverDetallado(_ nombre: String,
+                                  _ done: @escaping ([ContactoWA], Bool) -> Void) {
+        func terminar(_ extra: [ContactoWA]) {
+            let r = coincidencias(nombre, en: importados() + extra)
+            DispatchQueue.main.async { done(r.contactos, r.aproximada) }
+        }
+        if usarMac() { deMac { terminar($0) } }
+        else { terminar([]) }
+    }
+
+    /// Compatibilidad para llamadores que no necesitan distinguir el fuzzy.
+    static func resolver(_ nombre: String, _ done: @escaping ([ContactoWA]) -> Void) {
+        resolverDetallado(nombre) { contactos, _ in done(contactos) }
     }
 
     /// Extrae el DESTINATARIO del texto: "a X", "para X", "enviar a X" al inicio.

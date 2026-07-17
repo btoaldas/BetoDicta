@@ -10,6 +10,9 @@ enum FuenteModo: String {
     case exacto = "voz"
     case difuso = "fuzzy"
     case gramatical
+    case natural
+    case planSemantico = "plan_semantico"
+    case ia = "ia"
     case contexto
     case semantico
     case vivoExacto = "vivo_exacto"
@@ -38,10 +41,43 @@ struct ModoContexto {
     var url: String?
 }
 
+struct ModoAccionPlan {
+    var modo: Modo
+    var destinatario: String?
+}
+
+/// Un plan puede tener N transformaciones y N acciones. `accion` se conserva como
+/// compatibilidad de lectura para el código/herramientas antiguas que solo conocían
+/// una acción final.
 struct ModoCadena {
     let transforms: [Modo]
-    let accion: Modo?
+    let acciones: [ModoAccionPlan]
     let contenido: String
+
+    var accion: Modo? { acciones.first?.modo }
+
+    init(transforms: [Modo], accion: Modo?, contenido: String) {
+        self.transforms = transforms
+        self.acciones = accion.map { [ModoAccionPlan(modo: $0, destinatario: nil)] } ?? []
+        self.contenido = contenido
+    }
+
+    init(transforms: [Modo], acciones: [ModoAccionPlan], contenido: String) {
+        self.transforms = transforms
+        self.acciones = acciones
+        self.contenido = contenido
+    }
+
+    var etapas: [Modo] { transforms + acciones.map(\.modo) }
+}
+
+struct ModoPreguntaPlan {
+    let cadena: ModoCadena
+    let descripcion: String
+    let detalles: [String]
+    let alternativas: [String]
+    let fuente: FuenteModo
+    let confianza: Double
 }
 
 struct ModoResolucion {
@@ -60,6 +96,9 @@ enum ResultadoModo {
     /// Cadena COLOQUIAL detectada ("envía un correo que traduzca lo siguiente…"):
     /// SIEMPRE se confirma con el modal ("¿TRADUCIR y enviar por CORREO? fn = sí").
     case preguntarCadena(ModoCadena, descripcion: String)
+    /// Pedido natural o semántico convertido en un plan de 1..N etapas. Nunca
+    /// ejecuta acciones externas sin que el usuario confirme la propuesta.
+    case preguntarPlan(ModoPreguntaPlan)
 }
 
 struct ModoCatalogo {
@@ -497,24 +536,47 @@ enum ModoResolver {
         return (ModoCadena(transforms: transforms, accion: accion, contenido: contenido), desc)
     }
 
-    static func matchSemantico(texto: String, modo: Modo, limpio: String) -> ModoMatch {
+    static func matchSemantico(texto: String, modo: Modo, limpio: String,
+                               confianza: Double = 0) -> ModoMatch {
         let todos = tokensNormalizados(texto)
         let contenido = tokensNormalizados(limpio)
         let consumidas = max(1, todos.count - contenido.count)
         return ModoMatch(modo: modo, fuente: .semantico, frase: "semántico",
                          tokensComando: Array(todos.prefix(consumidas)),
-                         palabrasConsumidas: consumidas, confianza: 0,
+                         palabrasConsumidas: consumidas, confianza: confianza,
                          confirmadoPorPausa: false, textoLimpio: limpio)
     }
 
+    private static func planSemantico(_ r: ModosStore.DeteccionSemantica,
+                                      catalogo: ModoCatalogo) -> ModoPreguntaPlan? {
+        guard let modo = r.modo,
+              r.textoLimpio.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) else {
+            return nil
+        }
+        let cadena: ModoCadena
+        if modo.base == "accion" || modo.base == "buscar" {
+            cadena = ModoCadena(transforms: [],
+                                acciones: [ModoAccionPlan(modo: modo, destinatario: nil)],
+                                contenido: r.textoLimpio)
+        } else {
+            cadena = ModoCadena(transforms: [modo], acciones: [], contenido: r.textoLimpio)
+        }
+        var alternativas: [String] = []
+        if let segundo = r.segundoId,
+           let m2 = catalogo.modos.first(where: { $0.id == segundo }) {
+            alternativas.append(ModoPlanificador.descripcionEtapa(m2))
+        }
+        return ModoPlanificador.pregunta(para: cadena, fuente: .planSemantico,
+                                          confianza: r.score, alternativas: alternativas)
+    }
+
     /// Orden declarado y testeable:
-    /// cadena > final exacto > final fuzzy > vivo confirmado por pausa > contexto >
-    /// semántico > vivo fuzzy/de respaldo > modo manual congelado.
+    /// cadena explícita > exacto > difuso > pedido natural > vivo confirmado por
+    /// pausa > semántica/IA > contexto > respaldo vivo > modo manual congelado.
     static func resolver(texto: String, modoBase: Modo, contexto: ModoContexto?,
                          vivo: ModoMatch?, completion: @escaping (ResultadoModo) -> Void) {
         if Config.modoPorVoz(), let c = ModosStore.detectarCadena(texto) {
-            completion(.cadena(ModoCadena(transforms: c.transforms, accion: c.accion,
-                                          contenido: c.contenido)))
+            completion(.cadena(c))
             return
         }
         let catalogo = ModoCatalogoCache.actual()
@@ -528,24 +590,13 @@ enum ModoResolver {
                                             fuente: .difuso, match: m)))
             return
         }
-        // CADENA COLOQUIAL: ≥2 intenciones sin decir "modo" ("envía un correo que
-        // traduzca lo siguiente…"). SIEMPRE pregunta con el modal antes de ejecutar.
+        // PEDIDO NATURAL: construye un plan de 1..N etapas por relaciones verbales.
+        // Nunca ejecuta directo: el usuario ve exactamente qué entendimos y confirma.
+        // Esta capa reemplaza en producción las antiguas raíces gramaticales amplias,
+        // que confundían títulos como "Notas de la reunión" con órdenes.
         if Config.modoPorVoz(), Config.modoGramatical(),
-           let (cad, desc) = detectarCadenaColoquial(texto, catalogo: catalogo) {
-            completion(.preguntarCadena(cad, descripcion: desc))
-            return
-        }
-        // GRAMATICAL: el verbo del modo en cualquier conjugación. Imperativo directo
-        // ("tradúceme esto…") cambia ya; intención indirecta ("quiero traducir…")
-        // pregunta con el mini-modal antes de despachar.
-        if Config.modoPorVoz(), Config.modoGramatical(),
-           let (m, certeza) = detectarGramatical(texto, catalogo: catalogo) {
-            if certeza == .directo {
-                completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
-                                                fuente: .gramatical, match: m)))
-            } else {
-                completion(.preguntar(m))
-            }
+           let plan = ModoPlanificador.detectarNatural(texto, catalogo: catalogo) {
+            completion(.preguntarPlan(plan))
             return
         }
 
@@ -560,14 +611,6 @@ enum ModoResolver {
             return
         }
 
-        if Config.modoPorContexto(), let contexto,
-           let m = ModosStore.detectarPorContexto(bundleId: contexto.bundleId,
-                                                   nombre: contexto.nombre, url: contexto.url) {
-            completion(.modo(ModoResolucion(modo: m, texto: texto,
-                                            fuente: .contexto, match: nil)))
-            return
-        }
-
         func respaldo() {
             if Config.modoPorVoz(), let vivo {
                 let m = aplicarVivo(vivo, al: texto)
@@ -579,13 +622,59 @@ enum ModoResolver {
             }
         }
 
-        if Config.modoSemantico(), ModosStore.pareceComando(texto) {
-            ModosStore.detectarSemantico(texto) { modo, limpio in
-                guard let modo else { respaldo(); return }
-                let m = matchSemantico(texto: texto, modo: modo, limpio: limpio)
-                completion(.modo(ModoResolucion(modo: modo, texto: limpio,
-                                                fuente: .semantico, match: m)))
+        func contextoORespaldo() {
+            if Config.modoPorContexto(), let contexto,
+               let m = ModosStore.detectarPorContexto(bundleId: contexto.bundleId,
+                                                       nombre: contexto.nombre, url: contexto.url) {
+                completion(.modo(ModoResolucion(modo: m, texto: texto,
+                                                fuente: .contexto, match: nil)))
+            } else { respaldo() }
+        }
+
+        // El interruptor maestro manda también sobre embeddings e IA. Apagar
+        // "modo por voz" nunca debe dejar una capa inteligente activa por detrás.
+        guard Config.modoPorVoz() else { contextoORespaldo(); return }
+
+        let explicito = ModosStore.pareceComando(texto)
+        let solicitud = ModoPlanificador.parecePedidoParaArbitraje(texto)
+
+        /// Última instancia: una IA activa solo clasifica la ZONA de intención.
+        /// Si tarda/falla/no ve intención, no bloquea ni cambia el texto.
+        func arbitrarIA(siFalla propuestaLocal: ModoPreguntaPlan? = nil) {
+            guard solicitud else {
+                if let propuestaLocal { completion(.preguntarPlan(propuestaLocal)) }
+                else { contextoORespaldo() }
+                return
             }
-        } else { respaldo() }
+            ModoIAEnrutador.resolver(texto, catalogo: catalogo) { plan in
+                if let plan { completion(.preguntarPlan(plan)) }
+                else if let propuestaLocal { completion(.preguntarPlan(propuestaLocal)) }
+                else { contextoORespaldo() }
+            }
+        }
+
+        // Embeddings: comandos explícitos inequívocos continúan automáticos; una
+        // petición natural o un empate se confirma. En empate la IA intenta
+        // desempatar ANTES de presentar la pregunta.
+        if Config.modoSemantico(), (explicito || solicitud) {
+            ModosStore.detectarSemanticoDetallado(texto) { r in
+                guard let modo = r.modo, r.superaUmbral else {
+                    arbitrarIA(); return
+                }
+                if explicito, r.inequívoco {
+                    let m = matchSemantico(texto: texto, modo: modo,
+                                           limpio: r.textoLimpio, confianza: r.score)
+                    completion(.modo(ModoResolucion(modo: modo, texto: r.textoLimpio,
+                                                    fuente: .semantico, match: m)))
+                    return
+                }
+                guard let propuesta = planSemantico(r, catalogo: catalogo) else {
+                    arbitrarIA(); return
+                }
+                if r.inequívoco { completion(.preguntarPlan(propuesta)) }
+                else { arbitrarIA(siFalla: propuesta) }
+            }
+        } else if solicitud { arbitrarIA() }
+        else { contextoORespaldo() }
     }
 }

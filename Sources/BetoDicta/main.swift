@@ -11,6 +11,11 @@
 
 import AppKit
 
+ModoPlanQA.ejecutarSiSePidio()
+ModoRegressionQA.ejecutarSiSePidio()
+ModoAudioQA.ejecutarSiSePidio()
+ModoIAQA.ejecutarSiSePidio()
+
 let app = NSApplication.shared
 app.setActivationPolicy(Config.showInDock() ? .regular : .accessory)
 let delegate = AppDelegate()

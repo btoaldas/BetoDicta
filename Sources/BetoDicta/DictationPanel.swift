@@ -24,6 +24,10 @@ final class DictationPanel {
     private let keycap = NSTextField(labelWithString: "fn")
     private let motorLabel = MotorLabel(labelWithString: "")
     private let modoLabel = MotorLabel(labelWithString: "")   // arriba-izq: modo activo
+    private let confirmTitle = NSTextField(labelWithString: "")
+    private let confirmBody = NSTextField(wrappingLabelWithString: "")
+    private let confirmAlternatives = NSTextField(wrappingLabelWithString: "")
+    private let confirmFooter = NSTextField(labelWithString: "")
     private var fondo: NSView?                                 // forma negra (para el latido "pensando")
 
     /// Clic sobre el letrero del motor (o el fn): abrir el selector rápido.
@@ -39,6 +43,9 @@ final class DictationPanel {
 
     private let wing: CGFloat = 48      // alas a los lados del notch
     private let strip: CGFloat = 24     // línea de texto bajo el notch
+    private var confirmStrip: CGFloat = 126 // pregunta expandida HACIA ABAJO
+    private var confirmando = false
+    private var stripActual: CGFloat { confirmando ? confirmStrip : strip }
     private var width: CGFloat = 400
     private var height: CGFloat = 60
     private var notchHeight: CGFloat = 36
@@ -134,6 +141,31 @@ final class DictationPanel {
         label.frame = NSRect(x: 8, y: 4, width: width - 16, height: 15)
         background.addSubview(label)
 
+        // Confirmación de intención: no compite con el karaoke. Cuando aparece,
+        // el panel crece hacia abajo y usa varias líneas con una jerarquía clara.
+        confirmTitle.font = NSFont.systemFont(ofSize: 12, weight: .bold)
+        confirmTitle.textColor = .white
+        confirmTitle.alignment = .left
+        confirmTitle.isHidden = true
+        background.addSubview(confirmTitle)
+        confirmBody.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        confirmBody.textColor = .white
+        confirmBody.maximumNumberOfLines = 0
+        confirmBody.lineBreakMode = .byWordWrapping
+        confirmBody.isHidden = true
+        background.addSubview(confirmBody)
+        confirmAlternatives.font = NSFont.systemFont(ofSize: 9, weight: .regular)
+        confirmAlternatives.textColor = NSColor(calibratedWhite: 0.68, alpha: 1)
+        confirmAlternatives.maximumNumberOfLines = 3
+        confirmAlternatives.lineBreakMode = .byWordWrapping
+        confirmAlternatives.isHidden = true
+        background.addSubview(confirmAlternatives)
+        confirmFooter.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        confirmFooter.textColor = NSColor(calibratedRed: 0.55, green: 0.88, blue: 1, alpha: 1)
+        confirmFooter.alignment = .center
+        confirmFooter.isHidden = true
+        background.addSubview(confirmFooter)
+
         // Ala IZQUIERDA, arriba (sobre el audio): el MODO activo. Clic para
         // cambiarlo — igual que el letrero del motor a la derecha.
         modoLabel.font = NSFont.systemFont(ofSize: 7, weight: .bold)
@@ -189,6 +221,64 @@ final class DictationPanel {
         panel.orderFrontRegardless()
     }
 
+    /// Pregunta contextual. El panel conserva el borde superior pegado al notch y
+    /// expande el cuerpo hacia abajo; `fn` confirma y `X` descarta SOLO el plan.
+    func showConfirmation(title: String, details: [String], content: String,
+                          alternatives: [String], modoNormal: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showConfirmation(title: title, details: details, content: content,
+                                       alternatives: alternatives, modoNormal: modoNormal)
+            }
+            return
+        }
+        guard Config.panelVisible() else { return }
+        let visibles = Array(details.prefix(8))
+        let sobrantes = max(0, details.count - visibles.count)
+        let filasDetalle = max(1, visibles.count + (sobrantes > 0 ? 1 : 0))
+        let filasContexto = content.count > 95 ? 2 : 1
+        let filasAlternativa = alternatives.isEmpty ? 0 : min(2, alternatives.count)
+        confirmStrip = min(258, 68 + CGFloat(filasDetalle * 17
+                           + (filasContexto + filasAlternativa) * 15) + 12)
+        confirmando = true
+        presentacionID &+= 1
+        flashHasta = .distantPast
+        label.isHidden = true
+        confirmTitle.isHidden = false
+        confirmBody.isHidden = false
+        confirmAlternatives.isHidden = false
+        confirmFooter.isHidden = false
+        confirmTitle.stringValue = title
+        var lineas = visibles.enumerated().map { "\($0.offset + 1). \($0.element)" }
+        if sobrantes > 0 { lineas.append("… y \(sobrantes) etapa\(sobrantes == 1 ? "" : "s") más") }
+        confirmBody.stringValue = lineas.joined(separator: "\n")
+        let compacto = content.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let extracto = compacto.count > 180 ? String(compacto.prefix(177)) + "…" : compacto
+        confirmAlternatives.stringValue = "Texto: “\(extracto)”"
+            + (alternatives.isEmpty ? "" : "\nOtras lecturas: " + alternatives.joined(separator: " · "))
+        confirmFooter.stringValue = "\(Config.hotkey()) (una vez)  CONFIRMAR   ·   X  SEGUIR EN \(modoNormal.uppercased())"
+        relayout()
+        reposicionar()
+        panel.orderFrontRegardless()
+    }
+
+    func closeConfirmation() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.closeConfirmation() }
+            return
+        }
+        guard confirmando else { return }
+        confirmando = false
+        label.isHidden = false
+        confirmTitle.isHidden = true
+        confirmBody.isHidden = true
+        confirmAlternatives.isHidden = true
+        confirmFooter.isHidden = true
+        relayout()
+        reposicionar()
+    }
+
     /// Muestra un aviso breve por N segundos, por encima del texto del dictado.
     func flash(_ text: String, segundos: TimeInterval = 2.5) {
         guard Config.panelVisible(), !enRespuestaIA else { return }
@@ -229,7 +319,7 @@ final class DictationPanel {
                                width: 210, height: notchHeight)
         }
         let nuevoAncho = notchRect.width + wing * 2
-        let nuevoAlto = notchHeight + strip
+        let nuevoAlto = notchHeight + stripActual
         // Si cambió el tamaño (notch ↔ pantalla externa), relayout completo.
         if abs(nuevoAncho - width) > 0.5 || abs(nuevoAlto - height) > 0.5 {
             width = nuevoAncho; height = nuevoAlto
@@ -242,16 +332,24 @@ final class DictationPanel {
     /// Reajusta los subviews cuando cambia el tamaño (cambio de pantalla).
     private func relayout() {
         panel.contentView?.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        meter.frame = NSRect(x: 8, y: strip + 7, width: wing - 16, height: notchHeight - 14)
+        let inferior = stripActual
+        meter.frame = NSRect(x: 8, y: inferior + 7, width: wing - 16, height: notchHeight - 14)
         let capW: CGFloat = 30
         let capH: CGFloat = notchHeight >= 34 ? 18 : 14
         keycap.font = NSFont.systemFont(ofSize: capH >= 18 ? 12 : 10, weight: .semibold)
-        keycap.frame = NSRect(x: width - wing + (wing - capW) / 2, y: strip + 2, width: capW, height: capH)
+        keycap.frame = NSRect(x: width - wing + (wing - capW) / 2, y: inferior + 2, width: capW, height: capH)
         let motorH = max(8, notchHeight - capH - 7)
-        motorLabel.frame = NSRect(x: width - wing + 1, y: strip + capH + 4,
+        motorLabel.frame = NSRect(x: width - wing + 1, y: inferior + capH + 4,
                                   width: wing - 2, height: min(motorH, 10))
-        modoLabel.frame = NSRect(x: 1, y: strip + notchHeight - 11, width: wing - 2, height: 10)
+        modoLabel.frame = NSRect(x: 1, y: inferior + notchHeight - 11, width: wing - 2, height: 10)
         label.frame = NSRect(x: 8, y: 4, width: width - 16, height: 15)
+        confirmTitle.frame = NSRect(x: 12, y: inferior - 24, width: width - 24, height: 17)
+        let altH: CGFloat = confirmAlternatives.isHidden ? 0 : 42
+        let bodyY: CGFloat = 27 + altH
+        confirmBody.frame = NSRect(x: 12, y: bodyY, width: width - 24,
+                                   height: max(34, inferior - bodyY - 28))
+        confirmAlternatives.frame = NSRect(x: 12, y: 26, width: width - 24, height: altH)
+        confirmFooter.frame = NSRect(x: 8, y: 7, width: width - 16, height: 15)
     }
 
     /// Teleprompter de una línea: siempre muestra el FINAL (lo último dicho).
@@ -259,13 +357,13 @@ final class DictationPanel {
     /// encargan de recortar lo viejo; no hace falta cortar a mano.
     func update(_ text: String) {
         // No pisar un aviso breve todavía vigente ni la respuesta de la IA.
-        guard !enRespuestaIA, Date() >= flashHasta else { return }
+        guard !enRespuestaIA, !confirmando, Date() >= flashHasta else { return }
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
     }
 
     /// Update que SÍ pisa el flash (para la entrega final del dictado).
     func updateForzado(_ text: String) {
-        guard !enRespuestaIA else { return }   // el dictado NO pisa la respuesta de la IA
+        guard !enRespuestaIA, !confirmando else { return }   // no pisa IA ni pregunta
         flashHasta = .distantPast
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
     }
