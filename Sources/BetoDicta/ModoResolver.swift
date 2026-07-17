@@ -370,15 +370,24 @@ enum ModoResolver {
                 // El TOKEN debe ser forma del verbo/nombre, no otra palabra que empiece
                 // igual por azar: exige que tras el stem solo queden ≤5 letras.
                 guard token.count - stem.count <= 5 else { continue }
-                // Sustantivos de modo (tarea/nota/correo) SIN verbo de intención antes
-                // son ambiguos siempre → preguntar.
-                let esSustantivo = ["tarea", "nota", "correo", "oficio", "agente"].contains(modo.id)
+                var modoElegido = modo
                 var cert = certeza
-                if esSustantivo, pos == 0 { cert = .preguntar }
+                // El sustantivo de modo PURO al inicio ("tarea comprar pan") es ambiguo;
+                // una forma VERBAL ("apúntame…") es intención clara.
+                let nombreLiteral = tokenNormalizado(modo.nombre)
+                if pos == 0, token == nombreLiteral { cert = .preguntar }
                 // Consumir: comando + fillers + argumento (idioma/buscador).
                 var fin = pos + 1
                 while fin < filtrados.count, fillersPostVerbo.contains(filtrados[fin]) { fin += 1 }
-                let (conArg, consumidas) = conArgumento(modo, normalizados: filtrados, desde: fin)
+                // "apúntame como TAREA…", "guárdame como NOTA…": el sustantivo de modo
+                // EXPLÍCITO tras el verbo manda sobre el stem del verbo.
+                if fin < filtrados.count {
+                    let destino = filtrados[fin]
+                    if let otro = catalogo.modos.first(where: {
+                        $0.id != "dictado" && tokenNormalizado($0.nombre) == destino
+                    }) { modoElegido = otro; fin += 1 }
+                }
+                let (conArg, consumidas) = conArgumento(modoElegido, normalizados: filtrados, desde: fin)
                 let corteOriginal = consumidas == 0 ? 0
                     : (consumidas <= idxValidos.count ? idxValidos[consumidas - 1] + 1 : originales.count)
                 let limpio = limpiar(originales, desde: corteOriginal)
