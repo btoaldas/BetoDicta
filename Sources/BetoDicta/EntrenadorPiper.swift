@@ -269,6 +269,7 @@ enum EntrenadorPiper {
             if !reanudar {
                 try? fm.removeItem(at: proyecto.appendingPathComponent("ckpts"))
                 try? fm.removeItem(at: proyecto.appendingPathComponent("run"))
+                try? fm.removeItem(at: proyecto.appendingPathComponent("seguro"))
                 try? fm.removeItem(at: proyecto.appendingPathComponent("cache"))
                 try? fm.removeItem(at: proyecto.appendingPathComponent("config.json"))
                 try? fm.removeItem(at: proyecto.appendingPathComponent("validacion.csv"))
@@ -341,6 +342,17 @@ enum EntrenadorPiper {
                 "--trainer.callbacks.every_n_train_steps", "\(cada)",
                 "--trainer.callbacks.save_top_k", "-1",
                 "--trainer.callbacks.filename", "paso{step}",
+                // 2º checkpoint DE SEGURIDAD, rodante: cada 200 pasos, se SOBREESCRIBE
+                // (save_top_k 1 + mismo filename) → un apagón pierde ≤200 pasos (~10 min)
+                // en vez de hasta un tramo entero. Va a su propia carpeta para que la
+                // lista de "elegir el mejor" siga mostrando solo los hitos.
+                "--trainer.callbacks+=lightning.pytorch.callbacks.ModelCheckpoint",
+                "--trainer.callbacks.dirpath", proyecto.appendingPathComponent("seguro").path,
+                "--trainer.callbacks.every_n_train_steps", "200",
+                "--trainer.callbacks.save_top_k", "1",
+                "--trainer.callbacks.monitor", "step",
+                "--trainer.callbacks.mode", "max",
+                "--trainer.callbacks.filename", "seguro-paso{step}",
             ] + cal.modelArgs   // params de arquitectura de la calidad (high/low); medium = vacío
             if reanudar, let reanuda { argumentos += ["--ckpt_path", reanuda.path] }
             tr.arguments = argumentos
@@ -709,7 +721,20 @@ enum EntrenadorPiper {
     // MARK: Resumible + progreso + checkpoints
 
     /// El último checkpoint (mayor paso) de un proyecto — para reanudar tras apagón.
-    static func ultimoCheckpoint(_ proyecto: URL) -> URL? { checkpoints(proyecto).last?.url }
+    /// Considera los HITOS (ckpts/) y el checkpoint DE SEGURIDAD rodante (seguro/, cada
+    /// 200 pasos): devuelve el de MAYOR paso → un apagón pierde 200 pasos como mucho.
+    static func ultimoCheckpoint(_ proyecto: URL) -> URL? {
+        var candidatos = checkpoints(proyecto)
+        let seg = proyecto.appendingPathComponent("seguro")
+        let items = (try? FileManager.default.contentsOfDirectory(at: seg, includingPropertiesForKeys: nil)) ?? []
+        for u in items where u.pathExtension == "ckpt" {
+            if let r = u.lastPathComponent.range(of: "step=") {
+                let num = u.lastPathComponent[r.upperBound...].prefix { $0.isNumber }
+                if let n = Int(num) { candidatos.append((n, u)) }
+            }
+        }
+        return candidatos.max(by: { $0.paso < $1.paso })?.url
+    }
 
     /// Checkpoints periódicos guardados (paso ascendente). El usuario elige el mejor.
     static func checkpoints(_ proyecto: URL) -> [(paso: Int, url: URL)] {
@@ -1070,9 +1095,28 @@ enum EntrenadorPiper {
         try: ref_emb=np.mean([enc.embed_utterance(preprocess_wav(r)) for r in refs],axis=0)
         except Exception as e: print("[val] (sin ref de voz:",e,")",flush=True)
     cks=sorted([f for f in os.listdir(CK) if f.endswith(".ckpt")],key=stepof)
-    rows=[]
+    # REANUDABLE: si un apagón cortó la validación, reusa lo ya puntuado (validacion.csv
+    # se escribe INCREMENTALMENTE tras cada checkpoint) y salta esos checkpoints.
+    rows=[]; hechos_previos=set()
+    csvp=os.path.join(PROJ,"validacion.csv")
+    if os.path.exists(csvp):
+        for i,l in enumerate(open(csvp,encoding="utf-8")):
+            c=l.strip().split(",")
+            if i==0 or len(c)<4: continue
+            try: rows.append((int(c[0]),float(c[1]),float(c[2]),float(c[3]))); hechos_previos.add(int(c[0]))
+            except ValueError: pass
+        if hechos_previos: print(f"[val] reusando {len(hechos_previos)} checkpoints ya validados",flush=True)
+    def guardar_csv():
+        tmp=csvp+".tmp"
+        with open(tmp,"w",encoding="utf-8") as f:
+            f.write("paso,inteligibilidad,parecido,score\n")
+            for r in sorted(rows): f.write(f"{r[0]},{r[1]:.3f},{r[2]:.3f},{r[3]:.3f}\n")
+        os.replace(tmp,csvp)
     for ck in cks:
-        st=stepof(ck); onnx=os.path.join(OUT,ck+".onnx")
+        st=stepof(ck)
+        if st in hechos_previos:
+            print(f"[val] paso {st}: ya validado (reusado)",flush=True); continue
+        onnx=os.path.join(OUT,ck+".onnx")
         subprocess.run([PY,"-m","piper.train.export_onnx","--checkpoint",os.path.join(CK,ck),"--output-file",onnx],capture_output=True)
         cfg=os.path.join(PROJ,"config.json")
         if os.path.exists(cfg): shutil.copy(cfg,onnx+".json")
@@ -1091,15 +1135,15 @@ enum EntrenadorPiper {
         sm=float(np.mean(sims)) if sims else 0.0
         score=it*0.6+(sm if it>=0.5 else 0.0)*0.4
         rows.append((st,it,sm,score))
+        guardar_csv()   # incremental: un apagón aquí no pierde lo ya puntuado
         print(f"[val] paso {st}: inteligible={it:.2f} parecido={sm:.2f} score={score:.2f}",flush=True)
         for i in range(len(FRASES)):
             w=os.path.join(OUT,f"{st}_{i}.wav")
             if i>0 and os.path.exists(w):
                 try: os.remove(w)
                 except OSError: pass
-    with open(os.path.join(PROJ,"validacion.csv"),"w") as f:
-        f.write("paso,inteligibilidad,parecido,score\n")
-        for r in rows: f.write(f"{r[0]},{r[1]:.3f},{r[2]:.3f},{r[3]:.3f}\n")
+    rows=sorted(rows)
+    guardar_csv()
     try:
         import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
         s=[r[0] for r in rows]
