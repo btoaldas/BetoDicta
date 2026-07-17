@@ -1114,7 +1114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Prueba EN VIVO del reconocimiento semántico de modos: BETODICTA_MODOSEMTEST=1.
         if ProcessInfo.processInfo.environment["BETODICTA_MODOSEMTEST"] == "1" {
-            let pares = ModosStore.todos().filter { $0.id != "dictado" }.map { ($0.id, ModosStore.ejemplos($0)) }
+            let pares = ModosStore.todos().filter { $0.id != "dictado" && $0.base != "aplicacion" }
+                .map { ($0.id, ModosStore.ejemplos($0)) }
             EmbeddingSearch.calentarModos(pares)
             DispatchQueue.global().async {
                 var n = 0
@@ -1410,6 +1411,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // vuelve al modo por defecto; si es sticky, respeta el último).
         ModosStore.revertirADefecto()
         panel.setModo(ModosStore.activo())
+        // Compila en segundo plano el inventario de apps una sola vez; así "modo
+        // abrir aplicación Word" no paga un recorrido de disco en el primer parcial.
+        if Config.modoAplicaciones() { AplicacionesMac.precalentar() }
         // Arranca el LATIDO de red: mantiene túnel + conexión TLS calientes para que
         // el pulido responda rápido aunque dictes cada varios minutos.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { CalientaRed.iniciarLatido() }
@@ -3070,6 +3074,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if modo.base == "buscar" { ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history); return }
         if modo.base == "accion" { ejecutarAccion(textoFinal, modo: modo, wav: wav, history: history); return }
+        if modo.base == "aplicacion" { ejecutarAplicacion(textoFinal, modo: modo, wav: wav, history: history); return }
         // Agente con cerebro HERMES (pasarela): BetoDicta manda el texto, Hermes procesa
         // con SUS herramientas y devuelve; aquí solo mostramos y hablamos el resultado.
         if modo.base == "agente", Config.agenteMotor() == "hermes", AgenteHermes.disponible {
@@ -3216,6 +3221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if etapa.modo.base == "buscar" {
             ejecutarBusqueda(texto, modo: etapa.modo, wav: wav, history: nil,
                               completion: continuar)
+        } else if etapa.modo.base == "aplicacion" {
+            ejecutarAplicacion(texto, modo: etapa.modo, wav: wav, history: nil,
+                               completion: continuar)
         } else {
             ejecutarAccion(texto, modo: etapa.modo, destinatario: etapa.destinatario,
                            wav: wav, history: nil, completion: continuar)
@@ -3262,6 +3270,163 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             presionarNuevo()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { pasteText(texto) }
+        }
+    }
+
+    /// Quita el nombre de la aplicación del inicio y conserva el contenido. También
+    /// tolera "y escribe/pega/pon…" para hablar de corrido.
+    private func contenidoTrasAplicacion(_ texto: String, consumidas: Int) -> String {
+        var toks = texto.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        if consumidas > 0 { toks = Array(toks.dropFirst(min(consumidas, toks.count))) }
+        func n(_ s: String) -> String { AplicacionesMac.normalizar(s) }
+        let patrones = [
+            ["y", "escribe"], ["y", "pega"], ["y", "pon"], ["y", "coloca"],
+            ["escribe"], ["pega"], ["pon"], ["coloca"], ["lo", "siguiente"], ["el", "texto"]
+        ]
+        for p in patrones where toks.count >= p.count
+            && Array(toks.prefix(p.count).map(n)) == p {
+            toks.removeFirst(p.count); break
+        }
+        return toks.joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n\t"))
+    }
+
+    private func appEsFrontal(_ app: AplicacionMac, proceso: NSRunningApplication?) -> Bool {
+        guard let frontal = NSWorkspace.shared.frontmostApplication else { return false }
+        if let proceso, frontal.processIdentifier == proceso.processIdentifier { return true }
+        return !app.bundleId.isEmpty
+            && frontal.bundleIdentifier?.caseInsensitiveCompare(app.bundleId) == .orderedSame
+    }
+
+    /// Espera sin bloquear a que la app realmente tenga el foco. Al vencer NO manda
+    /// teclas a otra ventana: el texto permanece en el portapapeles.
+    private func esperarAplicacionFrontal(_ app: AplicacionMac, proceso: NSRunningApplication?,
+                                          intento: Int = 0,
+                                          completion: @escaping (Bool) -> Void) {
+        if appEsFrontal(app, proceso: proceso) { completion(true); return }
+        guard intento < 24 else { completion(false); return } // máx. ~6 s (arranque frío)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.esperarAplicacionFrontal(app, proceso: proceso, intento: intento + 1,
+                                           completion: completion)
+        }
+    }
+
+    private func abrirYColocar(_ app: AplicacionMac, texto: String,
+                               completion: (() -> Void)?) {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { copyText(t) } // respaldo persistente aunque el pegado no encuentre un campo
+        let configuracion = NSWorkspace.OpenConfiguration()
+        configuracion.activates = true
+        NSWorkspace.shared.openApplication(at: app.url, configuration: configuracion) { [weak self] proceso, error in
+            DispatchQueue.main.async {
+                guard let self else { completion?(); return }
+                guard error == nil else {
+                    Log.write("⚠️ no se pudo abrir \(app.nombre): \(error!.localizedDescription)")
+                    if !self.recorder.isRecording { self.panel.flash("No pude abrir \(app.nombre)", segundos: 2.5) }
+                    completion?(); return
+                }
+                proceso?.activate(options: [.activateAllWindows])
+                guard !t.isEmpty, Config.aplicacionPegarAutomatico() else {
+                    completion?(); return
+                }
+                self.esperarAplicacionFrontal(app, proceso: proceso) { [weak self] frontal in
+                    guard let self else { completion?(); return }
+                    guard frontal else {
+                        Log.write("⚠️ \(app.nombre) no tomó el foco — texto conservado en portapapeles")
+                        if !self.recorder.isRecording {
+                            self.panel.flash("\(app.nombre) abierto · texto copiado (⌘V)", segundos: 3)
+                        }
+                        completion?(); return
+                    }
+                    let pegar: () -> Void = { [weak self] in
+                        guard let self else { completion?(); return }
+                        guard self.appEsFrontal(app, proceso: proceso) else {
+                            Log.write("⚠️ cambió la app frontal — no se pegó; texto en portapapeles")
+                            completion?(); return
+                        }
+                        pasteText(t, restaurar: false)
+                        completion?()
+                    }
+                    if Config.aplicacionNuevoDocumento(), app.admiteDocumentoNuevo {
+                        presionarNuevo()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: pegar)
+                    } else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: pegar)
+                    }
+                }
+            }
+        }
+    }
+
+    private func elegirAplicacion(_ matches: [CoincidenciaAplicacionMac], texto: String,
+                                  modo: Modo, wav: Data, history: HistoryWriter?,
+                                  completion: (() -> Void)?) {
+        let opciones = Array(matches.prefix(6))
+        let alert = NSAlert()
+        alert.messageText = "¿Qué aplicación quieres abrir?"
+        alert.informativeText = "El nombre se parece a varias apps instaladas. Elige una; no abriré ninguna por mi cuenta."
+        opciones.forEach { alert.addButton(withTitle: $0.app.nombre) }
+        alert.addButton(withTitle: "Cancelar")
+        NSApp.activate(ignoringOtherApps: true)
+        let idx = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard idx >= 0, idx < opciones.count else {
+            history?.finish(wav: wav, finalText: "")
+            completion?(); return
+        }
+        let elegido = opciones[idx]
+        let contenido = contenidoTrasAplicacion(texto, consumidas: elegido.palabrasConsumidas)
+        var resuelto = AplicacionesMac.aplicar(elegido, a: modo)
+        resuelto.nombre = "Aplicación · \(elegido.app.nombre)"
+        ejecutarAplicacion(contenido, modo: resuelto, wav: wav, history: history,
+                           completion: completion)
+    }
+
+    /// Modo Aplicación: inventario local → nombre hablado → abre y coloca texto.
+    /// No usa IA, no ejecuta shell y nunca pulsa Enter/envía el contenido.
+    private func ejecutarAplicacion(_ texto: String, modo: Modo, wav: Data,
+                                    history: HistoryWriter?, completion: (() -> Void)? = nil) {
+        guard Config.modoAplicaciones() else {
+            if !recorder.isRecording { panel.flash("El modo Aplicación está desactivado", segundos: 2) }
+            history?.finish(wav: wav, finalText: "")
+            completion?(); return
+        }
+        var app = AplicacionesMac.resolver(modo)
+        // Aunque el resolver ya haya quitado "modo … Word", todavía puede quedar
+        // el puente hablado "y escribe/pega…" antes del contenido real.
+        var contenido = contenidoTrasAplicacion(texto, consumidas: 0)
+        if app == nil {
+            let originales = texto.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+            switch AplicacionesMac.resolverPrefijo(originales.map(AplicacionesMac.normalizar)) {
+            case .encontrada(let match):
+                app = match.app
+                contenido = contenidoTrasAplicacion(texto, consumidas: match.palabrasConsumidas)
+            case .ambiguas(let matches):
+                elegirAplicacion(matches, texto: texto, modo: modo, wav: wav,
+                                  history: history, completion: completion)
+                return
+            case .ninguna:
+                Log.write("⚠️ modo aplicación: no se reconoció una app instalada en «\(texto)»")
+                ModosLog.registrar("aplicacion", ["resultado": "sin_match", "texto": texto])
+                if !recorder.isRecording {
+                    panel.flash("No encontré esa aplicación instalada", segundos: 3)
+                }
+                history?.finish(wav: wav, finalText: "")
+                completion?(); return
+            }
+        }
+        guard let app else { completion?(); return }
+        Log.write("  ▶︎ aplicación (\(app.nombre)): \(contenido)")
+        ModosLog.registrar("aplicacion", ["resultado": "abrir", "nombre": app.nombre,
+            "bundle": app.bundleId, "texto": contenido,
+            "pegar": Config.aplicacionPegarAutomatico(),
+            "nuevo": Config.aplicacionNuevoDocumento() && app.admiteDocumentoNuevo])
+        history?.finish(wav: wav, finalText: "▶︎ \(app.nombre): \(contenido)")
+        abrirYColocar(app, texto: contenido, completion: completion)
+        playSound("Glass")
+        if !recorder.isRecording {
+            setIcono(.reposo)
+            panel.updateForzado("▶︎ \(app.nombre)" + (contenido.isEmpty ? "" : ": \(contenido)"))
+            panel.hide(after: contenido.isEmpty ? 1.6 : 2.4)
         }
     }
 

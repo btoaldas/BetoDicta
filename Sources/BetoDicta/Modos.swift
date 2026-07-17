@@ -11,7 +11,8 @@ import AppKit   // NSWorkspace / NSAppleScript para los triggers por contexto
 // base:
 //   "pulir"     — limpia/transforma el texto según `prompt` (Dictado = prompt vacío = limpieza estándar).
 //   "traducir"  — traduce al `idiomaDestino`.
-//   "responder" — trata el dictado como una instrucción y redacta la respuesta.
+//   "responder"  — trata el dictado como una instrucción y redacta la respuesta.
+//   "aplicacion" — abre una app instalada y coloca allí el texto, sin enviarlo.
 
 struct Modo: Codable, Identifiable {
     var id: String
@@ -31,17 +32,22 @@ struct Modo: Codable, Identifiable {
     var accion: String           // solo base "accion": id del preset (correo/outlook/whatsapp/…/url)
     var ejemplosVoz: [String]    // frases de ejemplo del usuario para el reconocimiento semántico
     var color: String            // color del modo en el notch, hex "#RRGGBB"; "" = automático
+    var appNombre: String        // aplicación dinámica resuelta para ESTE dictado
+    var appBundleId: String      // bundle id inventariado (nunca una orden arbitraria)
+    var appRuta: String          // respaldo: ruta .app validada contra el catálogo actual
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
          esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = [],
          buscador: String = "google", almacen: String = "", accion: String = "correo",
-         ejemplosVoz: [String] = [], color: String = "") {
+         ejemplosVoz: [String] = [], color: String = "", appNombre: String = "",
+         appBundleId: String = "", appRuta: String = "") {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
         self.apps = apps; self.sitios = sitios; self.buscador = buscador; self.almacen = almacen
         self.accion = accion; self.ejemplosVoz = ejemplosVoz; self.color = color
+        self.appNombre = appNombre; self.appBundleId = appBundleId; self.appRuta = appRuta
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -63,6 +69,9 @@ struct Modo: Codable, Identifiable {
         accion = (try? c.decode(String.self, forKey: .accion)) ?? "correo"
         ejemplosVoz = (try? c.decode([String].self, forKey: .ejemplosVoz)) ?? []
         color = (try? c.decode(String.self, forKey: .color)) ?? ""
+        appNombre = (try? c.decode(String.self, forKey: .appNombre)) ?? ""
+        appBundleId = (try? c.decode(String.self, forKey: .appBundleId)) ?? ""
+        appRuta = (try? c.decode(String.self, forKey: .appRuta)) ?? ""
     }
 }
 
@@ -94,6 +103,8 @@ enum ModosStore {
              palabraVoz: "modo asistente, modo asistentes"),
         Modo(id: "buscar", nombre: "Buscar", icono: "magnifyingglass", base: "buscar",
              palabraVoz: "modo buscar, modo busca, modo búsqueda, modo buscador", buscador: "google"),
+        Modo(id: "aplicacion", nombre: "Aplicación", icono: "square.grid.2x2.fill", base: "aplicacion",
+             palabraVoz: "modo abrir aplicación, modo abrir aplicacion, modo aplicación, modo aplicacion, modo abrir app, modo abre app, modo abrir"),
         Modo(id: "agente", nombre: "Agente", icono: "sparkle", base: "agente",
              prompt: "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos.",
              palabraVoz: "modo agente, modo la gente, modo gente, modo asistente de voz, modo jarvis"),
@@ -477,6 +488,7 @@ extension ModosStore {
         "whatsapp": "whatsapp", "wasap": "whatsapp", "guasap": "whatsapp", "wasa": "whatsapp",
         "notas": "notas", "finder": "finder", "recordatorios": "recordatorios",
         "calendario": "calendario", "mensajes": "mensajes",
+        "aplicacion": "aplicacion", "app": "aplicacion", "abrir": "aplicacion", "abre": "aplicacion",
         "buscar": "buscar", "busca": "buscar", "google": "buscar", "bing": "buscar",
         "duckduckgo": "buscar", "youtube": "buscar", "maps": "buscar", "mapas": "buscar",
     ]
@@ -498,6 +510,7 @@ extension ModosStore {
         ("textedit", "textedit"), ("editor", "textedit"), ("preview", "vistaprevia"), ("vista", "vistaprevia"),
         ("ajuste", "ajustes"), ("config", "ajustes"), ("appstore", "appstore"), ("tienda", "appstore"),
         ("facetime", "facetime"), ("videollam", "facetime"),
+        ("aplic", "aplicacion"),
         ("spotlight", "spotlight"), ("lupa", "spotlight"),
         ("busc", "buscar"), ("google", "buscar"), ("bing", "buscar"), ("youtube", "buscar"), ("duckduck", "buscar"),
     ]
@@ -522,9 +535,16 @@ extension ModosStore {
         var transforms: [Modo] = []
         var acciones: [ModoAccionPlan] = []
         func agregarAccion(_ m: Modo) {
-            let firma = m.base == "buscar" ? "buscar:\(m.buscador)" : m.accion
+            let firma: String
+            if m.base == "buscar" { firma = "buscar:\(m.buscador)" }
+            else if m.base == "aplicacion" { firma = "app:\(m.appBundleId)|\(m.appRuta)" }
+            else { firma = m.accion }
             guard !acciones.contains(where: {
-                ($0.modo.base == "buscar" ? "buscar:\($0.modo.buscador)" : $0.modo.accion) == firma
+                let otra: String
+                if $0.modo.base == "buscar" { otra = "buscar:\($0.modo.buscador)" }
+                else if $0.modo.base == "aplicacion" { otra = "app:\($0.modo.appBundleId)|\($0.modo.appRuta)" }
+                else { otra = $0.modo.accion }
+                return otra == firma
             }) else { return }
             acciones.append(ModoAccionPlan(modo: m, destinatario: nil))
         }
@@ -552,6 +572,16 @@ extension ModosStore {
                     if j < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[j])) { b.buscador = eng; i = j + 1 }
                 }
                 agregarAccion(b)
+            } else if v.id == "aplicacion", Config.modoAplicaciones() {
+                var j = i
+                let relleno: Set<String> = ["aplicacion", "app", "programa", "el", "la"]
+                while j < tokens.count, relleno.contains(limpioTok(tokens[j])) { j += 1 }
+                guard j < tokens.count else { break }
+                let resto = tokens[j...].map(limpioTok)
+                guard case .encontrada(let match) = AplicacionesMac.resolverPrefijo(resto) else { break }
+                let appModo = AplicacionesMac.aplicar(match, a: modo("aplicacion"))
+                agregarAccion(appModo)
+                i = j + match.palabrasConsumidas
             } else {
                 var accion = Modo(id: "cadena-\(v.id)", nombre: Acciones.nombre(v.id),
                                   icono: "bolt.fill", base: "accion", accion: v.id)
@@ -611,6 +641,7 @@ extension ModosStore {
         case "asistente": e += ["responde esto", "ayúdame a redactar", "escribe una respuesta"]
         case "agente": e += ["pregúntale al agente", "pregúntale a la gente", "consulta al agente", "modo jarvis"]
         case "buscar": e += ["buscar en google", "busca esto en internet", "googlear algo"]
+        case "aplicacion": e += ["abrir una aplicación", "abre word y pega el texto", "iniciar una app de mac"]
         default:
             if m.base == "accion" {
                 switch m.accion {
@@ -632,7 +663,10 @@ extension ModosStore {
     }
 
     private static func paresEjemplos() -> [(id: String, ejemplos: [String])] {
-        todos().filter { $0.id != "dictado" }.map { ($0.id, ejemplos($0)) }
+        // El destino "aplicación" necesita un bundle REAL del inventario local;
+        // no se delega a embeddings porque podrían consumir el nombre de la app.
+        todos().filter { $0.id != "dictado" && $0.base != "aplicacion" }
+            .map { ($0.id, ejemplos($0)) }
     }
 
     /// Elige el modo por SIGNIFICADO. Si los vectores no están calientes, los

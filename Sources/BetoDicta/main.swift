@@ -15,6 +15,7 @@ ModoPlanQA.ejecutarSiSePidio()
 ModoRegressionQA.ejecutarSiSePidio()
 ModoAudioQA.ejecutarSiSePidio()
 ModoIAQA.ejecutarSiSePidio()
+AplicacionesMacQA.ejecutarSiSePidio()
 
 let app = NSApplication.shared
 app.setActivationPolicy(Config.showInDock() ? .regular : .accessory)

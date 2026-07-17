@@ -87,7 +87,9 @@ enum ModoIAEnrutador {
         for e in r.stages.prefix(8) {
             if e.key.hasPrefix("modo:") {
                 let id = String(e.key.dropFirst("modo:".count))
-                guard var m = catalogo.modos.first(where: { $0.id == id && $0.id != "dictado" }) else { return nil }
+                guard var m = catalogo.modos.first(where: {
+                    $0.id == id && $0.id != "dictado" && $0.base != "aplicacion"
+                }) else { return nil }
                 if m.base == "traducir", let idi = e.idioma, !idi.isEmpty {
                     guard let canon = Idiomas.reconocer(idi) else { return nil }
                     m.idiomaDestino = canon
@@ -152,7 +154,9 @@ enum ModoIAEnrutador {
         guard !zona.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             completion(nil); return
         }
-        let modos = catalogo.modos.filter { $0.id != "dictado" }.map {
+        // Las aplicaciones instaladas se resuelven localmente por nombre/ruta. No
+        // se manda ese inventario a una IA ni se acepta que invente una app.
+        let modos = catalogo.modos.filter { $0.id != "dictado" && $0.base != "aplicacion" }.map {
             "modo:\($0.id)|\($0.nombre)|\($0.base)"
         }
         let acciones = Acciones.base.map { "accion:\($0.id)|\($0.nombre)" }

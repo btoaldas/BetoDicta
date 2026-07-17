@@ -147,6 +147,19 @@ struct Config {
     /// web (ej. Quipux) que un modo declara, ese modo se aplica solo a ese dictado.
     /// Default ON (inofensivo: los modos base no traen apps/sitios hasta que los pongas).
     static func modoPorContexto() -> Bool { (json()["modo_por_contexto"] as? Bool) ?? true }
+    /// Inventaría las apps instaladas para "modo abrir aplicación Word…". Puede
+    /// apagarse sin afectar los modos de acción fijos. Default ON.
+    static func modoAplicaciones() -> Bool { (json()["modo_aplicaciones"] as? Bool) ?? true }
+    /// Tras abrir la app, intenta pegar solo si esa app llegó a ser la frontal.
+    /// Nunca pulsa Enter ni envía el contenido. Default ON.
+    static func aplicacionPegarAutomatico() -> Bool {
+        (json()["aplicacion_pegar_automatico"] as? Bool) ?? true
+    }
+    /// Word/TextEdit/LibreOffice: crea un documento nuevo antes de pegar. En las
+    /// demás apps se conserva la ventana actual. Default ON.
+    static func aplicacionNuevoDocumento() -> Bool {
+        (json()["aplicacion_nuevo_documento"] as? Bool) ?? true
+    }
     /// WhatsApp: usar los Contactos de macOS además de la lista importada. Default ON.
     static func waUsarContactosMac() -> Bool { (json()["wa_usar_contactos_mac"] as? Bool) ?? true }
     /// Glosario INTELIGENTE: en el pulido, manda solo los términos afines al dictado

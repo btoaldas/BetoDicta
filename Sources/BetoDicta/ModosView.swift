@@ -50,6 +50,10 @@ struct ModosView: View {
     @State private var usarMacWA = ContactosWA.usarMac()
     @State private var contactosVer = 0
     @State private var resultadoImport = ""
+    @State private var modoApps = Config.modoAplicaciones()
+    @State private var pegarApps = Config.aplicacionPegarAutomatico()
+    @State private var nuevoEnEditor = Config.aplicacionNuevoDocumento()
+    @State private var appsVer = 0
 
     private func importarContactos() {
         let p = NSOpenPanel()
@@ -94,7 +98,7 @@ struct ModosView: View {
                 Button { expandido = m.crear() } label: { Image(systemName: "plus") }
                     .help("Crear un modo propio")
             }
-            Text("El MODO decide cómo se procesa tu dictado: solo pulir (Dictado), o formatearlo como correo, oficio, tarea, nota, traducirlo o responder. Cada modo usa su propia IA y su propio prompt. Marca uno como POR DEFECTO aquí; cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra.")
+            Text("El MODO decide qué hacer con tu dictado: pulirlo, formatearlo, traducirlo, responder, buscar o abrir una aplicación instalada. Marca uno como POR DEFECTO aquí; cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra.")
                 .font(.caption).foregroundStyle(.secondary)
 
             Toggle("El modo elegido al vuelo es de UN SOLO USO (vuelve al de por defecto tras dictar)", isOn: $revertir)
@@ -174,6 +178,7 @@ struct ModosView: View {
                     Text("Agente (responde por voz + tus tareas/notas)").tag("agente")
                     Text("Buscar (web / Spotlight)").tag("buscar")
                     Text("Acción (abrir app/correo/web)").tag("accion")
+                    Text("Aplicación instalada (nombre por voz)").tag("aplicacion")
                 }.labelsHidden().frame(width: 200)
             }
         }
@@ -334,8 +339,35 @@ struct ModosView: View {
             Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Apps como Notas/Finder: copia el texto y abre la app para que pegues (⌘V). Quipux/tu web: pon la URL. Sin IA.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
+        // Aplicación: inventario automático + comportamiento seguro al colocar texto.
+        if b.wrappedValue.base == "aplicacion" {
+            let _ = appsVer
+            VStack(alignment: .leading, spacing: 5) {
+                Toggle("Permitir abrir aplicaciones instaladas por voz", isOn: $modoApps)
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .onChange(of: modoApps) { _, v in
+                        Config.set("modo_aplicaciones", to: v)
+                        ModoCatalogoCache.invalidar()
+                        if v { AplicacionesMac.precalentar() }
+                    }
+                Toggle("Pegar el texto automáticamente al abrir", isOn: $pegarApps)
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .onChange(of: pegarApps) { _, v in Config.set("aplicacion_pegar_automatico", to: v) }
+                Toggle("Crear documento nuevo en Word/TextEdit/LibreOffice", isOn: $nuevoEnEditor)
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .onChange(of: nuevoEnEditor) { _, v in Config.set("aplicacion_nuevo_documento", to: v) }
+                HStack {
+                    Text("\(AplicacionesMac.todas().count) aplicaciones detectadas en esta Mac")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Actualizar lista") { _ = AplicacionesMac.refrescar(); appsVer += 1 }
+                        .controlSize(.small)
+                }
+                Text("Ejemplo: «modo abrir aplicación Word, borrador del informe». En editores compatibles crea un documento; en las demás activa la app y pega donde esté el cursor. Nunca pulsa Enter ni envía. Si no puede pegar, el texto queda en el portapapeles.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
         // Guardar en la lista local (Tareas/Notas) — Fase 4. No aplica a Buscar/Acción/Dictado.
-        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" && b.wrappedValue.base != "accion" {
+        if b.wrappedValue.id != "dictado" && !["buscar", "accion", "aplicacion"].contains(b.wrappedValue.base) {
             HStack {
                 Text("Guardar en:").font(.caption).frame(width: 90, alignment: .leading)
                 Picker("", selection: b.almacen) {
@@ -346,7 +378,7 @@ struct ModosView: View {
             }
         }
         // Prompt (salvo Dictado/Traducir/Buscar/Acción, que no usan prompt libre)
-        if b.wrappedValue.id != "dictado" && b.wrappedValue.base != "buscar" && b.wrappedValue.base != "traducir" && b.wrappedValue.base != "accion" {
+        if b.wrappedValue.id != "dictado" && !["buscar", "traducir", "accion", "aplicacion"].contains(b.wrappedValue.base) {
             Text("Instrucción para la IA (prompt):").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: b.prompt)
                 .font(.callout).frame(height: 70)
@@ -356,7 +388,7 @@ struct ModosView: View {
                 .font(.caption2).foregroundStyle(.secondary)
         }
         // IA propia del modo (no aplica a Buscar/Acción, que no usan IA)
-        if b.wrappedValue.base != "buscar" && b.wrappedValue.base != "accion" {
+        if !["buscar", "accion", "aplicacion"].contains(b.wrappedValue.base) {
             HStack {
                 Text("IA de este modo:").font(.caption).frame(width: 110, alignment: .leading)
                 Picker("", selection: b.proveedorId) {

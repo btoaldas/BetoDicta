@@ -40,7 +40,9 @@ enum ModoPlanificador {
     ]
     private static let marcadoresContenido: [[String]] = [
         ["lo", "siguiente"], ["el", "siguiente", "texto"], ["este", "texto"],
-        ["esta", "frase"], ["esto"], ["texto"], ["que", "dice"], ["diciendo"]
+        ["esta", "frase"], ["esto"], ["texto"], ["que", "dice"], ["diciendo"],
+        ["y", "escribe"], ["y", "pega"], ["y", "pon"], ["y", "coloca"],
+        ["escribe"], ["pega"], ["pon"], ["coloca"]
     ]
     private static let verbosEnvio: Set<String> = [
         "envia", "enviar", "enviame", "envialo", "enviaselo", "enviale", "enviarle",
@@ -117,11 +119,30 @@ enum ModoPlanificador {
     }
 
     private static func agregarAccion(_ etapa: ModoAccionPlan, a parcial: inout Parcial) {
-        let firma = "\(etapa.modo.accion)|\(etapa.destinatario ?? "")"
+        let destino = etapa.modo.base == "aplicacion"
+            ? "app:\(etapa.modo.appBundleId)|\(etapa.modo.appRuta)"
+            : etapa.modo.accion
+        let firma = "\(destino)|\(etapa.destinatario ?? "")"
         guard !parcial.acciones.contains(where: {
-            "\($0.modo.accion)|\($0.destinatario ?? "")" == firma
+            let otro = $0.modo.base == "aplicacion"
+                ? "app:\($0.modo.appBundleId)|\($0.modo.appRuta)"
+                : $0.modo.accion
+            return "\(otro)|\($0.destinatario ?? "")" == firma
         }) else { return }
         parcial.acciones.append(etapa)
+    }
+
+    private static func aplicacionCercana(desde i: Int, en ts: [Token],
+                                          catalogo: ModoCatalogo) -> (Modo, Int)? {
+        guard Config.modoAplicaciones(), i + 1 < ts.count,
+              let base = modo("aplicacion", catalogo: catalogo) else { return nil }
+        var j = i + 1
+        let relleno: Set<String> = ["la", "el", "una", "un", "aplicacion", "app", "programa", "de"]
+        while j < ts.count, relleno.contains(ts[j].normal) { j += 1 }
+        guard j < ts.count else { return nil }
+        let resto = ts[j...].map(\.normal)
+        guard case .encontrada(let match) = AplicacionesMac.resolverPrefijo(resto) else { return nil }
+        return (AplicacionesMac.aplicar(match, a: base), j + match.palabrasConsumidas - 1)
     }
 
     /// Entre dos etapas debe existir una relación explícita (y/luego/que/coma).
@@ -339,7 +360,8 @@ enum ModoPlanificador {
                 var encontrado: (String, Int)?
                 if i + 1 < limite {
                     for j in (i + 1)..<limite {
-                        if let v = ModosStore.resolverVerbo(ts[j].normal), v.tipo == "accion", v.id != "buscar" {
+                        if let v = ModosStore.resolverVerbo(ts[j].normal), v.tipo == "accion",
+                           v.id != "buscar", v.id != "aplicacion" {
                             encontrado = (v.id, j); break
                         }
                     }
@@ -347,6 +369,10 @@ enum ModoPlanificador {
                 if let (id, j) = encontrado {
                     agregarAccion(ModoAccionPlan(modo: accion(id), destinatario: nil), a: &p)
                     marcar(i, j, confianza: 0.9); i = j + 1; continue
+                }
+                if let (app, j) = aplicacionCercana(desde: i, en: ts, catalogo: catalogo) {
+                    agregarAccion(ModoAccionPlan(modo: app, destinatario: nil), a: &p)
+                    marcar(i, j, confianza: 0.94); i = j + 1; continue
                 }
             }
             i += 1
@@ -442,6 +468,9 @@ enum ModoPlanificador {
         if modo.id == "agente" { return "Preguntar al agente" }
         if modo.nombre == "Formalizar" { return "Formalizar" }
         if modo.base == "buscar" { return "Buscar en \(Buscadores.nombre(modo.buscador))" }
+        if modo.base == "aplicacion" {
+            return "Abrir \(modo.appNombre.isEmpty ? "una aplicación" : modo.appNombre) y colocar el texto"
+        }
         if modo.base == "accion" {
             var d = modo.accion == "correo" || modo.accion == "outlook"
                 ? "Enviar por \(Acciones.nombre(modo.accion))"
@@ -618,7 +647,7 @@ enum ModoPlanificador {
         let verbo = zona.contains { verbosTraducir.contains($0) || verbosResumir.contains($0)
             || verbosFormalizar.contains($0) || verbosBuscar.contains($0)
             || verbosEnvio.contains($0) || verbosRedactar.contains($0)
-            || verbosGuardar.contains($0) || verbosAgente.contains($0) }
+            || verbosGuardar.contains($0) || verbosAbrir.contains($0) || verbosAgente.contains($0) }
         return pide && verbo
     }
 
@@ -655,6 +684,11 @@ enum ModoPlanificador {
             }
             if verbosAbrir.contains(t) {
                 if cerca.contains(where: { ModosStore.resolverVerbo($0)?.tipo == "accion" }) { return true }
+                var candidatos = Array(cerca)
+                let relleno: Set<String> = ["la", "el", "una", "un", "aplicacion", "app", "programa", "de"]
+                while let primero = candidatos.first, relleno.contains(primero) { candidatos.removeFirst() }
+                if Config.modoAplicaciones(),
+                   case .encontrada = AplicacionesMac.resolverPrefijo(candidatos) { return true }
                 continue
             }
             if verbosAgente.contains(t) {

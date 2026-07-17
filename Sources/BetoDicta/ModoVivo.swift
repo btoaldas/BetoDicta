@@ -26,6 +26,7 @@ enum ColorModo {
         "resumir":   NSColor(calibratedRed: 0.78, green: 0.62, blue: 1.00, alpha: 1),  // lila
         "asistente": NSColor(calibratedRed: 0.62, green: 0.55, blue: 0.95, alpha: 1),  // violeta
         "buscar":    NSColor(calibratedRed: 0.42, green: 0.85, blue: 0.45, alpha: 1),  // verde
+        "aplicacion": NSColor(calibratedRed: 0.35, green: 0.88, blue: 0.75, alpha: 1), // menta
         "agente":    NSColor(calibratedRed: 0.93, green: 0.45, blue: 0.85, alpha: 1),  // magenta
     ]
     /// Paleta para modos PROPIOS: color determinista por id (siempre el mismo).

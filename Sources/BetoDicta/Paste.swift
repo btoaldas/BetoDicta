@@ -5,7 +5,13 @@ import Carbon.HIToolbox
 
 // MARK: - Pegado (clipboard + Cmd+V, restaurando lo que había)
 
-func pasteText(_ text: String) {
+func copyText(_ text: String) {
+    let pb = NSPasteboard.general
+    pb.clearContents()
+    pb.setString(text, forType: .string)
+}
+
+func pasteText(_ text: String, restaurar: Bool = true) {
     if !AXIsProcessTrusted() {
         Log.write("⚠️ PEGADO BLOQUEADO: falta permiso de Accesibilidad para BetoDicta")
     }
@@ -22,10 +28,12 @@ func pasteText(_ text: String) {
     vDown?.post(tap: .cghidEventTap)
     vUp?.post(tap: .cghidEventTap)
 
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-        if let previous {
-            pb.clearContents()
-            pb.setString(previous, forType: .string)
+    if restaurar {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            if let previous {
+                pb.clearContents()
+                pb.setString(previous, forType: .string)
+            }
         }
     }
 }
@@ -60,4 +68,3 @@ func presionarRetorno(shift: Bool) {
     down?.post(tap: .cghidEventTap)
     up?.post(tap: .cghidEventTap)
 }
-

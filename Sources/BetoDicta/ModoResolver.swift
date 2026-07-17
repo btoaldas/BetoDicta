@@ -116,7 +116,8 @@ struct ModoCatalogo {
         self.modos = modos
         var ex: [Disparador] = []
         var di: [Disparador] = []
-        for modo in modos where modo.id != "dictado" {
+        for modo in modos where modo.id != "dictado"
+            && (modo.base != "aplicacion" || Config.modoAplicaciones()) {
             let frases = ModosStore.frasesVoz(modo)
             var vistos = Set<String>()
             for frase in frases {
@@ -213,6 +214,16 @@ enum ModoResolver {
         } else if modo.base == "buscar" {
             fillers = ["en"]
             reconocer = Buscadores.reconocer
+        } else if modo.base == "aplicacion" {
+            guard Config.modoAplicaciones() else { return (modo, inicio) }
+            switch AplicacionesMac.resolverPrefijo(Array(normalizados.dropFirst(inicio))) {
+            case .encontrada(let match):
+                return (AplicacionesMac.aplicar(match, a: modo), inicio + match.palabrasConsumidas)
+            case .ambiguas, .ninguna:
+                // El ejecutor conserva el texto y puede mostrar las alternativas;
+                // aquí nunca consume a ciegas una palabra que podría ser contenido.
+                return (modo, inicio)
+            }
         } else { return (modo, inicio) }
 
         if fillers.contains(normalizados[candidato]), candidato + 1 < normalizados.count {
@@ -329,8 +340,16 @@ enum ModoResolver {
         }
         // Si el parcial vivo terminó antes de oír el argumento, el final todavía
         // puede aportar "quichua"/"wikipedia" justo después de la frase.
-        let (modo, consumidas) = conArgumento(vivo.modo,
-                                              normalizados: entrada, desde: alineado.n)
+        let resuelto: (Modo, Int)
+        if vivo.modo.base == "aplicacion", !vivo.modo.appBundleId.isEmpty {
+            // El argumento (Word/Excel/…) ya formaba parte de tokensComando y de
+            // la alineación. No interpretes la primera palabra del CONTENIDO como
+            // una segunda aplicación.
+            resuelto = (vivo.modo, alineado.n)
+        } else {
+            resuelto = conArgumento(vivo.modo, normalizados: entrada, desde: alineado.n)
+        }
+        let (modo, consumidas) = resuelto
         return ModoMatch(modo: modo,
                          fuente: vivo.fuente == .exacto ? .vivoExacto : .vivoDifuso,
                          frase: vivo.frase,
@@ -554,7 +573,7 @@ enum ModoResolver {
             return nil
         }
         let cadena: ModoCadena
-        if modo.base == "accion" || modo.base == "buscar" {
+        if modo.base == "accion" || modo.base == "buscar" || modo.base == "aplicacion" {
             cadena = ModoCadena(transforms: [],
                                 acciones: [ModoAccionPlan(modo: modo, destinatario: nil)],
                                 contenido: r.textoLimpio)
