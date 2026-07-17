@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.42.0-beta"
-    static let fecha = "2026-07-16"
+    static let numero = "0.43.0"
+    static let fecha = "2026-07-17"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.43.0", "2026-07-17", [
+            "VERSIÓN ESTABLE: lleva al canal general todo lo probado en la beta 0.42.0 y vuelve a dejar GitHub latest disponible para las instalaciones que reciben solo versiones estables",
+            "INTENCIÓN NATURAL MULTIETAPA: entiende pedidos como \"resume, traduce al quichua y envía por correo y WhatsApp a Alberto\", conserva destinatarios y confirma el plan completo antes de ejecutar acciones externas; fn confirma y X continúa como dictado normal",
+            "NUEVO MODO APLICACIÓN: inventaría las apps realmente instaladas en cada Mac y permite decir \"modo abrir aplicación Word, borrador del informe\"; resuelve alias y ambigüedades, espera a que la app tome el foco y nunca pulsa Enter ni envía contenido",
+            "SEGURIDAD Y DEGRADACIÓN SUAVE: reglas locales primero, embeddings con margen e IA opcional solo como último árbitro; una app desconocida, una IA ausente o una interpretación ambigua nunca bloquean ni convierten texto normal en una acción silenciosa",
+            "QA REPRODUCIBLE: nuevas matrices para aplicaciones, planificación natural, regresiones, audio y arbitraje por IA, además del registro detallado que permite seguir mejorando los modos",
+        ]),
         ("0.42.0-beta", "2026-07-17", [
             "CADENAS COLOQUIALES: di \"por favor, envía un correo que traduzca lo siguiente: …\" y BetoDicta detecta las MÚLTIPLES intenciones (en cualquier orden) y te confirma todo de una: \"¿TRADUCIR y enviar por correo? fn = sí\" → traduce y abre el correo con el resultado. Nunca ejecuta sin confirmar",
             "Capa GRAMATICAL: entiende el verbo del modo en cualquier conjugación sin decir \"modo\" (\"tradúceme esto al quichua…\", \"búscame en google…\", \"apúntame como tarea…\" cambian directo). Si es ambiguo (\"quiero traducir algo…\"), pregunta con un mini-aviso en el notch (fn = sí)",
