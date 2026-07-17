@@ -24,6 +24,7 @@ final class DictationPanel {
     private let keycap = NSTextField(labelWithString: "fn")
     private let motorLabel = MotorLabel(labelWithString: "")
     private let modoLabel = MotorLabel(labelWithString: "")   // arriba-izq: modo activo
+    private(set) var modoMostradoID = "dictado"                // observable por QA
     private let confirmTitle = NSTextField(labelWithString: "")
     private let confirmBody = NSTextField(wrappingLabelWithString: "")
     private let confirmAlternatives = NSTextField(wrappingLabelWithString: "")
@@ -184,6 +185,7 @@ final class DictationPanel {
             DispatchQueue.main.async { [weak self] in self?.setModo(modo) }
             return
         }
+        modoMostradoID = modo.id
         let txt = modo.id == "dictado" ? "dictado" : modo.nombre.lowercased()
         modoLabel.stringValue = txt
         // Cada modo tiene SU color (el usuario puede fijarlo; si no, paleta estable) y

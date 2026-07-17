@@ -25,3 +25,20 @@ struct DoublePressGate {
         primera = nil
     }
 }
+
+/// La confirmación de un modo tiene prioridad sobre la activación con doble fn.
+/// También cubre la carrera en que la pregunta aparece DESPUÉS de bajar fn pero
+/// ANTES de soltarla. La misma pulsación solo puede confirmar si no empezó como
+/// la orden de detener una grabación: detener nunca debe aceptar a ciegas el
+/// modal que produzca ese dictado unos milisegundos después.
+enum ConfirmacionFnPolicy {
+    static func aceptarAlBajar(hayConfirmacion: Bool) -> Bool {
+        hayConfirmacion
+    }
+
+    static func aceptarAlSoltar(confirmacionConsumidaAlBajar: Bool,
+                                hayConfirmacionAhora: Bool,
+                                inicioGrabando: Bool) -> Bool {
+        !confirmacionConsumidaAlBajar && hayConfirmacionAhora && !inicioGrabando
+    }
+}

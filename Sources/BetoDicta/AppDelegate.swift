@@ -181,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// CANCELA lo que esté en curso. Recording → descarta. Agente/voz → mata Hermes,
     /// invalida respuestas en vuelo, corta el audio, cierra el notch. Idempotente.
     func cancelarTodo() {
-        if hayConfirmacion { resolverConfirmacion(acepta: false); return }
+        if hayConfirmacion { resolverConfirmacion(acepta: false, origen: "cancelar"); return }
         if recorder.isRecording { cancelDictation(); return }
         let habia = agenteActivo || AgenteHermes.enCurso || Voz.hablando
         agenteToken += 1          // invalida CUALQUIER respuesta en vuelo (Hermes o IA local)
@@ -240,8 +240,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             g.armar(en: t0)
             let tardia = g.consumirSiCorresponde(en: t0.addingTimeInterval(0.60), ventana: 0.45)
             let vencidaLimpia = !g.armada
+            let confirmaAlBajar = ConfirmacionFnPolicy.aceptarAlBajar(hayConfirmacion: true)
+            let confirmaDurantePulsacion = ConfirmacionFnPolicy.aceptarAlSoltar(
+                confirmacionConsumidaAlBajar: false, hayConfirmacionAhora: true,
+                inicioGrabando: false)
+            let detenerNoConfirma = !ConfirmacionFnPolicy.aceptarAlSoltar(
+                confirmacionConsumidaAlBajar: false, hayConfirmacionAhora: true,
+                inicioGrabando: true)
+            let sinModalNoConfirma = !ConfirmacionFnPolicy.aceptarAlSoltar(
+                confirmacionConsumidaAlBajar: false, hayConfirmacionAhora: false,
+                inicioGrabando: false)
             let todoBien = rapida && consumida && !tardia && vencidaLimpia
+                && confirmaAlBajar && confirmaDurantePulsacion
+                && detenerNoConfirma && sinModalNoConfirma
             print("DOBLEFNTEST rápida=\(rapida) consumida=\(consumida) tardía=\(tardia) vencidaLimpia=\(vencidaLimpia)")
+            print("DOBLEFNTEST confirmación bajar=\(confirmaAlBajar) durante=\(confirmaDurantePulsacion) detenerProtegido=\(detenerNoConfirma) sinModal=\(sinModalNoConfirma)")
             print("DOBLEFNTEST \(todoBien ? "TODO OK" : "✗ FALLA")")
             exit(todoBien ? 0 : 2)
         }
@@ -1011,9 +1024,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Config.set("modo_revertir", to: true)
             ModosStore.fijarDefecto("dictado")
             ModosStore.fijarActivo("correo")
+            panel.setModo(ModosStore.modo("correo"))
             let antes = Config.modoActivo()
             ModosStore.revertirADefecto()
             let ok1 = (antes == "correo" && Config.modoActivo() == "dictado")
+            restaurarModoVisualSiLibre(origen: "qa_revertir")
+            let okVisual = panel.modoMostradoID == "dictado"
             // OFF (sticky): revertir OFF → el modo se queda
             Config.set("modo_revertir", to: false)
             ModosStore.fijarActivo("oficio")
@@ -1026,9 +1042,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Restaurar TODO como estaba
             Config.set("modo_defecto", to: d0); Config.set("modo_activo", to: a0)
             Config.set("modo_revertir", to: r0); Config.set("idiomas_personales", to: ip0)
-            print("REVTEST revertON=\(ok1) sticky=\(ok2) idiomas=\(ok3)")
-            print("REVTEST \(ok1 && ok2 && ok3 ? "TODO OK" : "✗ FALLA")")
-            exit(ok1 && ok2 && ok3 ? 0 : 3)
+            panel.setModo(ModosStore.activo())
+            print("REVTEST revertON=\(ok1) visual=\(okVisual) sticky=\(ok2) idiomas=\(ok3)")
+            print("REVTEST \(ok1 && okVisual && ok2 && ok3 ? "TODO OK" : "✗ FALLA")")
+            exit(ok1 && okVisual && ok2 && ok3 ? 0 : 3)
         }
         // Prueba de tareas/notas: BETODICTA_NOTATEST=1 (agrega→verifica→borra, net-cero).
         if ProcessInfo.processInfo.environment["BETODICTA_NOTATEST"] == "1" {
@@ -1358,7 +1375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Tocar el cuerpo del notch cancela lo que esté en curso (grabación / agente / voz).
         panel.onCancelar = { [weak self] in
             guard let self else { return }
-            if self.hayConfirmacion { self.resolverConfirmacion(acepta: false); return }
+            if self.hayConfirmacion { self.resolverConfirmacion(acepta: false, origen: "clic_notch"); return }
             self.cancelarTodo()
         }
         panel.onMotorClick = { [weak self] in
@@ -1607,6 +1624,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     /// Refresca el letrero de modo en el notch (lo llama la pestaña Modos).
     func refrescarModoNotch() { panel.setModo(modoPendienteVoz ?? ModosStore.activo()) }
+
+    /// Sincroniza la VISTA con el modo que realmente ejecutará el próximo dictado.
+    /// El modo de la entrega actual ya quedó congelado, de modo que restaurar el
+    /// rótulo aquí no altera su resultado. Si otra grabación/agente está activo,
+    /// no pisa su UI; ese flujo hará su propia restauración al terminar.
+    private func restaurarModoVisualSiLibre(origen: String) {
+        let destino = modoPendienteVoz ?? ModosStore.activo()
+        let anterior = panel.modoMostradoID
+        let bloqueado = recorder.isRecording || hayConfirmacion || agenteActivo
+            || AgenteHermes.enCurso || Voz.hablando
+        if !bloqueado { panel.setModo(destino) }
+        ModosLog.registrar("modo_visual", [
+            "origen": origen,
+            "resultado": bloqueado ? "conservado_por_flujo_activo"
+                : (anterior == destino.id ? "ya_correcto" : "restaurado"),
+            "anterior": anterior,
+            "destino": destino.id,
+            "activo": Config.modoActivo(),
+            "defecto": Config.modoDefecto(),
+            "pendiente_voz": modoPendienteVoz?.id ?? "",
+            "grabando": recorder.isRecording,
+            "confirmando": hayConfirmacion,
+        ])
+    }
 
     @objc private func openKeyterms() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("keyterms.txt")) }
     @objc private func openReplacements() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("reemplazos.json")) }
@@ -1894,7 +1935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 if hotKeyID.id == 1 { delegate.pulsarAtajoCarbon() }
                 if hotKeyID.id == 2 { delegate.cancelarTodo() }   // Esc = cancela dictado O agente/voz
                 if hotKeyID.id == 3 { delegate.aprenderDeSeleccion() }
-                if hotKeyID.id == 4 { delegate.resolverConfirmacion(acepta: false) }
+                if hotKeyID.id == 4 { delegate.resolverConfirmacion(acepta: false, origen: "tecla_x") }
             }
             return noErr
         }, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
@@ -1938,12 +1979,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var comboUsedWithKey = false
     private var comboActivadoPorDoble = false
     private var comboConfirmacionConsumida = false
+    private var comboInicioGrabando = false
     private var doblePulsacion = DoublePressGate()
 
     /// Carbon solo informa key-down (F1–F12 o tecla+modificadores). En modo
     /// toque basta para aplicar la misma regla: doble para arrancar, una para parar.
     private func pulsarAtajoCarbon() {
-        if hayConfirmacion { doblePulsacion.reiniciar(); resolverConfirmacion(acepta: true); return }
+        if ConfirmacionFnPolicy.aceptarAlBajar(hayConfirmacion: hayConfirmacion) {
+            doblePulsacion.reiniciar()
+            Log.write("hotkey: confirmación aceptada con UNA pulsación (Carbon)")
+            ModosLog.registrar("confirmacion_hotkey", ["fase": "carbon", "doble_fn": Config.doblePulsacionActivar()])
+            resolverConfirmacion(acepta: true, origen: "hotkey_carbon")
+            return
+        }
         if recorder.isRecording {
             doblePulsacion.reiniciar()
             toggle()
@@ -1990,13 +2038,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.comboUsedWithKey = false
                 self.comboActivadoPorDoble = false
                 self.comboConfirmacionConsumida = false
+                self.comboInicioGrabando = self.recorder.isRecording
 
                 // La confirmación tiene su propia semántica: UNA pulsación acepta,
                 // aunque el arranque normal del dictado esté configurado a doble Fn.
-                if self.hayConfirmacion {
+                if ConfirmacionFnPolicy.aceptarAlBajar(hayConfirmacion: self.hayConfirmacion) {
                     self.comboConfirmacionConsumida = true
                     self.doblePulsacion.reiniciar()
-                    DispatchQueue.main.async { self.resolverConfirmacion(acepta: true) }
+                    Log.write("hotkey: confirmación aceptada con UNA pulsación (al bajar)")
+                    ModosLog.registrar("confirmacion_hotkey", ["fase": "bajar", "doble_fn": Config.doblePulsacionActivar()])
+                    DispatchQueue.main.async {
+                        self.resolverConfirmacion(acepta: true, origen: "hotkey_bajar")
+                    }
                     return
                 }
 
@@ -2024,10 +2077,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.comboArmed = false
                 let usadoConTecla = self.comboUsedWithKey
                 let activoPorDoble = self.comboActivadoPorDoble
+                let inicioGrabando = self.comboInicioGrabando
+                self.comboInicioGrabando = false
                 self.comboActivadoPorDoble = false
                 if self.comboConfirmacionConsumida {
                     self.comboConfirmacionConsumida = false
                     self.doblePulsacion.reiniciar()
+                    return
+                }
+                // La pregunta pudo aparecer entre BAJAR y SOLTAR esta misma fn.
+                // Esa única pulsación confirma, salvo que comenzó deteniendo una
+                // grabación (la detención nunca confirma su propio resultado).
+                if ConfirmacionFnPolicy.aceptarAlSoltar(
+                    confirmacionConsumidaAlBajar: false,
+                    hayConfirmacionAhora: self.hayConfirmacion,
+                    inicioGrabando: inicioGrabando
+                ) {
+                    self.doblePulsacion.reiniciar()
+                    Log.write("hotkey: confirmación aceptada con UNA pulsación (apareció durante fn)")
+                    ModosLog.registrar("confirmacion_hotkey", ["fase": "soltar_race", "doble_fn": Config.doblePulsacionActivar()])
+                    DispatchQueue.main.async {
+                        self.resolverConfirmacion(acepta: true, origen: "hotkey_soltar_race")
+                    }
                     return
                 }
                 if Config.pushToTalk() {
@@ -2103,7 +2174,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func toggle() {
         // Mini-modal (modo o cadena) pendiente: esta pulsación de fn es el "sí".
-        if hayConfirmacion { resolverConfirmacion(acepta: true); return }
+        if hayConfirmacion {
+            Log.write("hotkey: confirmación aceptada con UNA pulsación (toggle)")
+            ModosLog.registrar("confirmacion_hotkey", ["fase": "toggle", "doble_fn": Config.doblePulsacionActivar()])
+            resolverConfirmacion(acepta: true, origen: "toggle")
+            return
+        }
         if recorder.isRecording {
             stopAndTranscribe()
         } else {
@@ -2139,6 +2215,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startDictation() {
         guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
+        // Fuente de verdad al INICIAR: aunque una entrega anterior terminara por
+        // un camino excepcional, el notch nunca hereda su rótulo/color.
+        panel.setModo(modoPendienteVoz ?? ModosStore.activo())
         let sesion = UUID()
         modoVivoSesion = sesion
         modoVivoPausaTimer?.invalidate(); modoVivoPausaTimer = nil
@@ -2242,6 +2321,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             playSound("Tink")
             setIcono(.grabando)
             panel.show("Escuchando… (\(tecla) para terminar)")
+            ModosLog.registrar("dictado_inicio", [
+                "sesion": sesion.uuidString,
+                "modo_activo": Config.modoActivo(),
+                "modo_defecto": Config.modoDefecto(),
+                "modo_visual": panel.modoMostradoID,
+                "pendiente_voz": modoPendienteVoz?.id ?? "",
+                "un_solo_uso": Config.modoRevertir(),
+                "doble_fn": Config.doblePulsacionActivar(),
+            ])
             // Modo EN VIVO: si dices "modo X" mientras hablas, el notch cambia YA
             // (nombre + color + doble parpadeo) — sabes que te escuchó y sigues hablando.
             ModoVivo.empezar(sesion: sesion) { [weak self] match in
@@ -2560,10 +2648,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // así dos dictados solapados no se pisan, y el "un solo uso" se consume
         // aquí (el notch vuelve al defecto en cuanto sueltas). Viaja por las
         // entregas asíncronas igual que historyActual.
+        let activoAntesDeRevertir = Config.modoActivo()
         let modoDictado = modoPendienteVoz ?? ModosStore.activo()
         modoPendienteVoz = nil
         ModosStore.revertirADefecto()
         refrescarModoNotch()
+        ModosLog.registrar("dictado_cierre", [
+            "sesion": sesionDictado?.uuidString ?? "",
+            "modo_congelado": modoDictado.id,
+            "activo_antes": activoAntesDeRevertir,
+            "activo_despues": Config.modoActivo(),
+            "modo_defecto": Config.modoDefecto(),
+            "modo_visual": panel.modoMostradoID,
+            "vivo": vivoDictado?.modo.id ?? "",
+            "un_solo_uso": Config.modoRevertir(),
+        ])
 
         func rescatarConCascada(_ etiquetaFallo: String) {
             Failover.transcribe(wav: wav) { [weak self] r in
@@ -2786,6 +2885,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ModoResolver.resolver(texto: textoResolver, modoBase: modoBase,
                               contexto: contexto, vivo: vivo) { [weak self] resultado in
             DispatchQueue.main.async {
+                self?.registrarResolucionModo(resultado, crudo: crudo,
+                                              modoBase: modoBase)
                 self?.aplicarResultadoModo(resultado, crudo: crudo, textoNormal: textoResolver,
                                            modoNormal: modoBase, wav: wav, history: history)
             }
@@ -2809,6 +2910,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var confirmacionTimer: Timer?
     private var hayConfirmacion: Bool { confirmacion != nil }
 
+    /// Un evento consolidado por dictado. Complementa los eventos de cada capa y
+    /// permite responder después: qué ruta ganó, qué iba a ejecutar realmente y
+    /// qué modo/color estaba visible en ese instante.
+    private func registrarResolucionModo(_ resultado: ResultadoModo, crudo: String,
+                                         modoBase: Modo) {
+        var d: [String: Any] = [
+            "crudo": crudo,
+            "modo_base": modoBase.id,
+            "activo_config": Config.modoActivo(),
+            "modo_defecto": Config.modoDefecto(),
+            "un_solo_uso": Config.modoRevertir(),
+            "modo_visual": panel.modoMostradoID,
+            "doble_fn": Config.doblePulsacionActivar(),
+        ]
+        switch resultado {
+        case .cadena(let c):
+            d["resultado"] = "cadena_directa"
+            d["transforms"] = c.transforms.map(\.id)
+            d["acciones"] = c.acciones.map { $0.modo.accion }
+            d["destinatarios"] = c.acciones.compactMap(\.destinatario)
+        case .modo(let r):
+            d["resultado"] = "modo"
+            d["fuente"] = r.fuente.rawValue
+            d["modo"] = r.modo.id
+            d["contenido"] = r.texto
+        case .preguntar(let m):
+            d["resultado"] = "preguntar_modo"
+            d["fuente"] = m.fuente.rawValue
+            d["modo"] = m.modo.id
+            d["confianza"] = m.confianza
+        case .preguntarCadena(let c, _):
+            d["resultado"] = "preguntar_cadena"
+            d["fuente"] = FuenteModo.natural.rawValue
+            d["transforms"] = c.transforms.map(\.id)
+            d["acciones"] = c.acciones.map { $0.modo.accion }
+        case .preguntarPlan(let p):
+            d["resultado"] = "preguntar_plan"
+            d["fuente"] = p.fuente.rawValue
+            d["confianza"] = p.confianza
+            d["transforms"] = p.cadena.transforms.map(\.id)
+            d["acciones"] = p.cadena.acciones.map { $0.modo.accion }
+            d["destinatarios"] = p.cadena.acciones.compactMap(\.destinatario)
+        }
+        ModosLog.registrar("resolucion", d)
+    }
+
     private func presentarConfirmacion(_ pregunta: ModoPreguntaPlan,
                                        entrega: EntregaConfirmacion) {
         // Una entrega vieja puede terminar mientras ya se graba la siguiente.
@@ -2825,7 +2972,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Un solo estado evita que una pregunta de modo y otra de cadena queden
         // pendientes a la vez usando el mismo timer.
         confirmacionTimer?.invalidate()
+        doblePulsacion.reiniciar() // el modal empieza con una fn limpia, nunca hereda el primer toque
         confirmacion = .plan(pregunta, entrega)
+        ModosLog.registrar("confirmacion_presentada", [
+            "tipo": "plan", "crudo": entrega.crudo,
+            "fuente": pregunta.fuente.rawValue,
+            "confianza": pregunta.confianza,
+            "transforms": pregunta.cadena.transforms.map(\.id),
+            "acciones": pregunta.cadena.acciones.map { $0.modo.accion },
+            "destinatarios": pregunta.cadena.acciones.compactMap(\.destinatario),
+            "modo_normal": entrega.modoNormal.id,
+            "doble_fn": Config.doblePulsacionActivar(),
+            "confirmar_con": "una_pulsacion",
+        ])
         if let primero = pregunta.cadena.etapas.first { panel.setModoVivo(primero) }
         let titulo = pregunta.detalles.count == 1
             ? "¿Deseas \(pregunta.descripcion.lowercased())?"
@@ -2838,7 +2997,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         armConfirmX()
         confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
                                                   repeats: false) { [weak self] _ in
-            self?.resolverConfirmacion(acepta: false)
+            self?.resolverConfirmacion(acepta: false, origen: "timeout")
         }
     }
 
@@ -2869,7 +3028,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         guard Config.panelVisible() else { continuarSinPlan(entrega); return }
         confirmacionTimer?.invalidate()
+        doblePulsacion.reiniciar()
         confirmacion = .modo(match, entrega)
+        ModosLog.registrar("confirmacion_presentada", [
+            "tipo": "modo", "crudo": entrega.crudo,
+            "fuente": match.fuente.rawValue, "confianza": match.confianza,
+            "modo": match.modo.id, "modo_normal": entrega.modoNormal.id,
+            "doble_fn": Config.doblePulsacionActivar(),
+            "confirmar_con": "una_pulsacion",
+        ])
         panel.setModoVivo(match.modo)
         panel.showConfirmation(title: "¿Deseas usar el modo \(match.modo.nombre)?",
                                details: [ModoPlanificador.descripcionEtapa(match.modo)],
@@ -2879,16 +3046,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         armConfirmX()
         confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
                                                   repeats: false) { [weak self] _ in
-            self?.resolverConfirmacion(acepta: false)
+            self?.resolverConfirmacion(acepta: false, origen: "timeout")
         }
     }
 
-    func resolverConfirmacion(acepta: Bool) {
+    func resolverConfirmacion(acepta: Bool, origen: String = "desconocido") {
         confirmacionTimer?.invalidate(); confirmacionTimer = nil
         disarmConfirmX()
+        doblePulsacion.reiniciar()
         panel.closeConfirmation()
         guard let pendiente = confirmacion else { return }
         confirmacion = nil
+
+        let diagnostico: [String: Any]
+        switch pendiente {
+        case .plan(let pregunta, let entrega):
+            diagnostico = ["tipo": "plan", "crudo": entrega.crudo,
+                           "fuente": pregunta.fuente.rawValue,
+                           "etapas": pregunta.detalles]
+        case .modo(let match, let entrega):
+            diagnostico = ["tipo": "modo", "crudo": entrega.crudo,
+                           "fuente": match.fuente.rawValue,
+                           "modo": match.modo.id]
+        }
+        ModosLog.registrar("confirmacion_respuesta", diagnostico.merging([
+            "aceptado": acepta, "origen": origen,
+            "doble_fn": Config.doblePulsacionActivar(),
+        ]) { _, nuevo in nuevo })
 
         switch pendiente {
         case .plan(let pregunta, let entrega):
@@ -2977,6 +3161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard !cad.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 if !recorder.isRecording { panel.flash("🎤 Cadena sin contenido — dilo con el texto", segundos: 2) }
                 history?.finish(wav: wav, finalText: "")
+                restaurarModoVisualSiLibre(origen: "cadena_sin_contenido")
                 return
             }
             correrCadena(cad.transforms, indice: 0, texto: cad.contenido,
@@ -3062,6 +3247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.write("  ⏭︎ modo \(modo.nombre) sin contenido — no se procesa")
             if !recorder.isRecording { panel.flash("🎤 \"\(modo.nombre)\" sin contenido — dilo con el texto", segundos: 2) }
             history?.finish(wav: wav, finalText: "")
+            restaurarModoVisualSiLibre(origen: "modo_sin_contenido")
             return
         }
         if modo.base == "buscar" { ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history); return }
@@ -3206,9 +3392,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let etapa = acciones[indice]
         let continuar: () -> Void = { [weak self] in
-            guard indice + 1 < acciones.count else { return }
-            self?.ejecutarAcciones(acciones, indice: indice + 1, texto: texto,
-                                   wav: wav, history: nil)
+            guard let self else { return }
+            if indice + 1 < acciones.count {
+                self.ejecutarAcciones(acciones, indice: indice + 1, texto: texto,
+                                      wav: wav, history: nil)
+            } else {
+                self.restaurarModoVisualSiLibre(origen: "cadena_acciones_completa")
+            }
         }
         if etapa.modo.base == "buscar" {
             ejecutarBusqueda(texto, modo: etapa.modo, wav: wav, history: nil,
@@ -3377,6 +3567,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// No usa IA, no ejecuta shell y nunca pulsa Enter/envía el contenido.
     private func ejecutarAplicacion(_ texto: String, modo: Modo, wav: Data,
                                     history: HistoryWriter?, completion: (() -> Void)? = nil) {
+        defer {
+            if completion == nil { restaurarModoVisualSiLibre(origen: "aplicacion_directa") }
+        }
         guard Config.modoAplicaciones() else {
             if !recorder.isRecording { panel.flash("El modo Aplicación está desactivado", segundos: 2) }
             history?.finish(wav: wav, finalText: "")
@@ -3496,6 +3689,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.updateForzado("▶︎ " + t)
             panel.hide(after: 1.6)
         }
+        if completion == nil { restaurarModoVisualSiLibre(origen: "accion_directa") }
         if !esperaAsincrona { completar() }
     }
 
@@ -3519,6 +3713,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.updateForzado("🔎 " + q)
             panel.hide(after: 1.6)
         }
+        if completion == nil { restaurarModoVisualSiLibre(origen: "busqueda_directa") }
         if let completion {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: completion)
         }
@@ -3546,6 +3741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // (El "un solo uso" ya se consumió al CERRAR el dictado en stopAndTranscribe;
         //  no se revierte aquí para no pisar el modo de un dictado solapado.)
         // Si ya hay otro dictado grabando, no pisar su panel (ni el notch de IA).
+        restaurarModoVisualSiLibre(origen: "entrega_completa")
         if pegar, !recorder.isRecording {
             panel.updateForzado("✓ " + text)
             panel.hide(after: 1.8)

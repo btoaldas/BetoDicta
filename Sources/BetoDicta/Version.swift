@@ -17,6 +17,9 @@ enum Version {
             "NUEVO MODO APLICACIÓN: inventaría las apps realmente instaladas en cada Mac y permite decir \"modo abrir aplicación Word, borrador del informe\"; resuelve alias y ambigüedades, espera a que la app tome el foco y nunca pulsa Enter ni envía contenido",
             "SEGURIDAD Y DEGRADACIÓN SUAVE: reglas locales primero, embeddings con margen e IA opcional solo como último árbitro; una app desconocida, una IA ausente o una interpretación ambigua nunca bloquean ni convierten texto normal en una acción silenciosa",
             "ACTUALIZACIONES ENDURECIDAS: cada DMG estable lleva una firma Ed25519 separada verificada por la app, además de la identidad del bundle; rechaza descargas alteradas o sin firma. Las copias 0.40–0.42 aceptan 0.43 por el mismo certificado y, desde 0.43, el flujo automático queda protegido también por esta firma distribuible",
+            "MODOS SIN ESTADO PEGADO: al terminar un modo de un solo uso, nombre, color y ejecución vuelven juntos al modo por defecto; cada nuevo dictado vuelve a sincronizar el notch como segunda barrera",
+            "CONFIRMACIÓN CON UNA FN REAL: el modal de intención ignora la opción de doble-fn y acepta una sola pulsación, incluso si la pregunta aparece entre bajar y soltar la tecla; detener una grabación nunca confirma a ciegas su propio resultado",
+            "CAJA NEGRA DE MODOS AMPLIADA: registra inicio/cierre, resolución consolidada, modal, origen de la respuesta y restauración visual; el manual incluye 24 casos reproducibles para probar rutas positivas, negativas y encadenadas",
             "QA REPRODUCIBLE: nuevas matrices para aplicaciones, planificación natural, regresiones, audio y arbitraje por IA, además del registro detallado que permite seguir mejorando los modos",
         ]),
         ("0.42.0-beta", "2026-07-17", [

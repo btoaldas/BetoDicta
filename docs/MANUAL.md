@@ -468,7 +468,7 @@ En **Ajustes → Modos → Aplicación** puedes apagar por completo esta funció
 
 **WhatsApp con contactos:** en el modo WhatsApp puedes **importar** tu lista y/o usar tus **Contactos de Mac**. El import **auto-detecta el formato**: **vCard `.vcf`** (teléfono iPhone/Android, iCloud, Outlook), **CSV de Google/Gmail** (inglés o español), **CSV de Outlook/Edge**, o CSV/JSON simple — y te dice cuántos **válidos/inválidos** importó. Di *"modo whatsapp, enviar a Alberto, hola qué tal"* → busca a Alberto y abre su chat con el texto; si hay varios, **eliges en un modal** (los más probables primero). Si el STT oye algo cercano (*"Adalberto"* por *"Alberto"*), hace una coincidencia local aproximada pero **siempre te pide confirmar el contacto**: nunca envía directo con un nombre dudoso. **Exportar CSV/JSON** te da el formato (con ejemplo si está vacío). *(Los números deben tener código de país — ej. 593… — para abrir el chat correcto.)*
 
-**Un solo uso (por defecto ON):** el modo que eliges en el notch/menú se aplica **solo a ese dictado** y luego vuelve al **modo por defecto**. Marca el por defecto con **"Poner por defecto"**. Si prefieres que el modo elegido se quede fijo, apaga el interruptor *"El modo elegido al vuelo es de un solo uso"*.
+**Un solo uso (por defecto ON):** el modo que eliges en el notch/menú se aplica **solo a ese dictado** y luego vuelve al **modo por defecto**. Marca el por defecto con **"Poner por defecto"**. Si prefieres que el modo elegido se quede fijo, apaga el interruptor *"El modo elegido al vuelo es de un solo uso"*. El nombre, color y ejecución se restauran juntos al terminar; además, cada nuevo dictado vuelve a sincronizar el notch con la fuente de verdad para que nunca herede solo la apariencia del anterior.
 
 **Activación automática:**
 
@@ -482,6 +482,39 @@ Precedencia resumida: una cadena u orden explícita manda; después vienen el **
 **Reconocimiento inteligente de modos** (opt-in, *Ajustes → Avanzado*): entiende el llamado **aunque lo digas de muchas formas**, tanto con *"modo"* como en una petición real al inicio. Es parametrizable: tamaño de la zona, umbral, margen entre candidatos, auto-mejora y árbitro IA. También es **entrenable por ti**: en *Ajustes → Modos*, cada modo tiene **"Ejemplos"** para agregar tus propias formas de pedirlo. La primera vez calcula los vectores en segundo plano; si no hay motor disponible, salta esta capa y continúa con las reglas normales.
 
 **Modos encadenados (pipeline por voz):** puedes juntar varias transformaciones y varios destinos. Ej.: *"modo resumir traducir quichua correo WhatsApp, …"* resume, traduce y abre ambos destinos con el mismo resultado. También funciona hablando natural: *"por favor, traduce esto… y después envíalo por correo"*. Los conectores delimitan etapas y lo demás se conserva como contenido. El **Agente** mantiene su flujo especializado (herramientas, conversación y voz) y por ahora no se usa como etapa intermedia de una cadena.
+
+### Matriz manual de estabilidad de Modos
+
+Prueba estas frases **en orden**, dejando terminar cada una. Cuando aparezca una pregunta, **fn una sola vez confirma**, aunque tengas activado doble-fn para iniciar; **X** rechaza solo el plan. Con *Un solo uso* activo, tras cada caso el notch debe volver visual y funcionalmente a tu modo por defecto.
+
+| # | Di exactamente | Resultado esperado |
+|---:|---|---|
+| 1 | “Modo traducir inglés, buenos días amigo.” | Traduce al inglés directamente. |
+| 2 | “Modo traducir quichua, ¿cómo estás el día de hoy?” | Traduce al quichua directamente. |
+| 3 | “Quiero traducir lo siguiente: nos vemos mañana.” | Pregunta si deseas Traducir; una fn acepta. |
+| 4 | “Quiero traducir lo siguiente: este texto debe quedarse igual.” | En la pregunta pulsa X; continúa como Dictado normal, completo. |
+| 5 | “Esta es una frase normal después de traducir.” | Ejecuta y muestra el modo por defecto, no Traducir. |
+| 6 | “Modo correo, confirmo la reunión del lunes.” | Redacta como correo. |
+| 7 | “Mudo tarea, revisar el Quipux y configurar el MikroTik.” | Tolera la mala escucha, crea Tarea y vuelve al defecto. |
+| 8 | “Modo nota, llamar a Rafael el viernes.” | Crea una Nota local. |
+| 9 | “Modo buscar Google, Universidad Estatal Amazónica.” | Abre la búsqueda en Google. |
+| 10 | “Modo buscar Wikipedia, Ecuador.” | Abre Wikipedia con la consulta. |
+| 11 | “Modo traducir inglés y buscar Google, mejores laptops 2026.” | Traduce y después busca el resultado. |
+| 12 | “Por favor, traduce esto: la vida es bella. Después envíalo por correo electrónico.” | Propone Traducir → Correo; una fn ejecuta ambas. |
+| 13 | “Resume, traduce al quichua y envía por correo y WhatsApp a Alberto: mañana hay reunión.” | Propone cuatro etapas, conserva Alberto y pide confirmación. |
+| 14 | “Modo WhatsApp, enviar a Alberto: llego a las ocho.” | Resuelve contacto; si hay varios Albertos, muestra selector. |
+| 15 | “Molde traductor, buenos días.” | Fuzzy reconoce Traducir; no deja pegado el color después. |
+| 16 | “Modo agente” · pausa de 2 s · “dime qué tareas tengo hoy.” | El color cambia durante la pausa y Agente responde. |
+| 17 | Di solamente “Modo agente” y termina. En el siguiente dictado di “¿qué tareas tengo hoy?” | Prepara Agente para una sola siguiente entrada, sin consulta vacía. |
+| 18 | “Modo abrir aplicación Word, borrador del informe.” | Abre Word, crea documento si está configurado y coloca/copia el texto. |
+| 19 | “Por favor abre Word y escribe: acta de la reunión.” | Propone Aplicación; una fn confirma. |
+| 20 | “Modo abrir aplicación UnaAppQueNoExiste, hola.” | No abre otra app ni adivina; informa que no la encontró. |
+| 21 | “La moda de invierno para damas llegó temprano.” | Dictado normal; no activa ningún modo. |
+| 22 | “El modo de empleo del taladro está en la caja.” | Dictado normal; no interpreta “modo” como comando. |
+| 23 | “Necesito revisar el correo que llegó ayer.” | Dictado normal; mencionar correo no equivale a enviarlo. |
+| 24 | Repite el caso 3 con doble-fn activado. | El modal se acepta con **una sola fn** y el próximo dictado vuelve al modo por defecto. |
+
+**Cómo depurar:** abre `~/.betodicta/logs/modos.jsonl` desde la lupa de *Ajustes → Modos*. Para cada prueba verás la ruta `dictado_inicio → dictado_cierre → resolucion`; si hubo pregunta aparecen `confirmacion_presentada → confirmacion_hotkey/confirmacion_respuesta`; luego `despacho`, `accion`, `whatsapp` o `aplicacion`, y finalmente `modo_visual`. Los eventos guardan modo congelado, fuente ganadora, confianza, etapas, destinatarios, modo por defecto, modo mostrado y si estaba activo doble-fn. Así se distingue una ejecución incorrecta de un simple rótulo desincronizado.
 
 ## 17. Pestaña Historial
 
