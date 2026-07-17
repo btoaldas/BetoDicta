@@ -57,6 +57,9 @@ enum ResultadoModo {
     /// La capa gramatical entendió la intención pero es AMBIGUA ("quiero traducir…"):
     /// la app muestra el mini-modal "¿Cambiar a modo X?" (fn = sí) antes de despachar.
     case preguntar(ModoMatch)
+    /// Cadena COLOQUIAL detectada ("envía un correo que traduzca lo siguiente…"):
+    /// SIEMPRE se confirma con el modal ("¿TRADUCIR y enviar por CORREO? fn = sí").
+    case preguntarCadena(ModoCadena, descripcion: String)
 }
 
 struct ModoCatalogo {
@@ -403,6 +406,97 @@ enum ModoResolver {
         return nil
     }
 
+    // MARK: Cadena COLOQUIAL (múltiples intenciones sin decir "modo")
+    //
+    // "Por favor, envía un correo que traduzca lo siguiente: …", "tradúceme esto al
+    // inglés y mándalo por whatsapp…". Reglas de seguridad: (1) el PRIMER verbo de
+    // intención debe estar al arranque real de la orden (tras cortesías), (2) hacen
+    // falta ≥2 intenciones distintas, (3) NUNCA ejecuta directo — SIEMPRE pregunta
+    // con el modal. El orden de ejecución es fijo: transforms → acción (da igual el
+    // orden en que lo digas: "correo que traduzca" = traducir y luego correo).
+
+    private static let cortesias: Set<String> = ["por", "favor", "porfa", "porfavor", "oye", "hey", "betodicta"]
+    private static let verbosEnvio: Set<String> = ["envia", "enviar", "enviame", "envialo", "enviaselo",
+        "manda", "mandar", "mandame", "mandalo", "mandaselo", "mandale", "escribe", "escribele", "redacta"]
+    private static let mediosAccion: [String: String] = [
+        "correo": "correo", "mail": "correo", "email": "correo",
+        "whatsapp": "whatsapp", "wasap": "whatsapp", "guasap": "whatsapp",
+        "outlook": "outlook", "mensaje": "mensajes", "mensajes": "mensajes",
+    ]
+    private static let delimitadores: Set<String> = ["siguiente", "esto", "texto", "dice", "diga"]
+
+    static func detectarCadenaColoquial(_ texto: String,
+                                        catalogo: ModoCatalogo = ModoCatalogoCache.actual())
+        -> (cadena: ModoCadena, descripcion: String)? {
+        let originales = tokensOriginales(texto)
+        let normPorOriginal = originales.map(tokenNormalizado)
+        let idxValidos = normPorOriginal.indices.filter { !normPorOriginal[$0].isEmpty }
+        let filtrados = idxValidos.map { normPorOriginal[$0] }
+        guard filtrados.count >= 4 else { return nil }
+        // La palabra "modo" al inicio pertenece a la cadena CLÁSICA (detectarCadena).
+        if palabrasModoSeguras.contains(filtrados[0]) { return nil }
+
+        let zona = min(filtrados.count, 14)
+        var transforms: [Modo] = []
+        var accion: Modo?
+        var idioma: String?
+        var ultimoComando = -1     // índice (filtrado) del último token de la orden
+        var primeraIntencion = -1
+
+        var i = 0
+        while i < zona {
+            let t = filtrados[i]
+            if let idi = Idiomas.reconocer(t) { idioma = idi; ultimoComando = max(ultimoComando, i); i += 1; continue }
+            // Transform: traducir (u otro modo transform por stem de nombre).
+            if t.count >= 5, (t.hasPrefix("traduc") || t.hasPrefix("traduzc")) {
+                if !transforms.contains(where: { $0.id == "traducir" }) {
+                    transforms.append(ModosStore.modo("traducir"))
+                }
+                if primeraIntencion < 0 { primeraIntencion = i }
+                ultimoComando = max(ultimoComando, i); i += 1; continue
+            }
+            // Acción: verbo de envío ("envía", "mándalo") o medio directo ("correo", "whatsapp").
+            if verbosEnvio.contains(t) {
+                if primeraIntencion < 0 { primeraIntencion = i }
+                ultimoComando = max(ultimoComando, i); i += 1; continue
+            }
+            if let medio = mediosAccion[t] {
+                accion = Modo(id: "cadena-\(medio)", nombre: Acciones.nombre(medio),
+                              icono: "bolt.fill", base: "accion", accion: medio)
+                if primeraIntencion < 0 { primeraIntencion = i }
+                ultimoComando = max(ultimoComando, i); i += 1; continue
+            }
+            i += 1
+        }
+
+        // Seguridad: ≥2 intenciones (transform + acción) y la PRIMERA al arranque real
+        // (tras cortesías). "la tarea del agente es enviar un correo" no arranca así.
+        guard !transforms.isEmpty, accion != nil else { return nil }
+        var arranque = 0
+        while arranque < filtrados.count, cortesias.contains(filtrados[arranque]) { arranque += 1 }
+        guard primeraIntencion >= 0, primeraIntencion <= arranque + 1 else { return nil }
+        guard ultimoComando >= 0 else { return nil }
+
+        if let idioma { for j in transforms.indices where transforms[j].base == "traducir" { transforms[j].idiomaDestino = idioma } }
+
+        // Contenido: tras el último token de la orden, saltando fillers/delimitadores
+        // ("lo siguiente", "que dice", "esto:").
+        var corte = ultimoComando + 1
+        while corte < filtrados.count,
+              fillersPostVerbo.contains(filtrados[corte]) || delimitadores.contains(filtrados[corte])
+              || cortesias.contains(filtrados[corte]) || filtrados[corte] == "que" || filtrados[corte] == "y" {
+            corte += 1
+        }
+        let corteOriginal = corte == 0 ? 0
+            : (corte <= idxValidos.count ? idxValidos[corte - 1] + 1 : originales.count)
+        let contenido = limpiar(originales, desde: corteOriginal)
+        guard !contenido.isEmpty else { return nil }   // orden sin contenido no vale la pena
+
+        let partes = transforms.map { $0.base == "traducir" ? "TRADUCIR\($0.idiomaDestino.isEmpty ? "" : " al \($0.idiomaDestino)")" : $0.nombre.uppercased() }
+        let desc = partes.joined(separator: ", ") + " y " + (accion!.nombre.lowercased())
+        return (ModoCadena(transforms: transforms, accion: accion, contenido: contenido), desc)
+    }
+
     static func matchSemantico(texto: String, modo: Modo, limpio: String) -> ModoMatch {
         let todos = tokensNormalizados(texto)
         let contenido = tokensNormalizados(limpio)
@@ -432,6 +526,13 @@ enum ModoResolver {
         if Config.modoPorVoz(), let m = detectarDifuso(texto, catalogo: catalogo) {
             completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
                                             fuente: .difuso, match: m)))
+            return
+        }
+        // CADENA COLOQUIAL: ≥2 intenciones sin decir "modo" ("envía un correo que
+        // traduzca lo siguiente…"). SIEMPRE pregunta con el modal antes de ejecutar.
+        if Config.modoPorVoz(), Config.modoGramatical(),
+           let (cad, desc) = detectarCadenaColoquial(texto, catalogo: catalogo) {
+            completion(.preguntarCadena(cad, descripcion: desc))
             return
         }
         // GRAMATICAL: el verbo del modo en cualquier conjugación. Imperativo directo

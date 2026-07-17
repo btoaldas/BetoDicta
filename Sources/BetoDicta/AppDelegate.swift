@@ -518,6 +518,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     detId = m.modo.id; detTexto = m.textoLimpio
                     if m.modo.base == "traducir" { detArg = "idioma=\(m.modo.idiomaDestino)" }
                     if m.modo.base == "buscar" { detArg = "buscador=\(m.modo.buscador)" }
+                } else if let (cad, desc) = ModoResolver.detectarCadenaColoquial(frase) {
+                    detId = "cadenacol"; detTexto = cad.contenido
+                    detArg = "etapas=" + cad.transforms.map(\.id).joined(separator: "+")
+                        + (cad.accion.map { "→\($0.accion)" } ?? "") + " | " + desc
                 } else if let (m, certeza) = ModoResolver.detectarGramatical(frase) {
                     detId = (certeza == .directo ? "gram:" : "pregunta:") + m.modo.id
                     detTexto = m.textoLimpio
@@ -1364,7 +1368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Tocar el cuerpo del notch cancela lo que esté en curso (grabación / agente / voz).
         panel.onCancelar = { [weak self] in
             guard let self else { return }
-            if self.confirmacionModo != nil { self.resolverConfirmacion(acepta: false); return }
+            if self.confirmacionModo != nil || self.confirmacionCadena != nil { self.resolverConfirmacion(acepta: false); return }
             self.cancelarTodo()
         }
         panel.onMotorClick = { [weak self] in
@@ -2069,8 +2073,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Flujo de dictado
 
     func toggle() {
-        // Mini-modal de cambio de modo pendiente: esta pulsación de fn es el "sí".
-        if confirmacionModo != nil { resolverConfirmacion(acepta: true); return }
+        // Mini-modal (modo o cadena) pendiente: esta pulsación de fn es el "sí".
+        if confirmacionModo != nil || confirmacionCadena != nil { resolverConfirmacion(acepta: true); return }
         if recorder.isRecording {
             stopAndTranscribe()
         } else {
@@ -2761,7 +2765,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Mini-modal "¿Cambiar a modo X?" (capa gramatical ambigua)
 
     private var confirmacionModo: (match: ModoMatch, crudo: String, wav: Data, history: HistoryWriter?)?
+    private var confirmacionCadena: (cadena: ModoCadena, crudo: String, wav: Data, history: HistoryWriter?)?
     private var confirmacionTimer: Timer?
+
+    /// Modal para la CADENA coloquial: confirma todas las acciones de una.
+    private func preguntarCadenaColoquial(_ cad: ModoCadena, descripcion: String,
+                                          crudo: String, wav: Data, history: HistoryWriter?) {
+        confirmacionCadena = (cad, crudo, wav, history)
+        if let primero = cad.transforms.first { panel.setModoVivo(primero) }
+        panel.show("¿\(descripcion.uppercased())? \(tecla) = sí · clic = no")
+        playSound("Tink")
+        confirmacionTimer?.invalidate()
+        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
+            self?.resolverConfirmacion(acepta: false)
+        }
+    }
 
     /// Pregunta en el notch. fn = sí · clic en el notch = no · 8 s sin respuesta = no.
     private func preguntarCambioModo(_ match: ModoMatch, crudo: String, wav: Data,
@@ -2778,6 +2796,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func resolverConfirmacion(acepta: Bool) {
         confirmacionTimer?.invalidate(); confirmacionTimer = nil
+        // ¿Era una CADENA coloquial pendiente?
+        if let cc = confirmacionCadena {
+            confirmacionCadena = nil
+            if acepta {
+                ModosLog.registrar("cadenacol_si", ["crudo": cc.crudo,
+                    "transforms": cc.cadena.transforms.map(\.id),
+                    "accion": cc.cadena.accion?.accion ?? ""])
+                correrCadena(cc.cadena.transforms, indice: 0, texto: cc.cadena.contenido,
+                             accion: cc.cadena.accion, wav: cc.wav, history: cc.history)
+            } else {
+                ModosLog.registrar("cadenacol_no", ["crudo": cc.crudo])
+                panel.setModo(ModosStore.activo())
+                aplicarResultadoModo(.modo(ModoResolucion(modo: ModosStore.activo(), texto: cc.crudo,
+                                                          fuente: .manual, match: nil)),
+                                     crudo: cc.crudo, wav: cc.wav, history: cc.history)
+            }
+            return
+        }
         guard let c = confirmacionModo else { return }
         confirmacionModo = nil
         if acepta {
@@ -2817,6 +2853,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // fn = sí (cambia al modo y despacha el contenido) · Esc/clic/8s = no
             // (se procesa como dictado normal, sin recortar nada).
             preguntarCambioModo(match, crudo: crudo, wav: wav, history: history)
+            return
+
+        case .preguntarCadena(let cad, let desc):
+            // CADENA coloquial ("envía un correo que traduzca lo siguiente…"): el modal
+            // confirma TODAS las acciones de una: "¿TRADUCIR y enviar por correo? fn = sí".
+            preguntarCadenaColoquial(cad, descripcion: desc, crudo: crudo, wav: wav, history: history)
             return
 
         case .modo(let r):
