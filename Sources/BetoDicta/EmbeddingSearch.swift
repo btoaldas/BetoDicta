@@ -70,6 +70,8 @@ enum EmbeddingSearch {
 
     /// Motores preconfigurados. El usuario solo pone la key (o tiene Ollama).
     static let motores: [Motor] = [
+        Motor(id: "interno", nombre: "Interno de BetoDicta (sin instalar nada)",
+              base: "http://127.0.0.1:8798/v1", modelo: "bge-m3", keyEnv: ""),
         Motor(id: "ollama", nombre: "Ollama (local, gratis)", base: "http://localhost:11434", modelo: "bge-m3", keyEnv: ""),
         Motor(id: "openai", nombre: "OpenAI (text-embedding-3-small)", base: "https://api.openai.com/v1", modelo: "text-embedding-3-small", keyEnv: "OPENAI_API_KEY"),
         Motor(id: "gemini", nombre: "Google Gemini (text-embedding-004)", base: "https://generativelanguage.googleapis.com/v1beta/openai", modelo: "text-embedding-004", keyEnv: "GEMINI_API_KEY"),
@@ -99,7 +101,10 @@ enum EmbeddingSearch {
         var res: [(Motor, Bool)] = []
         let grupo = DispatchGroup()
         for m in motores {
-            if m.local {
+            if m.id == "interno" {
+                // Disponible = modelo descargado + llama-server embarcado presente.
+                res.append((m, EmbeddingServer.disponible))
+            } else if m.local {
                 grupo.enter()
                 probarOllamaEmb(base: m.base) { ok in res.append((m, ok)); grupo.leave() }
             } else {
@@ -130,6 +135,26 @@ enum EmbeddingSearch {
     /// ({model,input}→data[0].embedding), con Bearer key.
     static func embed(_ texto: String, completion: @escaping (Result<[Double], Error>) -> Void) {
         let m = motorActual
+        // Motor INTERNO: es nuestro llama-server embarcado con bge-m3 — se levanta
+        // on-demand (el primer uso espera la carga) y duerme solo por inactividad.
+        if m.id == "interno" {
+            EmbeddingServer.asegurar { ok in
+                guard ok else {
+                    completion(.failure(ScribeError.ws(EmbeddingServer.instalado
+                        ? "El motor interno de embeddings no arrancó"
+                        : "El motor interno no está descargado (Ajustes → Reconocimiento inteligente)")))
+                    return
+                }
+                EmbeddingServer.tocar()
+                embedHTTP(m, texto: texto, completion: completion)
+            }
+            return
+        }
+        embedHTTP(m, texto: texto, completion: completion)
+    }
+
+    private static func embedHTTP(_ m: Motor, texto: String,
+                                  completion: @escaping (Result<[Double], Error>) -> Void) {
         let openai = m.esOpenAICompat
         let endpoint = openai ? "\(m.base)/embeddings" : "\(m.base)/api/embeddings"
         guard let url = URL(string: endpoint) else { completion(.failure(ScribeError.ws("URL de embeddings inválida"))); return }

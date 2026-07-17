@@ -1526,10 +1526,30 @@ struct EmbeddingMotorPicker: View {
         return "\(ok ? "✓" : "○") \(m.nombre)\(ok ? "" : (m.local ? " — sin modelo" : " — sin key"))"
     }
 
+    @State private var bajandoInterno = false
+    @State private var msgInterno = ""
+
     @ViewBuilder private var pista: some View {
         if sel == "custom" {
             Text("Personalizado: se usa la base/modelo/key de embeddings que configures (avanzado).")
                 .font(.caption2).foregroundStyle(.secondary)
+        } else if sel == "interno", estado["interno"] == false {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("El motor interno usa el llama-server que ya trae BetoDicta + el modelo bge-m3 (mismo modelo y calidad que Ollama). Solo falta descargar el modelo, una vez.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                HStack {
+                    Button(bajandoInterno ? "Descargando…" : "⬇︎ Descargar modelo (~417 MB)") {
+                        bajandoInterno = true; msgInterno = "Descargando…"
+                        EmbeddingServer.descargar(onProgreso: { msgInterno = $0 },
+                            completion: { ok, msg in
+                                bajandoInterno = false; msgInterno = msg
+                                estado["interno"] = ok
+                            })
+                    }.controlSize(.small).disabled(bajandoInterno)
+                    if bajandoInterno { ProgressView().controlSize(.mini) }
+                }
+                if !msgInterno.isEmpty { Text(msgInterno).font(.caption2).foregroundStyle(.secondary) }
+            }
         } else if let m = EmbeddingSearch.motores.first(where: { $0.id == sel }), estado[m.id] == false {
             Text(m.local
                  ? "Ollama no tiene un modelo de embeddings. Corre Ollama y haz: ollama pull \(m.modelo)"

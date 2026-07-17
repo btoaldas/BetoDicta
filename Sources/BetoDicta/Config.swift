@@ -122,7 +122,12 @@ struct Config {
     static func sttStreaming() -> Bool { (json()["stt_streaming"] as? Bool) ?? false }
     /// Motor de embeddings elegido ("ollama"|"openai"|"gemini"|"mistral"|"custom").
     /// Default Ollama (local), pero el usuario elige en Avanzado según lo que tenga.
-    static func embeddingProveedor() -> String { (json()["embedding_proveedor"] as? String) ?? "ollama" }
+    /// Motor de embeddings. Sin elección explícita: el INTERNO si su modelo ya está
+    /// descargado (funciona sin instalar nada); si no, Ollama (comportamiento previo).
+    static func embeddingProveedor() -> String {
+        if let e = json()["embedding_proveedor"] as? String, !e.isEmpty { return e }
+        return EmbeddingServer.disponible ? "interno" : "ollama"
+    }
     /// Modo POR DEFECTO (sticky): al que se vuelve tras cada dictado si modoRevertir.
     /// Se fija en Ajustes → Modos ("Poner por defecto"). Default "dictado".
     static func modoDefecto() -> String { (json()["modo_defecto"] as? String) ?? "dictado" }
