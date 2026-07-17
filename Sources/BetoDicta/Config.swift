@@ -153,6 +153,9 @@ struct Config {
     /// Modo EN VIVO: al decir "modo X" mientras hablas, el notch cambia YA de nombre y
     /// color (feedback de "te escuché") sin esperar a soltar la tecla. Default ON.
     static func modoVivo() -> Bool { (json()["modo_vivo"] as? Bool) ?? true }
+    /// Capa GRAMATICAL: reconoce el verbo del modo en cualquier conjugación
+    /// ("tradúceme esto", "quiero traducir…"). Ambiguo → pregunta con mini-modal.
+    static func modoGramatical() -> Bool { (json()["modo_gramatical"] as? Bool) ?? true }
     /// Una pausa al inicio confirma que terminó la orden "modo X", pero NO detiene
     /// la grabación. Permite continuar hablando naturalmente tras pensar. Default ON.
     static func modoVivoPausa() -> Bool { (json()["modo_vivo_pausa"] as? Bool) ?? true }

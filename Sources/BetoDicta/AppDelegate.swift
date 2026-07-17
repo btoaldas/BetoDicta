@@ -518,6 +518,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     detId = m.modo.id; detTexto = m.textoLimpio
                     if m.modo.base == "traducir" { detArg = "idioma=\(m.modo.idiomaDestino)" }
                     if m.modo.base == "buscar" { detArg = "buscador=\(m.modo.buscador)" }
+                } else if let (m, certeza) = ModoResolver.detectarGramatical(frase) {
+                    detId = (certeza == .directo ? "gram:" : "pregunta:") + m.modo.id
+                    detTexto = m.textoLimpio
+                    if m.modo.base == "traducir" { detArg = "idioma=\(m.modo.idiomaDestino)" }
+                    if m.modo.base == "buscar" { detArg = "buscador=\(m.modo.buscador)" }
                 }
                 var ok = detId == esperado
                 if ok, c.count >= 3, !c[2].isEmpty, c[2] != "*" { ok = detTexto == c[2] }
@@ -1357,7 +1362,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Clic en el letrero del motor (notch) → selector rápido de proveedor.
         // Tocar el cuerpo del notch cancela lo que esté en curso (grabación / agente / voz).
-        panel.onCancelar = { [weak self] in self?.cancelarTodo() }
+        panel.onCancelar = { [weak self] in
+            guard let self else { return }
+            if self.confirmacionModo != nil { self.resolverConfirmacion(acepta: false); return }
+            self.cancelarTodo()
+        }
         panel.onMotorClick = { [weak self] in
             guard let self else { return }
             let menu = NSMenu()
@@ -2060,6 +2069,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Flujo de dictado
 
     func toggle() {
+        // Mini-modal de cambio de modo pendiente: esta pulsación de fn es el "sí".
+        if confirmacionModo != nil { resolverConfirmacion(acepta: true); return }
         if recorder.isRecording {
             stopAndTranscribe()
         } else {
@@ -2740,6 +2751,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: Mini-modal "¿Cambiar a modo X?" (capa gramatical ambigua)
+
+    private var confirmacionModo: (match: ModoMatch, crudo: String, wav: Data, history: HistoryWriter?)?
+    private var confirmacionTimer: Timer?
+
+    /// Pregunta en el notch. fn = sí · clic en el notch = no · 8 s sin respuesta = no.
+    private func preguntarCambioModo(_ match: ModoMatch, crudo: String, wav: Data,
+                                     history: HistoryWriter?) {
+        confirmacionModo = (match, crudo, wav, history)
+        panel.setModoVivo(match.modo)   // pinta el color del candidato (feedback visual)
+        panel.show("¿Cambiar a MODO \(match.modo.nombre.uppercased())? \(tecla) = sí · clic = no")
+        playSound("Tink")
+        confirmacionTimer?.invalidate()
+        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
+            self?.resolverConfirmacion(acepta: false)
+        }
+    }
+
+    func resolverConfirmacion(acepta: Bool) {
+        confirmacionTimer?.invalidate(); confirmacionTimer = nil
+        guard let c = confirmacionModo else { return }
+        confirmacionModo = nil
+        if acepta {
+            ModosLog.registrar("gramatical_si", ["modo": c.match.modo.id, "crudo": c.crudo])
+            aplicarResultadoModo(.modo(ModoResolucion(modo: c.match.modo, texto: c.match.textoLimpio,
+                                                      fuente: .gramatical, match: c.match)),
+                                 crudo: c.crudo, wav: c.wav, history: c.history)
+        } else {
+            ModosLog.registrar("gramatical_no", ["modo": c.match.modo.id, "crudo": c.crudo])
+            panel.setModo(ModosStore.activo())   // restaura color/tinte del modo real
+            aplicarResultadoModo(.modo(ModoResolucion(modo: ModosStore.activo(), texto: c.crudo,
+                                                      fuente: .manual, match: nil)),
+                                 crudo: c.crudo, wav: c.wav, history: c.history)
+        }
+    }
+
     private func aplicarResultadoModo(_ resultado: ResultadoModo, crudo: String,
                                       wav: Data, history: HistoryWriter?) {
         switch resultado {
@@ -2758,10 +2805,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             correrCadena(cad.transforms, indice: 0, texto: cad.contenido,
                          accion: cad.accion, wav: wav, history: history)
 
+        case .preguntar(let match):
+            // Intención AMBIGUA ("quiero traducir algo…"): mini-modal en el notch.
+            // fn = sí (cambia al modo y despacha el contenido) · Esc/clic/8s = no
+            // (se procesa como dictado normal, sin recortar nada).
+            preguntarCambioModo(match, crudo: crudo, wav: wav, history: history)
+            return
+
         case .modo(let r):
             let m = r.modo
             switch r.fuente {
-            case .exacto, .difuso, .vivoExacto, .vivoDifuso, .semantico:
+            case .exacto, .difuso, .gramatical, .vivoExacto, .vivoDifuso, .semantico:
                 Log.log(.ia, "modo \(r.fuente.rawValue) → \(m.nombre)")
                 // OJO: el evento "semantico" con esquema completo ya lo escribe
                 // detectarSemantico (aceptado/comando/score, lo consume el auto-mejorador).

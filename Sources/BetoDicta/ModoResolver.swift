@@ -9,6 +9,7 @@ import Foundation
 enum FuenteModo: String {
     case exacto = "voz"
     case difuso = "fuzzy"
+    case gramatical
     case contexto
     case semantico
     case vivoExacto = "vivo_exacto"
@@ -53,6 +54,9 @@ struct ModoResolucion {
 enum ResultadoModo {
     case cadena(ModoCadena)
     case modo(ModoResolucion)
+    /// La capa gramatical entendió la intención pero es AMBIGUA ("quiero traducir…"):
+    /// la app muestra el mini-modal "¿Cambiar a modo X?" (fn = sí) antes de despachar.
+    case preguntar(ModoMatch)
 }
 
 struct ModoCatalogo {
@@ -310,6 +314,86 @@ enum ModoResolver {
         return max(0, 1 - prev[b.count] / Double(max(a.count, b.count)))
     }
 
+    // MARK: Capa GRAMATICAL (morfología del verbo del modo, sin dependencias)
+    //
+    // Reconoce el VERBO del modo en cualquier conjugación al inicio: "tradúceme esto",
+    // "traduce al inglés", "quiero traducir…", "búscame en google…", "apúntame como
+    // tarea…". Dos niveles de certeza:
+    //   • .directo   — imperativo del verbo AL INICIO ("tradúceme esto…"): cambia ya.
+    //   • .preguntar — intención indirecta ("quiero traducir algo…"): la app muestra
+    //     el mini-modal "¿Cambiar a modo X?" (fn = sí) antes de despachar.
+
+    enum CertezaGramatical { case directo, preguntar }
+
+    /// Raíz verbal + sinónimos de intención por modo BASE (los propios heredan por base).
+    private static func stemsDe(_ modo: Modo) -> [String] {
+        switch modo.id {
+        case "traducir": return ["traduc", "traduzc"]
+        case "buscar": return ["busc", "busq", "googl"]
+        case "tarea": return ["tarea"]
+        case "nota": return ["nota", "apunt", "anot"]
+        case "correo": return ["correo", "mail"]
+        case "agente": return ["agente", "pregunt", "consult"]
+        case "asistente": return ["asistent", "respond"]
+        case "oficio": return ["oficio"]
+        default:
+            // Modo propio: la raíz de su nombre (≥4 letras) — "Resumir" → "resum".
+            let n = tokenNormalizado(modo.nombre)
+            return n.count >= 4 ? [String(n.prefix(max(4, n.count - 2)))] : []
+        }
+    }
+
+    private static let prefijosIntencion: Set<String> =
+        ["quiero", "quisiera", "necesito", "puedes", "podrias", "hazme", "ayudame", "dale", "porfa", "vamos"]
+    private static let fillersPostVerbo: Set<String> =
+        ["me", "esto", "eso", "lo", "la", "siguiente", "como", "una", "un", "de", "por", "favor"]
+
+    static func detectarGramatical(_ texto: String,
+                                   catalogo: ModoCatalogo = ModoCatalogoCache.actual())
+        -> (match: ModoMatch, certeza: CertezaGramatical)? {
+        let originales = tokensOriginales(texto)
+        let normPorOriginal = originales.map(tokenNormalizado)
+        let idxValidos = normPorOriginal.indices.filter { !normPorOriginal[$0].isEmpty }
+        let filtrados = idxValidos.map { normPorOriginal[$0] }
+        guard filtrados.count >= 2 else { return nil }   // comando + algo de contenido
+
+        // Zona de arranque: token 0, o token 1 si el 0 es un prefijo de intención.
+        var pos = 0
+        var certeza = CertezaGramatical.directo
+        if prefijosIntencion.contains(filtrados[0]) { pos = 1; certeza = .preguntar }
+        guard pos < filtrados.count else { return nil }
+        let token = filtrados[pos]
+        guard token.count >= 4 else { return nil }
+
+        for modo in catalogo.modos where modo.id != "dictado" {
+            for stem in stemsDe(modo) where token.hasPrefix(stem) && token != stem + "cion" {
+                // El TOKEN debe ser forma del verbo/nombre, no otra palabra que empiece
+                // igual por azar: exige que tras el stem solo queden ≤5 letras.
+                guard token.count - stem.count <= 5 else { continue }
+                // Sustantivos de modo (tarea/nota/correo) SIN verbo de intención antes
+                // son ambiguos siempre → preguntar.
+                let esSustantivo = ["tarea", "nota", "correo", "oficio", "agente"].contains(modo.id)
+                var cert = certeza
+                if esSustantivo, pos == 0 { cert = .preguntar }
+                // Consumir: comando + fillers + argumento (idioma/buscador).
+                var fin = pos + 1
+                while fin < filtrados.count, fillersPostVerbo.contains(filtrados[fin]) { fin += 1 }
+                let (conArg, consumidas) = conArgumento(modo, normalizados: filtrados, desde: fin)
+                let corteOriginal = consumidas == 0 ? 0
+                    : (consumidas <= idxValidos.count ? idxValidos[consumidas - 1] + 1 : originales.count)
+                let limpio = limpiar(originales, desde: corteOriginal)
+                guard !limpio.isEmpty else { continue }   // sin contenido no vale la pena
+                let m = ModoMatch(modo: conArg, fuente: .gramatical, frase: "gram:\(stem)",
+                                  tokensComando: Array(filtrados.prefix(consumidas)),
+                                  palabrasConsumidas: corteOriginal,
+                                  confianza: cert == .directo ? 0.9 : 0.6,
+                                  confirmadoPorPausa: false, textoLimpio: limpio)
+                return (m, cert)
+            }
+        }
+        return nil
+    }
+
     static func matchSemantico(texto: String, modo: Modo, limpio: String) -> ModoMatch {
         let todos = tokensNormalizados(texto)
         let contenido = tokensNormalizados(limpio)
@@ -339,6 +423,19 @@ enum ModoResolver {
         if Config.modoPorVoz(), let m = detectarDifuso(texto, catalogo: catalogo) {
             completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
                                             fuente: .difuso, match: m)))
+            return
+        }
+        // GRAMATICAL: el verbo del modo en cualquier conjugación. Imperativo directo
+        // ("tradúceme esto…") cambia ya; intención indirecta ("quiero traducir…")
+        // pregunta con el mini-modal antes de despachar.
+        if Config.modoPorVoz(), Config.modoGramatical(),
+           let (m, certeza) = detectarGramatical(texto, catalogo: catalogo) {
+            if certeza == .directo {
+                completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
+                                                fuente: .gramatical, match: m)))
+            } else {
+                completion(.preguntar(m))
+            }
             return
         }
 
