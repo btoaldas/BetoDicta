@@ -38,6 +38,10 @@ struct DestiladorPiperView: View {
     @State private var ranking: [EntrenadorPiper.RankPiper] = []
     @State private var timer: Timer?
     @State private var refresco = 0
+    // Continuación tras un APAGADO: qué quedó a medias y qué toca al pulsar «Continuar».
+    private enum Continuacion { case dataset, entrenar, validar }
+    @State private var pendiente: Continuacion?
+    @State private var pendienteTxt = ""
 
     private var voz: VozLocal? { VocesLocales.todas().first { $0.id == vozID } }
     private var opcion: DestiladorPiper.Tamano {
@@ -54,6 +58,24 @@ struct DestiladorPiperView: View {
                 Text("Voz de origen: \(voz?.nombre ?? "no encontrada")").font(.subheadline)
                 Text("No se cambia el archivo XTTS. BetoDicta hace una destilación local: XTTS habla frases conocidas, Piper aprende de ese audio limpio y se exporta a ONNX. La voz conserva sus dos variantes: Calidad XTTS y Rápida ONNX.")
                     .font(.caption).foregroundStyle(.secondary)
+
+                // Continuación tras un apagado: nada se pierde, se retoma donde quedó.
+                if pendiente != nil, !trabajando {
+                    grupo {
+                        Label("Hay una tanda a medias de esta voz", systemImage: "clock.arrow.circlepath")
+                            .font(.subheadline).bold()
+                        Text(pendienteTxt).font(.caption).foregroundStyle(.secondary)
+                        Button("▶︎ Continuar donde quedó") {
+                            let que = pendiente; pendiente = nil
+                            switch que {
+                            case .dataset: iniciar()
+                            case .entrenar: reanudar()
+                            case .validar: trabajando = true; generandoDataset = false; validarYVincular()
+                            case .none: break
+                            }
+                        }.disabled(voz == nil || !entrenadorListo || !baseLista)
+                    }
+                }
 
                 grupo {
                     Label("1. Herramientas locales", systemImage: "shippingbox")
@@ -155,6 +177,34 @@ struct DestiladorPiperView: View {
             let p = DestiladorPiper.proyecto(v); proyecto = p
             if EntrenadorPiper.procesoVivo(p) {
                 trabajando = true; generandoDataset = false; fase = "Entrenando"; seguir()
+                return
+            }
+            // Tras un APAGADO nada queda vivo, pero TODO queda en disco (clips válidos,
+            // checkpoints). Detectamos en qué quedó la tanda y dejamos la vista lista
+            // para CONTINUAR sin perder nada — respetando el tamaño y la calidad
+            // ORIGINALES (el corpus es determinista: mismo tamaño → corpus idéntico).
+            let corpusTxt = (try? String(contentsOf: p.appendingPathComponent("corpus-xtts.txt"), encoding: .utf8)) ?? ""
+            let total = corpusTxt.split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+            guard total > 0 else { return }
+            cantidad = total
+            if let t = DestiladorPiper.tamanos.first(where: { $0.id == total }) { etapas = t.etapas }
+            if let cal = (try? String(contentsOf: p.appendingPathComponent("calidad.txt"), encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !cal.isEmpty { calidad = cal }
+            let clips = DestiladorPiper.clipsListos(p)
+            let cks = EntrenadorPiper.checkpoints(p)
+            if !cks.isEmpty, EntrenadorPiper.termino(p), voz?.onnx.isEmpty ?? true {
+                pendiente = .validar
+                pendienteTxt = "El entrenamiento TERMINÓ; falta validar, elegir el mejor corte y activar la voz."
+            } else if !cks.isEmpty {
+                pendiente = .entrenar
+                pendienteTxt = "Entrenamiento a medias (\(cks.count) cortes guardados). Continúa desde el último corte."
+            } else if clips < total {
+                pendiente = .dataset
+                pendienteTxt = "Dataset a medias: \(clips) de \(total) frases ya generadas — se reutilizan, no se pierde nada."
+            } else {
+                pendiente = .dataset   // dataset completo: iniciar() lo detecta y pasa directo a entrenar
+                pendienteTxt = "Dataset completo (\(clips) frases). Falta el entrenamiento."
             }
         }
         .onDisappear { timer?.invalidate() }
