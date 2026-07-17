@@ -161,7 +161,11 @@ enum ModoVivo {
         detectado = nil
         aviso = onCambio
     }
-    static func terminar() { detectado = nil; aviso = nil }
+    /// Al terminar la grabación se apaga el aviso pero `detectado` SE CONSERVA: deliver()
+    /// lo usa como RESPALDO — si el STT final escribió el comando irreconocible, manda lo
+    /// que se detectó en vivo (equivale a haber cambiado el modo a mano en el notch).
+    /// Lo limpia empezar() del siguiente dictado.
+    static func terminar() { aviso = nil }
 
     /// Evalúa un PARCIAL (barato; corre en cada actualización). Solo mira el INICIO.
     /// Anti-parpadeo: una vez detectado un modo, no se cambia salvo que aparezca OTRO

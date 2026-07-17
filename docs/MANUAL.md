@@ -419,7 +419,14 @@ Menú de la barra → **"Traducir al dictar"** → elige idioma (inglés, portug
 
 ## 16 bis. Modos — qué hacer con lo dictado
 
-Un **modo** decide cómo se procesa tu dictado. Se configura en **Ajustes → Modos** y se cambia al vuelo desde el **notch** (etiqueta arriba-izquierda) o el **menú de la barra → Modo**, igual que eliges proveedor.
+Un **modo** decide cómo se procesa tu dictado. Se configura en **Ajustes → Modos** y se cambia de dos maneras:
+
+- **Switch manual**: clic en la etiqueta del modo (**notch**, arriba-izquierda) o **menú de la barra → Modo**.
+- **Switch por voz (automático)**: al empezar a hablar, di el modo y haz una **pausa corta**. Ejemplo: *"modo traductor… (pausa) …buenos días, ¿cómo estás?"*. En cuanto lo dices, **el notch cambia al instante de nombre y color con un doble parpadeo** — esa es la señal de "te escuché" — y tú **sigues hablando corrido**; el comando no sale en el texto final. Funciona con **cualquier motor** (Groq incluido): los "oídos en vivo" son el transcriptor nativo de Apple (macOS 26), mientras tu motor real hace la transcripción definitiva al soltar.
+
+**Cada modo tiene su COLOR** en el notch (letrero + un tinte suave del fondo): dictado = negro neutro, traducir = celeste, agente = magenta, tarea = naranja… Los modos que tú crees reciben color automático (estable), o eliges uno con el **selector de color** del editor de modos. Así sabes de un vistazo en qué modo estás.
+
+La detección por voz tiene varias capas de tolerancia (el micrófono a veces escucha *"molde traductor"* o *"moto agente"* — igual lo entiende): frase exacta y sus variantes → **detección difusa** (sin depender de nada instalado) → tu contexto de app/sitio → semántica con embeddings (opcional, Ajustes). Y si el motor final escribió el comando irreconocible pero el notch YA lo había captado en vivo, **manda lo captado en vivo** — equivale a haber tocado el switch a mano. Todo se puede apagar en Ajustes (*modo en vivo*, *modo por voz*).
 
 Modos base:
 

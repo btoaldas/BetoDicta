@@ -2595,6 +2595,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             porVoz = true; porFuzzy = true
         }
         _ = porFuzzy
+        // RESPALDO del modo EN VIVO: el usuario dijo "modo X" hablando (el notch ya
+        // cambió), pero el STT final lo escribió irreconocible para las capas de texto.
+        // Manda lo detectado en vivo — equivale al switch manual del notch. Recorte
+        // conservador: si no se puede recortar el comando con certeza, se procesa el
+        // texto completo (mejor de más que perder contenido).
+        if !porVoz, Config.modoVivo(), let m = ModoVivo.detectado, m.id != modo.id {
+            var limpio = textoFinal
+            let tokens = textoFinal.split(separator: " ")
+            if tokens.count >= 2 {
+                let dos = ModoFuzzy.normalizar(tokens.prefix(2).joined(separator: " "))
+                let objetivo = ModoFuzzy.normalizar("modo \(m.nombre)")
+                if ModoFuzzy.similitud(dos, objetivo) > 0.6 {
+                    limpio = tokens.dropFirst(2).joined(separator: " ")
+                }
+            }
+            Log.log(.ia, "modo por voz (EN VIVO, respaldo) → \(m.nombre)")
+            ModosLog.registrar("vivo", ["crudo": crudo, "modo": m.id, "limpio": limpio])
+            modo = m
+            textoFinal = limpio
+            porVoz = true
+        }
         if !porVoz, Config.modoPorContexto(), let ctx = ctxDictado,
            let m = ModosStore.detectarPorContexto(bundleId: ctx.bundleId, nombre: ctx.nombre, url: ctx.url) {
             if m.id != modo.id { Log.log(.ia, "modo por contexto → \(m.nombre) [\(ctx.nombre)]") }
