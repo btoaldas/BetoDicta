@@ -2120,6 +2120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // fn = actividad: despierta el modo ahorro (revive clon + latido si dormían).
         Ahorro.marcarActividad()
+        // Precalentar el motor de embeddings INTERNO mientras hablas: su arranque en
+        // frío (~1.6 s tras dormir) ocurre EN PARALELO al dictado → al soltar la tecla
+        // ya está caliente y la consulta semántica tarda ~7 ms. El usuario nunca espera.
+        if Config.embeddingProveedor() == "interno",
+           Config.modoSemantico() || Config.busquedaSemantica() || Config.glosarioInteligente() {
+            EmbeddingServer.asegurar { _ in }
+        }
         // Trigger por CONTEXTO: recuerda dónde estás AHORA (app al frente = destino
         // del pegado). La app es instantánea; la URL del navegador se pide async
         // (AppleScript) para no frenar el micrófono, y llega mucho antes de entregar.
