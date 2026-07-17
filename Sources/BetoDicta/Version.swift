@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.41.0"
+    static let numero = "0.42.0-beta"
     static let fecha = "2026-07-16"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.42.0-beta", "2026-07-17", [
+            "CADENAS COLOQUIALES: di \"por favor, envía un correo que traduzca lo siguiente: …\" y BetoDicta detecta las MÚLTIPLES intenciones (en cualquier orden) y te confirma todo de una: \"¿TRADUCIR y enviar por correo? fn = sí\" → traduce y abre el correo con el resultado. Nunca ejecuta sin confirmar",
+            "Capa GRAMATICAL: entiende el verbo del modo en cualquier conjugación sin decir \"modo\" (\"tradúceme esto al quichua…\", \"búscame en google…\", \"apúntame como tarea…\" cambian directo). Si es ambiguo (\"quiero traducir algo…\"), pregunta con un mini-aviso en el notch (fn = sí)",
+            "Motor de embeddings INTERNO (sin Ollama ni nada): BetoDicta sirve su propio bge-m3 con el llama-server que ya trae. Descarga única de ~417 MB con permiso; ~7 ms por consulta (medido) con precalentamiento al pulsar fn; duerme tras 10 min. Sirve para modos semánticos, búsqueda del historial y glosario. Ollama/OpenAI/Gemini/Mistral siguen como opciones",
+            "Auditoría multi-agente del sistema de modos con 10 correcciones confirmadas (pausa que se despintaba, recorte con puntuación, prioridad del comando en vivo vs contexto, notch pegado, y más) + matriz QA automatizada (56 casos verdes)",
+        ]),
         ("0.41.0", "2026-07-16", [
             "PREVIEW EN VIVO UNIVERSAL: en macOS 26, el notch muestra localmente lo que vas diciendo con Apple DictationTranscriber aunque el motor real (por ejemplo Groq) no tenga streaming; es solo visual y la cascada elegida conserva la transcripción definitiva",
             "DESTILACIÓN XTTS → Piper/ONNX: desde una voz XTTS ya entrenada puedes crear su variante rápida, conservar Calidad + ⚡ Rápida en la misma persona, validar inteligibilidad/parecido y llevar ambas en el paquete portable",
