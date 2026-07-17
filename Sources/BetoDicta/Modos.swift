@@ -113,12 +113,16 @@ enum ModosStore {
             guard let b = base.first(where: { $0.id == m.id }) else { continue }
             // UNIÓN de frases de voz: suma las del base que falten (así los alias
             // nuevos llegan a configs viejos) sin borrar las que el usuario agregó.
+            // VACÍO se respeta: si el usuario borró TODAS las frases, ese modo queda
+            // SIN activación por voz (no se re-agregan los alias del catálogo).
             var frases = frasesVoz(m)
-            for f in frasesVoz(b) where !frases.contains(where: { normalizar($0) == normalizar(f) }) {
-                frases.append(f); cambio = true
+            if !frases.isEmpty {
+                for f in frasesVoz(b) where !frases.contains(where: { normalizar($0) == normalizar(f) }) {
+                    frases.append(f); cambio = true
+                }
+                let unido = frases.joined(separator: ", ")
+                if unido != m.palabraVoz { list[i].palabraVoz = unido; cambio = true }
             }
-            let unido = frases.joined(separator: ", ")
-            if unido != m.palabraVoz { list[i].palabraVoz = unido; cambio = true }
             if m.almacen.isEmpty, !b.almacen.isEmpty { list[i].almacen = b.almacen; cambio = true }
         }
         if cambio { guardar(list) }
@@ -129,6 +133,7 @@ enum ModosStore {
         if let d = try? JSONEncoder().encode(modos) {
             Config.asegurarDirSeguro()
             try? d.write(to: url, options: .atomic)
+            ModoCatalogoCache.invalidar()
         }
     }
 
@@ -191,50 +196,8 @@ enum ModosStore {
         m.palabraVoz.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
     static func detectarPorVoz(_ texto: String) -> (Modo, String)? {
-        let t = normalizar(texto)
-        var mejor: (Modo, Int)? = nil
-        for m in todos() {
-            for fr in frasesVoz(m) {
-                let frase = normalizar(fr)
-                guard !frase.isEmpty, t.hasPrefix(frase) else { continue }
-                if mejor == nil || frase.count > mejor!.1 { mejor = (m, frase.count) }
-            }
-        }
-        guard let (modo, len) = mejor else { return nil }
-        // Recorta la frase del texto original (trimmeado; folding conserva el
-        // largo, así que dropFirst(len) quita justo la frase disparadora).
-        let orig = texto.trimmingCharacters(in: .whitespacesAndNewlines)
-        var sinFrase = String(orig.dropFirst(min(len, orig.count)))
-            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n").union(.whitespaces))
-        // ARGUMENTO tras la frase mágica: parametriza el modo SOLO por este dictado.
-        //   "modo traducir quichua <texto>" → traduce al quichua (no al default).
-        //   "modo buscar google <consulta>" → busca en Google.
-        // Si el 1er token no es idioma/buscador conocido, todo es el texto/consulta.
-        var m = modo
-        if m.base == "traducir" {
-            if let (idioma, resto) = tomarArg(sinFrase, fillers: ["a", "al"], reconocer: Idiomas.reconocer) {
-                m.idiomaDestino = idioma; sinFrase = resto
-            }
-        } else if m.base == "buscar" {
-            if let (eng, resto) = tomarArg(sinFrase, fillers: ["en"], reconocer: Buscadores.reconocer) {
-                m.buscador = eng; sinFrase = resto
-            }
-        }
-        return (m, sinFrase)
-    }
-
-    /// Separa un filler opcional + el 1er token; si `reconocer` lo acepta, devuelve
-    /// (valor canónico, resto). nil si no matchea (el texto queda intacto).
-    private static func tomarArg(_ texto: String, fillers: [String],
-                                 reconocer: (String) -> String?) -> (String, String)? {
-        var tokens = texto.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
-        guard !tokens.isEmpty else { return nil }
-        if tokens.count > 1, fillers.contains(limpioTok(tokens[0])) { tokens.removeFirst() }  // "al", "en"
-        // Reconoce quitando la puntuación pegada ("portugués," → "portugués").
-        guard let primero = tokens.first, let canon = reconocer(limpioTok(primero)) else { return nil }
-        let resto = tokens.dropFirst().joined(separator: " ")
-            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n"))
-        return (canon, resto)
+        guard let match = ModoResolver.detectarExacto(texto) else { return nil }
+        return (match.modo, match.textoLimpio)
     }
 
     // MARK: Activación por CONTEXTO (app / sitio web al frente)
@@ -524,7 +487,8 @@ extension ModosStore {
     static func detectarCadena(_ texto: String) -> (transforms: [Modo], accion: Modo?, contenido: String)? {
         var tokens = texto.trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
-        guard let f = tokens.first, normalizar(f) == "modo" else { return nil }
+        guard let f = tokens.first,
+              ModoResolver.palabrasModoSeguras.contains(limpioTok(f)) else { return nil }
         tokens.removeFirst()
         var transforms: [Modo] = []
         var accion: Modo? = nil
@@ -555,6 +519,19 @@ extension ModosStore {
             } else {
                 accion = Modo(id: "cadena-\(v.id)", nombre: Acciones.nombre(v.id),
                               icono: "bolt.fill", base: "accion", accion: v.id)
+                // "enviar POR CORREO/WHATSAPP…": el medio concreto tras el verbo genérico
+                // MANDA y se consume (antes quedaba pegado al contenido: el correo salía
+                // con "por correo hola equipo" adentro).
+                let puentes: Set<String> = ["por", "al", "a", "en", "el", "la", "un", "una"]
+                var j = i
+                while j < tokens.count,
+                      conectores.contains(limpioTok(tokens[j])) || puentes.contains(limpioTok(tokens[j])) { j += 1 }
+                if j < tokens.count, let v2 = resolverVerbo(tokens[j]),
+                   v2.tipo != "transform", v2.id != "buscar" {
+                    accion = Modo(id: "cadena-\(v2.id)", nombre: Acciones.nombre(v2.id),
+                                  icono: "bolt.fill", base: "accion", accion: v2.id)
+                    i = j + 1
+                }
             }
         }
         guard transforms.count + (accion != nil ? 1 : 0) >= 2 else { return nil }

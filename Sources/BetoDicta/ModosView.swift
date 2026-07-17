@@ -183,10 +183,16 @@ struct ModosView: View {
             Text("Color:").font(.caption).frame(width: 90, alignment: .leading)
             ColorPicker("", selection: Binding<Color>(
                 get: { Color(nsColor: ColorModo.de(b.wrappedValue)) },
-                set: { b.wrappedValue.color = ColorModo.aHex(NSColor($0)) }
+                set: {
+                    b.wrappedValue.color = ColorModo.aHex(NSColor($0))
+                    (NSApp.delegate as? AppDelegate)?.refrescarModoNotch()
+                }
             )).labelsHidden().frame(width: 44)
             if !b.wrappedValue.color.isEmpty {
-                Button("Automático") { b.wrappedValue.color = "" }.controlSize(.small)
+                Button("Automático") {
+                    b.wrappedValue.color = ""
+                    (NSApp.delegate as? AppDelegate)?.refrescarModoNotch()
+                }.controlSize(.small)
             }
             Text("se ve en el notch (letrero y fondo)").font(.caption2).foregroundStyle(.secondary)
         }

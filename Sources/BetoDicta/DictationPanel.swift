@@ -42,6 +42,9 @@ final class DictationPanel {
     private var width: CGFloat = 400
     private var height: CGFloat = 60
     private var notchHeight: CGFloat = 36
+    /// Invalida cierres diferidos de una presentación anterior. Sin esta
+    /// generación, un `hide(after:)` viejo podía ocultar el dictado nuevo.
+    private var presentacionID: UInt64 = 0
 
     init() {
         // Geometría real del notch (áreas útiles a sus lados)
@@ -145,12 +148,20 @@ final class DictationPanel {
 
     /// Fija el letrero del modo activo (arriba-izq del notch).
     func setModo(_ modo: Modo) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.setModo(modo) }
+            return
+        }
         let txt = modo.id == "dictado" ? "dictado" : modo.nombre.lowercased()
         modoLabel.stringValue = txt
         // Cada modo tiene SU color (el usuario puede fijarlo; si no, paleta estable) y
         // el fondo del notch se TIÑE suave con él → sabes en qué modo estás de un vistazo.
         modoLabel.textColor = ColorModo.de(modo)
-        fondo?.layer?.backgroundColor = ColorModo.fondo(modo).cgColor
+        if let capa = fondo?.layer {
+            capa.removeAnimation(forKey: "modoVivoPulso")
+            capa.backgroundColor = ColorModo.fondo(modo).cgColor
+            if !enRespuestaIA { capa.opacity = 1 }
+        }
     }
 
     /// Cambio de modo EN VIVO (dijiste "modo X" mientras hablabas): aplica el color y da
@@ -171,6 +182,8 @@ final class DictationPanel {
 
     func show(_ text: String) {
         guard Config.panelVisible() else { return }
+        presentacionID &+= 1
+        if !enRespuestaIA { fondo?.layer?.opacity = 1 }
         reposicionar()
         update(text)
         panel.orderFrontRegardless()
@@ -179,10 +192,14 @@ final class DictationPanel {
     /// Muestra un aviso breve por N segundos, por encima del texto del dictado.
     func flash(_ text: String, segundos: TimeInterval = 2.5) {
         guard Config.panelVisible(), !enRespuestaIA else { return }
+        presentacionID &+= 1
         reposicionar()
         flashHasta = Date().addingTimeInterval(segundos)
         label.stringValue = text
         panel.orderFrontRegardless()
+        // El flash programa SU PROPIO cierre: al subir presentacionID canceló cualquier
+        // hide anterior — sin esto, un flash tras un hide dejaba el notch pegado.
+        hide(after: segundos)
     }
 
     /// La pantalla con notch, o la que tenga el ratón, o la principal.
@@ -270,6 +287,7 @@ final class DictationPanel {
             return
         }
         guard Config.panelVisible() else { return }
+        presentacionID &+= 1
         enRespuestaIA = true
         reposicionar()
         meter.isHidden = true
@@ -382,10 +400,13 @@ final class DictationPanel {
     func hide(after seconds: TimeInterval = 0) {
         meter.reset()
         if seconds == 0 {
+            presentacionID &+= 1
             panel.orderOut(nil)
         } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [panel] in
-                panel.orderOut(nil)
+            let id = presentacionID
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+                guard let self, self.presentacionID == id else { return }
+                self.panel.orderOut(nil)
             }
         }
     }

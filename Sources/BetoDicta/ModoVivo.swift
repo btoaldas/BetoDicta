@@ -11,7 +11,8 @@ import AppKit
 //     no haya Ollama/embeddings. Complementa la capa exacta y la semántica.
 //   • ModoVivo: mientras HABLAS, evalúa los parciales (preview/streaming); si dices
 //     "modo X" al inicio, el notch cambia YA de nombre+color ("te caché") y tú sigues
-//     hablando. Solo visual/anticipo: el modo definitivo lo decide el texto final.
+//     hablando. El texto final tiene prioridad; si no entiende el comando, el match
+//     vivo de ESA sesión actúa como respaldo seguro.
 
 enum ColorModo {
     /// Paleta fija de los modos base (distinguibles entre sí y sobre negro).
@@ -83,48 +84,12 @@ enum ModoFuzzy {
     /// el texto sin la frase disparadora. Más conservador que la capa exacta (que corre
     /// antes): exige parecido fuerte por palabra.
     static func detectar(_ texto: String) -> (Modo, String)? {
-        let norm = normalizar(texto)
-        let tokens = norm.split(separator: " ").map(String.init)
-        guard tokens.count >= 1 else { return nil }
-        var mejor: (modo: Modo, frase: [String], score: Double)? = nil
-        for m in ModosStore.todos() where m.id != "dictado" {
-            var frases = m.palabraVoz.split(separator: ",").map { normalizar(String($0)) }
-            frases.append(normalizar("modo \(m.nombre)"))
-            for f in frases {
-                let fT = f.split(separator: " ").map(String.init)
-                guard !fT.isEmpty, fT.count <= tokens.count else { continue }
-                var total = 0.0
-                var ok = true
-                for (i, fw) in fT.enumerated() {
-                    let s = similitud(fw, tokens[i])
-                    if s < 0.72 { ok = false; break }   // cada palabra debe parecerse fuerte
-                    total += s
-                }
-                guard ok else { continue }
-                let score = total / Double(fT.count)
-                if score > (mejor?.score ?? 0.84) {     // umbral global alto (conservador)
-                    mejor = (m, fT, score)
-                }
-            }
-        }
-        guard let mejor else { return nil }
-        let resto = tokens.dropFirst(mejor.frase.count).joined(separator: " ")
-        // Recorta sobre el texto ORIGINAL contando palabras (mantiene tildes/caso).
-        let origTokens = texto.split(separator: " ")
-        let limpio = origTokens.count > mejor.frase.count
-            ? origTokens.dropFirst(mejor.frase.count).joined(separator: " ")
-            : resto
-        return (mejor.modo, limpio.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    static func normalizar(_ s: String) -> String {
-        s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es"))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = ModoResolver.detectarDifuso(texto) else { return nil }
+        return (match.modo, match.textoLimpio)
     }
 
     /// Mal-escuchas conocidas de la palabra "modo" (el STT las confunde seguido).
-    private static let variantesModo: Set<String> =
-        ["modo", "mudo", "molde", "moto", "modho", "moldo", "mode", "modos", "mod", "moro", "moda"]
+    private static let variantesModo = ModoResolver.palabrasModoSeguras
 
     /// Similitud 0-1 por distancia de Levenshtein relativa.
     static func similitud(_ a: String, _ b: String) -> Double {
@@ -152,32 +117,138 @@ enum ModoFuzzy {
 // MARK: Modo EN VIVO (mientras hablas)
 
 enum ModoVivo {
-    /// Modo detectado en vivo en ESTE dictado (nil = ninguno aún).
-    private(set) static var detectado: Modo?
-    private static var aviso: ((Modo) -> Void)?
-
-    /// Al empezar un dictado: resetea y registra el callback de cambio (UI).
-    static func empezar(onCambio: @escaping (Modo) -> Void) {
-        detectado = nil
-        aviso = onCambio
+    private struct Estado {
+        let sesion: UUID
+        let catalogo: ModoCatalogo
+        let aviso: (ModoMatch) -> Void
+        var detectado: ModoMatch?
+        var ultimoParcial = ""
+        var candidatoFuzzy: ModoMatch?
+        var repeticionesFuzzy = 0
+        var pausaConfirmada = false
     }
-    /// Al terminar la grabación se apaga el aviso pero `detectado` SE CONSERVA: deliver()
-    /// lo usa como RESPALDO — si el STT final escribió el comando irreconocible, manda lo
-    /// que se detectó en vivo (equivale a haber cambiado el modo a mano en el notch).
-    /// Lo limpia empezar() del siguiente dictado.
-    static func terminar() { aviso = nil }
 
-    /// Evalúa un PARCIAL (barato; corre en cada actualización). Solo mira el INICIO.
-    /// Anti-parpadeo: una vez detectado un modo, no se cambia salvo que aparezca OTRO
-    /// distinto con match exacto (el texto crece por delante, no se retracta el inicio).
-    static func evaluar(_ parcial: String) {
-        guard Config.modoVivo(), aviso != nil else { return }
-        let inicio = String(parcial.prefix(60))
-        var nuevo: Modo?
-        if let (m, _) = ModosStore.detectarPorVoz(inicio) { nuevo = m }
-        else if detectado == nil, let (m, _) = ModoFuzzy.detectar(inicio) { nuevo = m }
-        guard let m = nuevo, m.id != detectado?.id else { return }
-        detectado = m
-        DispatchQueue.main.async { aviso?(m) }
+    private static let lock = NSLock()
+    private static var estado: Estado?
+
+    /// Cada grabación posee su UUID. Un parcial o una respuesta semántica tardía
+    /// de la grabación anterior queda descartado por identidad, no por timing.
+    static func empezar(sesion: UUID, onCambio: @escaping (ModoMatch) -> Void) {
+        lock.lock()
+        estado = Estado(sesion: sesion, catalogo: ModoCatalogoCache.actual(), aviso: onCambio)
+        lock.unlock()
+    }
+
+    /// Devuelve una COPIA del match de esta sesión y borra todo el estado. Así
+    /// `deliver()` nunca puede recoger un modo viejo de archivo/cancelación/otro dictado.
+    static func terminar(sesion: UUID) -> ModoMatch? {
+        lock.lock(); defer { lock.unlock() }
+        guard estado?.sesion == sesion else { return nil }
+        let r = estado?.detectado
+        estado = nil
+        return r
+    }
+
+    static func cancelar(sesion: UUID) {
+        lock.lock()
+        if estado?.sesion == sesion { estado = nil }
+        lock.unlock()
+    }
+
+    /// Evalúa solo la zona inicial configurable. Exacto cambia inmediatamente;
+    /// fuzzy exige dos parciales estables para evitar parpadeos/falsos positivos.
+    static func evaluar(_ parcial: String, sesion: UUID) {
+        guard Config.modoVivo() else { return }
+        lock.lock()
+        guard var e = estado, e.sesion == sesion else { lock.unlock(); return }
+        e.ultimoParcial = parcial
+        let inicio = prefijo(parcial)
+        var avisar: ModoMatch?
+        if var m = ModoResolver.detectarExacto(inicio, catalogo: e.catalogo) {
+            // No PISAR la confirmación por pausa: si el mismo comando sigue al frente,
+            // el match re-construido hereda el flag (los parciales posteriores a la
+            // pausa no deben degradar la prioridad ya ganada).
+            if e.detectado?.firmaEfectiva == m.firmaEfectiva {
+                m.confirmadoPorPausa = e.detectado?.confirmadoPorPausa ?? false
+            } else if e.pausaConfirmada {
+                m.confirmadoPorPausa = true   // la pausa confirmó ESTA sesión de comando
+            }
+            if e.detectado?.firmaEfectiva != m.firmaEfectiva { avisar = m }
+            e.detectado = m
+            e.candidatoFuzzy = nil; e.repeticionesFuzzy = 0
+        } else if let m = ModoResolver.detectarDifuso(inicio, catalogo: e.catalogo) {
+            if e.candidatoFuzzy?.firmaEfectiva == m.firmaEfectiva { e.repeticionesFuzzy += 1 }
+            else { e.candidatoFuzzy = m; e.repeticionesFuzzy = 1 }
+            if e.repeticionesFuzzy >= 2, e.detectado == nil {
+                e.detectado = m; avisar = m
+            }
+        } else {
+            e.candidatoFuzzy = nil; e.repeticionesFuzzy = 0
+        }
+        let callback = e.aviso
+        estado = e
+        lock.unlock()
+        if let avisar { DispatchQueue.main.async { callback(avisar) } }
+    }
+
+    /// Tras una pausa real del audio confirma el límite del comando sin detener
+    /// la grabación. Acepta un fuzzy aún no repetido y, como último nivel, hace
+    /// UNA sola consulta semántica sobre el inicio (si el usuario la activó).
+    @discardableResult
+    static func confirmarPausa(sesion: UUID) -> Bool {
+        guard Config.modoVivo(), Config.modoVivoPausa() else { return false }
+        lock.lock()
+        guard var e = estado, e.sesion == sesion else { lock.unlock(); return false }
+        if e.pausaConfirmada { lock.unlock(); return true }
+        guard !e.ultimoParcial.isEmpty else {
+            lock.unlock(); return false
+        }
+        let inicio = prefijo(e.ultimoParcial)
+        var match = e.detectado ?? e.candidatoFuzzy
+        if match == nil { match = ModoResolver.detectarExacto(inicio, catalogo: e.catalogo) }
+        if match == nil { match = ModoResolver.detectarDifuso(inicio, catalogo: e.catalogo) }
+        if var match {
+            e.pausaConfirmada = true
+            match.confirmadoPorPausa = true
+            e.detectado = match
+            let callback = e.aviso
+            estado = e
+            lock.unlock()
+            DispatchQueue.main.async { callback(match) }
+            return true
+        }
+        let debeSemantico = Config.modoSemantico() && ModosStore.pareceComando(inicio)
+        if debeSemantico { e.pausaConfirmada = true }
+        estado = e
+        lock.unlock()
+        guard debeSemantico else { return false }
+        ModosStore.detectarSemantico(inicio) { modo, limpio in
+            guard let modo else { return }
+            var m = ModoResolver.matchSemantico(texto: inicio, modo: modo, limpio: limpio)
+            m.confirmadoPorPausa = true
+            lock.lock()
+            guard var actual = estado, actual.sesion == sesion else { lock.unlock(); return }
+            actual.detectado = m
+            let callback = actual.aviso
+            estado = actual
+            lock.unlock()
+            DispatchQueue.main.async { callback(m) }
+        }
+        return true
+    }
+
+    private static func prefijo(_ texto: String) -> String {
+        texto.split(whereSeparator: { $0.isWhitespace })
+            .prefix(max(2, Config.modoVivoPalabras()))
+            .joined(separator: " ")
+    }
+}
+
+/// Regla pura del VAD de pausa. El audio/RMS vive en AppDelegate, pero la
+/// decisión temporal se prueba sin micrófono ni esperas reales.
+enum ModoPausaGate {
+    static func debeConfirmar(ahora: Date, ultimaVoz: Date, huboVoz: Bool,
+                              yaDisparada: Bool, segundos: Double) -> Bool {
+        huboVoz && !yaDisparada && ahora.timeIntervalSince(ultimaVoz) >= segundos
     }
 }

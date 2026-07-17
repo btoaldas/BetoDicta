@@ -107,6 +107,10 @@ final class SettingsModel: ObservableObject {
     @Published var sttStreaming: Bool { didSet { Config.set("stt_streaming", to: sttStreaming) } }
     @Published var busquedaSemantica: Bool { didSet { Config.set("busqueda_semantica", to: busquedaSemantica) } }
     @Published var glosarioInteligente: Bool { didSet { Config.set("glosario_inteligente", to: glosarioInteligente) } }
+    @Published var modoVivo: Bool { didSet { Config.set("modo_vivo", to: modoVivo) } }
+    @Published var modoVivoPausa: Bool { didSet { Config.set("modo_vivo_pausa", to: modoVivoPausa) } }
+    @Published var modoVivoPausaSegundos: Double { didSet { Config.set("modo_vivo_pausa_seg", to: modoVivoPausaSegundos) } }
+    @Published var modoVivoPalabras: Double { didSet { Config.set("modo_vivo_palabras", to: Int(modoVivoPalabras)) } }
     @Published var modoSemantico: Bool { didSet { Config.set("modo_semantico", to: modoSemantico) } }
     @Published var modoSemPalabras: Double { didSet { Config.set("modo_sem_palabras", to: Int(modoSemPalabras)) } }
     @Published var modoSemUmbral: Double { didSet { Config.set("modo_sem_umbral", to: modoSemUmbral) } }
@@ -179,6 +183,10 @@ final class SettingsModel: ObservableObject {
         sttStreaming = Config.sttStreaming()
         busquedaSemantica = Config.busquedaSemantica()
         glosarioInteligente = Config.glosarioInteligente()
+        modoVivo = Config.modoVivo()
+        modoVivoPausa = Config.modoVivoPausa()
+        modoVivoPausaSegundos = Config.modoVivoPausaSegundos()
+        modoVivoPalabras = Double(Config.modoVivoPalabras())
         modoSemantico = Config.modoSemantico()
         modoSemPalabras = Double(Config.modoSemanticoPalabras())
         modoSemUmbral = Config.modoSemanticoUmbral()
@@ -884,6 +892,28 @@ struct SettingsView: View {
                         Toggle("Glosario inteligente (pulido más rápido)", isOn: $m.glosarioInteligente)
                         Text("En el pulido, envía a la IA SOLO los términos del glosario afines a lo que dictaste (con embeddings), no los 80+. Prompt más corto = más rápido, y escala aunque tu glosario crezca. Usa el motor de embeddings de arriba; la 1ª vez calienta los vectores en segundo plano (mientras, usa el glosario normal).")
                             .font(.caption).foregroundStyle(.secondary)
+                        Toggle("Cambiar el modo EN VIVO mientras hablo", isOn: $m.modoVivo)
+                        Text("Si el dictado empieza con \"modo agente\", \"modo traducir quichua\", etc., el nombre y color del notch cambian apenas se reconoce. Solo examina el inicio y cada grabación conserva su propia decisión.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if m.modoVivo {
+                            Toggle("Confirmar el modo cuando hago una pausa", isOn: $m.modoVivoPausa)
+                            Text("Puedes decir \"modo agente\", quedarte callado y continuar: la pausa confirma el comando, pero NO termina la grabación.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            if m.modoVivoPausa {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Pausa para confirmar: \(String(format: "%.1f", m.modoVivoPausaSegundos)) s").font(.caption)
+                                    Slider(value: $m.modoVivoPausaSegundos, in: 0.8...4, step: 0.2)
+                                        .tint(acento).frame(width: 260)
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Máximo del inicio a escuchar: \(Int(m.modoVivoPalabras)) palabras").font(.caption)
+                                Slider(value: $m.modoVivoPalabras, in: 3...14, step: 1)
+                                    .tint(acento).frame(width: 260)
+                                Text("Evita interpretar como comando algo dicho después dentro del contenido.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
                         Toggle("Reconocimiento inteligente de modos por voz (semántico)", isOn: $m.modoSemantico)
                         Text("Entiende el llamado de un modo aunque lo digas de mil formas (\"modo mándale un WhatsApp…\", \"modo tradúceme al inglés…\"). Solo actúa si empieza con \"modo\" (o mal-escuchas: mudo/molde/…) y el exacto no reconoció; si ninguno se parece, sigue como texto normal. Usa el motor de embeddings; la 1ª vez calienta en 2º plano. Agrega tus propias frases por modo en Ajustes → Modos.")
                             .font(.caption).foregroundStyle(.secondary)

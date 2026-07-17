@@ -1,0 +1,384 @@
+import Foundation
+
+// MARK: - Resolución ÚNICA de modos
+//
+// Una decisión de modo deja de ser un par de globals sueltos. Cada coincidencia
+// conserva qué frase ganó, cuántas palabras consumió, sus argumentos dinámicos
+// (idioma/buscador), la confianza y la sesión de dictado a la que pertenece.
+
+enum FuenteModo: String {
+    case exacto = "voz"
+    case difuso = "fuzzy"
+    case contexto
+    case semantico
+    case vivoExacto = "vivo_exacto"
+    case vivoDifuso = "vivo_fuzzy"
+    case manual
+}
+
+struct ModoMatch {
+    var modo: Modo
+    var fuente: FuenteModo
+    let frase: String
+    let tokensComando: [String]
+    let palabrasConsumidas: Int
+    let confianza: Double
+    var confirmadoPorPausa: Bool
+    let textoLimpio: String
+
+    var firmaEfectiva: String {
+        "\(modo.id)|\(modo.idiomaDestino)|\(modo.buscador)|\(palabrasConsumidas)"
+    }
+}
+
+struct ModoContexto {
+    let bundleId: String
+    let nombre: String
+    var url: String?
+}
+
+struct ModoCadena {
+    let transforms: [Modo]
+    let accion: Modo?
+    let contenido: String
+}
+
+struct ModoResolucion {
+    let modo: Modo
+    let texto: String
+    let fuente: FuenteModo
+    let match: ModoMatch?
+}
+
+enum ResultadoModo {
+    case cadena(ModoCadena)
+    case modo(ModoResolucion)
+}
+
+struct ModoCatalogo {
+    struct Disparador {
+        let modo: Modo
+        let frase: String
+        let tokens: [String]
+    }
+
+    let modos: [Modo]
+    let exactos: [Disparador]
+    let difusos: [Disparador]
+
+    init(modos: [Modo]) {
+        self.modos = modos
+        var ex: [Disparador] = []
+        var di: [Disparador] = []
+        for modo in modos where modo.id != "dictado" {
+            let frases = ModosStore.frasesVoz(modo)
+            var vistos = Set<String>()
+            for frase in frases {
+                let toks = ModoResolver.tokensNormalizados(frase)
+                guard !toks.isEmpty else { continue }
+                let firma = toks.joined(separator: " ")
+                guard vistos.insert(firma).inserted else { continue }
+                let d = Disparador(modo: modo, frase: frase, tokens: toks)
+                ex.append(d); di.append(d)
+            }
+            // Vaciar "Frases de voz" significa SIN voz. El nombre automático solo
+            // complementa al fuzzy cuando el modo sí tiene activación por voz.
+            if !frases.isEmpty {
+                let frase = "modo \(modo.nombre)"
+                let toks = ModoResolver.tokensNormalizados(frase)
+                let firma = toks.joined(separator: " ")
+                if vistos.insert(firma).inserted {
+                    di.append(Disparador(modo: modo, frase: frase, tokens: toks))
+                }
+            }
+        }
+        exactos = ex.sorted { $0.tokens.count > $1.tokens.count }
+        difusos = di.sorted { $0.tokens.count > $1.tokens.count }
+    }
+}
+
+/// El catálogo compilado se reutiliza. Se invalida al guardar Modos, de modo que
+/// editar una frase/color/modo se refleja en el próximo parcial sin releer JSON.
+enum ModoCatalogoCache {
+    private static let lock = NSLock()
+    private static var cache: ModoCatalogo?
+    private static var generacion = 0   // sube en cada invalidar(): una invalidación que
+                                        // llegue MIENTRAS otro hilo construye no se pierde
+
+    static func actual() -> ModoCatalogo {
+        lock.lock()
+        if let cache { lock.unlock(); return cache }
+        let gen = generacion
+        lock.unlock()
+        let nuevo = ModoCatalogo(modos: ModosStore.todos())
+        lock.lock()
+        if cache == nil, generacion == gen { cache = nuevo }
+        let salida = cache ?? nuevo
+        lock.unlock()
+        return salida
+    }
+
+    static func invalidar() {
+        lock.lock(); cache = nil; generacion += 1; lock.unlock()
+    }
+}
+
+enum ModoResolver {
+    /// Solo variantes observadas/decididas. Una palabra común parecida ("todo",
+    /// "moda") NO abre la puerta al fuzzy. Los alias exactos del usuario sí valen.
+    static let palabrasModoSeguras: Set<String> =
+        ["modo", "mudo", "molde", "moto", "modho", "moldo", "mode", "modos", "mod", "moro"]
+
+    static func tokenNormalizado(_ s: String) -> String {
+        let bordes = CharacterSet.punctuationCharacters
+            .union(.symbols)
+            .union(.whitespacesAndNewlines)
+        return s.folding(options: [.caseInsensitive, .diacriticInsensitive],
+                         locale: Locale(identifier: "es"))
+            .trimmingCharacters(in: bordes)
+    }
+
+    static func tokensNormalizados(_ s: String) -> [String] {
+        s.split(whereSeparator: { $0.isWhitespace })
+            .map { tokenNormalizado(String($0)) }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func tokensOriginales(_ s: String) -> [String] {
+        s.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+    }
+
+    private static func limpiar(_ originales: [String], desde indice: Int) -> String {
+        guard indice < originales.count else { return "" }
+        return originales.dropFirst(indice).joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n").union(.whitespacesAndNewlines))
+    }
+
+    private static func conArgumento(_ base: Modo, normalizados: [String],
+                                     desde inicio: Int) -> (Modo, Int) {
+        var modo = base
+        guard inicio < normalizados.count else { return (modo, inicio) }
+        var candidato = inicio
+        let fillers: Set<String>
+        let reconocer: (String) -> String?
+        if modo.base == "traducir" {
+            fillers = ["a", "al"]
+            reconocer = Idiomas.reconocer
+        } else if modo.base == "buscar" {
+            fillers = ["en"]
+            reconocer = Buscadores.reconocer
+        } else { return (modo, inicio) }
+
+        if fillers.contains(normalizados[candidato]), candidato + 1 < normalizados.count {
+            candidato += 1
+        }
+        guard let valor = reconocer(normalizados[candidato]) else { return (modo, inicio) }
+        if modo.base == "traducir" { modo.idiomaDestino = valor }
+        else { modo.buscador = valor }
+        return (modo, candidato + 1)
+    }
+
+    private static func construir(_ disparador: ModoCatalogo.Disparador,
+                                  texto: String, confianza: Double,
+                                  fuente: FuenteModo) -> ModoMatch {
+        // OJO: la detección matchea sobre tokens FILTRADOS (sin tokens de pura
+        // puntuación, p.ej. el "- " que emite Whisper), pero el recorte va sobre los
+        // ORIGINALES. Mapeamos índices filtrado→original para no cortar corrido.
+        let originales = tokensOriginales(texto)
+        let normPorOriginal = originales.map(tokenNormalizado)
+        let idxValidos = normPorOriginal.indices.filter { !normPorOriginal[$0].isEmpty }
+        let filtrados = idxValidos.map { normPorOriginal[$0] }
+        let base = min(disparador.tokens.count, filtrados.count)
+        let (modo, consumidasFiltrado) = conArgumento(disparador.modo,
+                                                      normalizados: filtrados, desde: base)
+        let corteOriginal = consumidasFiltrado == 0 ? 0
+            : (consumidasFiltrado <= idxValidos.count ? idxValidos[consumidasFiltrado - 1] + 1
+                                                      : originales.count)
+        return ModoMatch(modo: modo, fuente: fuente, frase: disparador.frase,
+                         tokensComando: Array(filtrados.prefix(consumidasFiltrado)),
+                         palabrasConsumidas: corteOriginal, confianza: confianza,
+                         confirmadoPorPausa: false,
+                         textoLimpio: limpiar(originales, desde: corteOriginal))
+    }
+
+    static func detectarExacto(_ texto: String, catalogo: ModoCatalogo = ModoCatalogoCache.actual()) -> ModoMatch? {
+        let entrada = tokensNormalizados(texto)
+        guard !entrada.isEmpty else { return nil }
+        for d in catalogo.exactos where d.tokens.count <= entrada.count {
+            if Array(entrada.prefix(d.tokens.count)) == d.tokens {
+                return construir(d, texto: texto, confianza: 1, fuente: .exacto)
+            }
+        }
+        return nil
+    }
+
+    static func detectarDifuso(_ texto: String, catalogo: ModoCatalogo = ModoCatalogoCache.actual()) -> ModoMatch? {
+        let entrada = tokensNormalizados(texto)
+        guard let primera = entrada.first, palabrasModoSeguras.contains(primera) else { return nil }
+
+        struct Candidato { let d: ModoCatalogo.Disparador; let score: Double }
+        var porModo: [String: Candidato] = [:]
+        for d in catalogo.difusos where d.tokens.count <= entrada.count {
+            guard let f = d.tokens.first, palabrasModoSeguras.contains(f) else { continue }
+            var total = 0.0
+            var valido = true
+            for (i, palabra) in d.tokens.enumerated() {
+                let s = i == 0 ? 1.0 : ModoFuzzy.similitud(palabra, entrada[i])
+                if s < 0.72 { valido = false; break }
+                total += s
+            }
+            guard valido else { continue }
+            let score = total / Double(d.tokens.count)
+            if score > 0.84, score > (porModo[d.modo.id]?.score ?? 0) {
+                porModo[d.modo.id] = Candidato(d: d, score: score)
+            }
+        }
+        let orden = porModo.values.sorted { $0.score > $1.score }
+        guard let mejor = orden.first else { return nil }
+        // Si dos modos distintos están casi empatados, no adivinar. Un match
+        // prácticamente perfecto sí es suficientemente inequívoco.
+        if let segundo = orden.dropFirst().first,
+           mejor.score < 0.98, mejor.score - segundo.score < 0.04 { return nil }
+        return construir(mejor.d, texto: texto, confianza: mejor.score, fuente: .difuso)
+    }
+
+    /// Alinea la frase captada EN VIVO contra el texto final usando una ventana
+    /// variable. Tolera que el STT una/quite una palabra, sin asumir "siempre 2".
+    static func aplicarVivo(_ vivo: ModoMatch, al texto: String) -> ModoMatch {
+        let originales = tokensOriginales(texto)
+        let entrada = originales.map(tokenNormalizado)
+        let esperado = vivo.tokensComando
+        guard !entrada.isEmpty, !esperado.isEmpty else {
+            var r = vivo; r.fuente = vivo.fuente == .exacto ? .vivoExacto : .vivoDifuso
+            return ModoMatch(modo: r.modo, fuente: r.fuente, frase: r.frase,
+                             tokensComando: r.tokensComando, palabrasConsumidas: 0,
+                             confianza: r.confianza, confirmadoPorPausa: r.confirmadoPorPausa,
+                             textoLimpio: texto)
+        }
+
+        // El STT final puede COMERSE la palabra "modo", deformarla, o unir/quitar una
+        // palabra. Probamos variantes del comando esperado (con y sin la palabra-modo)
+        // contra ventanas del inicio de la entrada, y nos quedamos con la mejor
+        // alineación. Umbral moderado: la alineación protege y el fallback conserva todo.
+        var variantes: [[String]] = [esperado]
+        if palabrasModoSeguras.contains(esperado[0]), esperado.count > 1 {
+            variantes.append(Array(esperado.dropFirst()))   // final sin "modo"
+        }
+        var mejor: (n: Int, score: Double)?
+        for variante in variantes {
+            let minimo = max(1, variante.count - 2)
+            let maximo = min(entrada.count, variante.count + 2)
+            guard minimo <= maximo else { continue }
+            for n in minimo...maximo {
+                let score = similitudSecuencia(variante, Array(entrada.prefix(n)))
+                if score > (mejor?.score ?? 0) { mejor = (n, score) }
+            }
+        }
+        guard let alineado = mejor, alineado.score >= 0.66 else {
+            return ModoMatch(modo: vivo.modo,
+                             fuente: vivo.fuente == .exacto ? .vivoExacto : .vivoDifuso,
+                             frase: vivo.frase, tokensComando: vivo.tokensComando,
+                             palabrasConsumidas: 0, confianza: vivo.confianza,
+                             confirmadoPorPausa: vivo.confirmadoPorPausa, textoLimpio: texto)
+        }
+        // Si el parcial vivo terminó antes de oír el argumento, el final todavía
+        // puede aportar "quichua"/"wikipedia" justo después de la frase.
+        let (modo, consumidas) = conArgumento(vivo.modo,
+                                              normalizados: entrada, desde: alineado.n)
+        return ModoMatch(modo: modo,
+                         fuente: vivo.fuente == .exacto ? .vivoExacto : .vivoDifuso,
+                         frase: vivo.frase,
+                         tokensComando: Array(entrada.prefix(consumidas)),
+                         palabrasConsumidas: consumidas,
+                         confianza: min(vivo.confianza, alineado.score),
+                         confirmadoPorPausa: vivo.confirmadoPorPausa,
+                         textoLimpio: limpiar(originales, desde: consumidas))
+    }
+
+    private static func similitudSecuencia(_ a: [String], _ b: [String]) -> Double {
+        guard !a.isEmpty, !b.isEmpty else { return 0 }
+        var prev = (0...b.count).map(Double.init)
+        var cur = [Double](repeating: 0, count: b.count + 1)
+        for i in 1...a.count {
+            cur[0] = Double(i)
+            for j in 1...b.count {
+                let sustitucion = 1.0 - ModoFuzzy.similitud(a[i - 1], b[j - 1])
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + sustitucion)
+            }
+            swap(&prev, &cur)
+        }
+        return max(0, 1 - prev[b.count] / Double(max(a.count, b.count)))
+    }
+
+    static func matchSemantico(texto: String, modo: Modo, limpio: String) -> ModoMatch {
+        let todos = tokensNormalizados(texto)
+        let contenido = tokensNormalizados(limpio)
+        let consumidas = max(1, todos.count - contenido.count)
+        return ModoMatch(modo: modo, fuente: .semantico, frase: "semántico",
+                         tokensComando: Array(todos.prefix(consumidas)),
+                         palabrasConsumidas: consumidas, confianza: 0,
+                         confirmadoPorPausa: false, textoLimpio: limpio)
+    }
+
+    /// Orden declarado y testeable:
+    /// cadena > final exacto > final fuzzy > vivo confirmado por pausa > contexto >
+    /// semántico > vivo fuzzy/de respaldo > modo manual congelado.
+    static func resolver(texto: String, modoBase: Modo, contexto: ModoContexto?,
+                         vivo: ModoMatch?, completion: @escaping (ResultadoModo) -> Void) {
+        if Config.modoPorVoz(), let c = ModosStore.detectarCadena(texto) {
+            completion(.cadena(ModoCadena(transforms: c.transforms, accion: c.accion,
+                                          contenido: c.contenido)))
+            return
+        }
+        let catalogo = ModoCatalogoCache.actual()
+        if Config.modoPorVoz(), let m = detectarExacto(texto, catalogo: catalogo) {
+            completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
+                                            fuente: .exacto, match: m)))
+            return
+        }
+        if Config.modoPorVoz(), let m = detectarDifuso(texto, catalogo: catalogo) {
+            completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
+                                            fuente: .difuso, match: m)))
+            return
+        }
+
+        // Una frase EXACTA captada por los oídos en vivo (o cualquier match confirmado
+        // por pausa) es intención explícita, no un fallback: gana al contexto implícito
+        // de la app. Sin esto, hablar de corrido (sin pausa) degradaba la orden de voz
+        // frente al modo por app — regresión respecto del comportamiento anterior.
+        if Config.modoPorVoz(), let vivo, vivo.confirmadoPorPausa || vivo.fuente == .exacto {
+            let m = aplicarVivo(vivo, al: texto)
+            completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
+                                            fuente: m.fuente, match: m)))
+            return
+        }
+
+        if Config.modoPorContexto(), let contexto,
+           let m = ModosStore.detectarPorContexto(bundleId: contexto.bundleId,
+                                                   nombre: contexto.nombre, url: contexto.url) {
+            completion(.modo(ModoResolucion(modo: m, texto: texto,
+                                            fuente: .contexto, match: nil)))
+            return
+        }
+
+        func respaldo() {
+            if Config.modoPorVoz(), let vivo {
+                let m = aplicarVivo(vivo, al: texto)
+                completion(.modo(ModoResolucion(modo: m.modo, texto: m.textoLimpio,
+                                                fuente: m.fuente, match: m)))
+            } else {
+                completion(.modo(ModoResolucion(modo: modoBase, texto: texto,
+                                                fuente: .manual, match: nil)))
+            }
+        }
+
+        if Config.modoSemantico(), ModosStore.pareceComando(texto) {
+            ModosStore.detectarSemantico(texto) { modo, limpio in
+                guard let modo else { respaldo(); return }
+                let m = matchSemantico(texto: texto, modo: modo, limpio: limpio)
+                completion(.modo(ModoResolucion(modo: modo, texto: limpio,
+                                                fuente: .semantico, match: m)))
+            }
+        } else { respaldo() }
+    }
+}

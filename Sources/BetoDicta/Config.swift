@@ -153,6 +153,16 @@ struct Config {
     /// Modo EN VIVO: al decir "modo X" mientras hablas, el notch cambia YA de nombre y
     /// color (feedback de "te escuché") sin esperar a soltar la tecla. Default ON.
     static func modoVivo() -> Bool { (json()["modo_vivo"] as? Bool) ?? true }
+    /// Una pausa al inicio confirma que terminó la orden "modo X", pero NO detiene
+    /// la grabación. Permite continuar hablando naturalmente tras pensar. Default ON.
+    static func modoVivoPausa() -> Bool { (json()["modo_vivo_pausa"] as? Bool) ?? true }
+    static func modoVivoPausaSegundos() -> Double {
+        min(4, max(0.8, (json()["modo_vivo_pausa_seg"] as? Double) ?? 2.0))
+    }
+    /// Límite de la zona-comando en parciales. El resto nunca se examina como orden.
+    static func modoVivoPalabras() -> Int {
+        min(14, max(3, (json()["modo_vivo_palabras"] as? Int) ?? 8))
+    }
     /// Cuántas palabras del inicio se analizan como "zona-comando" (parametrizable).
     static func modoSemanticoPalabras() -> Int { (json()["modo_sem_palabras"] as? Int) ?? 5 }
     /// Umbral de cercanía (coseno) para aceptar un modo: más alto = más estricto.
