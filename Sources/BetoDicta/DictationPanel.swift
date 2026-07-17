@@ -147,10 +147,22 @@ final class DictationPanel {
     func setModo(_ modo: Modo) {
         let txt = modo.id == "dictado" ? "dictado" : modo.nombre.lowercased()
         modoLabel.stringValue = txt
-        // El modo por defecto va tenue; los otros resaltan (están transformando).
-        modoLabel.textColor = modo.id == "dictado"
-            ? NSColor(calibratedWhite: 0.5, alpha: 1)
-            : NSColor(calibratedRed: 0.62, green: 0.55, blue: 0.95, alpha: 1)
+        // Cada modo tiene SU color (el usuario puede fijarlo; si no, paleta estable) y
+        // el fondo del notch se TIÑE suave con él → sabes en qué modo estás de un vistazo.
+        modoLabel.textColor = ColorModo.de(modo)
+        fondo?.layer?.backgroundColor = ColorModo.fondo(modo).cgColor
+    }
+
+    /// Cambio de modo EN VIVO (dijiste "modo X" mientras hablabas): aplica el color y da
+    /// un doble parpadeo corto — el "sí te caché" — sin interrumpir la grabación.
+    func setModoVivo(_ modo: Modo) {
+        guard !enRespuestaIA else { return }
+        setModo(modo)
+        guard let capa = fondo?.layer else { return }
+        let a = CABasicAnimation(keyPath: "opacity")
+        a.fromValue = 1.0; a.toValue = 0.45
+        a.duration = 0.18; a.autoreverses = true; a.repeatCount = 2
+        capa.add(a, forKey: "modoVivoPulso")
     }
 
     // Un "flash" (aviso breve, ej. "📚 Aprendí…") tiene prioridad sobre el

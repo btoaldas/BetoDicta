@@ -177,6 +177,19 @@ struct ModosView: View {
                 }.labelsHidden().frame(width: 200)
             }
         }
+        // Color del modo en el notch (letrero + tinte de fondo). Vacío = automático
+        // (paleta fija para los modos base; color estable por id para los propios).
+        HStack {
+            Text("Color:").font(.caption).frame(width: 90, alignment: .leading)
+            ColorPicker("", selection: Binding<Color>(
+                get: { Color(nsColor: ColorModo.de(b.wrappedValue)) },
+                set: { b.wrappedValue.color = ColorModo.aHex(NSColor($0)) }
+            )).labelsHidden().frame(width: 44)
+            if !b.wrappedValue.color.isEmpty {
+                Button("Automático") { b.wrappedValue.color = "" }.controlSize(.small)
+            }
+            Text("se ve en el notch (letrero y fondo)").font(.caption2).foregroundStyle(.secondary)
+        }
         // Palabra de voz (para activar por voz)
         VStack(alignment: .leading, spacing: 2) {
             HStack {

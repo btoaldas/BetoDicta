@@ -30,16 +30,18 @@ struct Modo: Codable, Identifiable {
     var almacen: String          // "tarea"|"nota"|"" — guarda lo procesado en la lista local
     var accion: String           // solo base "accion": id del preset (correo/outlook/whatsapp/…/url)
     var ejemplosVoz: [String]    // frases de ejemplo del usuario para el reconocimiento semántico
+    var color: String            // color del modo en el notch, hex "#RRGGBB"; "" = automático
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
          esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = [],
-         buscador: String = "google", almacen: String = "", accion: String = "correo", ejemplosVoz: [String] = []) {
+         buscador: String = "google", almacen: String = "", accion: String = "correo",
+         ejemplosVoz: [String] = [], color: String = "") {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
         self.apps = apps; self.sitios = sitios; self.buscador = buscador; self.almacen = almacen
-        self.accion = accion; self.ejemplosVoz = ejemplosVoz
+        self.accion = accion; self.ejemplosVoz = ejemplosVoz; self.color = color
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -60,6 +62,7 @@ struct Modo: Codable, Identifiable {
         almacen = (try? c.decode(String.self, forKey: .almacen)) ?? ""
         accion = (try? c.decode(String.self, forKey: .accion)) ?? "correo"
         ejemplosVoz = (try? c.decode([String].self, forKey: .ejemplosVoz)) ?? []
+        color = (try? c.decode(String.self, forKey: .color)) ?? ""
     }
 }
 

@@ -123,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         disarmEsc()
         media.dictationEnded()
         PreviewVivo.detener()
+        ModoVivo.terminar()
         silenceTimer?.invalidate()
         silenceTimer = nil
         liveTimer?.invalidate()
@@ -483,6 +484,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } catch {
                 print("RESUMETEST ✗ \(error)"); exit(5)
             }
+        }
+        // Prueba modo vivo + fuzzy: BETODICTA_MODOVIVOTEST=1
+        if ProcessInfo.processInfo.environment["BETODICTA_MODOVIVOTEST"] == "1" {
+            let casos: [(String, String?)] = [
+                ("modo traductor buenos días", "traducir"),
+                ("molde traductor hola", "traducir"),          // mal-escucha
+                ("moto agente qué hora es", "agente"),         // mal-escucha
+                ("modo tradutor como estas", "traducir"),      // typo del STT
+                ("mudo tarea comprar pan", "tarea"),
+                ("hola cómo estás", nil),                       // NO debe detectar
+                ("la moda de traducir está de vuelta", nil),    // NO al inicio real
+            ]
+            var mal = 0
+            for (t, esperado) in casos {
+                var det: String?
+                if let (m, _) = ModosStore.detectarPorVoz(t) { det = m.id }
+                else if let (m, _) = ModoFuzzy.detectar(t) { det = m.id }
+                let ok = det == esperado
+                if !ok { mal += 1 }
+                print("MODOVIVOTEST \(ok ? "✓" : "✗") '\(t)' → \(det ?? "nil") (esperado \(esperado ?? "nil"))")
+            }
+            // Simular parciales en vivo (como llegan del preview): crecen palabra a palabra
+            var cambios: [String] = []
+            ModoVivo.empezar { m in cambios.append(m.id) }
+            for p in ["modo", "modo agen", "modo agente", "modo agente qué hora", "modo agente qué hora es"] {
+                ModoVivo.evaluar(p)
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+            print("MODOVIVOTEST vivo: cambios=\(cambios) (esperado [agente])")
+            let okVivo = cambios == ["agente"]
+            print("MODOVIVOTEST \(mal == 0 && okVivo ? "TODO OK" : "FALLOS=\(mal) vivo=\(okVivo)")")
+            exit(mal == 0 && okVivo ? 0 : 1)
         }
         // Prueba de recursos: BETODICTA_RECURSOS=1 → info + recomendación
         if ProcessInfo.processInfo.environment["BETODICTA_RECURSOS"] == "1" {
@@ -2017,6 +2050,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             playSound("Tink")
             setIcono(.grabando)
             panel.show("Escuchando… (\(tecla) para terminar)")
+            // Modo EN VIVO: si dices "modo X" mientras hablas, el notch cambia YA
+            // (nombre + color + doble parpadeo) — sabes que te escuchó y sigues hablando.
+            ModoVivo.empezar { [weak self] m in self?.panel.setModoVivo(m) }
         } catch {
             panel.show("⚠️ Micrófono: \(error.localizedDescription)")
             panel.hide(after: 3)
@@ -2047,6 +2083,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // startLiveLocal apaga este preview.
             PreviewVivo.iniciar { [weak self] parcial in
                 guard let self, self.recorder.isRecording else { return }
+                ModoVivo.evaluar(parcial)
                 self.panel.update("💬 \(parcial)")
             }
         }
@@ -2139,6 +2176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, let client, self.tcppStream === client,
                   self.recorder.isRecording else { return }
             self.lastPartial = texto
+            ModoVivo.evaluar(texto)
             self.panel.update(texto)
             history.savePartial(texto)
         }
@@ -2166,6 +2204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.lastPartial = text
             let done = stream.fullText()
             let visible = done.isEmpty ? text : done + " " + text
+            ModoVivo.evaluar(visible)
             self.panel.update(visible)
             history.savePartial(visible)
         }
@@ -2205,6 +2244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cliente.onPartial = { [weak self, weak cliente] text in
             guard let self, let cliente, self.liveNube === cliente, self.recorder.isRecording else { return }
             self.lastPartial = text
+            ModoVivo.evaluar(text)
             self.panel.update(text)
             history.savePartial(text)
         }
@@ -2279,6 +2319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     PreviewVivo.detener()   // el parcial REAL (whisper) manda; fuera el preview
                     self.lastPartial = texto
                     self.panel.setMotor("Whisper", enVivo: true)
+                    ModoVivo.evaluar(texto)
                     self.panel.update(texto)
                     history.savePartial(texto)
                 }
@@ -2290,7 +2331,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         disarmEsc()
         setIcono(.procesando)
         media.dictationEnded()
-        PreviewVivo.detener()   // fin del preview nativo; la cascada real toma el mando
+        PreviewVivo.detener()
+        ModoVivo.terminar()   // fin del preview nativo; la cascada real toma el mando
+        ModoVivo.terminar()
         silenceTimer?.invalidate()
         silenceTimer = nil
         liveTimer?.invalidate()
@@ -2533,6 +2576,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // voz (explícita) > contexto app/web > modo congelado (manual/notch).
         var modo = modoSnapshot ?? ModosStore.activo()
         var porVoz = false
+        var porFuzzy = false
         if Config.modoPorVoz(), let (m, limpio) = ModosStore.detectarPorVoz(textoFinal) {
             if m.id != modo.id { Log.log(.ia, "modo por voz → \(m.nombre)") }
             ModosLog.registrar("voz", ["crudo": crudo, "modo": m.id, "base": m.base, "idioma": m.idiomaDestino, "buscador": m.buscador, "limpio": limpio])
@@ -2540,6 +2584,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             textoFinal = limpio
             porVoz = true
         }
+        // Capa DIFUSA (sin dependencias, viaja en el Git): tolera mal-escuchas por
+        // distancia de edición ("molde traductor", "modo tradutor") aunque no haya
+        // Ollama/embeddings. Corre tras la exacta y antes del contexto/semántico.
+        if !porVoz, Config.modoPorVoz(), let (m, limpio) = ModoFuzzy.detectar(textoFinal) {
+            if m.id != modo.id { Log.log(.ia, "modo por voz (difuso) → \(m.nombre)") }
+            ModosLog.registrar("fuzzy", ["crudo": crudo, "modo": m.id, "limpio": limpio])
+            modo = m
+            textoFinal = limpio
+            porVoz = true; porFuzzy = true
+        }
+        _ = porFuzzy
         if !porVoz, Config.modoPorContexto(), let ctx = ctxDictado,
            let m = ModosStore.detectarPorContexto(bundleId: ctx.bundleId, nombre: ctx.nombre, url: ctx.url) {
             if m.id != modo.id { Log.log(.ia, "modo por contexto → \(m.nombre) [\(ctx.nombre)]") }

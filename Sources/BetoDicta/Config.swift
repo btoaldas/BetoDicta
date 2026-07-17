@@ -150,6 +150,9 @@ struct Config {
     /// Reconocimiento SEMÁNTICO de modos por voz (capa 3, embeddings): entiende el
     /// llamado del modo aunque lo digas de mil formas. Default OFF (opt-in).
     static func modoSemantico() -> Bool { (json()["modo_semantico"] as? Bool) ?? false }
+    /// Modo EN VIVO: al decir "modo X" mientras hablas, el notch cambia YA de nombre y
+    /// color (feedback de "te escuché") sin esperar a soltar la tecla. Default ON.
+    static func modoVivo() -> Bool { (json()["modo_vivo"] as? Bool) ?? true }
     /// Cuántas palabras del inicio se analizan como "zona-comando" (parametrizable).
     static func modoSemanticoPalabras() -> Int { (json()["modo_sem_palabras"] as? Int) ?? 5 }
     /// Umbral de cercanía (coseno) para aceptar un modo: más alto = más estricto.
