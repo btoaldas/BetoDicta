@@ -137,9 +137,19 @@ struct DestiladorPiperView: View {
                         .font(.subheadline).bold()
                     if trabajando {
                         if let snap {
-                            ProgressView(value: snap.avanceGlobal)
-                            Text("\(fase) · \(Int(snap.avanceGlobal * 100))% · paso \(snap.paso)/\(snap.total)")
-                                .font(.caption).monospacedDigit()
+                            ProgressView(value: snap.avanceFase)
+                            Text(snap.texto).font(.caption).monospacedDigit()
+                            PiperAvanceMiniChart(puntos: snap.checkpointPuntos,
+                                                  actual: snap.paso, total: snap.total)
+                            let cols = [GridItem(.adaptive(minimum: 128), spacing: 6)]
+                            LazyVGrid(columns: cols, alignment: .leading, spacing: 6) {
+                                kpi("Paso real", "\(snap.paso) / \(snap.total)", "figure.walk")
+                                kpi("Velocidad", snap.itPerSec > 0 ? String(format: "%.2f pasos/s", snap.itPerSec) : "calculando…", "speedometer")
+                                kpi("Transcurrido", duracion(snap.transcurridoMin), "timer")
+                                kpi("Falta", snap.etaMin > 0 ? "~\(duracion(snap.etaMin))" : "calculando…", "hourglass")
+                                kpi("Fin estimado", snap.finEstimada?.formatted(date: .omitted, time: .shortened) ?? "—", "clock")
+                                kpi("Checkpoints", "\(snap.hitos) hitos" + (snap.seguroPaso > 0 ? " · seguro \(snap.seguroPaso)" : ""), "flag.checkered")
+                            }
                         } else {
                             ProgressView()
                             Text(fase).font(.caption)
@@ -244,6 +254,23 @@ struct DestiladorPiperView: View {
         VStack(alignment: .leading, spacing: 7) { contenido() }
             .padding(10).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.secondary.opacity(0.06)).cornerRadius(8)
+    }
+
+    @ViewBuilder private func kpi(_ titulo: String, _ valor: String, _ icono: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icono).foregroundStyle(.secondary).frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(titulo).font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(valor).font(.caption2).monospacedDigit().lineLimit(1)
+            }
+        }.padding(6).frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.05)).cornerRadius(6)
+    }
+
+    private func duracion(_ minutos: Int) -> String {
+        guard minutos > 0 else { return "—" }
+        let h = minutos / 60, m = minutos % 60
+        return h > 0 ? "\(h) h \(m) min" : "\(m) min"
     }
 
     private func iniciar() {
@@ -360,5 +387,51 @@ struct DestiladorPiperView: View {
                 trabajando = false; estado = "Entrenamiento detenido; puedes reanudarlo después."
             }
         }
+    }
+}
+
+/// Línea pequeña y honesta: muestra PASOS contra TIEMPO. No pretende medir calidad;
+/// esa curva aparece únicamente después de validar los cortes con Whisper + d-vector.
+private struct PiperAvanceMiniChart: View {
+    let puntos: [EntrenadorPiper.CheckpointInfo]
+    let actual: Int
+    let total: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Avance por tiempo · la calidad se valida aparte")
+                .font(.system(size: 9)).foregroundStyle(.secondary)
+            Canvas { context, size in
+                let orden = puntos.sorted { $0.fecha < $1.fecha }
+                let muestras = orden.map { ($0.fecha, $0.paso, $0.seguro) }
+                    + [(Date(), actual, false)]
+                guard !muestras.isEmpty, total > 0 else { return }
+                let t0 = muestras.first!.0.timeIntervalSinceReferenceDate
+                let t1 = max(t0 + 1, muestras.last!.0.timeIntervalSinceReferenceDate)
+                func punto(_ fecha: Date, _ paso: Int) -> CGPoint {
+                    let x = (fecha.timeIntervalSinceReferenceDate - t0) / (t1 - t0)
+                    let y = min(1, max(0, Double(paso) / Double(total)))
+                    return CGPoint(x: 5 + x * (size.width - 10), y: size.height - 5 - y * (size.height - 10))
+                }
+                var linea = Path()
+                for (i, m) in muestras.enumerated() {
+                    let p = punto(m.0, m.1)
+                    if i == 0 { linea.move(to: p) } else { linea.addLine(to: p) }
+                }
+                context.stroke(linea, with: .color(.accentColor), lineWidth: 2)
+                for m in muestras {
+                    let p = punto(m.0, m.1)
+                    let r = CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)
+                    context.fill(Path(ellipseIn: r), with: .color(m.2 ? .orange : .accentColor))
+                }
+            }.frame(height: 54)
+            if !puntos.isEmpty {
+                Text(puntos.sorted { $0.paso < $1.paso }.map {
+                    $0.seguro ? "seguro \($0.paso)" : "hito \($0.paso)"
+                }.joined(separator: "  ·  "))
+                .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                .lineLimit(2)
+            }
+        }.padding(6).background(Color.secondary.opacity(0.035)).cornerRadius(6)
     }
 }

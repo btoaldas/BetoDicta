@@ -380,7 +380,8 @@ enum EntrenadorPiper {
             if let fh = try? FileHandle(forWritingTo: trLog) {
                 if reanudar {
                     _ = try? fh.seekToEnd()
-                    try? fh.write(contentsOf: Data("\n[BD] reanudando desde checkpoint\n".utf8))
+                    let pasoBase = reanuda.flatMap(pasoCheckpoint) ?? 0
+                    try? fh.write(contentsOf: Data("\n[BD] reanudando desde checkpoint step=\(pasoBase)\n".utf8))
                 }
                 tr.standardOutput = fh; tr.standardError = fh
             }
@@ -569,6 +570,29 @@ enum EntrenadorPiper {
         return Int(s[r]) ?? 0
     }
 
+    /// El wrapper antiguo contaba LOTES, pero Piper hace dos optimizer.step por lote;
+    /// Lightning, checkpoints y `max_steps` cuentan PASOS GLOBALES. Convierte ambos
+    /// formatos y conserva el checkpoint como piso fiable. El wrapper nuevo ya escribe
+    /// `global_step` directamente.
+    private static func pasoYVelocidad(_ log: String, pisoCheckpoint: Int) -> (paso: Int, gps: Double, exacto: Bool) {
+        let global = ultimoEntero(log, "\\[BD\\] global_step=(\\d+)")
+        if global > 0 {
+            return (max(pisoCheckpoint, global), ultimoDouble(log, "gps=([0-9.]+)"), true)
+        }
+        let lote = ultimoEntero(log, "\\[BD\\] step=(\\d+)")
+        let sps = ultimoDouble(log, "sps=([0-9.]+)")
+        guard lote > 0 else { return (pisoCheckpoint, 0, false) }
+
+        // Reanudaciones nuevas anotan el paso base. En logs antiguos reanudados sin base
+        // no sumamos a ciegas sobre un checkpoint rodante que sigue avanzando.
+        let base = ultimoEntero(log, "\\[BD\\] reanudando desde checkpoint step=(\\d+)")
+        if base > 0 { return (max(pisoCheckpoint, base + lote * 2), sps * 2, false) }
+        if log.contains("[BD] reanudando desde checkpoint") {
+            return (pisoCheckpoint, 0, false)
+        }
+        return (max(pisoCheckpoint, lote * 2), sps * 2, false)
+    }
+
     /// Progreso VIVO combinado con % y texto dinámico. Sabe en qué FASE va (1 dataset,
     /// 2 entrenamiento), calcula el % de cada una y dice qué está pasando ahora mismo.
     static func progresoVivo(_ proyecto: URL, etapas: Int) -> Vivo {
@@ -583,12 +607,14 @@ enum EntrenadorPiper {
             // GLOBAL = época × lotes_por_época + lote. Piso fiable: el último checkpoint.
             let bar = ultimoPar(piLog, "(\\d+)/(\\d+) \\d+:\\d+")
             let ep = ultimoEntero(piLog, "Epoch (\\d+)")
-            let bdStep = ultimoEntero(piLog, "\\[BD\\] step=(\\d+)")   // paso EN VIVO propio
-            var paso = max(pasoUltimoCheckpoint(proyecto), bdStep)
-            if let (lote, lotesEp) = bar, lotesEp > 0 {
-                paso = max(paso, ep * lotesEp + lote)   // estimación fina + piso del checkpoint
+            let piso = pasoUltimoCheckpoint(proyecto)
+            let vivoBD = pasoYVelocidad(piLog, pisoCheckpoint: piso)
+            var paso = vivoBD.paso
+            if !vivoBD.exacto, let (lote, lotesEp) = bar, lotesEp > 0 {
+                // Barra/época también cuenta lotes: dos pasos globales por lote.
+                paso = max(paso, (ep * lotesEp + lote) * 2)
             }
-            let total = etapas > 0 ? etapas : 0
+            let total = etapasPersistidas(proyecto) ?? (etapas > 0 ? etapas : 0)
             paso = total > 0 ? min(paso, total) : paso
             let pct = total > 0 ? min(1.0, Double(paso) / Double(total)) : 0
             let arrancoPasos = bar != nil || paso > 0
@@ -619,10 +645,12 @@ enum EntrenadorPiper {
         var avanceFase: Double       // 0-1 de la FASE actual
         var subfase: String          // qué se hace ahora mismo (archivo / época·paso)
         var paso: Int; var total: Int; var epoca: Int
-        var itPerSec: Double; var etaMin: Int
+        var itPerSec: Double; var etaMin: Int; var transcurridoMin: Int
+        var finEstimada: Date?
         var cpuNucleos: Double; var nucleos: Int; var ramGB: Double; var discoGB: Double
         var gpu: String; var ia: String   // honesto: el entrenamiento va en CPU
-        var clips: Int; var checkpoints: Int; var rechazos: String
+        var clips: Int; var checkpoints: Int; var hitos: Int; var seguroPaso: Int
+        var checkpointPuntos: [CheckpointInfo]; var rechazos: String
         var activo: Bool; var termino: Bool; var errores: Int
         var motor: String            // qué proceso trabaja (whisper / entrenamiento)
         var bitacora: [String]       // últimas líneas del log activo, limpias
@@ -676,13 +704,42 @@ enum EntrenadorPiper {
         return Double(s[r]) ?? 0
     }
 
+    private static func velocidadCheckpoints(_ puntos: [CheckpointInfo]) -> Double {
+        var unicos: [Int: CheckpointInfo] = [:]
+        for p in puntos { unicos[p.paso] = p }
+        let orden = unicos.values.sorted { $0.fecha < $1.fecha }
+        guard orden.count >= 2 else { return 0 }
+        for i in stride(from: orden.count - 1, through: 1, by: -1) {
+            let a = orden[i - 1], b = orden[i]
+            let dt = b.fecha.timeIntervalSince(a.fecha)
+            let dp = b.paso - a.paso
+            if dt > 10, dp > 0 { return Double(dp) / dt }
+        }
+        return 0
+    }
+
+    private static func inicioEntrenamiento(_ proyecto: URL) -> Date? {
+        let log = proyecto.appendingPathComponent("piper.log")
+        let a = try? FileManager.default.attributesOfItem(atPath: log.path)
+        return a?[.creationDate] as? Date
+    }
+
     static func snapshot(_ proyecto: URL, etapas: Int) -> Snapshot {
-        let v = progresoVivo(proyecto, etapas: etapas)
+        let totalReal = etapasPersistidas(proyecto) ?? etapas
+        let v = progresoVivo(proyecto, etapas: totalReal)
         let piLog = colaLog(proyecto.appendingPathComponent("piper.log"))
         let dsLog = colaLog(proyecto.appendingPathComponent("dataset.log"))
         let enFase2 = v.fase == 2
-        let its = max(ultimoDouble(piLog, "sps=([0-9.]+)"), ultimoDouble(piLog, "([0-9.]+)it/s"))
+        let puntos = checkpointsDetalle(proyecto)
+        let live = pasoYVelocidad(piLog, pisoCheckpoint: pasoUltimoCheckpoint(proyecto))
+        let tasaCkpt = velocidadCheckpoints(puntos)
+        let tasaBarra = ultimoDouble(piLog, "([0-9.]+)it/s") * 2
+        let its = live.exacto && live.gps > 0 ? live.gps
+            : (tasaCkpt > 0 ? tasaCkpt : max(live.gps, tasaBarra))
         let eta = (enFase2 && its > 0 && v.total > v.paso) ? Int(Double(v.total - v.paso) / its / 60.0) : 0
+        let inicio = inicioEntrenamiento(proyecto)
+        let transcurrido = inicio.map { max(0, Int(Date().timeIntervalSince($0) / 60)) } ?? 0
+        let finEstimada = eta > 0 ? Date().addingTimeInterval(Double(eta) * 60) : nil
         let pid = v.activo ? pidDe(proyecto) : nil
         let rec = pid != nil ? recursosProc(pid!) : (0, 0)
         let clips = (try? String(contentsOf: proyecto.appendingPathComponent("dataset/metadata.csv"), encoding: .utf8))?
@@ -712,10 +769,14 @@ enum EntrenadorPiper {
         return Snapshot(fase: v.fase, texto: v.texto, pct: v.pct,
                         avanceGlobal: avGlobal, avanceFase: v.pct, subfase: subfase,
                         paso: v.paso, total: v.total, epoca: v.epoca,
-                        itPerSec: its, etaMin: eta,
+                        itPerSec: its, etaMin: eta, transcurridoMin: transcurrido,
+                        finEstimada: finEstimada,
                         cpuNucleos: rec.0 / 100.0, nucleos: ncpu, ramGB: rec.1, discoGB: discoGB(proyecto),
                         gpu: "sin usar (entrena en CPU)", ia: "sin usar (entrena en CPU)",
-                        clips: clips, checkpoints: checkpoints(proyecto).count, rechazos: rech,
+                        clips: clips, checkpoints: puntos.count,
+                        hitos: puntos.filter { !$0.seguro }.count,
+                        seguroPaso: puntos.filter { $0.seguro }.map(\.paso).max() ?? 0,
+                        checkpointPuntos: puntos, rechazos: rech,
                         activo: v.activo, termino: v.termino, errores: errores, motor: motor, bitacora: bit)
     }
 
@@ -723,11 +784,28 @@ enum EntrenadorPiper {
     static func nombreDeProyecto(_ proyecto: URL) -> String {
         proyecto.lastPathComponent.replacingOccurrences(of: "_run", with: "").replacingOccurrences(of: "-", with: " ")
     }
-    /// Etapas objetivo de un proyecto (del piper.log "max_steps=N") para el % al reabrir.
-    static func etapasDe(_ proyecto: URL) -> Int {
+    /// Fuente de verdad del objetivo: config real de Lightning (si ya arrancó) → plan
+    /// persistido (dataset/preparación) → log legado.
+    /// Nunca vuelve a presentar 5000/5000 si el proceso fue lanzado con 10000 pasos.
+    private static func etapasPersistidas(_ proyecto: URL) -> Int? {
+        let logs = proyecto.appendingPathComponent("run/lightning_logs")
+        if let en = FileManager.default.enumerator(at: logs, includingPropertiesForKeys: [.contentModificationDateKey]) {
+            let configs = en.compactMap { $0 as? URL }.filter { $0.lastPathComponent == "config.yaml" }
+                .sorted { mtime($0) > mtime($1) }
+            for u in configs {
+                let s = (try? String(contentsOf: u, encoding: .utf8)) ?? ""
+                let n = ultimoEntero(s, "max_steps:\\s*(\\d+)")
+                if n > 0 { return n }
+            }
+        }
+        if let n = DestiladorPiper.planGuardado(proyecto)?.etapas, n > 0 { return n }
         let log = (try? String(contentsOf: proyecto.appendingPathComponent("piper.log"), encoding: .utf8)) ?? ""
         let n = ultimoEntero(log, "max_steps=(\\d+)")
-        return n > 0 ? n : 3000
+        return n > 0 ? n : nil
+    }
+
+    static func etapasDe(_ proyecto: URL) -> Int {
+        etapasPersistidas(proyecto) ?? max(3000, pasoUltimoCheckpoint(proyecto))
     }
 
     // MARK: Resumible + progreso + checkpoints
@@ -766,6 +844,28 @@ enum EntrenadorPiper {
             if let n = pasoCheckpoint(u) { out.append((n, u)) }
         }
         return out.sorted { $0.0 < $1.0 }
+    }
+
+    struct CheckpointInfo: Identifiable {
+        let paso: Int
+        let url: URL
+        let seguro: Bool
+        let fecha: Date
+        var id: String { url.path }
+    }
+
+    /// Hitos elegibles + el seguro rodante. La UI los distingue: el seguro protege un
+    /// apagón; los hitos son los que se validan y entre los que el usuario elige.
+    static func checkpointsDetalle(_ proyecto: URL) -> [CheckpointInfo] {
+        var out = checkpoints(proyecto).map {
+            CheckpointInfo(paso: $0.paso, url: $0.url, seguro: false, fecha: mtime($0.url))
+        }
+        let dir = proyecto.appendingPathComponent("seguro")
+        let items = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for u in items where u.pathExtension == "ckpt" {
+            if let p = pasoCheckpoint(u) { out.append(CheckpointInfo(paso: p, url: u, seguro: true, fecha: mtime(u))) }
+        }
+        return out.sorted { $0.fecha < $1.fecha }
     }
 
     /// ¿Hay un proyecto a medio entrenar? (para ofrecer "reanudar"). Devuelve el más
@@ -1011,17 +1111,22 @@ enum EntrenadorPiper {
         print("[BD] pesos base cargados; optimizadores frescos", flush=True)
     VitsModel.on_fit_start = _fit_start
     # Progreso EN VIVO propio: Lightning NO emite su barra al log cuando la salida es un
-    # archivo (no-TTY). Imprimimos el paso nosotros con flush=True (garantizado en vivo).
-    # La bitácora de BetoDicta parsea "[BD] step=N".
+    # archivo (no-TTY). `training_step` es un LOTE, pero Piper ejecuta dos optimizadores
+    # por lote; por eso registramos el global_step REAL de Lightning, no un contador local.
     import time as _t
-    _bd = {"n": 0, "t": _t.time()}
+    _bd = {"n": 0, "t": _t.time(), "g0": None}
     _orig_ts = VitsModel.training_step
     def _ts(self, *a, **k):
+        antes = int(getattr(getattr(self,"trainer",None),"global_step",0) or 0)
+        if _bd["g0"] is None: _bd["g0"] = antes
         r = _orig_ts(self, *a, **k)
         _bd["n"] += 1
         if _bd["n"] <= 3 or _bd["n"] % 10 == 0:
-            dt = _t.time() - _bd["t"]; sps = _bd["n"] / dt if dt > 0 else 0
-            print(f"[BD] step={_bd['n']} sps={sps:.3f}", flush=True)
+            gs = int(getattr(getattr(self,"trainer",None),"global_step",0) or 0)
+            dt = _t.time() - _bd["t"]
+            gps = (gs - int(_bd["g0"] or 0)) / dt if dt > 0 else 0
+            bps = _bd["n"] / dt if dt > 0 else 0
+            print(f"[BD] global_step={gs} batch={_bd['n']} gps={gps:.3f} bps={bps:.3f}", flush=True)
         return r
     VitsModel.training_step = _ts
     from piper.train.__main__ import main
@@ -1083,7 +1188,7 @@ enum EntrenadorPiper {
     /// escribe validacion.csv + validacion.png y dice cuál es el mejor. Marca la basura.
     private static let valPy = #"""
     #!/usr/bin/env python3
-    import os, sys, subprocess, difflib, unicodedata, re, shutil
+    import os, sys, subprocess, difflib, unicodedata, re, shutil, math
     import numpy as np
     PROJ=sys.argv[1]; PY=sys.executable
     CK=os.path.join(PROJ,"ckpts"); REF=os.path.join(PROJ,"dataset","audio"); OUT=os.path.join(PROJ,"val")
@@ -1092,7 +1197,12 @@ enum EntrenadorPiper {
             "El río suena entre las piedras del camino.",
             "Hoy hace un día muy bonito para caminar.",
             "Te mando un abrazo grande y muchos cariños.",
-            "Mañana vamos a cocinar algo rico."]
+            "Mañana vamos a cocinar algo rico.",
+            "¿Puedes revisar el informe antes de las ocho y treinta?",
+            "Ecuador tiene costa, sierra, Amazonía y región insular.",
+            "Por favor envía el correo a Alberto cuando esté listo.",
+            "Uno, dos, tres, cuatro, cinco, seis, siete, ocho y nueve.",
+            "Gracias por tu ayuda; nos vemos mañana, que descanses."]
     def norm(s):
         s=unicodedata.normalize("NFD",s.lower()); s="".join(c for c in s if unicodedata.category(c)!="Mn")
         return re.sub(r"[^a-z0-9 ]","",s).split()
@@ -1105,7 +1215,9 @@ enum EntrenadorPiper {
     import mlx_whisper
     from resemblyzer import VoiceEncoder, preprocess_wav
     enc=VoiceEncoder()
-    refs=[os.path.join(REF,f) for f in sorted(os.listdir(REF)) if f.endswith(".wav")][:25] if os.path.isdir(REF) else []
+    todas=[os.path.join(REF,f) for f in sorted(os.listdir(REF)) if f.endswith(".wav")] if os.path.isdir(REF) else []
+    # Referencias repartidas por TODO el corpus, no solo las primeras 25.
+    refs=[todas[i] for i in np.linspace(0,len(todas)-1,min(25,len(todas)),dtype=int)] if todas else []
     ref_emb=None
     if refs:
         try: ref_emb=np.mean([enc.embed_utterance(preprocess_wav(r)) for r in refs],axis=0)
@@ -1157,8 +1269,9 @@ enum EntrenadorPiper {
                 try: sims.append(float(np.dot(ref_emb,enc.embed_utterance(preprocess_wav(wav)))))
                 except Exception: pass
         # Un fallo transitorio no se memoriza como puntuación cero para siempre.
-        if len(intel)<3:
-            print(f"[!] paso {st}: solo {len(intel)}/5 muestras válidas; queda pendiente",flush=True)
+        minimo=max(3,math.ceil(len(FRASES)*0.6))
+        if len(intel)<minimo:
+            print(f"[!] paso {st}: solo {len(intel)}/{len(FRASES)} muestras válidas; queda pendiente",flush=True)
             continue
         it=float(np.mean(intel))
         sm=float(np.mean(sims)) if sims else 0.0

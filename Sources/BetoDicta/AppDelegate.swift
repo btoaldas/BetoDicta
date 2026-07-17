@@ -501,14 +501,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let leido = DestiladorPiper.planGuardado(p)
                 let attrs = try fm.attributesOfItem(atPath: p.appendingPathComponent("plan-destilacion.json").path)
                 let perm = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+                try "[BD] step=600 sps=0.350\n".write(to: p.appendingPathComponent("piper.log"), atomically: true, encoding: .utf8)
+                let legacy = EntrenadorPiper.progresoVivo(p, etapas: 999).paso
+                try "[BD] global_step=1234 batch=617 gps=0.710 bps=0.355\n".write(to: p.appendingPathComponent("piper.log"), atomically: true, encoding: .utf8)
+                let nuevo = EntrenadorPiper.progresoVivo(p, etapas: 999).paso
                 let ok = EntrenadorPiper.pasoUltimoCheckpoint(p) == 1000
                     && leido?.cantidad == 1200 && leido?.etapas == 4321 && leido?.calidad == "high"
+                    && EntrenadorPiper.etapasDe(p) == 4321
+                    && legacy == 1200 && nuevo == 1234
                     && perm & 0o777 == 0o600
-                print("RESUMETEST \(ok ? "OK" : "✗") seguro=\(EntrenadorPiper.pasoUltimoCheckpoint(p)) plan=\(leido?.etapas ?? 0) perm=\(String(perm, radix: 8))")
+                print("RESUMETEST \(ok ? "OK" : "✗") seguro=\(EntrenadorPiper.pasoUltimoCheckpoint(p)) plan=\(leido?.etapas ?? 0) legacy=\(legacy) global=\(nuevo) perm=\(String(perm, radix: 8))")
                 exit(ok ? 0 : 4)
             } catch {
                 print("RESUMETEST ✗ \(error)"); exit(5)
             }
+        }
+        // Geometría del modal del notch: ninguna combinación de 1…8 etapas puede
+        // montar título, cuerpo, contexto o pie. No abre ventanas.
+        if ProcessInfo.processInfo.environment["BETODICTA_PANELTEST"] == "1" {
+            let casos = [
+                ("1. Traducir al inglés", "Texto: “¿qué día es hoy?”"),
+                ((1...8).map { "\($0). Etapa larga número \($0) para verificar el ajuste del texto" }.joined(separator: "\n"),
+                 "Texto: “Por favor traduce, resume y envía este contenido por correo electrónico.”\nOtras lecturas: traducir · traducir y enviar"),
+                ("1. Abrir Word\n2. Pegar el texto", "")
+            ]
+            var ok = true
+            for (i, c) in casos.enumerated() {
+                let g = DictationPanel.geometriaConfirmacion(ancho: 565, detalles: c.0, contexto: c.1)
+                ok = ok && g.sinSolapes
+                print("PANELTEST #\(i + 1) strip=\(Int(g.strip)) title=\(g.title) body=\(g.body) context=\(g.context) ok=\(g.sinSolapes)")
+            }
+            print("PANELTEST \(ok ? "OK" : "✗ superposición")"); exit(ok ? 0 : 6)
+        }
+        // Vista real para captura QA: muestra exactamente el caso que reportó Alberto.
+        if ProcessInfo.processInfo.environment["BETODICTA_CONFIRMVISUAL"] == "1" {
+            panel.showConfirmation(title: "¿Deseas traducir al inglés?",
+                                   details: ["Traducir al inglés"],
+                                   content: "¿qué día es hoy?", alternatives: [], modoNormal: "dictado")
+            if let ruta = ProcessInfo.processInfo.environment["BETODICTA_CONFIRMSNAPSHOT"], !ruta.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    let ok = self.panel.guardarSnapshotQA(URL(fileURLWithPath: ruta))
+                    print("CONFIRMSNAPSHOT \(ok ? "OK" : "✗") → \(ruta)"); exit(ok ? 0 : 8)
+                }
+                RunLoop.main.run(); return
+            }
+            let segundos = Double(ProcessInfo.processInfo.environment["BETODICTA_CONFIRMDURATION"] ?? "") ?? 20
+            DispatchQueue.main.asyncAfter(deadline: .now() + segundos) { exit(0) }
+            RunLoop.main.run(); return
+        }
+        // Estado real de una tanda Piper, útil después de cerrar/reabrir la app.
+        if let ruta = ProcessInfo.processInfo.environment["BETODICTA_PIPERSTATTEST"], !ruta.isEmpty {
+            let p = URL(fileURLWithPath: ruta)
+            let total = EntrenadorPiper.etapasDe(p)
+            let s = EntrenadorPiper.snapshot(p, etapas: total)
+            print("PIPERSTAT fase=\(s.fase) activo=\(s.activo) paso=\(s.paso)/\(s.total) pct=\(Int(s.pct*100)) velocidad=\(String(format: "%.3f", s.itPerSec)) ETA=\(s.etaMin)min transcurrido=\(s.transcurridoMin)min hitos=\(s.hitos) seguro=\(s.seguroPaso)")
+            let ok = s.total == total && s.total >= s.paso && (s.activo ? s.pct < 1 : true)
+            print("PIPERSTAT \(ok ? "OK" : "✗")"); exit(ok ? 0 : 7)
+        }
+        if ProcessInfo.processInfo.environment["BETODICTA_PIPERSCRIPTTEST"] == "1" {
+            EntrenadorPiper.escribirScripts()
+            let ok = FileManager.default.fileExists(atPath: EntrenadorPiper.valScriptURL.path)
+            print("PIPERSCRIPTTEST \(ok ? "OK" : "✗") → \(EntrenadorPiper.valScriptURL.path)")
+            exit(ok ? 0 : 9)
         }
         // MATRIZ QA paramétrica: BETODICTA_MATRIZTEST=<tsv> con líneas:
         //   frase <TAB> esperado(id|-|cadena) [<TAB> textoEsperado] [<TAB> arg=valor]

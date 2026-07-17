@@ -164,8 +164,10 @@ struct EntrenadorPiperView: View {
                                     metrica("Paso", "\(s.paso) / \(s.total)", "figure.walk")
                                     metrica("Época", "\(s.epoca)", "repeat")
                                     metrica("Velocidad", s.itPerSec > 0 ? String(format: "%.2f pasos/s", s.itPerSec) : "calculando…", "speedometer")
-                                    metrica("ETA", s.etaMin > 0 ? "~\(s.etaMin) min" : "—", "clock")
-                                    metrica("Checkpoints", "\(s.checkpoints)", "flag.checkered")
+                                    metrica("Transcurrido", tiempo(s.transcurridoMin), "timer")
+                                    metrica("ETA", s.etaMin > 0 ? "~\(tiempo(s.etaMin))" : "—", "clock")
+                                    metrica("Fin estimado", s.finEstimada?.formatted(date: .omitted, time: .shortened) ?? "—", "calendar.badge.clock")
+                                    metrica("Checkpoints", "\(s.hitos) hitos" + (s.seguroPaso > 0 ? " · seguro \(s.seguroPaso)" : ""), "flag.checkered")
                                 } else {
                                     metrica("Archivos", "\(s.paso) / \(s.total)", "waveform")
                                     metrica("Fragmentos", "\(s.clips)", "scissors")
@@ -385,6 +387,12 @@ struct EntrenadorPiperView: View {
                 }
             }
         }
+    }
+
+    private func tiempo(_ minutos: Int) -> String {
+        guard minutos > 0 else { return "—" }
+        let h = minutos / 60, m = minutos % 60
+        return h > 0 ? "\(h) h \(m) min" : "\(m) min"
     }
 
     private func escuchar(_ ckpt: URL) {

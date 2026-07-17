@@ -17,6 +17,27 @@ final class ClickableBackground: NSView {
     override func mouseDown(with event: NSEvent) { onClick?() }
 }
 
+/// Geometría pura y testeable del modal del notch. Todos los bloques se apilan desde
+/// abajo con separación explícita; así un texto corto nunca recibe un alto mínimo que
+/// invada el título (el bug visible de las letras montadas).
+struct ConfirmationLayout {
+    let strip: CGFloat
+    let title: NSRect
+    let body: NSRect
+    let context: NSRect
+    let footer: NSRect
+
+    var sinSolapes: Bool {
+        let margen: CGFloat = 5
+        let contextoOK = context.height == 0 || footer.maxY + margen <= context.minY
+        let cuerpoOK = context.height == 0
+            ? footer.maxY + margen <= body.minY
+            : context.maxY + margen <= body.minY
+        return contextoOK && cuerpoOK && body.maxY + margen <= title.minY
+            && title.maxY < strip
+    }
+}
+
 final class DictationPanel {
     private let panel: NSPanel
     private let label = NSTextField(labelWithString: "")
@@ -45,6 +66,7 @@ final class DictationPanel {
     private let wing: CGFloat = 48      // alas a los lados del notch
     private let strip: CGFloat = 24     // línea de texto bajo el notch
     private var confirmStrip: CGFloat = 126 // pregunta expandida HACIA ABAJO
+    private var confirmLayout: ConfirmationLayout?
     private var confirmando = false
     private var stripActual: CGFloat { confirmando ? confirmStrip : strip }
     private var width: CGFloat = 400
@@ -157,11 +179,11 @@ final class DictationPanel {
         background.addSubview(confirmBody)
         confirmAlternatives.font = NSFont.systemFont(ofSize: 9, weight: .regular)
         confirmAlternatives.textColor = NSColor(calibratedWhite: 0.68, alpha: 1)
-        confirmAlternatives.maximumNumberOfLines = 3
+        confirmAlternatives.maximumNumberOfLines = 4
         confirmAlternatives.lineBreakMode = .byWordWrapping
         confirmAlternatives.isHidden = true
         background.addSubview(confirmAlternatives)
-        confirmFooter.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        confirmFooter.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
         confirmFooter.textColor = NSColor(calibratedRed: 0.55, green: 0.88, blue: 1, alpha: 1)
         confirmFooter.alignment = .center
         confirmFooter.isHidden = true
@@ -237,18 +259,13 @@ final class DictationPanel {
         guard Config.panelVisible() else { return }
         let visibles = Array(details.prefix(8))
         let sobrantes = max(0, details.count - visibles.count)
-        let filasDetalle = max(1, visibles.count + (sobrantes > 0 ? 1 : 0))
-        let filasContexto = content.count > 95 ? 2 : 1
-        let filasAlternativa = alternatives.isEmpty ? 0 : min(2, alternatives.count)
-        confirmStrip = min(258, 68 + CGFloat(filasDetalle * 17
-                           + (filasContexto + filasAlternativa) * 15) + 12)
         confirmando = true
         presentacionID &+= 1
         flashHasta = .distantPast
         label.isHidden = true
         confirmTitle.isHidden = false
         confirmBody.isHidden = false
-        confirmAlternatives.isHidden = false
+        confirmAlternatives.isHidden = true
         confirmFooter.isHidden = false
         confirmTitle.stringValue = title
         var lineas = visibles.enumerated().map { "\($0.offset + 1). \($0.element)" }
@@ -259,7 +276,10 @@ final class DictationPanel {
         let extracto = compacto.count > 180 ? String(compacto.prefix(177)) + "…" : compacto
         confirmAlternatives.stringValue = "Texto: “\(extracto)”"
             + (alternatives.isEmpty ? "" : "\nOtras lecturas: " + alternatives.joined(separator: " · "))
+        confirmAlternatives.isHidden = confirmAlternatives.stringValue
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         confirmFooter.stringValue = "\(Config.hotkey()) (una vez)  CONFIRMAR   ·   X  SEGUIR EN \(modoNormal.uppercased())"
+        recalcularConfirmacion()
         relayout()
         reposicionar()
         panel.orderFrontRegardless()
@@ -277,8 +297,20 @@ final class DictationPanel {
         confirmBody.isHidden = true
         confirmAlternatives.isHidden = true
         confirmFooter.isHidden = true
+        confirmLayout = nil
         relayout()
         reposicionar()
+    }
+
+    /// Captura interna para QA visual sin depender del permiso de grabación de pantalla.
+    /// Solo rasteriza el contenido del propio panel; no ve ninguna otra app ni pantalla.
+    func guardarSnapshotQA(_ url: URL) -> Bool {
+        guard Thread.isMainThread, let view = panel.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return false }
+        do { try png.write(to: url, options: .atomic); return true }
+        catch { return false }
     }
 
     /// Muestra un aviso breve por N segundos, por encima del texto del dictado.
@@ -321,10 +353,16 @@ final class DictationPanel {
                                width: 210, height: notchHeight)
         }
         let nuevoAncho = notchRect.width + wing * 2
+        let cambioAncho = abs(nuevoAncho - width) > 0.5
+        if cambioAncho {
+            width = nuevoAncho
+            if confirmando { recalcularConfirmacion() }
+        }
         let nuevoAlto = notchHeight + stripActual
+        let cambioAlto = abs(nuevoAlto - height) > 0.5
         // Si cambió el tamaño (notch ↔ pantalla externa), relayout completo.
-        if abs(nuevoAncho - width) > 0.5 || abs(nuevoAlto - height) > 0.5 {
-            width = nuevoAncho; height = nuevoAlto
+        if cambioAncho || cambioAlto {
+            height = nuevoAlto
             relayout()
         }
         panel.setFrame(NSRect(x: notchRect.minX - wing, y: notchRect.maxY - height,
@@ -345,13 +383,53 @@ final class DictationPanel {
                                   width: wing - 2, height: min(motorH, 10))
         modoLabel.frame = NSRect(x: 1, y: inferior + notchHeight - 11, width: wing - 2, height: 10)
         label.frame = NSRect(x: 8, y: 4, width: width - 16, height: 15)
-        confirmTitle.frame = NSRect(x: 12, y: inferior - 24, width: width - 24, height: 17)
-        let altH: CGFloat = confirmAlternatives.isHidden ? 0 : 42
-        let bodyY: CGFloat = 27 + altH
-        confirmBody.frame = NSRect(x: 12, y: bodyY, width: width - 24,
-                                   height: max(34, inferior - bodyY - 28))
-        confirmAlternatives.frame = NSRect(x: 12, y: 26, width: width - 24, height: altH)
-        confirmFooter.frame = NSRect(x: 8, y: 7, width: width - 16, height: 15)
+        if confirmando {
+            if confirmLayout == nil { recalcularConfirmacion() }
+            if let g = confirmLayout {
+                confirmTitle.frame = g.title; confirmBody.frame = g.body
+                confirmAlternatives.frame = g.context; confirmFooter.frame = g.footer
+            }
+        } else {
+            confirmTitle.frame = .zero; confirmBody.frame = .zero
+            confirmAlternatives.frame = .zero; confirmFooter.frame = .zero
+        }
+    }
+
+    private func recalcularConfirmacion() {
+        let g = Self.geometriaConfirmacion(ancho: width,
+                                           detalles: confirmBody.stringValue,
+                                           contexto: confirmAlternatives.isHidden ? "" : confirmAlternatives.stringValue)
+        confirmLayout = g; confirmStrip = g.strip
+    }
+
+    /// Pública dentro del módulo para el hook QA; no depende de una ventana ni de una
+    /// pantalla real y permite probar textos de 1 a 8 etapas reproduciblemente.
+    static func geometriaConfirmacion(ancho: CGFloat, detalles: String,
+                                      contexto: String) -> ConfirmationLayout {
+        let margenX: CGFloat = 12
+        let anchoTexto = max(120, ancho - margenX * 2)
+        func alto(_ texto: String, fuente: NSFont, linea: CGFloat, maxLineas: Int) -> CGFloat {
+            guard !texto.isEmpty else { return 0 }
+            let r = (texto as NSString).boundingRect(
+                with: NSSize(width: anchoTexto, height: 1000),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: fuente])
+            return min(CGFloat(maxLineas) * linea, max(linea, ceil(r.height)))
+        }
+
+        let footer = NSRect(x: 8, y: 7, width: max(120, ancho - 16), height: 15)
+        var y = footer.maxY + 7
+        let contextoH = alto(contexto, fuente: NSFont.systemFont(ofSize: 9), linea: 13, maxLineas: 4)
+        let contextoRect = NSRect(x: margenX, y: y, width: anchoTexto, height: contextoH)
+        if contextoH > 0 { y = contextoRect.maxY + 8 }
+        let bodyH = alto(detalles, fuente: NSFont.systemFont(ofSize: 11, weight: .medium),
+                         linea: 17, maxLineas: 10)
+        let body = NSRect(x: margenX, y: y, width: anchoTexto, height: max(17, bodyH))
+        y = body.maxY + 8
+        let title = NSRect(x: margenX, y: y, width: anchoTexto, height: 18)
+        let strip = min(310, title.maxY + 10)
+        return ConfirmationLayout(strip: strip, title: title, body: body,
+                                  context: contextoRect, footer: footer)
     }
 
     /// Teleprompter de una línea: siempre muestra el FINAL (lo último dicho).
