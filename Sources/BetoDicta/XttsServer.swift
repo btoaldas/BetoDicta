@@ -206,6 +206,16 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let fmt = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+    /// URLSession entrega datos aquí en serie. Cancelar y finalizar también pasan por la
+    /// misma cola: no se puede reactivar el player después de Esc ni tocar estado a la vez.
+    private let callbacks: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "betodicta.xtts-stream"
+        q.maxConcurrentOperationCount = 1
+        return q
+    }()
+    private var session: URLSession?
+    private var task: URLSessionDataTask?
     private var acum = Data()
     private var sonando = false
     // Colchón (caché) parametrizable: junta N segundos de audio antes de sonar, para
@@ -224,15 +234,19 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
         do { try engine.start() } catch { finish(false); return }
         var req = URLRequest(url: url); req.httpMethod = "POST"; req.timeoutInterval = 120
         req.httpBody = texto.data(using: .utf8)
-        URLSession(configuration: .default, delegate: self, delegateQueue: nil).dataTask(with: req).resume()
+        let s = URLSession(configuration: .default, delegate: self, delegateQueue: callbacks)
+        session = s
+        let t = s.dataTask(with: req); task = t; t.resume()
     }
 
     func urlSession(_ s: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard !terminado else { return }
         recibio = true; acum.append(data)
         while acum.count >= trozo * 4 { encolar(trozo) }
         if !sonando, progr >= colchon { arrancar() }
     }
     func urlSession(_ s: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard !terminado else { return }
         let r = acum.count / 4; if r > 0 { encolar(r) }
         guard recibio else { finish(false); return }
         // Marcador silencioso al FINAL de la cola. Su callback ocurre cuando CoreAudio ya
@@ -241,10 +255,25 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
         encolarFinal(recibio && error == nil)
         if !sonando { arrancar() }
     }
-    private func arrancar() { empezar?(); empezar = nil; player.play(); sonando = true }
+    private func arrancar() {
+        guard !terminado else { return }
+        let cb = empezar; empezar = nil
+        player.play(); sonando = true
+        // AppKit (notch) SOLO en main. Este era el crash al responder el Modo Agente:
+        // el callback venía desde com.apple.NSURLSession-delegate.
+        if let cb { DispatchQueue.main.async(execute: cb) }
+    }
 
     /// Corta la reproducción en curso (para Cancelar).
-    func parar() { terminado = true; player.stop(); engine.stop(); done = nil }
+    func parar() {
+        callbacks.addOperation { [weak self] in self?.pararEnCola() }
+    }
+    private func pararEnCola() {
+        guard !terminado else { return }
+        terminado = true; empezar = nil; done = nil
+        player.stop(); engine.stop()
+        session?.invalidateAndCancel(); session = nil; task = nil
+    }
     private func encolar(_ n: Int) {
         let bytes = n * 4
         guard acum.count >= bytes, n > 0, let pcm = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(n)) else { return }
@@ -259,7 +288,14 @@ private final class XttsStreamPlayer: NSObject, URLSessionDataDelegate {
         player.scheduleBuffer(pcm, completionCallbackType: .dataPlayedBack) { [weak self] _ in self?.finish(ok) }
     }
     private func finish(_ ok: Bool) {
-        if terminado { return }; terminado = true
-        DispatchQueue.main.async { self.done?(ok); self.done = nil }
+        callbacks.addOperation { [weak self] in self?.finishEnCola(ok) }
+    }
+    private func finishEnCola(_ ok: Bool) {
+        guard !terminado else { return }
+        terminado = true
+        let cb = done; done = nil; empezar = nil
+        player.stop(); engine.stop()
+        session?.finishTasksAndInvalidate(); session = nil; task = nil
+        DispatchQueue.main.async { cb?(ok) }
     }
 }

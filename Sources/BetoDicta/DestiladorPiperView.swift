@@ -149,7 +149,7 @@ struct DestiladorPiperView: View {
                         HStack {
                             Button(voz?.onnx.isEmpty == false ? "Recrear versión rápida" : "Crear versión rápida") { iniciar() }
                                 .disabled(voz == nil || !entrenadorListo || !baseLista || etapas < 50)
-                            if let p = proyecto, !EntrenadorPiper.checkpoints(p).isEmpty, !EntrenadorPiper.termino(p) {
+                            if let p = proyecto, EntrenadorPiper.ultimoCheckpoint(p) != nil, !EntrenadorPiper.termino(p) {
                                 Button("Reanudar") { reanudar() }
                             }
                             Button("Vista avanzada") { EntrenadorPiperWindow.show() }.controlSize(.small)
@@ -175,6 +175,39 @@ struct DestiladorPiperView: View {
         .onAppear {
             guard let v = voz else { return }
             let p = DestiladorPiper.proyecto(v); proyecto = p
+
+            // Restaurar PRIMERO el plan exacto. El archivo se guarda antes del primer clip;
+            // calidad.txt y piper.log lo sustituyen cuando el entrenamiento ya arrancó.
+            let planGuardado = DestiladorPiper.planGuardado(p)
+            if let plan = planGuardado {
+                if plan.cantidad > 0 { cantidad = plan.cantidad }
+                etapas = min(100_000, max(50, plan.etapas))
+                if EntrenadorPiper.calidades.contains(where: { $0.id == plan.calidad }) {
+                    calidad = plan.calidad
+                }
+            }
+            let corpusTxt = (try? String(contentsOf: p.appendingPathComponent("corpus-xtts.txt"), encoding: .utf8)) ?? ""
+            let total = corpusTxt.split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+            if total > 0 { cantidad = total }
+            if planGuardado == nil,
+               FileManager.default.fileExists(atPath: p.appendingPathComponent("piper.log").path) {
+                etapas = EntrenadorPiper.etapasDe(p)
+            } else if planGuardado == nil,
+                      let t = DestiladorPiper.tamanos.first(where: { $0.id == total }) {
+                etapas = t.etapas
+            }
+            if let cal = (try? String(contentsOf: p.appendingPathComponent("calidad.txt"), encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               EntrenadorPiper.calidades.contains(where: { $0.id == cal }) { calidad = cal }
+
+            if DestiladorPiper.procesoVivo(p) {
+                trabajando = true; generandoDataset = true
+                fase = "XTTS está creando el dataset exacto…"
+                estado = "La destilación siguió viva; retomé su progreso sin lanzar otra copia."
+                seguirDatasetActivo(total: max(total, cantidad))
+                return
+            }
             if EntrenadorPiper.procesoVivo(p) {
                 trabajando = true; generandoDataset = false; fase = "Entrenando"; seguir()
                 return
@@ -183,22 +216,19 @@ struct DestiladorPiperView: View {
             // checkpoints). Detectamos en qué quedó la tanda y dejamos la vista lista
             // para CONTINUAR sin perder nada — respetando el tamaño y la calidad
             // ORIGINALES (el corpus es determinista: mismo tamaño → corpus idéntico).
-            let corpusTxt = (try? String(contentsOf: p.appendingPathComponent("corpus-xtts.txt"), encoding: .utf8)) ?? ""
-            let total = corpusTxt.split(separator: "\n")
-                .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
             guard total > 0 else { return }
-            cantidad = total
-            if let t = DestiladorPiper.tamanos.first(where: { $0.id == total }) { etapas = t.etapas }
-            if let cal = (try? String(contentsOf: p.appendingPathComponent("calidad.txt"), encoding: .utf8))?
-                .trimmingCharacters(in: .whitespacesAndNewlines), !cal.isEmpty { calidad = cal }
             let clips = DestiladorPiper.clipsListos(p)
             let cks = EntrenadorPiper.checkpoints(p)
-            if !cks.isEmpty, EntrenadorPiper.termino(p), voz?.onnx.isEmpty ?? true {
+            let tieneCkpt = EntrenadorPiper.ultimoCheckpoint(p) != nil
+            if tieneCkpt, EntrenadorPiper.termino(p), voz?.onnx.isEmpty ?? true {
                 pendiente = .validar
                 pendienteTxt = "El entrenamiento TERMINÓ; falta validar, elegir el mejor corte y activar la voz."
-            } else if !cks.isEmpty {
+            } else if tieneCkpt {
                 pendiente = .entrenar
-                pendienteTxt = "Entrenamiento a medias (\(cks.count) cortes guardados). Continúa desde el último corte."
+                let paso = EntrenadorPiper.pasoUltimoCheckpoint(p)
+                pendienteTxt = cks.isEmpty
+                    ? "Entrenamiento a medias (seguro en el paso \(paso)). Continúa sin empezar de cero."
+                    : "Entrenamiento a medias (\(cks.count) cortes; último seguro: paso \(paso)). Continúa desde el más reciente."
             } else if clips < total {
                 pendiente = .dataset
                 pendienteTxt = "Dataset a medias: \(clips) de \(total) frases ya generadas — se reutilizan, no se pierde nada."
@@ -218,10 +248,21 @@ struct DestiladorPiperView: View {
 
     private func iniciar() {
         guard let v = voz else { return }
+        let p = DestiladorPiper.proyecto(v)
+        do {
+            try DestiladorPiper.guardarPlan(
+                .init(cantidad: cantidad, etapas: etapas, calidad: calidad), en: p
+            )
+        } catch {
+            estado = "No pude guardar el plan de destilación: \(error.localizedDescription)"
+            trabajando = false
+            return
+        }
         trabajando = true; generandoDataset = true; snap = nil; ranking = []; fase = "XTTS está creando el dataset exacto…"
         estado = "Los clips válidos existentes se reutilizan."
         DestiladorPiper.prepararDataset(voz: v, cantidad: cantidad, calidadId: calidad,
             onProgreso: { estado = $0 }, completion: { ok, msg, p, _ in
+                timer?.invalidate(); timer = nil
                 proyecto = p; estado = msg; generandoDataset = false
                 guard ok else { trabajando = false; return }
                 arrancarEntreno(v, reanudar: false)
@@ -250,6 +291,29 @@ struct DestiladorPiperView: View {
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in tick() }
     }
 
+    private func seguirDatasetActivo(total: Int) {
+        timer?.invalidate()
+        func revisar() {
+            guard let p = proyecto else { return }
+            DispatchQueue.global(qos: .utility).async {
+                let clips = DestiladorPiper.clipsListos(p)
+                let vivo = DestiladorPiper.procesoVivo(p)
+                DispatchQueue.main.async {
+                    guard generandoDataset else { return }
+                    estado = "Dataset: \(clips) de \(total) frases listas."
+                    guard !vivo else { return }
+                    timer?.invalidate(); trabajando = false; generandoDataset = false
+                    pendiente = .dataset
+                    pendienteTxt = clips >= total
+                        ? "Dataset completo (\(clips) frases). Falta iniciar el entrenamiento."
+                        : "Dataset a medias: \(clips) de \(total) frases — continúa sin repetir las válidas."
+                }
+            }
+        }
+        revisar()
+        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in revisar() }
+    }
+
     private func tick() {
         guard let p = proyecto else { return }
         let total = etapas
@@ -260,7 +324,7 @@ struct DestiladorPiperView: View {
                 snap = s; checkpoints = ck
                 if s.termino {
                     timer?.invalidate(); validarYVincular()
-                } else if !s.activo, !ck.isEmpty {
+                } else if !s.activo, EntrenadorPiper.ultimoCheckpoint(p) != nil {
                     timer?.invalidate(); trabajando = false
                     estado = "El entrenamiento se detuvo. Puedes reanudarlo desde el último checkpoint."
                 }

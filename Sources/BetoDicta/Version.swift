@@ -6,11 +6,19 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.40.0"
+    static let numero = "0.41.0"
     static let fecha = "2026-07-16"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.41.0", "2026-07-16", [
+            "PREVIEW EN VIVO UNIVERSAL: en macOS 26, el notch muestra localmente lo que vas diciendo con Apple DictationTranscriber aunque el motor real (por ejemplo Groq) no tenga streaming; es solo visual y la cascada elegida conserva la transcripción definitiva",
+            "DESTILACIÓN XTTS → Piper/ONNX: desde una voz XTTS ya entrenada puedes crear su variante rápida, conservar Calidad + ⚡ Rápida en la misma persona, validar inteligibilidad/parecido y llevar ambas en el paquete portable",
+            "CONTINUACIÓN TRAS APAGADO en toda la destilación: conserva cantidad, etapas y calidad; detecta dataset, entrenamiento o validación a medias; reutiliza clips y resultados ya válidos sin lanzar procesos duplicados",
+            "Checkpoint de seguridad rodante cada 200 pasos: al reanudar elige el corte más nuevo entre hitos y seguro; la validación incremental reintenta fallos transitorios en vez de guardar ceros falsos",
+            "Arreglo del Modo Agente con clon XTTS: la respuesta ya no cierra BetoDicta cuando el audio empieza desde el hilo de red; callbacks y notch se sincronizan siempre en el hilo principal",
+            "Activación opcional con doble fn incluida en la versión estable: doble toque para empezar y uno para detener; con push-to-talk, mantén el segundo toque y suelta para transcribir",
+        ]),
         ("0.40.0", "2026-07-16", [
             "VERSIÓN ESTABLE: restaura el canal releases/latest de GitHub para que las instalaciones antiguas vuelvan a encontrar y recibir actualizaciones",
             "Actualizador compatible con ESTABLES Y BETAS: canal Automático, Solo estables o Estables y beta; si GitHub latest excluye prereleases, usa la lista general como failover",

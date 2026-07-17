@@ -75,12 +75,22 @@ enum Voz {
 
     /// Dice el texto con el motor configurado (con failover). `empezar` se dispara cuando
     /// la voz REALMENTE arranca (para sincronizar el texto del notch con el habla);
-    /// `completion` al terminar.
+    /// `completion` al terminar. CONTRATO: ambos callbacks llegan siempre en MAIN, aunque
+    /// el motor sea URLSession/WebSocket y responda desde su cola de red.
     static func decir(_ texto: String, empezar: (() -> Void)? = nil, completion: (() -> Void)? = nil) {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { empezar?(); completion?(); return }
-        cancelado = false
-        intentar(t, cadena(), 0, empezar, completion)
+        let inicioMain: (() -> Void)? = empezar.map { cb in { ejecutarEnMain(cb) } }
+        let finMain: (() -> Void)? = completion.map { cb in { ejecutarEnMain(cb) } }
+        guard !t.isEmpty else { inicioMain?(); finMain?(); return }
+        ejecutarEnMain {
+            cancelado = false
+            intentar(t, cadena(), 0, inicioMain, finMain)
+        }
+    }
+
+    private static func ejecutarEnMain(_ bloque: @escaping () -> Void) {
+        if Thread.isMainThread { bloque() }
+        else { DispatchQueue.main.async(execute: bloque) }
     }
 
     private static func intentar(_ texto: String, _ orden: [String], _ i: Int,
@@ -88,7 +98,9 @@ enum Voz {
         if cancelado { done?(); return }   // cancelado → cortar la cascada de failover
         guard i < orden.count else { done?(); return }
         let motor = orden[i]
-        let siguiente: () -> Void = { intentar(texto, orden, i + 1, empezar, done) }
+        let siguiente: () -> Void = {
+            ejecutarEnMain { intentar(texto, orden, i + 1, empezar, done) }
+        }
         switch motor {
         case "apple":
             // Respaldo final: no falla. Reproduce con la voz de macOS.

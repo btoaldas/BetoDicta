@@ -370,8 +370,20 @@ enum EntrenadorPiper {
             env["PYTHONUNBUFFERED"] = "1"
             tr.environment = env
             let trLog = proyecto.appendingPathComponent("piper.log")
-            fm.createFile(atPath: trLog.path, contents: nil)
-            if let fh = try? FileHandle(forWritingTo: trLog) { tr.standardOutput = fh; tr.standardError = fh }
+            if reanudar {
+                if !fm.fileExists(atPath: trLog.path) { _ = fm.createFile(atPath: trLog.path, contents: nil) }
+            } else {
+                // Un entrenamiento FRESCO no puede heredar el "terminó" ni la barra de
+                // una corrida anterior. `createFile` NO truncaba un archivo existente.
+                try? Data().write(to: trLog, options: .atomic)
+            }
+            if let fh = try? FileHandle(forWritingTo: trLog) {
+                if reanudar {
+                    _ = try? fh.seekToEnd()
+                    try? fh.write(contentsOf: Data("\n[BD] reanudando desde checkpoint\n".utf8))
+                }
+                tr.standardOutput = fh; tr.standardError = fh
+            }
             do { try tr.run() } catch {
                 DispatchQueue.main.async { onArranco(false, "No pude lanzar el entrenamiento.", proyecto) }; return
             }
@@ -572,7 +584,7 @@ enum EntrenadorPiper {
             let bar = ultimoPar(piLog, "(\\d+)/(\\d+) \\d+:\\d+")
             let ep = ultimoEntero(piLog, "Epoch (\\d+)")
             let bdStep = ultimoEntero(piLog, "\\[BD\\] step=(\\d+)")   // paso EN VIVO propio
-            var paso = max(checkpoints(proyecto).last?.paso ?? 0, bdStep)
+            var paso = max(pasoUltimoCheckpoint(proyecto), bdStep)
             if let (lote, lotesEp) = bar, lotesEp > 0 {
                 paso = max(paso, ep * lotesEp + lote)   // estimación fina + piso del checkpoint
             }
@@ -720,6 +732,13 @@ enum EntrenadorPiper {
 
     // MARK: Resumible + progreso + checkpoints
 
+    /// Extrae el paso únicamente del marcador `step=` que escribe Lightning.
+    static func pasoCheckpoint(_ url: URL) -> Int? {
+        guard let r = url.lastPathComponent.range(of: "step=") else { return nil }
+        let num = url.lastPathComponent[r.upperBound...].prefix { $0.isNumber }
+        return Int(num)
+    }
+
     /// El último checkpoint (mayor paso) de un proyecto — para reanudar tras apagón.
     /// Considera los HITOS (ckpts/) y el checkpoint DE SEGURIDAD rodante (seguro/, cada
     /// 200 pasos): devuelve el de MAYOR paso → un apagón pierde 200 pasos como mucho.
@@ -728,12 +747,13 @@ enum EntrenadorPiper {
         let seg = proyecto.appendingPathComponent("seguro")
         let items = (try? FileManager.default.contentsOfDirectory(at: seg, includingPropertiesForKeys: nil)) ?? []
         for u in items where u.pathExtension == "ckpt" {
-            if let r = u.lastPathComponent.range(of: "step=") {
-                let num = u.lastPathComponent[r.upperBound...].prefix { $0.isNumber }
-                if let n = Int(num) { candidatos.append((n, u)) }
-            }
+            if let n = pasoCheckpoint(u) { candidatos.append((n, u)) }
         }
         return candidatos.max(by: { $0.paso < $1.paso })?.url
+    }
+
+    static func pasoUltimoCheckpoint(_ proyecto: URL) -> Int {
+        ultimoCheckpoint(proyecto).flatMap(pasoCheckpoint) ?? 0
     }
 
     /// Checkpoints periódicos guardados (paso ascendente). El usuario elige el mejor.
@@ -743,11 +763,7 @@ enum EntrenadorPiper {
         var out: [(Int, URL)] = []
         for u in items where u.pathExtension == "ckpt" {
             // nombre "pasostep=NNN.ckpt" o "...step=NNN...".
-            if let r = u.lastPathComponent.range(of: "step=") {
-                let cola = u.lastPathComponent[r.upperBound...]
-                let num = cola.prefix { $0.isNumber }
-                if let n = Int(num) { out.append((n, u)) }
-            }
+            if let n = pasoCheckpoint(u) { out.append((n, u)) }
         }
         return out.sorted { $0.0 < $1.0 }
     }
@@ -756,7 +772,7 @@ enum EntrenadorPiper {
     /// reciente con checkpoints pero sin voz emitida.
     static func proyectoReanudable() -> URL? {
         let dirs = (try? FileManager.default.contentsOfDirectory(at: proyectosDir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        let conCkpt = dirs.filter { !checkpoints($0).isEmpty }
+        let conCkpt = dirs.filter { ultimoCheckpoint($0) != nil }
         return conCkpt.sorted {
             let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -777,7 +793,7 @@ enum EntrenadorPiper {
             return Int(log[r]) ?? 0
         }
         let epoca = ultimoInt("Epoch (\\d+)")
-        let paso = checkpoints(proyecto).last?.paso ?? 0
+        let paso = pasoUltimoCheckpoint(proyecto)
         // Barra rica: "… 2/4 0:00:04 • …" → lote actual / total del tramo.
         let lote = ultimoInt("(\\d+)/(\\d+) \\d+:\\d+", 1)
         let loteTot = ultimoInt("\\d+/(\\d+) \\d+:\\d+", 1)
@@ -1099,11 +1115,15 @@ enum EntrenadorPiper {
     # se escribe INCREMENTALMENTE tras cada checkpoint) y salta esos checkpoints.
     rows=[]; hechos_previos=set()
     csvp=os.path.join(PROJ,"validacion.csv")
+    pasos_actuales={stepof(f) for f in cks}
     if os.path.exists(csvp):
         for i,l in enumerate(open(csvp,encoding="utf-8")):
             c=l.strip().split(",")
             if i==0 or len(c)<4: continue
-            try: rows.append((int(c[0]),float(c[1]),float(c[2]),float(c[3]))); hechos_previos.add(int(c[0]))
+            try:
+                st=int(c[0])
+                if st in pasos_actuales:
+                    rows.append((st,float(c[1]),float(c[2]),float(c[3]))); hechos_previos.add(st)
             except ValueError: pass
         if hechos_previos: print(f"[val] reusando {len(hechos_previos)} checkpoints ya validados",flush=True)
     def guardar_csv():
@@ -1117,7 +1137,9 @@ enum EntrenadorPiper {
         if st in hechos_previos:
             print(f"[val] paso {st}: ya validado (reusado)",flush=True); continue
         onnx=os.path.join(OUT,ck+".onnx")
-        subprocess.run([PY,"-m","piper.train.export_onnx","--checkpoint",os.path.join(CK,ck),"--output-file",onnx],capture_output=True)
+        exp=subprocess.run([PY,"-m","piper.train.export_onnx","--checkpoint",os.path.join(CK,ck),"--output-file",onnx],capture_output=True)
+        if exp.returncode != 0 or not os.path.exists(onnx):
+            print(f"[!] paso {st}: no se pudo exportar; se reintentará al continuar",flush=True); continue
         cfg=os.path.join(PROJ,"config.json")
         if os.path.exists(cfg): shutil.copy(cfg,onnx+".json")
         intel=[]; sims=[]
@@ -1125,13 +1147,20 @@ enum EntrenadorPiper {
             wav=os.path.join(OUT,f"{st}_{i}.wav")
             subprocess.run([PY,"-m","piper","-m",onnx,"-f",wav],input=fr.encode(),capture_output=True)
             if not os.path.exists(wav): continue
-            try: t=mlx_whisper.transcribe(wav,path_or_hf_repo="mlx-community/whisper-large-v3-turbo",language="es")["text"]
-            except Exception: t=""
-            intel.append(isim(fr,t))
+            try:
+                t=mlx_whisper.transcribe(wav,path_or_hf_repo="mlx-community/whisper-large-v3-turbo",language="es")["text"]
+                intel.append(isim(fr,t))
+            except Exception as e:
+                print(f"[!] paso {st}, muestra {i}: Whisper falló ({e}); se reintentará",flush=True)
+                continue
             if ref_emb is not None:
                 try: sims.append(float(np.dot(ref_emb,enc.embed_utterance(preprocess_wav(wav)))))
                 except Exception: pass
-        it=float(np.mean(intel)) if intel else 0.0
+        # Un fallo transitorio no se memoriza como puntuación cero para siempre.
+        if len(intel)<3:
+            print(f"[!] paso {st}: solo {len(intel)}/5 muestras válidas; queda pendiente",flush=True)
+            continue
+        it=float(np.mean(intel))
         sm=float(np.mean(sims)) if sims else 0.0
         score=it*0.6+(sm if it>=0.5 else 0.0)*0.4
         rows.append((st,it,sm,score))

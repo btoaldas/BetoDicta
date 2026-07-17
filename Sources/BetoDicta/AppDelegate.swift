@@ -444,6 +444,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             RunLoop.main.run(); return
         }
+        // Regresión del crash del Agente: simula que URLSession llama al notch desde
+        // background y verifica además el contrato MAIN de los callbacks públicos TTS.
+        if ProcessInfo.processInfo.environment["BETODICTA_TTSMAINTEST"] == "1" {
+            DispatchQueue.global(qos: .userInitiated).async {
+                self.panel.respuestaIA("Prueba de respuesta del agente")
+                Voz.decir("", empezar: {
+                    guard Thread.isMainThread else { print("TTSMAINTEST ✗ empezar fuera de main"); exit(2) }
+                }, completion: {
+                    let ok = Thread.isMainThread
+                    print("TTSMAINTEST \(ok ? "OK" : "✗") callbacks + AppKit en main")
+                    exit(ok ? 0 : 3)
+                })
+            }
+            RunLoop.main.run(); return
+        }
+        // Regresión de continuación: un checkpoint rodante más nuevo que el hito debe
+        // ganar, y el plan previo al dataset debe sobrevivir con permiso 0600.
+        if ProcessInfo.processInfo.environment["BETODICTA_RESUMETEST"] == "1" {
+            let fm = FileManager.default
+            let p = fm.temporaryDirectory.appendingPathComponent("betodicta-resume-\(UUID().uuidString)")
+            defer { try? fm.removeItem(at: p) }
+            do {
+                try fm.createDirectory(at: p.appendingPathComponent("ckpts"), withIntermediateDirectories: true)
+                try fm.createDirectory(at: p.appendingPathComponent("seguro"), withIntermediateDirectories: true)
+                try Data().write(to: p.appendingPathComponent("ckpts/pasostep=800.ckpt"))
+                try Data().write(to: p.appendingPathComponent("seguro/seguro-pasostep=1000.ckpt"))
+                let plan = DestiladorPiper.PlanGuardado(cantidad: 1200, etapas: 4321, calidad: "high")
+                try DestiladorPiper.guardarPlan(plan, en: p)
+                let leido = DestiladorPiper.planGuardado(p)
+                let attrs = try fm.attributesOfItem(atPath: p.appendingPathComponent("plan-destilacion.json").path)
+                let perm = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+                let ok = EntrenadorPiper.pasoUltimoCheckpoint(p) == 1000
+                    && leido?.cantidad == 1200 && leido?.etapas == 4321 && leido?.calidad == "high"
+                    && perm & 0o777 == 0o600
+                print("RESUMETEST \(ok ? "OK" : "✗") seguro=\(EntrenadorPiper.pasoUltimoCheckpoint(p)) plan=\(leido?.etapas ?? 0) perm=\(String(perm, radix: 8))")
+                exit(ok ? 0 : 4)
+            } catch {
+                print("RESUMETEST ✗ \(error)"); exit(5)
+            }
+        }
         // Prueba de recursos: BETODICTA_RECURSOS=1 → info + recomendación
         if ProcessInfo.processInfo.environment["BETODICTA_RECURSOS"] == "1" {
             let i = Recursos.info(); let r = Recursos.recomendar(i)

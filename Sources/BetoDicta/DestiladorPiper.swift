@@ -26,14 +26,52 @@ enum DestiladorPiper {
     private static var proceso: Process?
     private static var cancelado = false
 
+    /// Se guarda ANTES de generar el primer clip. Así un apagón durante el dataset
+    /// conserva exactamente las decisiones del usuario, no solo el preset recomendado.
+    struct PlanGuardado: Codable {
+        let cantidad: Int
+        let etapas: Int
+        let calidad: String
+    }
+
     static func stamp(_ voz: VozLocal) -> String { "onnx-" + Entrenador.slug(voz.id) }
     static func proyecto(_ voz: VozLocal) -> URL {
         EntrenadorPiper.proyectosDir.appendingPathComponent("\(Entrenador.slug(voz.nombre))_\(stamp(voz))")
     }
 
+    static func guardarPlan(_ plan: PlanGuardado, en proyecto: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: proyecto, withIntermediateDirectories: true)
+        let url = proyecto.appendingPathComponent("plan-destilacion.json")
+        let data = try JSONEncoder().encode(plan)
+        try data.write(to: url, options: .atomic)
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
+
+    static func planGuardado(_ proyecto: URL) -> PlanGuardado? {
+        let url = proyecto.appendingPathComponent("plan-destilacion.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(PlanGuardado.self, from: data)
+    }
+
     static func clipsListos(_ proyecto: URL) -> Int {
         ((try? String(contentsOf: proyecto.appendingPathComponent("dataset/metadata.csv"), encoding: .utf8))?
             .split(separator: "\n").count) ?? 0
+    }
+
+    /// Detecta también un generador huérfano de una instancia anterior de BetoDicta.
+    /// Evita lanzar DOS XTTS sobre la misma tanda si la app se cerró pero el hijo sobrevivió.
+    static func procesoVivo(_ proyecto: URL) -> Bool {
+        if let propio = proceso, propio.isRunning {
+            return propio.arguments?.contains(where: { $0.contains(proyecto.path) }) ?? false
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", "xtts_a_piper.py.*\(proyecto.lastPathComponent)"]
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return false }
+        p.waitUntilExit()
+        return p.terminationStatus == 0
     }
 
     /// Corpus español determinista y fonéticamente variado. Al ampliar el tamaño conserva
@@ -122,7 +160,7 @@ enum DestiladorPiper {
                                 onProgreso: @escaping (String) -> Void,
                                 completion: @escaping (Bool, String, URL, Int) -> Void) {
         let proyecto = proyecto(voz)
-        guard proceso?.isRunning != true else {
+        guard proceso?.isRunning != true, !procesoVivo(proyecto) else {
             completion(false, "Ya hay una destilación local trabajando.", proyecto, clipsListos(proyecto)); return
         }
         guard VozEngine.estado() == .listo else {
@@ -141,8 +179,14 @@ enum DestiladorPiper {
                 try fm.createDirectory(at: ds.appendingPathComponent("audio"), withIntermediateDirectories: true)
                 let textos = corpus(cantidad: cantidad)
                 try (textos.joined(separator: "\n") + "\n").write(to: corpusURL, atomically: true, encoding: .utf8)
-                fm.createFile(atPath: logURL.path, contents: nil)
+                let reanudando = clipsListos(proyecto) > 0
+                if !reanudando { try Data().write(to: logURL, options: .atomic) }
+                else if !fm.fileExists(atPath: logURL.path) { _ = fm.createFile(atPath: logURL.path, contents: nil) }
                 let log = try FileHandle(forWritingTo: logURL)
+                if reanudando {
+                    try log.seekToEnd()
+                    try log.write(contentsOf: Data("\n[BDDEST] reanudando dataset\n".utf8))
+                }
                 let p = Process(); p.executableURL = VozEngine.pythonURL
                 p.arguments = [scriptURL.path, voz.paquete, corpusURL.path, ds.path,
                                "\(EntrenadorPiper.calidad(calidadId).sampleRate)"]

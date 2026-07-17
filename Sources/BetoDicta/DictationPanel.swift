@@ -253,6 +253,10 @@ final class DictationPanel {
     /// El agente está PENSANDO: notch late (pulso) + con qué IA trabaja (local/Hermes/
     /// OpenClaw). Súper básico — solo se ve que está pensando. `ia` = nombre a mostrar.
     func pensando(ia: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.pensando(ia: ia) }
+            return
+        }
         guard Config.panelVisible() else { return }
         enRespuestaIA = true
         reposicionar()
@@ -273,6 +277,10 @@ final class DictationPanel {
     /// Muestra la RESPUESTA de la IA REVELÁNDOLA palabra por palabra, al ritmo aproximado
     /// del habla (para que el texto AVANCE como va hablando, no que se pegue todo de una).
     func respuestaIA(_ texto: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.respuestaIA(texto) }
+            return
+        }
         guard Config.panelVisible() else { return }
         if !enRespuestaIA { pensando(ia: "local") }   // por si no pasó por "pensando"
         label.textColor = colorIA
@@ -310,12 +318,20 @@ final class DictationPanel {
 
     /// Actualiza el texto de la respuesta (si la IA lo entrega en trozos).
     func actualizarRespuestaIA(_ texto: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.actualizarRespuestaIA(texto) }
+            return
+        }
         guard enRespuestaIA else { return }
         label.stringValue = texto.replacingOccurrences(of: "\n", with: " ")
     }
 
     /// Cierra el modo respuesta de IA y vuelve el notch a lo normal.
     func finRespuestaIA() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.finRespuestaIA() }
+            return
+        }
         guard enRespuestaIA else { return }
         enRespuestaIA = false
         revelarTimer?.invalidate(); revelarTimer = nil
@@ -362,4 +378,3 @@ final class DictationPanel {
         }
     }
 }
-

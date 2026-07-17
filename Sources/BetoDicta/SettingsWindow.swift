@@ -135,7 +135,12 @@ final class SettingsModel: ObservableObject {
             NotificationCenter.default.post(name: .betoHotkeyChanged, object: nil)
         }
     }
-    @Published var previewVivo: Bool { didSet { Config.set("preview_vivo", to: previewVivo) } }
+    @Published var previewVivo: Bool {
+        didSet {
+            Config.set("preview_vivo", to: previewVivo)
+            if !previewVivo { PreviewVivo.detener() }
+        }
+    }
     @Published var espacioAlTerminar: Bool { didSet { Config.set("espacio_al_terminar", to: espacioAlTerminar) } }
     @Published var enterAlTerminar: Bool {
         didSet { Config.set("enter_al_terminar", to: enterAlTerminar); if enterAlTerminar { shiftEnterAlTerminar = false } }

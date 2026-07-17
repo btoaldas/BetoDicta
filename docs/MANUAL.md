@@ -593,7 +593,7 @@ En la fila de una voz XTTS pulsa **Crear ⚡**. No es una conversión directa de
 4. Al terminar, BetoDicta mide **inteligibilidad con Whisper** y **parecido de voz**. Solo vincula automáticamente un corte que supere el umbral seguro; si ninguno pasa, conserva XTTS y te manda a la vista avanzada para escuchar/revisar, sin activar una voz dañada.
 5. En la biblioteca eliges **Calidad** o **⚡ Rápida** para esa misma persona. Crear ONNX nunca borra XTTS.
 
-El plan es parametrizable: **Prueba** (recorrido corto, no voz final), **Recomendado** (~45–60 min sintéticos), **Alta fidelidad** (~1.5–2 h) o **Máximo** (~3–4 h), y puedes editar las actualizaciones. Si amplías el corpus o se interrumpe, reutiliza los clips válidos y continúa. El entrenamiento es de fondo, se puede detener/reanudar y muestra progreso. Para español empieza con la base **Media**, que es la base nativa española.
+El plan es parametrizable: **Prueba** (recorrido corto, no voz final), **Recomendado** (~45–60 min sintéticos), **Alta fidelidad** (~1.5–2 h) o **Máximo** (~3–4 h), y puedes editar las actualizaciones. Antes del primer clip, BetoDicta guarda la cantidad, las etapas y la calidad elegidas. Si amplías el corpus, cierras la app o se apaga la Mac, reutiliza los clips válidos y continúa con **el mismo plan**, sin volver silenciosamente a los valores del selector. Para español empieza con la base **Media**, que es la base nativa española.
 
 ### Entrenar una voz Piper (rápida)
 
@@ -606,7 +606,9 @@ El plan es parametrizable: **Prueba** (recorrido corto, no voz final), **Recomen
    - **Fase 2** — entrena: verás *"paso X de Y (%)"* en vivo, con barra de porcentaje.
 6. Guarda **varios checkpoints**. Puedes **escuchar** cualquiera y **usar el que más te guste** (los últimos suelen sonar mejor). Ese se registra como voz ⚡ en tu biblioteca.
 
-**Corre en segundo plano y es resumible.** Puedes **cerrar la ventana e incluso salir de BetoDicta**: el entrenamiento sigue. Al reabrir, el progreso **vuelve a aparecer solo**. Si se apagó la computadora, aparece **“Reanudar”** y continúa desde el último checkpoint (no re-transcribe lo ya hecho).
+**Corre en segundo plano y es resumible.** Puedes **cerrar la ventana e incluso salir de BetoDicta**: el entrenamiento sigue. Al reabrir, el progreso **vuelve a aparecer solo** y BetoDicta evita lanzar una segunda copia sobre la misma tanda. Si se apagó la computadora, aparece **“Continuar donde quedó”** y detecta si faltaba terminar el dataset, el entrenamiento o la validación. No re-transcribe ni regenera lo que ya estaba bien.
+
+Durante el entrenamiento hay dos niveles de resguardo: los **cortes/hitos** que puedes escuchar y un **checkpoint de seguridad rodante cada 200 pasos**. Al continuar usa el más reciente de los dos, por lo que un apagón pierde como máximo ese pequeño tramo. La validación también guarda sus resultados después de cada checkpoint: si se interrumpe, reutiliza los ya puntuados y reintenta solo los pendientes o los que tuvieron un fallo transitorio.
 
 **Bitácora viva.** Mientras entrena, la app muestra —refrescándose sola cada 2 segundos— la **fase** (1/2), el **porcentaje**, **paso/total**, **época**, **velocidad (it/s)**, **ETA**, y los recursos que ocupa: **CPU, RAM, disco**, además de **fragmentos**, **checkpoints** y **errores**. Debajo va el **registro imprimiéndose en vivo** (lo que pasa, bueno o malo). El **paso se muestra en tiempo real desde el primer paso** (no hay que esperar al primer checkpoint). Todo queda también guardado en `dataset.log` y `piper.log` dentro de la carpeta del proyecto.
 
