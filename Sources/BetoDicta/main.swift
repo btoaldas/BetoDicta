@@ -11,6 +11,21 @@
 
 import AppKit
 
+// Hooks puros del pipeline de release. Corren antes de crear NSApplication para
+// que también funcionen con la app instalada cerrada y en una sesión sin GUI.
+if let dmg = ProcessInfo.processInfo.environment["BETODICTA_DMGVERIFYTEST"],
+   let sig = ProcessInfo.processInfo.environment["BETODICTA_DMGVERIFY_SIG"],
+   let firma = try? Data(contentsOf: URL(fileURLWithPath: sig)) {
+    let ok = Updater.firmaDMGValida(URL(fileURLWithPath: dmg), firma: firma)
+    print("DMGVERIFYTEST \(ok ? "OK" : "FALLA")")
+    exit(ok ? 0 : 3)
+}
+if let appPath = ProcessInfo.processInfo.environment["BETODICTA_VERIFYTEST"] {
+    let ok = Updater.firmaConfiable(URL(fileURLWithPath: appPath))
+    print("VERIFYTEST \(appPath) -> identidadConfiable=\(ok)")
+    exit(ok ? 0 : 3)
+}
+
 ModoPlanQA.ejecutarSiSePidio()
 ModoRegressionQA.ejecutarSiSePidio()
 ModoAudioQA.ejecutarSiSePidio()

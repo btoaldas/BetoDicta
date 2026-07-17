@@ -522,7 +522,7 @@ La app **te avisa sola**. Al abrirla revisa en silencio si hay versión nueva y,
 - **Abajo a la izquierda** del panel de Configuración: botón **"Actualizar a vX"** y un enlace **"Ver novedades"** (para leer los cambios *antes* de actualizar).
 - En el **menú de la barra**: un ítem **"⬆︎ Actualización disponible…"** que abre Configuración.
 
-Al pulsar **"Actualizar a vX"** la app descarga el DMG (con **barra de porcentaje**), se reinstala y se reabre sola. Un clic, cero pasos manuales. Al terminar te muestra las **novedades** de la versión.
+Al pulsar **"Actualizar a vX"** la app descarga el DMG (con **barra de porcentaje**), se reinstala y se reabre sola. Un clic, cero pasos manuales. Al terminar te muestra las **novedades** de la versión. Las copias 0.40–0.42 pueden pasar normalmente a 0.43 porque esta conserva el mismo certificado; desde 0.43, el actualizador exige además la firma Ed25519 del DMG.
 
 Si prefieres no revisar nada a mano, activa **Autoactualizar** (*Ajustes → Avanzado*): cuando encuentre una versión nueva al abrir o en la revisión periódica, la baja e instala sola. Siempre puedes forzar la búsqueda con **"Verificar actualización"** o **"Comprobar de nuevo"** en el pie.
 
@@ -568,7 +568,7 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 
 **Seguridad**:
 - Tus **API keys** y gateways se guardan con permisos `0600` (solo tu usuario) y la carpeta `~/.betodicta` en `0700`. La key **no se envía** si un gateway se configuró con `http://` sin cifrar.
-- Las **actualizaciones se verifican por firma**: antes de instalar, la app comprueba que el nuevo BetoDicta.app venga firmado con **el mismo certificado** que tu copia actual. Un instalador manipulado o firmado por otro se **rechaza** — así, aunque alguien alterara un release, no se instalaría.
+- Las **actualizaciones se verifican por dos barreras**: el DMG completo trae una firma **Ed25519** que BetoDicta comprueba con una clave pública embebida; después exige que el bundle conserve la identidad y el certificado de BetoDicta. Una descarga alterada, sin `.sig` o con otra app se **rechaza**. La clave privada de releases vive solo en el Mac del autor, con permiso `0600`, y nunca se publica.
 - El código es **abierto** ([GPL-3.0](https://github.com/btoaldas/BetoDicta)): cualquiera puede auditarlo. Cada release pasa por revisión de código y de seguridad antes de publicarse.
 
 ## 23. Solución de problemas

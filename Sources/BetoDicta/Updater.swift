@@ -250,48 +250,13 @@ enum Updater {
                     completion(.error("no pude guardar el DMG")); return
                 }
 
-                // SEGURIDAD (revisión adversarial): antes de instalar, montar el
-                // DMG y VERIFICAR que la app venga firmada con el MISMO
-                // certificado que esta app. Como la clave privada de ese cert
-                // NO está en GitHub, un release troyanizado (cuenta/CI
-                // comprometidos) no puede firmarse igual y se rechaza aquí.
-                guard let vol = montarDMG(dmgLocal) else {
-                    instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
-                    completion(.error("no pude montar el DMG")); return
-                }
-                let appNueva = URL(fileURLWithPath: vol).appendingPathComponent("BetoDicta.app")
-                guard firmaConfiable(appNueva) else {
-                    desmontarDMG(vol)
-                    instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
-                    Log.log(.sistema, "actualización RECHAZADA: la firma del DMG no coincide con la de esta app (posible manipulación del release)")
-                    completion(.error("firma no válida — actualización cancelada por seguridad")); return
-                }
-
-                // Firma OK: copia desde el volumen YA montado y verificado (sin
-                // re-montar y sin quitar quarantine). Rutas por argv (no
-                // interpolación en el shell).
-                let script = """
-                sleep 1.5
-                rm -rf /Applications/BetoDicta.app
-                ditto "$1/BetoDicta.app" /Applications/BetoDicta.app
-                hdiutil detach "$1" >/dev/null 2>&1
-                rm -f "$2"
-                open /Applications/BetoDicta.app
-                """
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: "/bin/bash")
-                p.arguments = ["-c", script, "betodicta-update", vol, dmgLocal.path]
-                do {
-                    try p.run()
-                    Log.log(.sistema, "actualización: firma verificada ✓ — instalando y reiniciando…")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        NSApp.terminate(nil)
-                    }
-                } catch {
-                    desmontarDMG(vol)
-                    instalando = false
-                    completion(.error("no pude lanzar el instalador"))
-                }
+                // El certificado propio conserva la identidad/TCC, pero al ser
+                // autofirmado no es una raíz pública confiable en otros Macs.
+                // La integridad distribuible se ancla con una firma Ed25519
+                // separada del DMG. La clave pública viaja dentro de BetoDicta;
+                // la privada de releases nunca está en GitHub ni en la app.
+                descargarFirmaYContinuar(dmgRemoto: dmg, dmgLocal: dmgLocal,
+                                          completion: completion)
             }
         }
         // Progreso de descarga → % en la UI ("Descargando 42%").
@@ -299,6 +264,75 @@ enum Updater {
             DispatchQueue.main.async { completion(.descargando(prog.fractionCompleted)) }
         }
         task.resume()
+    }
+
+    private static func descargarFirmaYContinuar(dmgRemoto: URL, dmgLocal: URL,
+                                                   completion: @escaping (Estado) -> Void) {
+        guard dmgRemoto.scheme?.lowercased() == "https" else {
+            instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
+            completion(.error("la firma del release no usa HTTPS")); return
+        }
+        let firmaURL = dmgRemoto.appendingPathExtension("sig")
+        var req = URLRequest(url: firmaURL)
+        req.timeoutInterval = 15
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.setValue("BetoDicta/\(Version.numero)", forHTTPHeaderField: "User-Agent")
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        req.setValue("close", forHTTPHeaderField: "Connection")
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            DispatchQueue.main.async {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard error == nil, status == 200, let data, data.count == 64 else {
+                    instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
+                    Log.log(.sistema, "actualización RECHAZADA: falta la firma Ed25519 del DMG")
+                    completion(.error("firma del release no disponible — actualización cancelada")); return
+                }
+                guard firmaDMGValida(dmgLocal, firma: data) else {
+                    instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
+                    Log.log(.sistema, "actualización RECHAZADA: la firma Ed25519 del DMG no es válida")
+                    completion(.error("firma del release no válida — actualización cancelada")); return
+                }
+                instalarDMGVerificado(dmgLocal, completion: completion)
+            }
+        }.resume()
+    }
+
+    private static func instalarDMGVerificado(_ dmgLocal: URL,
+                                               completion: @escaping (Estado) -> Void) {
+        guard let vol = montarDMG(dmgLocal) else {
+            instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
+            completion(.error("no pude montar el DMG")); return
+        }
+        let appNueva = URL(fileURLWithPath: vol).appendingPathComponent("BetoDicta.app")
+        guard firmaConfiable(appNueva) else {
+            desmontarDMG(vol)
+            instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
+            Log.log(.sistema, "actualización RECHAZADA: el bundle no conserva la identidad de BetoDicta")
+            completion(.error("identidad de la app no válida — actualización cancelada")); return
+        }
+
+        // DMG e identidad OK: copia desde el volumen YA montado y verificado
+        // (sin re-montar y sin quitar quarantine). Rutas por argv, no interpoladas.
+        let script = """
+        sleep 1.5
+        rm -rf /Applications/BetoDicta.app
+        ditto "$1/BetoDicta.app" /Applications/BetoDicta.app
+        hdiutil detach "$1" >/dev/null 2>&1
+        rm -f "$2"
+        open /Applications/BetoDicta.app
+        """
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/bash")
+        p.arguments = ["-c", script, "betodicta-update", vol, dmgLocal.path]
+        do {
+            try p.run()
+            Log.log(.sistema, "actualización: DMG firmado e identidad verificadas ✓ — instalando y reiniciando…")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+        } catch {
+            desmontarDMG(vol)
+            instalando = false
+            completion(.error("no pude lanzar el instalador"))
+        }
     }
 
     /// SemVer suficiente para estable/beta: 0.39.0 es posterior a
@@ -347,6 +381,36 @@ enum Updater {
 
     // MARK: - Verificación de firma e integridad del DMG
 
+    /// Firma Ed25519 sobre SHA-256(DMG). El recurso es una SubjectPublicKeyInfo
+    /// DER de 44 bytes; los últimos 32 son la representación cruda de Ed25519.
+    private static func clavePublicaActualizacion() -> Curve25519.Signing.PublicKey? {
+        guard let url = Bundle.main.url(forResource: "update-public-key", withExtension: "der"),
+              let der = try? Data(contentsOf: url), der.count >= 32 else { return nil }
+        return try? Curve25519.Signing.PublicKey(rawRepresentation: Data(der.suffix(32)))
+    }
+
+    private static func sha256Archivo(_ url: URL) -> Data? {
+        guard let input = InputStream(url: url) else { return nil }
+        input.open(); defer { input.close() }
+        var hasher = SHA256()
+        var buffer = [UInt8](repeating: 0, count: 1_048_576)
+        while true {
+            let n = input.read(&buffer, maxLength: buffer.count)
+            if n < 0 { return nil }
+            if n == 0 { break }
+            hasher.update(data: Data(buffer[0..<n]))
+        }
+        return Data(hasher.finalize())
+    }
+
+    /// Visible para el hook QA del pipeline. No acepta firma ausente, truncada
+    /// ni una clave pública sustituida por configuración del usuario.
+    static func firmaDMGValida(_ dmg: URL, firma: Data) -> Bool {
+        guard firma.count == 64, let clave = clavePublicaActualizacion(),
+              let digest = sha256Archivo(dmg) else { return false }
+        return clave.isValidSignature(firma, for: digest)
+    }
+
     /// Monta un DMG de solo lectura y devuelve su punto de montaje (o nil).
     private static func montarDMG(_ dmg: URL) -> String? {
         let p = Process()
@@ -377,41 +441,44 @@ enum Updater {
         var infoCF: CFDictionary?
         let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
         guard SecCodeCopySigningInformation(code, flags, &infoCF) == errSecSuccess,
-              let info = infoCF as? [String: Any],
-              let certs = info[kSecCodeInfoCertificates as String] as? [SecCertificate],
-              let leaf = certs.first else { return nil }
+              let info = infoCF as? [String: Any] else { return nil }
+        var leaf = (info[kSecCodeInfoCertificates as String] as? [SecCertificate])?.first
+        // Un leaf autofirmado no confiado puede omitirse de `certificates`, pero
+        // Security sí lo conserva dentro de su SecTrust. Extraerlo no lo declara
+        // confiable: solo permite comparar su huella pública fijada.
+        if leaf == nil, let raw = info[kSecCodeInfoTrust as String] {
+            let cf = raw as CFTypeRef
+            if CFGetTypeID(cf) == SecTrustGetTypeID() {
+                let trust = unsafeBitCast(cf, to: SecTrust.self)
+                leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
+            }
+        }
+        guard let leaf else { return nil }
         let der = SecCertificateCopyData(leaf) as Data
         return Data(SHA256.hash(data: der))
     }
 
-    private static func staticCodeDeMiApp() -> SecStaticCode? {
-        var me: SecCode?
-        guard SecCodeCopySelf([], &me) == errSecSuccess, let me else { return nil }
-        var st: SecStaticCode?
-        guard SecCodeCopyStaticCode(me, [], &st) == errSecSuccess else { return nil }
-        return st
+    private static func certReleaseSHA() -> Data? {
+        guard let url = Bundle.main.url(forResource: "code-signing-cert", withExtension: "der"),
+              let der = try? Data(contentsOf: url), !der.isEmpty else { return nil }
+        return Data(SHA256.hash(data: der))
     }
 
-    /// ¿El bundle está firmado de forma VÁLIDA (no manipulado) y con el MISMO
-    /// certificado que esta app? Si esta app es ad-hoc (sin cert, no debería en
-    /// releases) cae a un chequeo más débil: firma válida + mismo bundle id.
+    /// Segunda barrera DESPUÉS de verificar criptográficamente el DMG completo:
+    /// exige bundle id, firma interna íntegra y el leaf público fijado dentro
+    /// de BetoDicta.
+    /// No usa la confianza pública del certificado autofirmado (no existe en una
+    /// instalación normal); la autenticidad fuerte ya la da Ed25519 sobre el DMG.
     static func firmaConfiable(_ app: URL) -> Bool {
+        guard let bundle = Bundle(url: app), bundle.bundleIdentifier == "ec.bto.betodicta",
+              let ejecutable = bundle.executableURL,
+              FileManager.default.isExecutableFile(atPath: ejecutable.path) else { return false }
         var nuevoCode: SecStaticCode?
         guard SecStaticCodeCreateWithPath(app as CFURL, [], &nuevoCode) == errSecSuccess,
               let nuevo = nuevoCode else { return false }
-        // 1) Firma íntegra (código no manipulado tras firmar).
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode)
         guard SecStaticCodeCheckValidity(nuevo, flags, nil) == errSecSuccess else { return false }
-        // 2) Mismo certificado líder que esta app.
-        if let mio = staticCodeDeMiApp(), let shaMio = certLiderSHA(mio) {
-            guard let shaNuevo = certLiderSHA(nuevo) else { return false }
-            return shaMio == shaNuevo
-        }
-        // Fallback (esta app ad-hoc, sin cert): al menos exige el bundle id.
-        let req = "identifier \"ec.bto.betodicta\""
-        var requirement: SecRequirement?
-        guard SecRequirementCreateWithString(req as CFString, [], &requirement) == errSecSuccess,
-              let requirement else { return false }
-        return SecStaticCodeCheckValidity(nuevo, flags, requirement) == errSecSuccess
+        guard let esperado = certReleaseSHA(), let shaNuevo = certLiderSHA(nuevo) else { return false }
+        return esperado == shaNuevo
     }
 }

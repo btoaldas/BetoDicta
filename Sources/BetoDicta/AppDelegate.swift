@@ -1234,14 +1234,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("ACCTEST \(ok ? "TODO OK" : "✗ FALLA")")
             exit(ok ? 0 : 3)
         }
-        // Prueba de la verificación de firma del updater (seguridad):
-        // BETODICTA_VERIFYTEST=<ruta a un .app> imprime si firmaConfiable lo
-        // aceptaría (mismo cert que ESTA app) y sale.
-        if let ap = ProcessInfo.processInfo.environment["BETODICTA_VERIFYTEST"] {
-            let ok = Updater.firmaConfiable(URL(fileURLWithPath: ap))
-            print("VERIFYTEST \(ap) -> firmaConfiable=\(ok)")
-            exit(ok ? 0 : 3)
-        }
         // Prueba del motor de audio (dev): BETODICTA_AUDIOTEST=<wav de prueba>
         // imprime la distancia a cada término enrolado en ~/.betodicta/voces/ y sale.
         if let prueba = ProcessInfo.processInfo.environment["BETODICTA_AUDIOTEST"] {

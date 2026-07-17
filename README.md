@@ -24,7 +24,7 @@ brew install --cask btoaldas/tap/betodicta
 brew install --cask --no-quarantine btoaldas/tap/betodicta
 ```
 
-Instala siempre el **último release**. (La app también se actualiza sola desde dentro.)
+Instala siempre el **último release**. La app también se actualiza sola desde dentro: las copias 0.40–0.42 aceptan 0.43 porque conserva su misma identidad de firma; desde 0.43, además, el DMG completo se autentica con Ed25519.
 
 **Primera apertura** (macOS dirá "Apple no pudo verificar…" porque la app es open source y no viene de la App Store): pulsa "Listo" → **Ajustes del Sistema → Privacidad y seguridad** → baja hasta "Seguridad" → **"Abrir de todos modos"**. Es una sola vez.
 
@@ -126,7 +126,7 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 - **Tu voz solo viaja al motor que TÚ elijas** (cifrada: HTTPS/WSS) — o a **ningún lado** si usas un motor local (Whisper/Voxtral/Nemotron/Canary, 100% offline). No hay analítica, ni telemetría, ni terceros ocultos
 - **Tu API key jamás se escribe en logs** ni en el código — vive en tu `~/.betodicta/.env` (bloqueado por `.gitignore`)
 - **Tus dictados nunca salen de tu Mac**: `historial/` y `uso.jsonl` son archivos locales tuyos; la carpeta `~/.betodicta` queda en `700` y los archivos con secretos (`.env`, gateways) en `600`
-- **Actualizaciones verificadas por firma**: antes de instalar una actualización, la app comprueba que el nuevo bundle esté firmado con el **mismo certificado** que tu copia — un DMG manipulado o firmado por otro se rechaza (la clave privada del certificado nunca sale del Mac del autor)
+- **Actualizaciones verificadas por firma**: desde 0.43, cada DMG lleva una firma **Ed25519 separada** y BetoDicta contiene solo la clave pública para comprobarla; además exige el mismo bundle id y certificado de la app. Un DMG alterado, una firma ausente o una app distinta se rechazan. Las claves privadas de release nunca salen del Mac del autor
 - **Gateways propios**: la API key no se envía si el gateway usa `http://` sin cifrar
 - El portapapeles se restaura tras cada pegado — lo que tenías copiado no se pierde
 - Cada release pasa por **revisión de código y de seguridad** antes de publicarse
