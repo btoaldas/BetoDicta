@@ -1010,43 +1010,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("PIPERSCRIPTTEST \(ok ? "OK" : "✗") → \(EntrenadorPiper.valScriptURL.path)")
             exit(ok ? 0 : 9)
         }
-        // MATRIZ QA paramétrica: BETODICTA_MATRIZTEST=<tsv> con líneas:
-        //   frase <TAB> esperado(id|-|cadena) [<TAB> textoEsperado] [<TAB> arg=valor]
-        // Ejercita cadena → exacto → difuso → plan natural + argumentos + recorte.
-        if let ruta = ProcessInfo.processInfo.environment["BETODICTA_MATRIZTEST"], !ruta.isEmpty {
-            guard let tsv = try? String(contentsOf: URL(fileURLWithPath: ruta), encoding: .utf8) else {
-                print("MATRIZTEST sin archivo"); exit(1)
-            }
-            var mal = 0, total = 0
-            for linea in tsv.split(separator: "\n") {
-                let c = linea.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-                guard c.count >= 2, !c[0].hasPrefix("#") else { continue }
-                total += 1
-                let frase = c[0], esperado = c[1]
-                var detId = "-", detTexto = "", detArg = ""
-                if let cad = ModosStore.detectarCadena(frase) {
-                    detId = "cadena"; detTexto = cad.contenido
-                    detArg = "etapas=" + cad.transforms.map(\.id).joined(separator: "+")
-                        + (cad.accion.map { "→\($0.id)" } ?? "")
-                } else if let m = ModoResolver.detectarExacto(frase) ?? ModoResolver.detectarDifuso(frase) {
-                    detId = m.modo.id; detTexto = m.textoLimpio
-                    if m.modo.base == "traducir" { detArg = "idioma=\(m.modo.idiomaDestino)" }
-                    if m.modo.base == "buscar" { detArg = "buscador=\(m.modo.buscador)" }
-                } else if let p = ModoPlanificador.detectarNatural(frase) {
-                    detId = "plan"; detTexto = p.cadena.contenido
-                    let t = p.cadena.transforms.map(\.id)
-                    let a = p.cadena.acciones.map { $0.modo.base == "buscar" ? "buscar:\($0.modo.buscador)" : $0.modo.accion }
-                    detArg = "etapas=" + (t + a).joined(separator: "+")
-                }
-                var ok = detId == esperado
-                if ok, c.count >= 3, !c[2].isEmpty, c[2] != "*" { ok = detTexto == c[2] }
-                if ok, c.count >= 4, !c[3].isEmpty { ok = detArg == c[3] }
-                if !ok { mal += 1 }
-                print("MATRIZTEST \(ok ? "✓" : "✗") '\(frase)' → \(detId)\(detArg.isEmpty ? "" : " [\(detArg)]") texto='\(detTexto)'\(ok ? "" : "  ESPERADO: \(esperado) \(c.count >= 3 ? c[2] : "") \(c.count >= 4 ? c[3] : "")")")
-            }
-            print("MATRIZTEST \(mal == 0 ? "TODO OK" : "FALLOS=\(mal)")/\(total)")
-            exit(mal == 0 ? 0 : 1)
-        }
         // Prueba modo vivo + fuzzy: BETODICTA_MODOVIVOTEST=1
         if ProcessInfo.processInfo.environment["BETODICTA_MODOVIVOTEST"] == "1" {
             let casos: [(String, String?)] = [

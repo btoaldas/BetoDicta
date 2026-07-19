@@ -1,0 +1,31 @@
+# frase	esperado	textoEsperado (* = no comparar literal)	argumentoEsperado
+modo traducir inglés buenos días	traducir	buenos días	idioma=inglés
+modo traducir quichua cómo estás	traducir	cómo estás	idioma=quichua
+modo correo estimado equipo nos vemos mañana	correo	estimado equipo nos vemos mañana	
+modo oficio solicito apoyo para los juegos internos	oficio	solicito apoyo para los juegos internos	
+modo tarea revisar el Quipux mañana	tarea	revisar el Quipux mañana	
+modo nota la clave del proyecto es transparencia	nota	la clave del proyecto es transparencia	
+modo resumir este informe contiene cinco conclusiones	resumir	este informe contiene cinco conclusiones	
+modo agente dime qué tareas tengo hoy	agente	dime qué tareas tengo hoy	
+modo buscar wikipedia Universidad Estatal Amazónica	buscar	Universidad Estatal Amazónica	buscador=wikipedia
+modo buscar google mejores rutas hacia Puyo	buscar	mejores rutas hacia Puyo	buscador=google
+modo música interno reproduce Julio Jaramillo	musica	*	proveedor=betodicta_youtube
+modo música spotify reproduce música andina	musica	*	proveedor=spotify
+modo traducir inglés correo hola equipo	cadena	hola equipo	etapas=traducir+correo
+modo traducir inglés buscar google mejores universidades	cadena	mejores universidades	etapas=traducir+buscar:google
+modo resumir traducir quichua buscar wikipedia historia del Ecuador	cadena	historia del Ecuador	etapas=resumir+traducir+buscar:wikipedia
+modo traducir inglés enviar por correo y whatsapp nos vemos mañana	cadena	nos vemos mañana	etapas=traducir+correo+whatsapp
+Por favor, ayúdame a traducir lo siguiente: Necesito encontrar una forma de hacer algo bueno.	plan	*	etapas=traducir
+Por favor, traduce esto: La vida es bella. Y después envíalo por correo electrónico.	plan	*	etapas=traducir+correo
+Resume, traduce al inglés y envía por correo y por WhatsApp a Alberto: mañana nos reunimos a las ocho.	plan	*	etapas=resumir+traducir+correo+whatsapp
+Mándaselo a Alberto por WhatsApp: nos vemos mañana.	plan	*	etapas=whatsapp
+Haz una redacción de un verso sin esfuerzo, algo simpático, como ejemplo. Después mándaselo a Alberto por WhatsApp.	plan	*	etapas=generar+whatsapp
+Anótame una tarea: revisar el Quipux y configurar el MikroTik.	plan	*	etapas=tarea
+Necesito que guardes una nota: llamar a Rafael el viernes.	plan	*	etapas=nota
+Quiero que busques en YouTube: música andina ecuatoriana.	plan	*	etapas=buscar:youtube
+Por favor, formaliza y envía por Outlook lo siguiente: solicito permiso para el viernes.	plan	*	etapas=oficio+outlook
+Por favor, pregúntale al agente: qué tareas tengo para hoy.	plan	*	etapas=agente
+Me gustaría que traduzcas al portugués lo siguiente: nos vemos mañana.	plan	*	etapas=traducir
+Por favor puedes abrir Safari: documentación de BetoDicta.	plan	*	etapas=safari
+Envíalo por correo y WhatsApp: esta es la versión final.	plan	*	etapas=correo+whatsapp
+Podemos resumir y después enviar por correo este texto: mañana habrá reunión.	plan	*	etapas=resumir+correo

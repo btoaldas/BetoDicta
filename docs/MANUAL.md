@@ -768,6 +768,16 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 
 ## 23. Solución de problemas
 
+### Diagnóstico reproducible
+
+El proyecto incluye un paquete QA en [`qa/0.46.0/`](../qa/0.46.0/README.md):
+30 recorridos de **camino feliz**, 50 pruebas de **estrés/degradación**, matrices
+automáticas y una hoja CSV para anotar qué oyó el STT y qué hizo la app. La prueba
+segura se ejecuta con `scripts/qa-paquete.sh --automatico`; no abre aplicaciones,
+no envía mensajes y no usa proveedores de pago. Al terminar crea evidencia local
+con permisos privados. Para adjuntar logs después de una prueba manual usa
+`scripts/qa-paquete.sh --evidencia` y revisa el contenido antes de compartirlo.
+
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | Dicto y sale vacío o "(silencio)" | El micrófono no te capta (¿iPhone cerca? ¿mic equivocado?) | Ajustes → Micrófono → "Integrado del Mac". Verifica que las barras del panel laten al hablar |

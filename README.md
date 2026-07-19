@@ -126,6 +126,7 @@ Modelos: `scribe_v2_realtime` (texto en vivo) · `scribe_v2` · `scribe_v1` (por
 
 - **macOS 14+** en Apple Silicon · **Xcode 26+** (Swift 6) · sin dependencias externas: Swift puro + AppKit/AVFoundation
 - `make install` compila (Swift Package Manager) y arma el bundle firmado con certificado propio en /Applications
+- **QA reproducible**: `scripts/qa-paquete.sh --automatico` ejecuta pruebas locales seguras sin abrir apps ni enviar nada. Las matrices, 30 casos manuales de camino feliz, 50 casos de estrés y la hoja de resultados están en [`qa/0.46.0/`](qa/0.46.0/README.md). `--audio` y `--ia` son pruebas opcionales que pueden consumir los proveedores configurados.
 - Código modular en `Sources/BetoDicta/` (Config, Recorder, HistoryWriter, MediaControl, clientes Scribe, panel, AppDelegate…)
 - Los usuarios normales NO tocan archivos: el asistente de configuración (y Ajustes → Modelos) guarda las claves y ajustes solos en `~/.betodicta/`. Los `*.example` (`.env.example`, `config.example.json`, `keyterms.example.txt`, `reemplazos.example.json`) son solo **referencia del formato** para desarrolladores o para pre-cargar valores a mano — opcionales
 - Este entorno se actualiza con el proyecto: si algo no compila en una versión nueva de Xcode, abre un issue
