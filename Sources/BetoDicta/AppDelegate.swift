@@ -226,8 +226,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return (primero.modelo ?? "scribe_v2") == "scribe_v2_realtime"
     }
 
+    /// No deja perder un recordatorio si vence mientras se dicta o se graba la
+    /// pantalla. La notificación de macOS sale igualmente; notch/voz esperan una
+    /// ventana segura y nunca contaminan el audio capturado.
+    private func presentarAvisoPendiente(_ aviso: TareasRecordatorios.Aviso,
+                                         intento: Int = 0) {
+        guard recorder.isRecording || CapturaMac.enCurso else {
+            let breve = String(aviso.cuerpo.prefix(180))
+            panel.flash("🔔 \(aviso.titulo): \(breve)", segundos: 6)
+            if aviso.hablar, Config.ttsActivo() {
+                Voz.decir("\(aviso.titulo). \(aviso.cuerpo)")
+            }
+            return
+        }
+        guard intento < 120 else {
+            Log.write("aviso local: notch/voz omitidos tras 10 min ocupados; quedó la notificación de macOS")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            self?.presentarAvisoPendiente(aviso, intento: intento + 1)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         iconoTimer?.invalidate(); iconoVigilante?.invalidate()
+        TareasRecordatorios.shared.detener()
         WhisperServer.apagar(motivo: "salida de la app")
         VoxtralServer.apagar(motivo: "salida de la app")
         XttsServer.detener()   // no dejar 2 GB huérfanos ni duplicar el servidor al reabrir
@@ -1396,20 +1419,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("REVTEST \(ok1 && okVisual && ok2 && ok3 ? "TODO OK" : "✗ FALLA")")
             exit(ok1 && okVisual && ok2 && ok3 ? 0 : 3)
         }
-        // Prueba de tareas/notas: BETODICTA_NOTATEST=1 (agrega→verifica→borra, net-cero).
-        if ProcessInfo.processInfo.environment["BETODICTA_NOTATEST"] == "1" {
-            let n0 = NotasStore.todos().count
-            let p = NotasStore.agregar(tipo: "tarea", texto: "  prueba xyz  ")
-            let addOk = NotasStore.todos().count == n0 + 1
-                && NotasStore.tareas().first?.texto == "prueba xyz" && p.hecho == false
-            NotasStore.alternar(p.id)
-            let togOk = NotasStore.todos().first { $0.id == p.id }?.hecho == true
-            NotasStore.borrar(p.id)
-            let delOk = NotasStore.todos().count == n0 && !NotasStore.todos().contains { $0.id == p.id }
-            let ok = addOk && togOk && delOk
-            print("NOTATEST add=\(addOk) toggle=\(togOk) delete=\(delOk) → \(ok ? "TODO OK" : "✗ FALLA")")
-            exit(ok ? 0 : 3)
-        }
         // Prueba del modo BUSCAR: BETODICTA_BUSCARTEST=1 (construcción de URL, sin abrir nada).
         if ProcessInfo.processInfo.environment["BETODICTA_BUSCARTEST"] == "1" {
             let casos: [(String, String, String, String?)] = [
@@ -1830,6 +1839,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Updater.estaGrabando = { [weak self] in self?.recorder.isRecording ?? false }
         Updater.buscarAlArrancar() // ¿versión nueva? avisa abajo-izq (o instala si Autoactualizar)
         Updater.iniciarMonitoreo() // cron liviano mientras la app permanezca abierta
+        TareasRecordatorios.shared.iniciar { [weak self] aviso in
+            self?.presentarAvisoPendiente(aviso)
+        }
 
 
         recorder.onLevel = { [weak self] level in

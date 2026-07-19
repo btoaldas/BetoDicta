@@ -38,6 +38,7 @@ AgenteCodex.ejecutarPruebaSiSePidio()
 DocumentosMac.ejecutarPruebaSiSePidio()
 NotasApple.ejecutarPruebaSiSePidio()
 VozLocalQA.ejecutarSiSePidio()
+TareasNotasQA.ejecutarSiSePidio()
 
 // Sin sesión gráfica (SSH, sandbox de un agente, launchd de fondo) AppKit
 // aborta en _RegisterApplication al crear NSApplication. Los modos QA de

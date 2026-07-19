@@ -221,6 +221,27 @@ struct Config {
     static func ttsActivo() -> Bool { (json()["tts_activo"] as? Bool) ?? false }
     static func ttsVoz() -> String { (json()["tts_voz"] as? String) ?? "" }
     static func ttsVelocidad() -> Double { (json()["tts_velocidad"] as? Double) ?? 0.5 }
+
+    // Tareas y notas locales: avisos sin nube. Las fechas se guardan con cada
+    // ítem; el reloj y los resúmenes son completamente opcionales.
+    static func tareasAvisos() -> Bool { (json()["tareas_avisos"] as? Bool) ?? true }
+    static func tareasAvisosSonido() -> Bool { (json()["tareas_avisos_sonido"] as? Bool) ?? true }
+    static func tareasAvisosVoz() -> Bool { (json()["tareas_avisos_voz"] as? Bool) ?? false }
+    static func tareasAvisarNotas() -> Bool { (json()["tareas_avisar_notas"] as? Bool) ?? false }
+    static func tareasResumenManana() -> Bool { (json()["tareas_resumen_manana"] as? Bool) ?? false }
+    static func tareasResumenTarde() -> Bool { (json()["tareas_resumen_tarde"] as? Bool) ?? false }
+    static func tareasResumenMananaMinutos() -> Int {
+        min(1439, max(0, (json()["tareas_resumen_manana_min"] as? Int) ?? 510)) // 08:30
+    }
+    static func tareasResumenTardeMinutos() -> Int {
+        min(1439, max(0, (json()["tareas_resumen_tarde_min"] as? Int) ?? 1200)) // 20:00
+    }
+    static func tareasResumenIncluirSinFecha() -> Bool {
+        (json()["tareas_resumen_sin_fecha"] as? Bool) ?? true
+    }
+    static func tareasResumenUltimo(_ periodo: String) -> String {
+        (json()["tareas_resumen_ultimo_\(periodo)"] as? String) ?? ""
+    }
     /// Cerebro del Modo Agente: "local" (IA configurada en BetoDicta) | "hermes" |
     /// "codex" (cuenta ChatGPT delegada al cliente oficial Codex). Parametrizable.
     static func agenteMotor() -> String { (json()["agente_motor"] as? String) ?? "local" }
