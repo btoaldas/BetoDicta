@@ -346,13 +346,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let semver = Updater.esMasNueva("0.39.0", que: "0.39.0-beta")
                 && Updater.esMasNueva("0.40.0-beta", que: "0.39.0")
                 && !Updater.esMasNueva("0.39.0-beta", que: "0.39.0")
+            let canales = Updater.probarCanalesQA()
             Updater.verificar { estado in
                 switch estado {
                 case .error(let e): print("UPDATETEST ✗ GitHub: \(e)"); exit(2)
                 default:
-                    let resultado = semver ? "OK" : "FALLA"
-                    print("UPDATETEST GitHub=\(estado) SemVer=\(resultado)")
-                    exit(semver ? 0 : 3)
+                    let ok = semver && canales.ok
+                    print("UPDATETEST GitHub=\(estado) SemVer=\(semver ? "OK" : "FALLA") Canales=\(canales.detalle)")
+                    exit(ok ? 0 : 3)
                 }
             }
             return

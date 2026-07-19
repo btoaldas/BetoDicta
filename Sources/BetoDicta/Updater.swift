@@ -179,12 +179,7 @@ enum Updater {
                 return
             }
 
-            let candidatas = releases.filter { r in
-                guard !r.draft else { return false }
-                if incluyeBeta { return true }
-                return !r.prerelease && !normalizar(r.tagName).contains("-")
-            }
-            guard let release = candidatas.max(by: { compararVersiones($0.tagName, $1.tagName) < 0 }) else {
+            guard let release = seleccionar(releases, incluyeBeta: incluyeBeta) else {
                 // Un latest válido sin candidato puede ocurrir por metadatos
                 // incoherentes; prueba la lista antes de concluir.
                 if indice + 1 < endpoints.count {
@@ -207,6 +202,36 @@ enum Updater {
             Log.log(.sistema, "actualización disponible: v\(remota) [\(release.prerelease ? "beta" : "estable")]")
             completion(.disponible(version: remota, dmg: url, notas: release.body ?? ""))
         }.resume()
+    }
+
+    /// Una sola regla compartida por red y QA: estable excluye cualquier
+    /// prerelease (por metadata O sufijo); beta ve ambos y elige por SemVer.
+    private static func seleccionar(_ releases: [Release], incluyeBeta: Bool) -> Release? {
+        releases.filter { r in
+            guard !r.draft else { return false }
+            if incluyeBeta { return true }
+            return !r.prerelease && !normalizar(r.tagName).contains("-")
+        }.max(by: { compararVersiones($0.tagName, $1.tagName) < 0 })
+    }
+
+    /// Fixture local del selector multicanal. Prueba la MISMA función usada con
+    /// GitHub, sin tocar la preferencia del usuario ni depender del release vigente.
+    static func probarCanalesQA() -> (ok: Bool, detalle: String) {
+        let fixture = [
+            Release(tagName: "v0.44.0", prerelease: false, draft: false, body: nil, assets: []),
+            Release(tagName: "v0.45.0-beta", prerelease: true, draft: false, body: nil, assets: []),
+            Release(tagName: "v0.45.0", prerelease: false, draft: true, body: nil, assets: []),
+            // Metadata incoherente: estable debe rechazar también por el sufijo.
+            Release(tagName: "v0.46.0-rc1", prerelease: false, draft: false, body: nil, assets: []),
+        ]
+        let estable = seleccionar(fixture, incluyeBeta: false).map { normalizar($0.tagName) }
+        let beta = seleccionar(fixture, incluyeBeta: true).map { normalizar($0.tagName) }
+        let mismaBase = seleccionar([
+            Release(tagName: "v1.0.0-beta", prerelease: true, draft: false, body: nil, assets: []),
+            Release(tagName: "v1.0.0", prerelease: false, draft: false, body: nil, assets: []),
+        ], incluyeBeta: true).map { normalizar($0.tagName) }
+        let ok = estable == "0.44.0" && beta == "0.46.0-rc1" && mismaBase == "1.0.0"
+        return (ok, "estable=\(estable ?? "nil") beta=\(beta ?? "nil") mismaBase=\(mismaBase ?? "nil")")
     }
 
     private static func finalizarVerificacion(_ estado: Estado) {
