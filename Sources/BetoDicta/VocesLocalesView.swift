@@ -91,6 +91,75 @@ struct MotorVozControl: View {
     }
 }
 
+/// Runtime separado para la variante equilibrada. Instalarlo es opt-in y reversible;
+/// no toca el entorno XTTS ni el modelo Piper/ONNX de ninguna voz.
+struct MotorMlxControl: View {
+    @State private var estado = MlxVozEngine.estado()
+    @State private var progreso = ""
+    @State private var instalando = false
+    @State private var preactivar = Config.ttsMlxPreactivar()
+    @State private var dormir = Config.ttsMlxDormir()
+    @State private var dormirMin = Config.ttsMlxDormirMin()
+    @State private var colchon = Config.ttsMlxColchonSeg()
+    @State private var intervalo = Config.ttsMlxIntervalo()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch estado {
+            case .listo:
+                HStack {
+                    Text("🟢 Motor equilibrado Qwen3‑MLX instalado.").font(.caption)
+                    Spacer()
+                    Button("Quitar motor") { MlxVozEngine.desinstalar(); estado = MlxVozEngine.estado() }
+                        .controlSize(.small)
+                }
+                Text("Apple Silicon · clonación local · español · streaming. La primera activación descarga el modelo común (~2,6 GB); después funciona offline. No reemplaza XTTS ni ONNX.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Toggle("Preactivar la voz equilibrada (modelo en RAM)", isOn: $preactivar)
+                    .font(.caption)
+                    .onChange(of: preactivar) { _, v in
+                        Config.set("tts_mlx_preactivar", to: v); Voz.preactivarLocal()
+                    }
+                Toggle("Dormir Qwen3‑MLX tras inactividad", isOn: $dormir)
+                    .font(.caption)
+                    .onChange(of: dormir) { _, v in Config.set("tts_mlx_dormir", to: v) }
+                if dormir {
+                    HStack {
+                        Text("Dormir tras \(Int(dormirMin)) min").font(.caption2)
+                        Slider(value: $dormirMin, in: 1...30, step: 1) { _ in
+                            Config.set("tts_mlx_dormir_min", to: dormirMin)
+                        }.frame(width: 180)
+                    }
+                }
+                HStack {
+                    Text("Inicio fluido: \(String(format: "%.1f", colchon))s").font(.caption2)
+                    Slider(value: $colchon, in: 0.2...3, step: 0.2) { _ in
+                        Config.set("tts_mlx_colchon_seg", to: colchon)
+                    }.frame(width: 150)
+                    Text("Chunk: \(String(format: "%.2f", intervalo))s").font(.caption2)
+                    Slider(value: $intervalo, in: 0.16...1.0, step: 0.08) { _ in
+                        Config.set("tts_mlx_intervalo", to: intervalo); MlxVozServer.detener(); Voz.preactivarLocal()
+                    }.frame(width: 120)
+                }
+            case .instalando:
+                Text("⏳ Instalando Qwen3‑MLX…").font(.caption)
+                if !progreso.isEmpty { Text(progreso).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
+            case .noInstalado:
+                Text("⚖️ Opcional: instala el motor equilibrado Qwen3‑TTS/MLX en un Python aislado de BetoDicta. Descarga inicial del runtime y, al usarlo, ~2,6 GB del modelo. Después es 100% local.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("⬇︎ Instalar motor equilibrado") {
+                    instalando = true; estado = .instalando; progreso = "Empezando…"
+                    MlxVozEngine.instalar(onProgreso: { l in DispatchQueue.main.async { progreso = l } }) { _, msg in
+                        progreso = msg; instalando = false; estado = MlxVozEngine.estado()
+                    }
+                }.controlSize(.small).disabled(instalando)
+            }
+        }
+        .padding(6).background(Color.secondary.opacity(0.06)).cornerRadius(6)
+        .onAppear { estado = MlxVozEngine.estado() }
+    }
+}
+
 struct VocesLocalesEditor: View {
     @State private var voces: [VozLocal] = VocesLocales.todas()
     @State private var activa: String = Config.ttsVozLocal()
@@ -100,6 +169,7 @@ struct VocesLocalesEditor: View {
     @State private var nuevaPersona = ""
     @State private var detectadas: [(nombre: String, cmd: String)] = []
     @State private var estado = ""
+    @State private var failoverVariantes = Config.ttsLocalVariantesFailover()
 
     private func refrescar() { voces = VocesLocales.todas(); activa = VocesLocales.activa()?.id ?? "" }
 
@@ -176,11 +246,57 @@ struct VocesLocalesEditor: View {
         }
     }
 
+    /// Asocia una muestra exacta y su transcripción al carril Qwen3‑MLX. La muestra
+    /// viaja en el paquete portable; las pesas comunes del modelo no se duplican.
+    private func prepararMlx(_ v: VozLocal) {
+        let panel = NSOpenPanel()
+        panel.title = "Muestra limpia de \(v.nombre) (5–20 s)"
+        panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.wav]
+        if !v.paquete.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: v.paquete).appendingPathComponent("refs")
+        }
+        guard panel.runModal() == .OK, let ref = panel.url else { return }
+
+        let alerta = NSAlert()
+        alerta.messageText = "¿Qué dice exactamente la muestra?"
+        alerta.informativeText = "La transcripción literal conserva mejor el acento. Elige el modelo equilibrado recomendado o el de mayor calidad."
+        alerta.addButton(withTitle: "Vincular")
+        alerta.addButton(withTitle: "Cancelar")
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 500, height: 74))
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8
+        let campo = NSTextField(string: v.mlxRefText)
+        campo.placeholderString = "Transcripción literal del audio"
+        campo.frame.size.width = 500
+        let modelos = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 500, height: 26))
+        modelos.addItems(withTitles: ["⚖️ 0.6B — equilibrado (recomendado)", "✨ 1.7B — más calidad, más RAM"])
+        if v.mlxModelo == MlxVozEngine.modeloCalidad { modelos.selectItem(at: 1) }
+        stack.addArrangedSubview(campo); stack.addArrangedSubview(modelos); alerta.accessoryView = stack
+        guard alerta.runModal() == .alertFirstButtonReturn else { return }
+        let texto = campo.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !texto.isEmpty else { estado = "Falta escribir exactamente lo que dice la muestra."; return }
+        let modelo = modelos.indexOfSelectedItem == 1 ? MlxVozEngine.modeloCalidad : MlxVozEngine.modeloDefault
+        let activar = MlxVozEngine.estado() == .listo
+        let nueva = VocesLocales.vincularMlx(referencia: ref, transcripcion: texto,
+                                             modelo: modelo, a: v.id, activar: activar)
+        estado = nueva == nil ? "No pude vincular la muestra."
+            : (activar ? "Voz equilibrada lista; preparando el modelo local…"
+                       : "Muestra guardada. Instala el motor equilibrado para activarla.")
+        refrescar(); if activar { Voz.preactivarLocal() }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             MotorVozControl()
-            Text("Tus voces clonadas (100% local, XTTS). Elige con cuál habla el Modo Agente. Ninguna viene incluida — agregas las tuyas.")
+            MotorMlxControl()
+            Text("Tus voces clonadas (100% local). Cada persona puede conservar Calidad XTTS, Equilibrada Qwen3‑MLX y Rápida Piper/ONNX.")
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle("Si una variante falla, probar otra de la misma persona", isOn: $failoverVariantes)
+                .font(.caption)
+                .onChange(of: failoverVariantes) { _, v in
+                    Config.set("tts_local_variantes_failover", to: v)
+                }
+                .help("Mantiene la identidad: nunca cambia silenciosamente a otra persona; al final usa macOS")
 
             if voces.isEmpty {
                 Text("Todavía no agregaste ninguna voz.").font(.caption).italic().foregroundStyle(.secondary)
@@ -193,17 +309,20 @@ struct VocesLocalesEditor: View {
                             Image(systemName: activa == v.id ? "largecircle.fill.circle" : "circle")
                         }.buttonStyle(.plain)
                         Text(v.nombre).font(.callout)
+                        if v.tieneMlx { Text("⚖️").font(.caption2).help("Voz equilibrada Qwen3‑MLX") }
                         if !v.onnx.isEmpty { Text("⚡").font(.caption2).help("Voz rápida (Piper)") }
                         if !v.persona.isEmpty { Text("· persona ✓").font(.caption2).foregroundStyle(.secondary) }
                         Spacer()
-                        if !v.paquete.isEmpty, !v.onnx.isEmpty {
+                        let cantidadVariantes = (!v.paquete.isEmpty ? 1 : 0) + (v.tieneMlx ? 1 : 0) + (!v.onnx.isEmpty ? 1 : 0)
+                        if cantidadVariantes > 1 {
                             Picker("", selection: Binding(
                                 get: { v.variante },
                                 set: { VocesLocales.fijarVariante(v.id, $0); refrescar(); Voz.preactivarLocal() })) {
-                                Text("Calidad").tag("xtts")
-                                Text("⚡ Rápida").tag("onnx")
-                            }.pickerStyle(.menu).frame(width: 92)
-                                .help("Esta misma persona tiene XTTS (más calidad) y ONNX (más rápida)")
+                                if !v.paquete.isEmpty { Text("Calidad").tag("xtts") }
+                                if v.tieneMlx { Text("⚖️ Equilibrada").tag("mlx") }
+                                if !v.onnx.isEmpty { Text("⚡ Rápida").tag("onnx") }
+                            }.pickerStyle(.menu).frame(width: 126)
+                                .help("Elige el equilibrio de esta misma persona; ninguna variante se borra")
                         }
                         Button("🔊") {
                             estado = "Generando “\(v.nombre)”…"
@@ -213,6 +332,9 @@ struct VocesLocalesEditor: View {
                             Button("🧠") { generarPersona(v) }.controlSize(.small).help("Generar la persona (cómo habla) transcribiendo sus muestras")
                         }
                         if !v.paquete.isEmpty {
+                            Button(v.tieneMlx ? "Cambiar ⚖️" : "Crear ⚖️") { prepararMlx(v) }
+                                .controlSize(.small)
+                                .help("Vincular Qwen3‑MLX: más natural que Piper y más rápido que XTTS")
                             Button(v.onnx.isEmpty ? "Crear ⚡" : "Recrear ⚡") {
                                 DestiladorPiperWindow.show(voz: v)
                             }.controlSize(.small)

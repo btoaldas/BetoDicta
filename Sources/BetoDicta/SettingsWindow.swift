@@ -853,7 +853,7 @@ struct SettingsView: View {
                                 Picker("", selection: $m.ttsProveedor) {
                                     Text("Voz de macOS (gratis, local)").tag("apple")
                                     Text("ElevenLabs — tu voz clonada (nube)").tag("elevenlabs")
-                                    Text("Clon local XTTS (offline, gratis)").tag("xtts_local")
+                                    Text("Clon local (XTTS / Qwen3‑MLX / ONNX)").tag("xtts_local")
                                     ForEach(TTSCloud.catalogo) { p in Text("\(p.nombre) (nube)").tag(p.id) }
                                 }.labelsHidden().frame(width: 300)
                             }

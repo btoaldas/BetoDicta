@@ -25,15 +25,28 @@ struct VozLocal: Codable, Identifiable, Equatable {
     var onnx: String = ""      // ruta a una voz PIPER (.onnx). Si está, se usa el motor
                                // PIPER (voz FIJA, ~5x tiempo real, casi instantánea) en vez
                                // de XTTS. Es el carril RÁPIDO. XTTS se queda para lo demás.
-    var variante: String = "xtts" // cuando existen ambos: "xtts" (calidad) u "onnx" (rápida)
+    var mlxRef: String = ""    // muestra + transcripción para Qwen3-TTS/MLX (equilibrada)
+    var mlxRefText: String = ""
+    var mlxModelo: String = MlxVozEngine.modeloDefault
+    var variante: String = "xtts" // "xtts" (calidad), "mlx" (equilibrada), "onnx" (rápida)
+    var tieneMlx: Bool {
+        !mlxRef.isEmpty && !mlxRefText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && FileManager.default.fileExists(atPath: mlxRef)
+    }
 
     // Decode tolerante: JSON viejos sin campos nuevos siguen cargando.
-    enum CodingKeys: String, CodingKey { case id, nombre, cmd, persona, paquete, streaming, onnx, variante }
+    enum CodingKeys: String, CodingKey {
+        case id, nombre, cmd, persona, paquete, streaming, onnx, mlxRef, mlxRefText, mlxModelo, variante
+    }
     init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "", streaming: Bool = true,
-         onnx: String = "", variante: String = "") {
+         onnx: String = "", mlxRef: String = "", mlxRefText: String = "",
+         mlxModelo: String = MlxVozEngine.modeloDefault, variante: String = "") {
         self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona
         self.paquete = paquete; self.streaming = streaming; self.onnx = onnx
-        self.variante = variante.isEmpty ? (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts") : variante
+        self.mlxRef = mlxRef; self.mlxRefText = mlxRefText
+        self.mlxModelo = MlxVozEngine.modeloSeguro(mlxModelo)
+        let pedida = variante.isEmpty ? (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts") : variante
+        self.variante = ["xtts", "mlx", "onnx"].contains(pedida) ? pedida : "xtts"
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -44,8 +57,12 @@ struct VozLocal: Codable, Identifiable, Equatable {
         paquete = (try? c.decode(String.self, forKey: .paquete)) ?? ""
         streaming = (try? c.decode(Bool.self, forKey: .streaming)) ?? true
         onnx = (try? c.decode(String.self, forKey: .onnx)) ?? ""
+        mlxRef = (try? c.decode(String.self, forKey: .mlxRef)) ?? ""
+        mlxRefText = (try? c.decode(String.self, forKey: .mlxRefText)) ?? ""
+        mlxModelo = MlxVozEngine.modeloSeguro(
+            (try? c.decode(String.self, forKey: .mlxModelo)) ?? MlxVozEngine.modeloDefault)
         let guardada = (try? c.decode(String.self, forKey: .variante)) ?? ""
-        variante = ["xtts", "onnx"].contains(guardada)
+        variante = ["xtts", "mlx", "onnx"].contains(guardada)
             ? guardada : (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts")
     }
 }
@@ -61,7 +78,11 @@ enum VocesLocales {
 
     static func guardar(_ list: [VozLocal]) {
         Config.asegurarDirSeguro()
-        if let data = try? JSONEncoder().encode(list) { try? data.write(to: url, options: .atomic) }
+        if let data = try? JSONEncoder().encode(list) {
+            try? data.write(to: url, options: .atomic)
+            // Incluye persona y transcripción de una muestra privada: no debe quedar 0644.
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
     }
 
     @discardableResult
@@ -105,13 +126,14 @@ enum VocesLocales {
         if let i = list.firstIndex(where: { $0.id == id }) { list[i].streaming = on; guardar(list) }
     }
 
-    /// El mismo clon puede conservar su versión de CALIDAD (XTTS) y su versión RÁPIDA
-    /// (Piper/ONNX). La elección es por voz, no global, y nunca borra la otra variante.
+    /// Una persona conserva Calidad (XTTS), Equilibrada (Qwen3/MLX) y Rápida
+    /// (Piper/ONNX). La elección es por voz, no global, y nunca borra otra variante.
     static func fijarVariante(_ id: String, _ variante: String) {
         var list = todas()
         guard let i = list.firstIndex(where: { $0.id == id }) else { return }
-        let pedida = variante == "onnx" ? "onnx" : "xtts"
+        let pedida = ["xtts", "mlx", "onnx"].contains(variante) ? variante : "xtts"
         guard (pedida == "onnx" && !list[i].onnx.isEmpty)
+                || (pedida == "mlx" && list[i].tieneMlx)
                 || (pedida == "xtts" && !list[i].paquete.isEmpty) else { return }
         list[i].variante = pedida
         guardar(list)
@@ -215,6 +237,19 @@ enum VocesLocales {
         // Un paquete portable puede traer también la variante rápida vinculada.
         let rapida = origen.appendingPathComponent("rapida/voz.onnx")
         if fm.fileExists(atPath: rapida.path) { _ = vincularPiper(desde: rapida, a: v.id, activar: false) }
+        // Y la variante equilibrada: solo viajan la referencia + su texto/modelo. Las
+        // pesas comunes de Qwen se descargan una vez en cada Mac, no se duplican por voz.
+        let eqDir = origen.appendingPathComponent("equilibrada")
+        let eqRef = eqDir.appendingPathComponent("referencia.wav")
+        let eqCfg = eqDir.appendingPathComponent("config.json")
+        if fm.fileExists(atPath: eqRef.path), let data = try? Data(contentsOf: eqCfg),
+           let cfg = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let texto = cfg["texto"] as? String, !texto.isEmpty {
+            let modelo = MlxVozEngine.modeloSeguro(
+                (cfg["modelo"] as? String) ?? MlxVozEngine.modeloDefault)
+            _ = vincularMlx(referencia: eqRef, transcripcion: texto, modelo: modelo,
+                            a: v.id, activar: false)
+        }
         let voz = todas().first { $0.id == v.id } ?? v
         return refLines.isEmpty ? .faltaMuestras(voz) : .ok(voz)
     }
@@ -300,6 +335,38 @@ enum VocesLocales {
         return list[i]
     }
 
+    /// Vincula la variante local equilibrada (Qwen3-TTS/MLX) a una persona existente.
+    /// Solo copia una muestra WAV y su transcripción; el modelo base es común y descargable.
+    @discardableResult
+    static func vincularMlx(referencia: URL, transcripcion: String,
+                            modelo: String = MlxVozEngine.modeloDefault,
+                            a id: String, activar: Bool = true) -> VozLocal? {
+        let fm = FileManager.default
+        let texto = transcripcion.trimmingCharacters(in: .whitespacesAndNewlines)
+        var list = todas()
+        guard let i = list.firstIndex(where: { $0.id == id }), !texto.isEmpty,
+              referencia.pathExtension.lowercased() == "wav",
+              fm.fileExists(atPath: referencia.path),
+              (try? referencia.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return nil }
+        let dstDir = vocesDir.appendingPathComponent(id).appendingPathComponent("equilibrada")
+        try? fm.createDirectory(at: dstDir, withIntermediateDirectories: true,
+                                attributes: [.posixPermissions: 0o700])
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dstDir.path)
+        let dst = dstDir.appendingPathComponent("referencia.wav")
+        do {
+            if referencia.standardizedFileURL != dst.standardizedFileURL {
+                try? fm.removeItem(at: dst); try fm.copyItem(at: referencia, to: dst)
+            }
+        } catch { return nil }
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dst.path)
+        list[i].mlxRef = dst.path
+        list[i].mlxRefText = texto
+        list[i].mlxModelo = MlxVozEngine.modeloSeguro(modelo)
+        if activar { list[i].variante = "mlx" }
+        guardar(list)
+        return list[i]
+    }
+
     /// DESCARGAR/exportar el paquete de una voz a una carpeta destino (para llevarlo).
     @discardableResult
     static func exportarPaquete(_ voz: VozLocal, a carpetaDestino: URL) -> URL? {
@@ -312,8 +379,8 @@ enum VocesLocales {
         try? fm.removeItem(at: destino)
         do {
             try fm.copyItem(at: origen, to: destino)
-            // El portable lleva las DOS variantes. Al importarlo en otro Mac, BetoDicta
-            // recupera XTTS + ONNX y deja XTTS seleccionado hasta que el usuario cambie.
+            // El portable conserva todas las variantes de ESA persona. Qwen/MLX solo
+            // requiere muestra+texto; el modelo común (~2,6 GB) no se duplica en el paquete.
             if !voz.onnx.isEmpty, fm.fileExists(atPath: voz.onnx) {
                 let rapida = destino.appendingPathComponent("rapida")
                 try? fm.removeItem(at: rapida)
@@ -324,6 +391,20 @@ enum VocesLocales {
                 if fm.fileExists(atPath: js.path) {
                     try fm.copyItem(at: js, to: rapida.appendingPathComponent("voz.onnx.json"))
                 }
+            }
+            if voz.tieneMlx {
+                let eq = destino.appendingPathComponent("equilibrada")
+                try? fm.removeItem(at: eq)
+                try fm.createDirectory(at: eq, withIntermediateDirectories: true)
+                try fm.copyItem(at: URL(fileURLWithPath: voz.mlxRef),
+                                to: eq.appendingPathComponent("referencia.wav"))
+                let cfg: [String: Any] = ["formato": "betodicta-qwen-mlx/1",
+                                          "modelo": MlxVozEngine.modeloSeguro(voz.mlxModelo),
+                                          "texto": voz.mlxRefText]
+                let data = try JSONSerialization.data(withJSONObject: cfg, options: .prettyPrinted)
+                try data.write(to: eq.appendingPathComponent("config.json"), options: .atomic)
+                try fm.setAttributes([.posixPermissions: 0o600],
+                                     ofItemAtPath: eq.appendingPathComponent("config.json").path)
             }
             return destino
         }

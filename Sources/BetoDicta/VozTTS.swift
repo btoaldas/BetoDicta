@@ -33,13 +33,27 @@ enum Voz {
         return principal == "apple" ? ["apple"] : [principal, "apple"]
     }
 
-    /// Preactiva el servidor XTTS si el clon local es el motor activo (modelo en RAM →
-    /// respuesta rápida). Se llama al arrancar y al cambiar de motor/voz. No bloquea.
+    /// Preactiva SOLO el servidor de la variante local elegida. XTTS y Qwen/MLX nunca
+    /// quedan cargados a la vez: cambia calidad/velocidad sin desperdiciar RAM.
     static func preactivarLocal() {
-        guard Config.ttsActivo(), Config.ttsProveedor() == "xtts_local", Config.ttsXttsPreactivar(),
-              VozEngine.estado() == .listo, let voz = VocesLocales.activa(), !voz.paquete.isEmpty,
-              voz.onnx.isEmpty || voz.variante != "onnx" else {
-            XttsServer.detener(); return   // si ya no aplica, libera la RAM del modelo
+        guard Config.ttsActivo(), Config.ttsProveedor() == "xtts_local",
+              let voz = VocesLocales.activa() else {
+            XttsServer.detener(); MlxVozServer.detener(); return
+        }
+        if voz.variante == "mlx", voz.tieneMlx {
+            XttsServer.detener()
+            guard Config.ttsMlxPreactivar(), MlxVozEngine.estado() == .listo else {
+                MlxVozServer.detener(); return
+            }
+            MlxVozServer.asegurar(voz: voz) { listo in
+                Log.log(.ia, "Qwen3-MLX \(listo ? "listo (equilibrada en RAM)" : "no arrancó")")
+            }
+            return
+        }
+        MlxVozServer.detener()
+        guard Config.ttsXttsPreactivar(), VozEngine.estado() == .listo,
+              !voz.paquete.isEmpty, voz.variante != "onnx" else {
+            XttsServer.detener(); return
         }
         XttsServer.asegurar(paquete: URL(fileURLWithPath: voz.paquete)) { listo in
             Log.log(.ia, "servidor XTTS \(listo ? "listo (modelo en RAM)" : "no arrancó")")
@@ -50,6 +64,7 @@ enum Voz {
     static func detener() {
         TTS.detener()
         player?.stop(); player = nil
+        MlxVozServer.pararVoz()
     }
 
     /// Bandera de cancelación: corta la cascada de failover (no pasa al siguiente motor).
@@ -57,7 +72,8 @@ enum Voz {
     /// ¿Hay voz sonando ahora mismo? (para saber si vale la pena cancelar).
     static var hablando: Bool {
         (player?.isPlaying ?? false) || TTS.hablando
-            || ElevenLabsStreamTTS.activo != nil || XttsStreamTTS.activo != nil || TTSCloudStream.activo != nil
+            || ElevenLabsStreamTTS.activo != nil || XttsStreamTTS.activo != nil
+            || TTSCloudStream.activo != nil || MlxVozServer.hablando
     }
 
     /// CANCELAR TODO lo de voz: para Apple, el audio por lotes, y TODOS los streaming
@@ -71,6 +87,7 @@ enum Voz {
         XttsStreamTTS.cancelar()
         TTSCloudStream.cancelar()
         XttsServer.pararVoz()
+        MlxVozServer.pararVoz()
     }
 
     /// Dice el texto con el motor configurado (con failover). `empezar` se dispara cuando
@@ -128,53 +145,9 @@ enum Voz {
                 }
             }
         case "xtts_local":
-            // Una misma persona puede tener DOS variantes vinculadas. La elegida manda;
-            // una voz que solo tiene ONNX sigue entrando al carril rápido automáticamente.
-            let local = VocesLocales.activa()
-            let usaPiper = local.map { !$0.onnx.isEmpty && ($0.paquete.isEmpty || $0.variante == "onnx") } ?? false
-            if let voz = local, usaPiper, PiperTTS.disponible {
-                PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: texto) { url in
-                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) } else {
-                        Log.log(.ia, "TTS Piper falló → siguiente motor"); siguiente()
-                    }
-                }
-                return
-            }
-            // Voz con PAQUETE + motor interno listo → lo corre BetoDicta solo (XTTS).
-            // Si no, cae al comando (bootstrap/externo). Si nada → siguiente motor.
-            if let voz = local, !voz.paquete.isEmpty, VozEngine.estado() == .listo {
-                let pkg = URL(fileURLWithPath: voz.paquete)
-                let batch: () -> Void = {
-                    VozEngine.correrPaquete(carpeta: pkg, texto: texto) { url in
-                        if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) } else {
-                            Log.log(.ia, "TTS motor interno falló → siguiente motor"); siguiente()
-                        }
-                    }
-                }
-                let porStream: () -> Void = {
-                    if voz.streaming {
-                        empezar?()
-                        XttsStreamTTS.hablar(paquete: pkg, texto: texto) { ok in
-                            if ok { done?() } else { Log.log(.ia, "TTS XTTS streaming falló → batch"); batch() }
-                        }
-                    } else { batch() }
-                }
-                // RÁPIDO: si el servidor residente está listo para esta voz, úsalo (modelo
-                // ya cargado → ~1-2s). Si no, arráncalo para la próxima y esta vez va por
-                // streaming directo.
-                if XttsServer.corriendo, XttsServer.paqueteActivo == pkg.path {
-                    XttsServer.decir(texto: texto, empezar: empezar) { ok in if ok { done?() } else { porStream() } }
-                } else {
-                    if Config.ttsXttsPreactivar() { XttsServer.asegurar(paquete: pkg) { _ in } }
-                    porStream()
-                }
-            } else {
-                XttsLocalTTS.decir(texto) { url in
-                    if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) } else {
-                        Log.log(.ia, "TTS XTTS local no disponible → siguiente motor"); siguiente()
-                    }
-                }
-            }
+            guard let local = VocesLocales.activa() else { siguiente(); return }
+            intentarLocal(local, texto: texto, empezar: empezar, done: done,
+                          alAgotar: siguiente)
         default:
             // Motor de NUBE del catálogo. Con WS + streaming ON → suena mientras genera;
             // si falla → batch; si el batch falla → siguiente motor.
@@ -196,6 +169,92 @@ enum Voz {
         }
     }
 
+    /// Failover ENTRE VARIANTES de la MISMA persona. Nunca cambia a otro clon: si la
+    /// equilibrada falla puede probar Calidad/Rápida y solo después cae a macOS.
+    private static func intentarLocal(_ voz: VozLocal, texto: String,
+                                      empezar: (() -> Void)?, done: (() -> Void)?,
+                                      alAgotar: @escaping () -> Void) {
+        let principal = ["xtts", "mlx", "onnx"].contains(voz.variante) ? voz.variante : "xtts"
+        let resto: [String]
+        switch principal {
+        case "mlx": resto = ["xtts", "onnx"]
+        case "onnx": resto = ["mlx", "xtts"]
+        default: resto = ["mlx", "onnx"]
+        }
+        let candidatas = Config.ttsLocalVariantesFailover() ? [principal] + resto : [principal]
+        let disponibles = candidatas.filter { variante in
+            switch variante {
+            case "mlx": return voz.tieneMlx && MlxVozEngine.estado() == .listo
+            case "onnx": return !voz.onnx.isEmpty && PiperTTS.disponible
+            default: return (!voz.paquete.isEmpty && VozEngine.estado() == .listo) || !voz.cmd.isEmpty
+            }
+        }
+
+        func probar(_ indice: Int) {
+            if cancelado { done?(); return }
+            guard indice < disponibles.count else { alAgotar(); return }
+            let variante = disponibles[indice]
+            let fallo: () -> Void = {
+                Log.log(.ia, "TTS local \(variante) falló → \(indice + 1 < disponibles.count ? disponibles[indice + 1] : "macOS")")
+                ejecutarEnMain { probar(indice + 1) }
+            }
+            switch variante {
+            case "mlx":
+                XttsServer.detener()
+                MlxVozServer.decir(voz: voz, texto: texto, empezar: empezar) { ok in
+                    ok ? done?() : fallo()
+                }
+            case "onnx":
+                PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: texto) { url in
+                    if let url, let data = try? Data(contentsOf: url) {
+                        reproducir(data, empezar, done)
+                    } else { fallo() }
+                }
+            default:
+                MlxVozServer.detener()
+                intentarXtts(voz, texto: texto, empezar: empezar, done: done, fallo: fallo)
+            }
+        }
+        probar(0)
+    }
+
+    private static func intentarXtts(_ voz: VozLocal, texto: String,
+                                     empezar: (() -> Void)?, done: (() -> Void)?,
+                                     fallo: @escaping () -> Void) {
+        guard !voz.paquete.isEmpty, VozEngine.estado() == .listo else {
+            guard !voz.cmd.isEmpty else { fallo(); return }
+            XttsLocalTTS.decirCon(cmd: voz.cmd, texto: texto) { url in
+                if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) }
+                else { fallo() }
+            }
+            return
+        }
+        let pkg = URL(fileURLWithPath: voz.paquete)
+        let batch: () -> Void = {
+            VozEngine.correrPaquete(carpeta: pkg, texto: texto) { url in
+                if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) }
+                else { fallo() }
+            }
+        }
+        let porStream: () -> Void = {
+            if voz.streaming {
+                empezar?()
+                XttsStreamTTS.hablar(paquete: pkg, texto: texto) { ok in
+                    if ok { done?() }
+                    else { Log.log(.ia, "TTS XTTS streaming falló → batch"); batch() }
+                }
+            } else { batch() }
+        }
+        if XttsServer.corriendo, XttsServer.paqueteActivo == pkg.path {
+            XttsServer.decir(texto: texto, empezar: empezar) { ok in
+                if ok { done?() } else { porStream() }
+            }
+        } else {
+            if Config.ttsXttsPreactivar() { XttsServer.asegurar(paquete: pkg) { _ in } }
+            porStream()
+        }
+    }
+
     /// Prueba UNA voz local concreta (la genera con su comando y la reproduce),
     /// sin importar cuál sea el motor activo. Para el botón "Probar" de la biblioteca.
     static func probarVozLocal(_ voz: VozLocal, _ done: (() -> Void)? = nil) {
@@ -205,7 +264,9 @@ enum Voz {
             else { DispatchQueue.main.async { done?() } }
         }
         let usaPiper = !voz.onnx.isEmpty && (voz.paquete.isEmpty || voz.variante == "onnx")
-        if usaPiper, PiperTTS.disponible {
+        if voz.variante == "mlx", voz.tieneMlx, MlxVozEngine.estado() == .listo {
+            MlxVozServer.decir(voz: voz, texto: saludo, empezar: nil) { _ in done?() }
+        } else if usaPiper, PiperTTS.disponible {
             PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: saludo, completion: cb)
         } else if !voz.paquete.isEmpty, VozEngine.estado() == .listo {
             VozEngine.correrPaquete(carpeta: URL(fileURLWithPath: voz.paquete), texto: saludo, completion: cb)

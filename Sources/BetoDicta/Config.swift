@@ -443,6 +443,18 @@ struct Config {
     /// se despierta al grabar (fn). Default ON, 5 min. No satura la Mac cuando no lo usas.
     static func ttsXttsDormir() -> Bool { (json()["tts_xtts_dormir"] as? Bool) ?? true }
     static func ttsXttsDormirMin() -> Double { (json()["tts_xtts_dormir_min"] as? Double) ?? 5 }
+    /// Motor equilibrado Qwen3-TTS/MLX. Parámetros propios: no cambian XTTS ni Piper.
+    static func ttsMlxPreactivar() -> Bool { (json()["tts_mlx_preactivar"] as? Bool) ?? true }
+    static func ttsMlxDormir() -> Bool { (json()["tts_mlx_dormir"] as? Bool) ?? true }
+    static func ttsMlxDormirMin() -> Double { (json()["tts_mlx_dormir_min"] as? Double) ?? 5 }
+    /// Audio acumulado antes de empezar a reproducir y tamaño de chunk generado.
+    static func ttsMlxColchonSeg() -> Double { (json()["tts_mlx_colchon_seg"] as? Double) ?? 0.8 }
+    static func ttsMlxIntervalo() -> Double { (json()["tts_mlx_intervalo"] as? Double) ?? 0.32 }
+    /// Si una variante local falla, prueba otras variantes de ESA MISMA persona antes
+    /// de caer a la voz de macOS. Nunca salta silenciosamente a otro clon.
+    static func ttsLocalVariantesFailover() -> Bool {
+        (json()["tts_local_variantes_failover"] as? Bool) ?? true
+    }
     /// Modo AHORRO global: al inactivar (mismos minutos), libera lo pesado (clon + latido
     /// de red); fn despierta todo. Default ON. Parametrizable.
     static func ahorroGlobal() -> Bool { (json()["ahorro_global"] as? Bool) ?? true }

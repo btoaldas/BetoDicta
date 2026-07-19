@@ -231,6 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         WhisperServer.apagar(motivo: "salida de la app")
         VoxtralServer.apagar(motivo: "salida de la app")
         XttsServer.detener()   // no dejar 2 GB huérfanos ni duplicar el servidor al reabrir
+        MlxVozServer.detener() // tampoco dejar Qwen/MLX cargado en Metal/RAM
         AgenteCodex.cancelar()
         CapturaMac.cancelar()
     }
@@ -961,6 +962,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 print("PLANTEST \(Int(m))min → permitido=\(p.permitido) tier=\(p.tier) etapas=\(p.etapasRecomendadas) ckpts=\(p.checkpoints) horas≈\(String(format: "%.1f", Entrenador.horasEstimadas(etapas: p.etapasRecomendadas)))")
             }
             exit(0)
+        }
+        // Dos consumidores llegan durante la misma carga: ambos deben esperar y compartir
+        // UN proceso. BETODICTA_MLXRACETEST=<ref.wav> + BETODICTA_MLXREFTEXT.
+        if let ref = ProcessInfo.processInfo.environment["BETODICTA_MLXRACETEST"], !ref.isEmpty {
+            let voz = VozLocal(id: "qa-mlx-race", nombre: "QA MLX race", cmd: "", mlxRef: ref,
+                               mlxRefText: ProcessInfo.processInfo.environment["BETODICTA_MLXREFTEXT"] ?? "",
+                               variante: "mlx")
+            var resultados: [Bool] = []
+            let recibido: (Bool) -> Void = { ok in
+                resultados.append(ok)
+                guard resultados.count == 2 else { return }
+                let unico = MlxVozServer.proceso?.isRunning == true
+                print("MLXRACETEST callbacks=\(resultados) procesoUnico=\(unico)")
+                MlxVozServer.detener(); exit(resultados.allSatisfy { $0 } && unico ? 0 : 4)
+            }
+            MlxVozServer.asegurar(voz: voz, onListo: recibido)
+            MlxVozServer.asegurar(voz: voz, onListo: recibido)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
+                print("MLXRACETEST timeout"); MlxVozServer.detener(); exit(3)
+            }
+            return
+        }
+        // QA del flujo público completo Voz.decir con el proveedor/voz/variante activos.
+        // BETODICTA_LOCALVOZTEST=1 .build/debug/BetoDicta
+        if ProcessInfo.processInfo.environment["BETODICTA_LOCALVOZTEST"] == "1" {
+            guard let activa = VocesLocales.activa() else {
+                print("LOCALVOZTEST sin voz activa"); exit(2)
+            }
+            print("LOCALVOZTEST proveedor=\(Config.ttsProveedor()) voz=\(activa.id) variante=\(activa.variante)")
+            DispatchQueue.main.async {
+                Voz.decir("Hola mijo, esta es la prueba completa de BetoDicta con la voz local equilibrada.",
+                          empezar: { print("LOCALVOZTEST empezó") },
+                          completion: {
+                              print("LOCALVOZTEST OK terminó")
+                              MlxVozServer.detener(); XttsServer.detener(); exit(0)
+                          })
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 180) {
+                print("LOCALVOZTEST timeout"); MlxVozServer.detener(); XttsServer.detener(); exit(3)
+            }
+            return
+        }
+        // Prueba reproducible del servidor equilibrado Qwen3/MLX. No cambia la biblioteca,
+        // salvo que se pida explícitamente BETODICTA_MLXLINKID=<voz> tras superar todo el QA:
+        // BETODICTA_MLXTEST=/ruta/ref.wav BETODICTA_MLXREFTEXT="texto literal" build/debug/BetoDicta
+        if let ref = ProcessInfo.processInfo.environment["BETODICTA_MLXTEST"], !ref.isEmpty {
+            let rt = ProcessInfo.processInfo.environment["BETODICTA_MLXREFTEXT"] ?? ""
+            let modelo = ProcessInfo.processInfo.environment["BETODICTA_MLXMODEL"] ?? MlxVozEngine.modeloDefault
+            let voz = VozLocal(id: "qa-mlx", nombre: "QA MLX", cmd: "", mlxRef: ref,
+                               mlxRefText: rt, mlxModelo: modelo, variante: "mlx")
+            let t0 = Date()
+            MlxVozServer.asegurar(voz: voz) { listo in
+                print("MLXTEST carga=\(String(format: "%.2f", Date().timeIntervalSince(t0)))s listo=\(listo)")
+                guard listo, let u = URL(string: "http://127.0.0.1:\(MlxVozServer.puerto)/say?stream=0") else { exit(2) }
+                func pedir(_ n: Int, _ then: @escaping (Bool) -> Void) {
+                    let t = Date(); var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 90
+                    MlxVozServer.autorizar(&req)
+                    req.httpBody = "Hola mijo, esta es una prueba local equilibrada. Cuídate mucho.".data(using: .utf8)
+                    URLSession.shared.dataTask(with: req) { d, resp, e in
+                        let ok = (resp as? HTTPURLResponse)?.statusCode == 200 && (d?.count ?? 0) > 1000 && e == nil
+                        print("MLXTEST pedido\(n)=\(String(format: "%.2f", Date().timeIntervalSince(t)))s bytes=\(d?.count ?? 0) ok=\(ok)")
+                        then(ok)
+                    }.resume()
+                }
+                pedir(1) { a in pedir(2) { b in
+                    guard a && b else { MlxVozServer.detener(); exit(3) }
+                    let t = Date()
+                    MlxVozServer.decir(voz: voz,
+                        texto: "Hola mijo, esta es la prueba de voz equilibrada en vivo. Cuídate mucho, que Diosito te bendiga.",
+                        empezar: { print("MLXTEST streaming inicio=\(String(format: "%.2f", Date().timeIntervalSince(t)))s") },
+                        completion: { ok in
+                            print("MLXTEST streaming fin=\(String(format: "%.2f", Date().timeIntervalSince(t)))s ok=\(ok)")
+                            if ok, let id = ProcessInfo.processInfo.environment["BETODICTA_MLXLINKID"], !id.isEmpty {
+                                let vinculada = VocesLocales.vincularMlx(
+                                    referencia: URL(fileURLWithPath: ref), transcripcion: rt,
+                                    modelo: voz.mlxModelo, a: id, activar: true)
+                                print("MLXTEST vínculo id=\(id) ok=\(vinculada != nil)")
+                            }
+                            MlxVozServer.detener(); exit(ok ? 0 : 4)
+                        })
+                } }
+            }
+            RunLoop.main.run(); return
         }
         // Prueba del SERVIDOR XTTS residente: BETODICTA_XTTSSERVER=<paquete>
         // Levanta el servidor (mide carga) y hace 2 respuestas (mide latencia con modelo cargado).

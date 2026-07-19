@@ -39,6 +39,7 @@ enum Ahorro {
         Log.log(.config, "modo ahorro: durmiendo lo pesado (libera RAM/CPU); fn despierta")
         CalientaRed.detenerLatido()
         if Config.ttsXttsDormir() { XttsServer.detener() }
+        if Config.ttsMlxDormir() { MlxVozServer.detener() }
         // (futuro: aquí se sueltan más subsistemas — embeddings locales, etc.)
     }
 
