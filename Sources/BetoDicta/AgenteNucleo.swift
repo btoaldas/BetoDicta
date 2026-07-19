@@ -204,6 +204,66 @@ enum PerfilAgente {
         return nil
     }
 
+    /// Variante conservadora exclusiva del detector manos libres. Apple puede
+    /// escribir un nombre poco común con una letra extra ("Beteo" por "Beto").
+    /// La primera palabra debe ser exacta y cada palabra restante conservar al
+    /// menos 80 % de similitud; así "Oye Beteo" vale, pero "Oye beta" no.
+    static func invocacionTolerante(en texto: String, activadores: [String]) -> Invocacion? {
+        if let exacta = invocacion(en: texto, activadores: activadores) { return exacta }
+        let ns = texto as NSString
+        let matches = palabra.matches(in: texto, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return nil }
+        let normales = matches.map { normalizar(ns.substring(with: $0.range)) }
+        for frase in FrasesConfigurables.activadoresSeguros(activadores)
+            .sorted(by: { $0.count > $1.count }) {
+            let ft = normalizar(frase).split(separator: " ").map(String.init)
+            guard ft.count >= 2, ft.count <= normales.count,
+                  normales[0] == ft[0] else { continue }
+            let sims = zip(normales.prefix(ft.count), ft).map {
+                ModoFuzzy.similitud($0.0, $0.1)
+            }
+            guard sims.dropFirst().allSatisfy({ $0 >= 0.80 }),
+                  sims.reduce(0, +) / Double(sims.count) >= 0.88 else { continue }
+            let fin = NSMaxRange(matches[ft.count - 1].range)
+            let resto = ns.substring(from: fin)
+                .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;—-\n\t"))
+            return Invocacion(frase: frase, contenido: resto)
+        }
+        return nil
+    }
+
+    /// El detector manos libres ya confirmó acústicamente una frase concreta.
+    /// El búfer circular puede incluir silencio o palabras anteriores, por eso
+    /// aquí se permite localizar ESA frase en cualquier posición y se descarta
+    /// todo lo previo. No se usa en dictados normales: allí la frase continúa
+    /// obligada al inicio para evitar falsos positivos.
+    static func invocacionDedicada(en texto: String, frase: String) -> Invocacion? {
+        guard FrasesConfigurables.activadorSeguro(frase) else { return nil }
+        let ns = texto as NSString
+        let matches = palabra.matches(in: texto,
+                                      range: NSRange(location: 0, length: ns.length))
+        let objetivo = normalizar(frase).split(separator: " ").map(String.init)
+        guard !matches.isEmpty, !objetivo.isEmpty, objetivo.count <= matches.count else { return nil }
+        let normales = matches.map { normalizar(ns.substring(with: $0.range)) }
+        for inicio in 0...(normales.count - objetivo.count) {
+            let finIndice = inicio + objetivo.count
+            let candidato = Array(normales[inicio..<finIndice])
+            let exacto = candidato == objetivo
+            let sims = zip(candidato, objetivo).map {
+                ModoFuzzy.similitud($0.0, $0.1)
+            }
+            let tolerante = candidato.first == objetivo.first
+                && sims.dropFirst().allSatisfy { $0 >= 0.80 }
+                && sims.reduce(0, +) / Double(max(1, sims.count)) >= 0.88
+            guard exacto || tolerante else { continue }
+            let fin = NSMaxRange(matches[finIndice - 1].range)
+            let resto = ns.substring(from: fin)
+                .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;—-\n\t"))
+            return Invocacion(frase: frase, contenido: resto)
+        }
+        return nil
+    }
+
     static func prompt() -> String {
         let n = Config.agenteNombre()
         let p = Config.agentePersonalidad().trimmingCharacters(in: .whitespacesAndNewlines)

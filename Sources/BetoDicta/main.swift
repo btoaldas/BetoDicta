@@ -77,6 +77,36 @@ DocumentosMac.ejecutarPruebaSiSePidio()
 NotasApple.ejecutarPruebaSiSePidio()
 VozLocalQA.ejecutarSiSePidio()
 TareasNotasQA.ejecutarSiSePidio()
+if ProcessInfo.processInfo.environment["BETODICTA_WAKEWORDTEST"] == "1" {
+    let (ok, lineas) = ActivacionVoz.ejecutarQA()
+    lineas.forEach { print("WAKETEST \($0)") }
+    print("WAKETEST \(ok ? "TODO OK" : "FALLA")")
+    fflush(stdout); exit(ok ? 0 : 3)
+}
+if let ruta = ProcessInfo.processInfo.environment["BETODICTA_WAKEAUDIOTEST"],
+   !ruta.isEmpty {
+    let frase = ProcessInfo.processInfo.environment["BETODICTA_WAKEPHRASE"] ?? "Oye Bto"
+    guard let wav = try? Data(contentsOf: URL(fileURLWithPath: ruta)) else {
+        print("WAKEAUDIOTEST FALLA no pude leer \(ruta)"); exit(4)
+    }
+    var recibido: Result<String, Swift.Error>?
+    AppleSpeechSTT.run(wav: wav) { recibido = $0 }
+    let limite = Date().addingTimeInterval(90)
+    while recibido == nil, Date() < limite {
+        _ = RunLoop.current.run(mode: .default,
+                                before: Date().addingTimeInterval(0.05))
+    }
+    guard let recibido else { print("WAKEAUDIOTEST FALLA timeout"); exit(5) }
+    switch recibido {
+    case .success(let texto):
+        let inv = PerfilAgente.invocacionTolerante(en: texto, activadores: [frase])
+        let ok = inv != nil
+        print("WAKEAUDIOTEST \(ok ? "OK" : "FALLA") frase=\(frase) texto=\(texto) contenido=\(inv?.contenido ?? "")")
+        exit(ok ? 0 : 3)
+    case .failure(let error):
+        print("WAKEAUDIOTEST FALLA \(error.localizedDescription)"); exit(6)
+    }
+}
 
 // Consulta meteorológica real de integración, sin abrir la interfaz. Requiere
 // una ciudad explícita para no solicitar ubicación desde un proceso de QA.

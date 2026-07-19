@@ -31,7 +31,9 @@
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>BetoDicta crea los recordatorios que tú confirmes por voz.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>BetoDicta graba tu voz para transcribirla con el motor que elijas.</string>
+	<string>BetoDicta usa el micrófono para transcribir tu voz y, solo si activas la opción manos libres, detectar localmente tu frase de presencia.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>BetoDicta usa el reconocimiento local de Apple para mostrar el dictado en vivo y, si tú lo activas, reconocer una frase de presencia sin enviar el audio a la nube.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>BetoDicta usa una ubicación aproximada únicamente cuando le preguntas por el clima sin indicar una ciudad.</string>
 	<key>NSScreenCaptureUsageDescription</key>

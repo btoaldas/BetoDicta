@@ -37,13 +37,35 @@ private struct BotonNativoAccesible: NSViewRepresentable {
 
 @MainActor
 final class AgenteSettingsModel: ObservableObject {
-    @Published var activo: Bool { didSet { Config.set("agente_nucleo_activo", to: activo) } }
+    @Published var activo: Bool {
+        didSet {
+            Config.set("agente_nucleo_activo", to: activo)
+            NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
+                                            object: nil)
+        }
+    }
     @Published var nombre: String { didSet { Config.set("agente_nombre", to: nombre) } }
     @Published var personalidad: String { didSet { Config.set("agente_personalidad", to: personalidad) } }
     @Published var activadores: String {
         didSet {
             let a = FrasesConfigurables.parsear(activadores)
             Config.set("agente_activadores", to: a)
+            NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
+                                            object: nil)
+        }
+    }
+    @Published var activacionReposo: Bool {
+        didSet {
+            Config.set("agente_activacion_reposo", to: activacionReposo)
+            NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
+                                            object: nil)
+        }
+    }
+    @Published var activacionPrebuffer: Double {
+        didSet {
+            Config.set("agente_activacion_prebuffer_seg", to: activacionPrebuffer)
+            NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
+                                            object: nil)
         }
     }
     @Published var autonomia: String { didSet { Config.set("agente_autonomia", to: autonomia) } }
@@ -112,6 +134,8 @@ final class AgenteSettingsModel: ObservableObject {
         activo = Config.agenteNucleoActivo(); nombre = Config.agenteNombre()
         personalidad = Config.agentePersonalidad()
         activadores = FrasesConfigurables.formatear(Config.agenteActivadores())
+        activacionReposo = Config.agenteActivacionReposo()
+        activacionPrebuffer = Config.agenteActivacionPrebuffer()
         autonomia = Config.agenteAutonomia(); motor = Config.agenteMotor()
         fallback = Config.agenteFallbackCerebro(); proveedorIA = Config.agenteIAProveedor()
         modeloIA = Config.agenteIAModelo(); memoria = Config.agenteMemoriaActiva()
@@ -282,6 +306,7 @@ struct AgenteView: View {
     @StateObject private var m = AgenteSettingsModel()
     @State private var proveedorNombre = ""
     @State private var proveedorURL = ""
+    @State private var estadoActivacion = ActivacionVoz.shared.estado
 
     private let violeta = Color(red: 0.36, green: 0.28, blue: 0.62)
 
@@ -302,8 +327,34 @@ struct AgenteView: View {
                         .font(.body).frame(minHeight: 58, maxHeight: 82)
                         .padding(5).background(Color(nsColor: .textBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
-                    Text("Una frase por línea y mínimo dos palabras. La puntuación no importa: “Oye, Bto” coincide con “Oye Bto”. Activadores de una palabra como “oye” o “Bto” se ignoran para que un dictado normal no llame al agente. Funciona dentro del dictado iniciado con fn; el micrófono no queda escuchando en reposo.")
+                    Text(m.activacionReposo
+                         ? "Una frase por línea y mínimo dos palabras. La puntuación no importa: “Oye, Bto” coincide con “Oye Bto”. Activadores genéricos de una palabra se ignoran. Funcionan tanto con fn como en la escucha local opcional de abajo."
+                         : "Una frase por línea y mínimo dos palabras. La puntuación no importa: “Oye, Bto” coincide con “Oye Bto”. Activadores de una palabra como “oye” o “Bto” se ignoran para que un dictado normal no llame al agente. Funciona dentro del dictado iniciado con fn; el micrófono no queda escuchando en reposo.")
                         .font(.caption).foregroundStyle(.secondary)
+                }
+                Divider()
+                Toggle("Activar manos libres al decir una frase de presencia",
+                       isOn: $m.activacionReposo)
+                    .accessibilityHint("Mantiene Apple Speech local escuchando solo las frases configuradas")
+                if m.activacionReposo {
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(estadoActivacion.activo ? Color.green : Color.orange)
+                            .frame(width: 8, height: 8)
+                        Text(estadoActivacion.descripcion).font(.caption)
+                    }
+                    HStack {
+                        Text("Orden corrida: conservar \(String(format: "%.1f", m.activacionPrebuffer)) s en RAM")
+                            .font(.caption)
+                        Slider(value: $m.activacionPrebuffer, in: 2...8, step: 0.5)
+                            .frame(maxWidth: 230)
+                    }
+                    Text("Puedes decir “Oye Bto” y continuar sin cortar la frase. Antes de despertar, BetoDicta conserva únicamente este búfer circular en memoria: no guarda ni sube el audio y no registra el texto ambiental. macOS puede descargar una vez el modelo local del idioma y mostrará su indicador de micrófono. La escucha se pausa al dictar, hablar, confirmar o capturar.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !ActivacionVoz.disponible {
+                        Text("La activación flexible local requiere macOS 26. En versiones anteriores, fn y las frases dentro del dictado siguen funcionando normalmente.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Personalidad").font(.subheadline)
@@ -584,6 +635,9 @@ struct AgenteView: View {
         .onAppear { m.cargarAtajos(); m.actualizarCodex() }
         .onReceive(NotificationCenter.default.publisher(for: .betoUbicacionClimaCambio)) { _ in
             m.permisosTick += 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .betoActivacionVozEstadoCambio)) { _ in
+            estadoActivacion = ActivacionVoz.shared.estado
         }
     }
 

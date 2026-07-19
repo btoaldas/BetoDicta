@@ -23,11 +23,13 @@ final class Recorder {
         return samples
     }
 
-    func start() throws {
+    func start(preloadPCM: Data = Data()) throws {
         // Blindaje contra doble arranque: un segundo installTap en el mismo
         // bus lanza NSException y tumba la app (crash real del 2026-07-10).
         guard !isRecording else { return }
-        samples = Data()
+        candado.lock()
+        samples = preloadPCM
+        candado.unlock()
         let input = engine.inputNode
         input.removeTap(onBus: 0)   // por si quedó un tap de un intento fallido
         // Fijar el micrófono ANTES de leer el formato: sin esto macOS puede
@@ -84,6 +86,10 @@ final class Recorder {
             throw error
         }
         isRecording = true
+        // La activación manos libres entrega los últimos segundos que estaban
+        // solo en RAM. Pasan por el MISMO historial/preview/backlog que el audio
+        // nuevo y la cascada final recibe una única grabación continua.
+        if !preloadPCM.isEmpty { onChunk?(preloadPCM) }
     }
 
     func stop() -> Data {
@@ -115,4 +121,3 @@ final class Recorder {
         return wav
     }
 }
-

@@ -276,15 +276,26 @@ struct Config {
         (json()["agente_personalidad"] as? String)
             ?? "Cálido, directo, práctico y respetuoso. Habla en español natural y con respuestas breves."
     }
-    /// Frases que invocan al asistente DENTRO de un dictado. La escucha manos libres
-    /// continua será una capacidad separada para no mantener el micrófono abierto sin
-    /// consentimiento explícito.
+    /// Frases que invocan al asistente dentro de un dictado y, únicamente si el
+    /// usuario activa la opción separada, también desde la escucha manos libres.
     static func agenteActivadores() -> [String] {
         let a = (json()["agente_activadores"] as? [String]) ?? ["oye beto", "oye betodicta", "oye jarvis"]
         // Una sola palabra ("oye", "beto", "mamá"…) aparece con demasiada
         // frecuencia en un dictado normal. Se conserva en el JSON para que el
         // usuario no pierda su configuración, pero no puede despertar al agente.
         return FrasesConfigurables.activadoresSeguros(a)
+    }
+    /// Escucha manos libres en reposo. Es deliberadamente opt-in: al activarla
+    /// macOS mantiene el indicador de micrófono visible. Todo el reconocimiento
+    /// previo a la frase se procesa localmente y no se guarda.
+    static func agenteActivacionReposo() -> Bool {
+        (json()["agente_activacion_reposo"] as? Bool) ?? false
+    }
+    /// Segundos de PCM conservados únicamente en RAM. Permiten que una orden
+    /// corrida ("Oye Bto, abre…") no pierda sus primeras palabras durante el
+    /// traspaso Apple Speech → Recorder. Nunca se escriben antes de despertar.
+    static func agenteActivacionPrebuffer() -> Double {
+        min(8, max(2, (json()["agente_activacion_prebuffer_seg"] as? Double) ?? 4))
     }
     /// Tres niveles: consultivo (todo pregunta), asistido (lecturas/aperturas seguras
     /// automáticas) y autónomo (también cambios locales reversibles). Enviar, comprar,

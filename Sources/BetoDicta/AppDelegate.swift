@@ -126,6 +126,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// "Modo agente" dicho solo prepara el próximo dictado sin cambiar el modo
     /// persistente ni romper la opción de un solo uso.
     private var modoPendienteVoz: Modo?
+    // Activación manos libres: el listener nativo vive solo cuando la app está
+    // en reposo. El audio previo viaja con UNA sesión y jamás cambia el modo
+    // persistente/default del usuario.
+    private var activacionVozTimer: Timer?
+    private var activacionVozObserver: NSObjectProtocol?
+    private var iniciandoDictado = false
+    /// Si fn se soltó mientras el oyente todavía entregaba el micrófono, se
+    /// ejecuta apenas Recorder arranque. `true` descarta (fn usado como atajo),
+    /// `false` transcribe. Evita una grabación huérfana por esa carrera breve.
+    private var cierreAlArrancar: Bool?
+    private var despertarPendiente: ActivacionVoz.Despertar?
     // Contexto (app/sitio al frente) capturado al arrancar el dictado, para los
     // triggers de modo por app/web. url se completa async (AppleScript navegador).
     private var ctxDictado: (sesion: UUID, valor: ModoContexto)?
@@ -146,6 +157,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modoVivoPausaTimer?.invalidate(); modoVivoPausaTimer = nil
         if let sesion = modoVivoSesion { ModoVivo.cancelar(sesion: sesion) }
         modoVivoSesion = nil; ctxDictado = nil; huboVozEnSesion = false
+        despertarPendiente = nil
+        iniciandoDictado = false
+        cierreAlArrancar = nil
         silenceTimer?.invalidate()
         silenceTimer = nil
         liveTimer?.invalidate()
@@ -196,6 +210,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func cancelarTodo() {
         if hayConfirmacion { resolverConfirmacion(acepta: false, origen: "cancelar"); return }
         if recorder.isRecording { cancelDictation(); return }
+        if iniciandoDictado {
+            cierreAlArrancar = true
+            despertarPendiente = nil
+            return
+        }
         if CapturaMac.grabacionContinuaEnCurso {
             detenerGrabacionPantalla(); return
         }
@@ -250,6 +269,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         iconoTimer?.invalidate(); iconoVigilante?.invalidate()
+        activacionVozTimer?.invalidate()
+        if let o = activacionVozObserver { NotificationCenter.default.removeObserver(o) }
+        ActivacionVoz.shared.apagar()
         TareasRecordatorios.shared.detener()
         WhisperServer.apagar(motivo: "salida de la app")
         VoxtralServer.apagar(motivo: "salida de la app")
@@ -260,6 +282,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if ProcessInfo.processInfo.environment["BETODICTA_WAKEDETECTTEST"] == "1" {
+            let frase = ProcessInfo.processInfo.environment["BETODICTA_WAKEPHRASE"]
+                ?? "Oye Beto"
+            ActivacionVoz.shared.reconciliar(habilitado: true, puedeEscuchar: true,
+                                              activadores: [frase]) { despertar in
+                let ms = Int(Double(despertar.audioPrevio.count) / 32.0)
+                print("WAKEDETECTTEST OK frase=\(despertar.frase) prebuffer_ms=\(ms)")
+                ActivacionVoz.shared.suspender {
+                    print("WAKEDETECTTEST OK micrófono liberado")
+                    fflush(stdout); exit(0)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 35) {
+                print("WAKEDETECTTEST FALLA timeout estado=\(ActivacionVoz.shared.estado.descripcion)")
+                fflush(stdout); exit(5)
+            }
+            return
+        }
+        if ProcessInfo.processInfo.environment["BETODICTA_WAKELIVETEST"] == "1" {
+            let limite = Date().addingTimeInterval(20)
+            let probarPush = ProcessInfo.processInfo.environment["BETODICTA_WAKEPUSHTEST"] == "1"
+            let frase = ProcessInfo.processInfo.environment["BETODICTA_WAKEPHRASE"]
+                ?? "Oye Beto"
+            ActivacionVoz.shared.reconciliar(habilitado: true, puedeEscuchar: true,
+                                              activadores: [frase]) { _ in }
+            let timer = Timer(timeInterval: 0.25, repeats: true) { timer in
+                let estado = ActivacionVoz.shared.estado
+                if estado.activo {
+                    timer.invalidate()
+                    print("WAKELIVETEST OK escuchando")
+                    if probarPush {
+                        // Reproduce la carrera real: fn baja mientras el listener
+                        // ocupa el micrófono y se suelta antes de que lo entregue.
+                        self.startDictation()
+                        self.cerrarDictadoAlSoltar(descartar: true)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            let ok = !self.recorder.isRecording && !self.iniciandoDictado
+                                && self.cierreAlArrancar == nil
+                                && !ActivacionVoz.shared.ocupaMicrofono
+                            print("WAKEPUSHTEST \(ok ? "OK" : "FALLA") sin grabación huérfana")
+                            fflush(stdout); exit(ok ? 0 : 6)
+                        }
+                        return
+                    }
+                    ActivacionVoz.shared.suspender {
+                        let libre = !ActivacionVoz.shared.ocupaMicrofono
+                        print("WAKELIVETEST \(libre ? "OK" : "FALLA") micrófono liberado")
+                        fflush(stdout); exit(libre ? 0 : 3)
+                    }
+                } else if case .error(let mensaje) = estado {
+                    timer.invalidate(); print("WAKELIVETEST FALLA \(mensaje)")
+                    fflush(stdout); exit(4)
+                } else if Date() >= limite {
+                    timer.invalidate(); print("WAKELIVETEST FALLA timeout estado=\(estado.descripcion)")
+                    fflush(stdout); exit(5)
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            return
+        }
         if ProcessInfo.processInfo.environment["BETODICTA_NOTASAPPLEFLOWTEST"] == "1" {
             NotasApple.probarFlujoReal { r in
                 print("NOTASAPPLEFLOWTEST \(r.ok ? "OK" : "FALLA") | \(r.mensaje)")
@@ -1854,6 +1936,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
         }
+        iniciarVigilanciaActivacionVoz()
 
         // Modo demo para captura de pantalla: BETODICTA_DEMO=1 abre el panel
         // con texto y latido simulado, sin grabar. Solo para el README.
@@ -2665,10 +2748,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         if activoPorDoble {
                             self.doblePulsacion.reiniciar()
                             DispatchQueue.main.async {
-                                guard self.recorder.isRecording else { return }
                                 // Segunda pulsación mantenida: al soltar termina.
-                                if usadoConTecla { self.cancelDictation(silencioso: true) }
-                                else { self.stopAndTranscribe() }
+                                self.cerrarDictadoAlSoltar(descartar: usadoConTecla)
                             }
                         } else if !usadoConTecla {
                             self.doblePulsacion.armar()
@@ -2676,11 +2757,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         }
                     } else {
                         DispatchQueue.main.async {
-                            guard self.recorder.isRecording else { return }
                             // Si fn se usó como modificador de atajo (fn+flecha…),
                             // descarta en silencio; solo transcribe si fue mantener.
-                            if usadoConTecla { self.cancelDictation(silencioso: true) }
-                            else { self.stopAndTranscribe() }
+                            self.cerrarDictadoAlSoltar(descartar: usadoConTecla)
                         }
                     }
                 } else if activoPorDoble {
@@ -2688,7 +2767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     // presionarla y queda grabando hasta una pulsación posterior.
                     if usadoConTecla {
                         DispatchQueue.main.async {
-                            if self.recorder.isRecording { self.cancelDictation(silencioso: true) }
+                            self.cerrarDictadoAlSoltar(descartar: true)
                         }
                     }
                 } else if !usadoConTecla {
@@ -2713,7 +2792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // soltar ni pegues basura.
                 if Config.pushToTalk() {
                     DispatchQueue.main.async {
-                        if self.recorder.isRecording { self.cancelDictation(silencioso: true) }
+                        self.cerrarDictadoAlSoltar(descartar: true)
                     }
                 }
             }
@@ -2729,7 +2808,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: Flujo de dictado
+    // MARK: Activación manos libres · Flujo de dictado
+
+    private func iniciarVigilanciaActivacionVoz() {
+        activacionVozTimer?.invalidate()
+        if let o = activacionVozObserver { NotificationCenter.default.removeObserver(o) }
+        activacionVozObserver = NotificationCenter.default.addObserver(
+            forName: .betoActivacionVozConfiguracionCambio,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.reconciliarActivacionVoz() }
+        let timer = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
+            self?.reconciliarActivacionVoz()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        activacionVozTimer = timer
+        reconciliarActivacionVoz()
+    }
+
+    private func reconciliarActivacionVoz() {
+        let habilitado = Config.agenteNucleoActivo() && Config.agenteActivacionReposo()
+        let ocupado = iniciandoDictado || recorder.isRecording || hayConfirmacion
+            || agenteActivo || AgenteHermes.enCurso || AgenteCodex.enCurso
+            || Voz.hablando || CapturaMac.enCurso || CapturaMac.grabacionContinuaEnCurso
+        ActivacionVoz.shared.reconciliar(
+            habilitado: habilitado,
+            puedeEscuchar: !ocupado,
+            activadores: Config.agenteActivadores()
+        ) { [weak self] despertar in
+            self?.despertarPorVoz(despertar)
+        }
+    }
+
+    private func despertarPorVoz(_ despertar: ActivacionVoz.Despertar) {
+        // El resultado puede llegar justo cuando fn, una captura o la voz ganaron
+        // la carrera. En ese caso se descarta; nunca se pisa la operación actual.
+        let ocupado = iniciandoDictado || recorder.isRecording || hayConfirmacion
+            || agenteActivo || AgenteHermes.enCurso || AgenteCodex.enCurso
+            || Voz.hablando || CapturaMac.enCurso || CapturaMac.grabacionContinuaEnCurso
+        guard Config.agenteNucleoActivo(), Config.agenteActivacionReposo(), !ocupado else {
+            AgenteLog.registrar("activacion_reposo_descartada", ["motivo": "app_ocupada"])
+            reconciliarActivacionVoz()
+            return
+        }
+        despertarPendiente = despertar
+        panel.setModoVivo(ModosStore.modo("agente"))
+        AgenteLog.registrar("activacion_reposo_entregada", [
+            "frase": despertar.frase,
+            "audio_ms": Int(Double(despertar.audioPrevio.count) / 32.0),
+        ])
+        startDictation()
+    }
 
     func toggle() {
         if CapturaMac.grabacionContinuaEnCurso {
@@ -2777,10 +2905,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func startDictation() {
+        guard !recorder.isRecording, !iniciandoDictado else { return }
+        // Incluso si el listener todavía figura "preparando", cancelar primero
+        // su Task/tap evita la carrera de dos AVAudioEngine por fn o por wake.
+        iniciandoDictado = true
+        ActivacionVoz.shared.suspender { [weak self] in
+            guard let self else { return }
+            self.iniciandoDictado = false
+            self.startDictationAhora()
+        }
+    }
+
+    /// Main-only: conserva la semántica push-to-talk aunque antes haya que
+    /// esperar brevemente a que Apple Speech libere el dispositivo.
+    private func cerrarDictadoAlSoltar(descartar: Bool) {
+        if recorder.isRecording {
+            if descartar { cancelDictation(silencioso: true) }
+            else { stopAndTranscribe() }
+        } else if iniciandoDictado {
+            cierreAlArrancar = descartar
+        }
+    }
+
+    private func startDictationAhora() {
         guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
+        let despertarActual = despertarPendiente
         // Fuente de verdad al INICIAR: aunque una entrega anterior terminara por
         // un camino excepcional, el notch nunca hereda su rótulo/color.
-        panel.setModo(modoPendienteVoz ?? ModosStore.activo())
+        panel.setModo(despertarActual == nil
+            ? (modoPendienteVoz ?? ModosStore.activo())
+            : ModosStore.modo("agente"))
         let sesion = UUID()
         modoVivoSesion = sesion
         modoVivoPausaTimer?.invalidate(); modoVivoPausaTimer = nil
@@ -2878,7 +3032,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         entregaVivo = nil
         audioDictado = Data()
         do {
-            try recorder.start()
+            try recorder.start(preloadPCM: despertarActual?.audioPrevio ?? Data())
             armEsc()
             media.dictationStarted()
             playSound("Tink")
@@ -2890,6 +3044,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "modo_defecto": Config.modoDefecto(),
                 "modo_visual": panel.modoMostradoID,
                 "pendiente_voz": modoPendienteVoz?.id ?? "",
+                "activacion_reposo": despertarActual?.frase ?? "",
+                "prebuffer_ms": Int(Double(despertarActual?.audioPrevio.count ?? 0) / 32.0),
                 "un_solo_uso": Config.modoRevertir(),
                 "doble_fn": Config.doblePulsacionActivar(),
             ])
@@ -2903,6 +3059,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             ModoVivo.cancelar(sesion: sesion)
             modoVivoSesion = nil; ctxDictado = nil
+            despertarPendiente = nil
+            cierreAlArrancar = nil
             panel.show("⚠️ Micrófono: \(error.localizedDescription)")
             panel.hide(after: 3)
             history.discard(); self.history = nil
@@ -2934,6 +3092,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self, self.recorder.isRecording else { return }
                 ModoVivo.evaluar(parcial, sesion: sesion)
                 self.panel.update("💬 \(parcial)")
+            }
+        }
+        if let descartar = cierreAlArrancar {
+            cierreAlArrancar = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.cerrarDictadoAlSoltar(descartar: descartar)
             }
         }
     }
@@ -3186,6 +3350,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modoVivoPausaDisparada = false
         let sesionDictado = modoVivoSesion
         let vivoDictado = sesionDictado.flatMap { ModoVivo.terminar(sesion: $0) }
+        let activacionDictado = despertarPendiente
+        despertarPendiente = nil
         let contextoDictado: ModoContexto? = {
             guard let sesionDictado, let c = ctxDictado, c.sesion == sesionDictado else { return nil }
             return c.valor
@@ -3212,7 +3378,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // aquí (el notch vuelve al defecto en cuanto sueltas). Viaja por las
         // entregas asíncronas igual que historyActual.
         let activoAntesDeRevertir = Config.modoActivo()
-        let modoDictado = modoPendienteVoz ?? ModosStore.activo()
+        let modoDictado = activacionDictado == nil
+            ? (modoPendienteVoz ?? ModosStore.activo())
+            : ModosStore.modo("agente")
         modoPendienteVoz = nil
         ModosStore.revertirADefecto()
         refrescarModoNotch()
@@ -3224,6 +3392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "modo_defecto": Config.modoDefecto(),
             "modo_visual": panel.modoMostradoID,
             "vivo": vivoDictado?.modo.id ?? "",
+            "activacion_reposo": activacionDictado?.frase ?? "",
             "un_solo_uso": Config.modoRevertir(),
         ])
 
@@ -3233,14 +3402,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .success(let (raw, proveedor, modelo)):
                     self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo,
                                   history: historyActual, modo: modoDictado,
-                                  contexto: contextoDictado, vivo: vivoDictado)
+                                  contexto: contextoDictado, vivo: vivoDictado,
+                                  activacion: activacionDictado)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     if !ultimoParcial.isEmpty {
                         // Último recurso: el parcial que alcanzó a llegar.
                         self?.deliver(raw: ultimoParcial, wav: wav,
                                       via: "\(etiquetaFallo) (parcial)", history: historyActual,
-                                      modo: modoDictado, contexto: contextoDictado, vivo: vivoDictado)
+                                      modo: modoDictado, contexto: contextoDictado, vivo: vivoDictado,
+                                      activacion: activacionDictado)
                     } else {
                         historyActual?.finish(wav: wav, finalText: "")
                         self?.avisarSiLibre("⚠️ \(etiquetaFallo) — audio guardado")
@@ -3271,7 +3442,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     let mod = Providers.modelo(de: tcpp.proveedorId) ?? ""
                     self?.deliver(raw: final, wav: wav, via: "\(motor) (en vivo)", modelo: mod,
                                   history: historyActual, modo: modoDictado,
-                                  contexto: contextoDictado, vivo: vivoDictado)
+                                  contexto: contextoDictado, vivo: vivoDictado,
+                                  activacion: activacionDictado)
                 }
             }
             tcpp.finish()
@@ -3312,7 +3484,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     let mod = Providers.modelo(de: idVivo) ?? ""
                     self?.deliver(raw: mejor, wav: wav, via: "\(nombreVivo) (en vivo)", modelo: mod,
                                   history: historyActual, modo: modoDictado,
-                                  contexto: contextoDictado, vivo: vivoDictado)
+                                  contexto: contextoDictado, vivo: vivoDictado,
+                                  activacion: activacionDictado)
                 }
             }
             return
@@ -3343,7 +3516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 } else {
                     self?.deliver(raw: full, wav: wav, via: "ElevenLabs (en vivo)", modelo: "scribe_v2_realtime",
                                   history: historyActual, modo: modoDictado,
-                                  contexto: contextoDictado, vivo: vivoDictado)
+                                  contexto: contextoDictado, vivo: vivoDictado,
+                                  activacion: activacionDictado)
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
@@ -3375,7 +3549,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .success(let (raw, proveedor, modelo)):
                     self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo,
                                   history: historyActual, modo: modoDictado,
-                                  contexto: contextoDictado, vivo: vivoDictado)
+                                  contexto: contextoDictado, vivo: vivoDictado,
+                                  activacion: activacionDictado)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     historyActual?.finish(wav: wav, finalText: "")
@@ -3396,13 +3571,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func deliver(raw: String, wav: Data, via proveedor: String, modelo: String = "",
                          history: HistoryWriter?, modo modoSnapshot: Modo? = nil,
-                         contexto: ModoContexto? = nil, vivo: ModoMatch? = nil) {
+                         contexto: ModoContexto? = nil, vivo: ModoMatch? = nil,
+                         activacion: ActivacionVoz.Despertar? = nil) {
         // El completion del failover llega en el hilo del proveedor ganador (apple_speech
         // llega desde un Task). Todo deliver toca AppKit (panel, ícono) → SIEMPRE en main.
         guard Thread.isMainThread else {
             DispatchQueue.main.async {
                 self.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo,
-                             history: history, modo: modoSnapshot, contexto: contexto, vivo: vivo)
+                             history: history, modo: modoSnapshot, contexto: contexto, vivo: vivo,
+                             activacion: activacion)
             }
             return
         }
@@ -3447,24 +3624,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let modoNormal = modoSnapshot ?? ModosStore.activo()
         var modoBase = modoNormal
         var contextoAgente = modoNormal.base == "agente"
-        // Presencia parametrizable: "Oye Bto/Jarvis/Mamá…" dentro del dictado
-        // activa el núcleo Agente y se recorta sin alterar el resto. No mantiene
-        // el micrófono abierto en reposo; el dictado tradicional sigue intacto.
-        if let inv = PerfilAgente.invocacion(en: textoFinal) {
+        // Presencia parametrizable. En un dictado fn continúa obligada al inicio.
+        // Cuando el listener manos libres YA confirmó la frase, puede buscarla
+        // dentro del pequeño prebuffer y descartar todo lo anterior a ella.
+        let invocacionAgente: PerfilAgente.Invocacion? = {
+            if let activacion {
+                return PerfilAgente.invocacionDedicada(en: textoFinal,
+                                                       frase: activacion.frase)
+                    ?? PerfilAgente.Invocacion(frase: activacion.frase,
+                                               contenido: textoFinal)
+            }
+            return PerfilAgente.invocacion(en: textoFinal)
+        }()
+        if let inv = invocacionAgente {
             let agente = ModosStore.modo("agente")
             textoResolver = inv.contenido
             modoBase = agente
             contextoAgente = true
             panel.setModoVivo(agente)
-            AgenteLog.registrar("activacion", ["frase": inv.frase, "contenido": inv.contenido])
-            ModosLog.registrar("activacion_agente", ["frase": inv.frase, "contenido": inv.contenido])
+            let origen = activacion == nil ? "dentro_dictado" : "reposo_apple_local"
+            AgenteLog.registrar("activacion", ["frase": inv.frase,
+                                                 "contenido": inv.contenido,
+                                                 "origen": origen])
+            ModosLog.registrar("activacion_agente", ["frase": inv.frase,
+                                                       "contenido": inv.contenido,
+                                                       "origen": origen])
             if inv.contenido.isEmpty {
-                modoPendienteVoz = agente
+                // La frase dentro de fn conserva el comportamiento histórico:
+                // prepara Agente para el próximo dictado. En manos libres no
+                // dejamos un modo pegado si el usuario cerró sin decir pedido.
+                if activacion == nil { modoPendienteVoz = agente }
                 if Config.agenteRespuestaActiva() {
-                    responderBreveAgente(MensajesAgente.escuchando,
-                                         evento: "activacion_sin_pedido")
+                    let mensaje = activacion == nil
+                        ? MensajesAgente.escuchando
+                        : "No alcancé a escuchar el pedido. Vuelve a decir \(inv.frase)."
+                    responderBreveAgente(mensaje, evento: "activacion_sin_pedido")
                 } else {
-                    panel.flash("✓ \(Config.agenteNombre()) listo — continúa en el próximo dictado", segundos: 2.4)
+                    panel.flash(activacion == nil
+                        ? "✓ \(Config.agenteNombre()) listo — continúa en el próximo dictado"
+                        : "No escuché el pedido — vuelve a decir \(inv.frase)", segundos: 2.4)
                     panel.hide(after: 2.6)
                 }
                 history?.finish(wav: wav, finalText: "")
