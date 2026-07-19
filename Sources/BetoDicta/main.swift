@@ -37,6 +37,16 @@ AgenteCoreQA.ejecutarSiSePidio()
 AgenteCodex.ejecutarPruebaSiSePidio()
 DocumentosMac.ejecutarPruebaSiSePidio()
 
+// Sin sesión gráfica (SSH, sandbox de un agente, launchd de fondo) AppKit
+// aborta en _RegisterApplication al crear NSApplication. Los modos QA de
+// arriba ya corrieron; aquí toca avisar y salir limpio en vez de crashear.
+guard SesionGUI.disponible else {
+    let mensaje = "BetoDicta: no hay sesión gráfica; la interfaz no puede arrancar en este contexto.\n" +
+        "Los modos QA (variables BETODICTA_*) sí funcionan aquí.\n"
+    FileHandle.standardError.write(Data(mensaje.utf8))
+    exit(78) // EX_CONFIG
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(Config.showInDock() ? .regular : .accessory)
 let delegate = AppDelegate()

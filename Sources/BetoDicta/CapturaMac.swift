@@ -526,6 +526,9 @@ enum CapturaMac {
 
     private static func rectangulo(_ area: AreaCapturaMac) -> String? {
         guard [.superiorIzquierda, .superiorDerecha, .inferiorIzquierda, .inferiorDerecha].contains(area) else { return nil }
+        // Sin sesión gráfica, consultar la pantalla dispara el aborto de
+        // _RegisterApplication (crash de QA bajo el sandbox de Codex).
+        guard SesionGUI.disponible else { return nil }
         let b = CGDisplayBounds(CGMainDisplayID())
         guard b.width >= 2, b.height >= 2 else { return nil }
         let w = floor(b.width / 2), h = floor(b.height / 2)

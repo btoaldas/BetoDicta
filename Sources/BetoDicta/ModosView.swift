@@ -17,8 +17,15 @@ final class ModosModel: ObservableObject {
         (NSApp.delegate as? AppDelegate)?.refrescarModoNotch()
     }
     func binding(_ id: String) -> Binding<Modo>? {
-        guard let i = modos.firstIndex(where: { $0.id == id }) else { return nil }
-        return Binding(get: { self.modos[i] }, set: { self.modos[i] = $0; self.guardar() })
+        // Buscar por id EN CADA acceso: un índice capturado queda obsoleto si
+        // se borra/reordena un modo con el binding vivo (SIGTRAP del 17 jul).
+        guard let inicial = modos.first(where: { $0.id == id }) else { return nil }
+        return Binding(
+            get: { self.modos.first(where: { $0.id == id }) ?? inicial },
+            set: { nuevo in
+                guard let i = self.modos.firstIndex(where: { $0.id == id }) else { return }
+                self.modos[i] = nuevo; self.guardar()
+            })
     }
     func crear() -> String {
         let m = ModosStore.crear(nombre: "Mi modo")
