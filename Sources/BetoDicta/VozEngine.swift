@@ -347,23 +347,32 @@ enum VozEngine {
         def chunk(self,body):
             self.wfile.write(("%X\\r\\n"%len(body)).encode()+body+b"\\r\\n"); self.wfile.flush()
         def do_GET(self):
+            # El servidor es serial porque el modelo no admite inferencias paralelas.
+            # Cerrar cada respuesta evita que un keep-alive ocioso monopolice el único
+            # handler e impida entrar a otro URLSession (por ejemplo, el reproductor).
+            self.close_connection=True
             if self.path.startswith("/health"):
                 body=json.dumps({"motor":"betodicta-xtts","paquete":os.path.realpath(PKG),"pid":os.getpid()}).encode()
                 self.send_response(200); self.send_header("Content-Type","application/json")
-                self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+                self.send_header("Content-Length",str(len(body))); self.send_header("Connection","close")
+                self.end_headers(); self.wfile.write(body)
             elif self.path.startswith("/shutdown"):
-                self.send_response(200); self.end_headers(); self.wfile.write(b"bye")
+                self.send_response(200); self.send_header("Content-Length","3")
+                self.send_header("Connection","close"); self.end_headers(); self.wfile.write(b"bye")
                 self.wfile.flush()
                 # Salida dura y breve: torch puede dejar pools C vivos incluso después de
                 # serve_forever.shutdown(). El proceso es solo este servidor y no guarda datos.
                 threading.Timer(0.10,lambda: os._exit(0)).start()
             else:
-                self.send_response(404); self.end_headers()
+                self.send_response(404); self.send_header("Content-Length","0")
+                self.send_header("Connection","close"); self.end_headers()
         def do_POST(self):
+            self.close_connection=True
             n=int(self.headers.get("Content-Length",0)); txt=self.rfile.read(n).decode("utf-8")
             partes=segmentos(txt)
             if not partes:
-                self.send_response(400); self.send_header("Content-Length","0"); self.end_headers(); return
+                self.send_response(400); self.send_header("Content-Length","0")
+                self.send_header("Connection","close"); self.end_headers(); return
             try:
                 kw=dict(temperature=0.55,length_penalty=1.0,repetition_penalty=5.0,
                         top_k=30,top_p=0.80,enable_text_splitting=False)
@@ -374,14 +383,16 @@ enum VozEngine {
                         if i+1<len(partes): audios.append(torch.zeros(int(0.08*24000)))
                     body=torch.cat([a.flatten() for a in audios]).cpu().numpy().astype("<f4").tobytes()
                     self.send_response(200); self.send_header("Content-Type","application/octet-stream")
-                    self.send_header("Content-Length",str(len(body))); self.end_headers()
+                    self.send_header("Content-Length",str(len(body))); self.send_header("Connection","close")
+                    self.end_headers()
                     self.wfile.write(body)
                     self.wfile.flush()
                 else:
                     # HTTP chunked distingue un final correcto de un proceso que murió a
                     # mitad. URLSession quita el framing y entrega únicamente PCM al player.
                     self.send_response(200); self.send_header("Content-Type","application/octet-stream")
-                    self.send_header("Transfer-Encoding","chunked"); self.end_headers()
+                    self.send_header("Transfer-Encoding","chunked"); self.send_header("Connection","close")
+                    self.end_headers()
                     for i,parte in enumerate(partes):
                         for ch in model.inference_stream(parte,"es",GPT,SPK,**kw):
                             self.chunk(ch.cpu().numpy().astype("<f4").tobytes())

@@ -199,6 +199,8 @@ Corrección aplicada:
 - segmentación española liviana y local, dentro del límite real del tokenizer;
 - inferencia por segmentos sin spaCy, con 80 ms de separación natural;
 - transferencia HTTP `chunked`: solo un final completo se acepta como éxito;
+- cierre explícito de cada conexión: un keep-alive ocioso ya no puede monopolizar el
+  servidor serial y bloquear al reproductor de streaming;
 - la ruta residente y la ruta de respaldo usan la misma regla;
 - hook QA con dos respuestas consecutivas, texto largo, duración de audio, RTF y error real.
 

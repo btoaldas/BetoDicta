@@ -1379,7 +1379,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 func pedir(_ n: Int, _ then: @escaping () -> Void) {
                     let t = Date(); var req = URLRequest(url: u); req.httpMethod = "POST"
                     req.httpBody = textoQA.data(using: .utf8)
-                    URLSession.shared.dataTask(with: req) { d, resp, err in
+                    // Una sesión nueva por pedido reproduce al player real. Si el servidor
+                    // serial quedara secuestrado por keep-alive, esta prueba se colgaría.
+                    let sesion = URLSession(configuration: .ephemeral)
+                    sesion.dataTask(with: req) { d, resp, err in
                         let bytes = d?.count ?? 0
                         let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
                         let audio = Double(bytes) / (4 * 24_000)
@@ -1387,6 +1390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         let ok = err == nil && code == 200 && audio > 0.5
                         if ok { correctos += 1 }
                         print("XTTSSERVER pedido\(n): \(String(format: "%.2f", tiempo))s, audio=\(String(format: "%.2f", audio))s, rtf=\(String(format: "%.3f", audio > 0 ? tiempo / audio : 0)), HTTP=\(code), error=\(err?.localizedDescription ?? "ninguno"), ok=\(ok)")
+                        sesion.finishTasksAndInvalidate()
                         then()
                     }.resume()
                 }
