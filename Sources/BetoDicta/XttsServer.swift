@@ -17,6 +17,7 @@ enum XttsServer {
     private static var ultimoUso = Date()      // para dormir por inactividad
     private static var vigia: Timer?
     private static var adoptado = false
+    private static var logHandle: FileHandle?
 
     static var corriendo: Bool { proceso?.isRunning == true || adoptado }
 
@@ -71,8 +72,15 @@ enum XttsServer {
             let h = "\(Config.ttsXttsHilos())"; env["XTTS_THREADS"] = h; env["OMP_NUM_THREADS"] = h
         }
         p.environment = env
-        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { onListo(false); return }
+        let log = prepararLogServidor()
+        p.standardOutput = log ?? FileHandle.nullDevice
+        p.standardError = log ?? FileHandle.nullDevice
+        do { try p.run() } catch {
+            try? log?.close(); logHandle = nil
+            Log.log(.ia, "XTTS servidor: no pudo arrancar (\(error.localizedDescription))")
+            onListo(false); return
+        }
+        logHandle = log
         proceso = p; adoptado = false
         // Sondear /health hasta ~40s (la 1ª carga del modelo tarda).
         DispatchQueue.global().async {
@@ -89,6 +97,25 @@ enum XttsServer {
         if proceso?.isRunning == true { proceso?.terminate() }
         else if adoptado { pedirApagado() }
         proceso = nil; adoptado = false; paqueteActivo = ""
+        try? logHandle?.close(); logHandle = nil
+    }
+
+    /// Conserva un diagnóstico local y privado. Antes la salida iba a /dev/null y una
+    /// falla del runtime solo se veía como "sin audio". Rota a 1 MB para no crecer.
+    private static func prepararLogServidor() -> FileHandle? {
+        let fm = FileManager.default
+        let dir = Config.dir.appendingPathComponent("logs")
+        let url = dir.appendingPathComponent("xtts-server.log")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true,
+                                attributes: [.posixPermissions: 0o700])
+        if let tam = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize), tam > 1_000_000 {
+            try? Data().write(to: url, options: .atomic)
+        }
+        if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: Data()) }
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        guard let h = try? FileHandle(forWritingTo: url) else { return nil }
+        do { try h.seekToEnd() } catch { try? h.close(); return nil }
+        return h
     }
 
     /// Corta la VOZ en curso (streaming o lotes) SIN matar el servidor residente (así la
@@ -180,6 +207,32 @@ enum XttsServer {
         }.resume()
     }
 
+    /// Genera el WAV completo con el modelo YA residente, sin reproducirlo. La variante
+    /// Máxima usa esta salida para aplicar su restauración, evitando recargar ~2 GB en
+    /// cada frase y conservando exactamente los parámetros batch del clon.
+    static func generarWav(texto: String, completion: @escaping (URL?) -> Void) {
+        guard corriendo, let u = URL(string: "http://127.0.0.1:\(puerto)/generate") else {
+            completion(nil); return
+        }
+        tocar()
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 180
+        req.httpBody = texto.data(using: .utf8)
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            guard let data, (200..<300).contains(code), data.count >= 8,
+                  let wav = try? pcmFloatAWav(data) else {
+                Log.log(.ia, "XTTS servidor: no generó WAV para Máxima (\(err?.localizedDescription ?? "HTTP \(code)"))")
+                DispatchQueue.main.async { completion(nil) }; return
+            }
+            let out = FileManager.default.temporaryDirectory
+                .appendingPathComponent("betodicta-xtts-raw-\(UUID().uuidString).wav")
+            do {
+                try wav.write(to: out, options: .atomic)
+                DispatchQueue.main.async { completion(out) }
+            } catch { DispatchQueue.main.async { completion(nil) } }
+        }.resume()
+    }
+
     /// float32 LE (24kHz mono) → WAV int16.
     private static func pcmFloatAWav(_ f32: Data) throws -> Data {
         var pcm16 = Data(capacity: f32.count / 2)
@@ -187,7 +240,8 @@ enum XttsServer {
             let f = raw.bindMemory(to: Float32.self)
             for i in 0..<f.count { var s = Int16(max(-1, min(1, f[i])) * 32767).littleEndian; withUnsafeBytes(of: &s) { pcm16.append(contentsOf: $0) } }
         }
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("xtts-srv-\(abs(f32.count)).wav")
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xtts-srv-\(UUID().uuidString).wav")
         try WavIO.escribir(pcm16: pcm16, sampleRate: 24000, a: tmp)
         let d = try Data(contentsOf: tmp); try? FileManager.default.removeItem(at: tmp); return d
     }

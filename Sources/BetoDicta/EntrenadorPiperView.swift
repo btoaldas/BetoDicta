@@ -415,8 +415,17 @@ struct EntrenadorPiperView: View {
     }
 
     private func borrar(_ ckpt: URL) {
-        try? FileManager.default.removeItem(at: ckpt)
-        checkpoints.removeAll { $0.url == ckpt }
-        estado = "Checkpoint descartado."
+        guard ConfirmacionSegura.pedir("¿Enviar este checkpoint Piper a la Papelera?",
+            detalle: "Se conservarán el resto de checkpoints, el proyecto y cualquier ONNX ya registrada.",
+            boton: "Enviar a Papelera") else { return }
+        NSWorkspace.shared.recycle([ckpt]) { _, error in
+            DispatchQueue.main.async {
+                if let error { estado = "No se quitó: \(error.localizedDescription)" }
+                else {
+                    checkpoints.removeAll { $0.url == ckpt }
+                    estado = "Checkpoint enviado a la Papelera de macOS."
+                }
+            }
+        }
     }
 }

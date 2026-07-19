@@ -223,8 +223,17 @@ struct EntrenadorView: View {
     }
 
     private func borrarCheckpoint(_ ckpt: URL) {
-        try? FileManager.default.removeItem(at: ckpt)
-        ranking.removeAll { $0.ruta == ckpt }
-        estado = "Checkpoint descartado borrado."
+        guard ConfirmacionSegura.pedir("¿Enviar este checkpoint a la Papelera?",
+            detalle: "Checkpoint \(ckpt.deletingPathExtension().lastPathComponent). Las demás etapas, la voz emitida y el proyecto permanecen intactos; macOS permitirá recuperarlo.",
+            boton: "Enviar a Papelera") else { return }
+        NSWorkspace.shared.recycle([ckpt]) { _, error in
+            DispatchQueue.main.async {
+                if let error { estado = "No se quitó: \(error.localizedDescription)" }
+                else {
+                    ranking.removeAll { $0.ruta == ckpt }
+                    estado = "Checkpoint enviado a la Papelera de macOS."
+                }
+            }
+        }
     }
 }

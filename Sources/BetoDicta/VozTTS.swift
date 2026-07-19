@@ -10,7 +10,7 @@ import AVFoundation
 //                    disponible. Es el respaldo final: si todo lo demás falla,
 //                    igual te habla.
 //   2) elevenlabs  — tu voz CLONADA "Bto" (nube, tu API key). La más natural.
-//   3) xtts_local  — tu clon LOCAL (XTTS de VozClonPOC, 100% offline, gratis).
+//   3) xtts_local  — tu clon LOCAL gestionado por BetoDicta, 100% offline y gratis.
 //
 // El usuario elige el motor PRINCIPAL (Config.ttsProveedor); si ese falla (sin
 // key, sin red, sin clon entrenado), cae al siguiente y termina en Apple. Nada
@@ -40,10 +40,12 @@ enum Voz {
               let voz = VocesLocales.activa() else {
             XttsServer.detener(); MlxVozServer.detener(); return
         }
-        // Máxima usa el runner XTTS + restauración externa. No cargamos además el
-        // servidor residente de 2 GB: evitar duplicar RAM/CPU es parte del contrato.
+        // La Máxima INTERNA reutiliza XTTS residente y después restaura el WAV: misma
+        // identidad, sin volver a cargar 2 GB por frase. Solo el legado externo evita
+        // precargar porque administra su propio proceso.
         if voz.variante == "maxima", voz.tieneMaxima {
-            XttsServer.detener(); MlxVozServer.detener(); return
+            MlxVozServer.detener()
+            if !voz.maximaInterna { XttsServer.detener(); return }
         }
         if voz.variante == "mlx", voz.tieneMlx {
             XttsServer.detener()
@@ -190,7 +192,10 @@ enum Voz {
         let candidatas = Config.ttsLocalVariantesFailover() ? [principal] + resto : [principal]
         let disponibles = candidatas.filter { variante in
             switch variante {
-            case "maxima": return voz.tieneMaxima
+            case "maxima":
+                return voz.maximaInterna
+                    ? (voz.tieneMaxima && VozMaximaEngine.estado() == .listo)
+                    : voz.tieneMaxima
             case "mlx": return voz.tieneMlx && MlxVozEngine.estado() == .listo
             case "onnx": return !voz.onnx.isEmpty && PiperTTS.disponible
             default: return (!voz.paquete.isEmpty && VozEngine.estado() == .listo) || !voz.cmd.isEmpty
@@ -207,8 +212,12 @@ enum Voz {
             }
             switch variante {
             case "maxima":
-                XttsServer.detener(); MlxVozServer.detener()
-                XttsLocalTTS.decirCon(cmd: voz.cmd, texto: texto) { url in
+                MlxVozServer.detener()
+                let generado: (@escaping (URL?) -> Void) -> Void = { cb in
+                    if voz.maximaInterna { VozMaximaEngine.decir(voz: voz, texto: texto, completion: cb) }
+                    else { XttsServer.detener(); XttsLocalTTS.decirCon(cmd: voz.cmd, texto: texto, completion: cb) }
+                }
+                generado { url in
                     if let url, let data = try? Data(contentsOf: url) {
                         reproducir(data, empezar, done)
                     } else { fallo() }
@@ -279,7 +288,8 @@ enum Voz {
         }
         let usaPiper = !voz.onnx.isEmpty && (voz.paquete.isEmpty || voz.variante == "onnx")
         if voz.variante == "maxima", voz.tieneMaxima {
-            XttsLocalTTS.decirCon(cmd: voz.cmd, texto: saludo, completion: cb)
+            if voz.maximaInterna { VozMaximaEngine.decir(voz: voz, texto: saludo, completion: cb) }
+            else { XttsLocalTTS.decirCon(cmd: voz.cmd, texto: saludo, completion: cb) }
         } else if voz.variante == "mlx", voz.tieneMlx, MlxVozEngine.estado() == .listo {
             MlxVozServer.decir(voz: voz, texto: saludo, empezar: nil) { _ in done?() }
         } else if usaPiper, PiperTTS.disponible {
@@ -361,7 +371,7 @@ enum ElevenLabsTTS {
     }
 }
 
-// MARK: - XTTS local (tu clon 100% offline, VozClonPOC/clonar.sh)
+// MARK: - XTTS local (tu clon 100% offline; comando externo solo por compatibilidad)
 
 enum XttsLocalTTS {
     /// Genera el audio con tu clon local y devuelve la URL del archivo (o nil).

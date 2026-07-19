@@ -27,7 +27,12 @@ struct MotorVozControl: View {
                 HStack {
                     Text("🟢 Motor de voz instalado (corre tus clones 100% local).").font(.caption)
                     Spacer()
-                    Button("Quitar motor") { VozEngine.desinstalar(); estado = VozEngine.estado() }
+                    Button("Quitar motor") {
+                        guard ConfirmacionSegura.pedir("¿Quitar el motor XTTS?",
+                            detalle: "Las voces, personas, variantes, entrenamientos y la restauración Máxima NO se borrarán. Para volver a hablar con XTTS tendrás que reinstalar su runtime.",
+                            boton: "Quitar runtime") else { return }
+                        VozEngine.desinstalar(); estado = VozEngine.estado()
+                    }
                         .controlSize(.small)
                 }
                 Toggle("Preactivar (modelo en RAM → respuesta rápida)", isOn: $preactivar)
@@ -110,7 +115,12 @@ struct MotorMlxControl: View {
                 HStack {
                     Text("🟢 Motor equilibrado Qwen3‑MLX instalado.").font(.caption)
                     Spacer()
-                    Button("Quitar motor") { MlxVozEngine.desinstalar(); estado = MlxVozEngine.estado() }
+                    Button("Quitar motor") {
+                        guard ConfirmacionSegura.pedir("¿Quitar Qwen3‑MLX?",
+                            detalle: "Se quitarán su runtime y caché común. Las muestras, transcripciones y demás variantes de cada persona se conservan.",
+                            boton: "Quitar Qwen3‑MLX") else { return }
+                        MlxVozEngine.desinstalar(); estado = MlxVozEngine.estado()
+                    }
                         .controlSize(.small)
                 }
                 Text("Apple Silicon · clonación local · español · streaming. La primera activación descarga el modelo común (~2,6 GB); después funciona offline. No reemplaza XTTS ni ONNX.")
@@ -160,6 +170,50 @@ struct MotorMlxControl: View {
     }
 }
 
+/// Restauración de máxima identidad. Runtime separado para poder quitarlo/reinstalarlo
+/// sin tocar XTTS, Qwen, Piper, voces ni entrenamientos.
+struct MotorMaximaControl: View {
+    @State private var estado = VozMaximaEngine.estado()
+    @State private var progreso = ""
+    @State private var instalando = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch estado {
+            case .listo:
+                HStack {
+                    Text("🟢 Restauración ✨ Máxima instalada (Resemble Enhance local).").font(.caption)
+                    Spacer()
+                    Button("Quitar restauración") {
+                        guard ConfirmacionSegura.pedir("¿Quitar la restauración Máxima?",
+                            detalle: "No se borrará ninguna voz ni su XTTS. Máxima quedará disponible de nuevo al reinstalar este runtime; mientras tanto el failover usará Calidad.",
+                            boton: "Quitar restauración") else { return }
+                        VozMaximaEngine.desinstalar(); estado = VozMaximaEngine.estado()
+                    }.controlSize(.small)
+                }
+                Text("Misma receta de mayor identidad: XTTS afinado → Enhance NFE 128 → normalización. Todo vive bajo ~/.betodicta; no llama a Hermes ni a Descargas.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            case .instalando:
+                Text("⏳ Preparando restauración Máxima…").font(.caption)
+                if !progreso.isEmpty { Text(progreso).font(.caption2).foregroundStyle(.secondary).lineLimit(3) }
+            case .noInstalado:
+                Text("✨ Opcional: instala la restauración de máxima identidad en un Python aislado (~2–3 GB entre runtime y modelo). Después funciona local y sirve para todos tus clones XTTS.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("⬇︎ Instalar restauración Máxima") {
+                    instalando = true; estado = .instalando; progreso = "Empezando…"
+                    VozMaximaEngine.instalar(onProgreso: { linea in
+                        DispatchQueue.main.async { progreso = linea }
+                    }) { _, mensaje in
+                        progreso = mensaje; instalando = false; estado = VozMaximaEngine.estado()
+                    }
+                }.controlSize(.small).disabled(instalando || VozEngine.estado() != .listo)
+            }
+        }
+        .padding(6).background(Color.secondary.opacity(0.06)).cornerRadius(6)
+        .onAppear { estado = VozMaximaEngine.estado() }
+    }
+}
+
 struct VocesLocalesEditor: View {
     @State private var voces: [VozLocal] = VocesLocales.todas()
     @State private var activa: String = Config.ttsVozLocal()
@@ -170,8 +224,12 @@ struct VocesLocalesEditor: View {
     @State private var detectadas: [(nombre: String, cmd: String)] = []
     @State private var estado = ""
     @State private var failoverVariantes = Config.ttsLocalVariantesFailover()
+    @State private var papelera: [VocesLocales.VozPapelera] = VocesLocales.papelera()
 
-    private func refrescar() { voces = VocesLocales.todas(); activa = VocesLocales.activa()?.id ?? "" }
+    private func refrescar() {
+        voces = VocesLocales.todas(); activa = VocesLocales.activa()?.id ?? ""
+        papelera = VocesLocales.papelera()
+    }
 
     private func subirPaquete() {
         let panel = NSOpenPanel()
@@ -180,6 +238,9 @@ struct VocesLocalesEditor: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard ConfirmacionSegura.pedir("¿Importar este paquete de voz?",
+            detalle: "Importa solo paquetes tuyos o de una fuente confiable. Los checkpoints .pth son modelos Python y no deben abrirse si provienen de desconocidos. BetoDicta reemplazará cualquier runner incluido por uno propio.",
+            boton: "Importar paquete confiable") else { return }
         estado = "Importando el paquete…"
         DispatchQueue.global(qos: .userInitiated).async {
             let r = VocesLocales.importarPaquete(desde: url)
@@ -239,9 +300,14 @@ struct VocesLocalesEditor: View {
         panel.canChooseFiles = false
         panel.prompt = "Guardar aquí"
         guard panel.runModal() == .OK, let dst = panel.url else { return }
+        let destino = dst.appendingPathComponent("Voz-" + v.id)
+        let existe = FileManager.default.fileExists(atPath: destino.path)
+        if existe, !ConfirmacionSegura.pedir("¿Reemplazar el paquete exportado?",
+            detalle: "Ya existe \(destino.lastPathComponent). Se reemplazará únicamente esa copia exportada; la voz dentro de BetoDicta permanecerá intacta.",
+            boton: "Reemplazar copia") { return }
         estado = "Copiando el paquete…"
         DispatchQueue.global(qos: .userInitiated).async {
-            let out = VocesLocales.exportarPaquete(v, a: dst)
+            let out = VocesLocales.exportarPaquete(v, a: dst, reemplazar: existe)
             DispatchQueue.main.async { estado = out != nil ? "Descargado en \(out!.path)" : "No pude copiar el paquete." }
         }
     }
@@ -249,6 +315,9 @@ struct VocesLocalesEditor: View {
     /// Asocia una muestra exacta y su transcripción al carril Qwen3‑MLX. La muestra
     /// viaja en el paquete portable; las pesas comunes del modelo no se duplican.
     private func prepararMlx(_ v: VozLocal) {
+        if v.tieneMlx, !ConfirmacionSegura.pedir("¿Cambiar la variante Equilibrada?",
+            detalle: "Se reemplazarán únicamente su muestra y transcripción Qwen3‑MLX. XTTS, Máxima, ONNX y la persona se conservan.",
+            boton: "Elegir otra muestra") { return }
         let panel = NSOpenPanel()
         panel.title = "Muestra limpia de \(v.nombre) (5–20 s)"
         panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
@@ -288,6 +357,7 @@ struct VocesLocalesEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             MotorVozControl()
+            MotorMaximaControl()
             MotorMlxControl()
             Text("Tus voces clonadas (100% local). Cada persona puede conservar Máxima XTTS restaurada, Calidad XTTS, Equilibrada Qwen3‑MLX y Rápida Piper/ONNX.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -304,6 +374,10 @@ struct VocesLocalesEditor: View {
                 ForEach(voces) { v in
                     HStack(spacing: 8) {
                         Button {
+                            if activa != v.id,
+                               !ConfirmacionSegura.pedir("¿Cambiar la voz activa?",
+                                detalle: "BetoDicta dejará de hablar con \(VocesLocales.activa()?.nombre ?? "la voz actual") y usará \(v.nombre). No se borra ninguna voz.",
+                                boton: "Usar \(v.nombre)") { return }
                             VocesLocales.fijarActiva(v.id); activa = v.id; Voz.preactivarLocal()
                         } label: {
                             Image(systemName: activa == v.id ? "largecircle.fill.circle" : "circle")
@@ -319,7 +393,15 @@ struct VocesLocalesEditor: View {
                         if cantidadVariantes > 1 {
                             Picker("", selection: Binding(
                                 get: { v.variante },
-                                set: { VocesLocales.fijarVariante(v.id, $0); refrescar(); Voz.preactivarLocal() })) {
+                                set: { nueva in
+                                    guard nueva != v.variante else { return }
+                                    let antes = ConfirmacionSegura.nombreVariante(v.variante)
+                                    let despues = ConfirmacionSegura.nombreVariante(nueva)
+                                    guard ConfirmacionSegura.pedir("¿Cambiar la variante de \(v.nombre)?",
+                                        detalle: "Cambiará de \(antes) a \(despues). Ningún modelo se elimina y puedes volver cuando quieras.",
+                                        boton: "Cambiar a \(despues)") else { refrescar(); return }
+                                    VocesLocales.fijarVariante(v.id, nueva); refrescar(); Voz.preactivarLocal()
+                                })) {
                                 if v.tieneMaxima { Text("✨ Máxima").tag("maxima") }
                                 if !v.paquete.isEmpty { Text("Calidad").tag("xtts") }
                                 if v.tieneMlx { Text("⚖️ Equilibrada").tag("mlx") }
@@ -335,10 +417,27 @@ struct VocesLocalesEditor: View {
                             Button("🧠") { generarPersona(v) }.controlSize(.small).help("Generar la persona (cómo habla) transcribiendo sus muestras")
                         }
                         if !v.paquete.isEmpty {
+                            if !v.maximaInterna {
+                                Button(v.tieneMaxima ? "Hacer propia ✨" : "Crear ✨") {
+                                    let quitarLegacy = v.tieneMaxima
+                                    guard !quitarLegacy || ConfirmacionSegura.pedir(
+                                        "¿Independizar la voz Máxima?",
+                                        detalle: "BetoDicta conservará el clon y su calidad, copiará la misma receta a su entorno propio y dejará de llamar al comando externo. Hermes y Descargas ya no serán necesarios.",
+                                        boton: "Hacer propia") else { return }
+                                    _ = VocesLocales.vincularMaximaInterna(a: v.id, activar: true,
+                                                                           quitarLegacy: quitarLegacy)
+                                    estado = "Máxima de “\(v.nombre)” ya es interna e independiente."
+                                    refrescar(); Voz.preactivarLocal()
+                                }.controlSize(.small)
+                            }
                             Button(v.tieneMlx ? "Cambiar ⚖️" : "Crear ⚖️") { prepararMlx(v) }
                                 .controlSize(.small)
                                 .help("Vincular Qwen3‑MLX: más natural que Piper y más rápido que XTTS")
                             Button(v.onnx.isEmpty ? "Crear ⚡" : "Recrear ⚡") {
+                                if !v.onnx.isEmpty,
+                                   !ConfirmacionSegura.pedir("¿Recrear la variante Rápida?",
+                                    detalle: "La ONNX actual seguirá intacta hasta que la nueva termine y sea validada. XTTS, Máxima y Qwen no cambian.",
+                                    boton: "Abrir destilador") { return }
                                 DestiladorPiperWindow.show(voz: v)
                             }.controlSize(.small)
                                 .help("Destilar esta voz XTTS a una variante Piper/ONNX rápida, sin borrar la original")
@@ -350,7 +449,15 @@ struct VocesLocalesEditor: View {
                             Button("➕🎙") { muestras(v) }.controlSize(.small).help("Agregar muestras de voz (wavs de 10-30s)")
                             Button("⬇︎") { descargar(v) }.controlSize(.small).help("Descargar el paquete para llevarlo")
                         }
-                        Button("Quitar") { VocesLocales.borrar(v.id); refrescar() }.controlSize(.small)
+                        Button("Quitar") {
+                            guard ConfirmacionSegura.pedir("¿Quitar “\(v.nombre)”?",
+                                detalle: "Se moverá completa a la Papelera de voces (modelo, persona y todas sus variantes). Podrás restaurarla; no se eliminará definitivamente.",
+                                boton: "Mover a Papelera") else { return }
+                            estado = VocesLocales.borrar(v.id)
+                                ? "“\(v.nombre)” está en la Papelera y se puede restaurar."
+                                : "No pude preservar la voz; no se quitó nada."
+                            refrescar()
+                        }.controlSize(.small)
                     }
                 }
             }
@@ -387,6 +494,27 @@ struct VocesLocalesEditor: View {
                 }.padding(6).background(Color.secondary.opacity(0.08)).cornerRadius(6)
             }
 
+            if !papelera.isEmpty {
+                DisclosureGroup("Papelera de voces (\(papelera.count))") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(papelera) { entrada in
+                            HStack {
+                                Text(entrada.voz.nombre).font(.caption)
+                                Text(Date(timeIntervalSince1970: entrada.borradaEn), style: .date)
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                Spacer()
+                                Button("Restaurar") {
+                                    if let voz = VocesLocales.restaurar(entrada.id) {
+                                        estado = "“\(voz.nombre)” restaurada con sus variantes."
+                                    } else { estado = "No pude restaurar esa voz; no se borró la copia de Papelera." }
+                                    refrescar()
+                                }.controlSize(.small)
+                            }
+                        }
+                    }.padding(.top, 4)
+                }.font(.caption)
+            }
+
             if mostrarAgregar {
                 VStack(alignment: .leading, spacing: 3) {
                     TextField("Nombre (ej. Mamá Rafaela)", text: $nuevoNombre)
@@ -410,7 +538,7 @@ struct VocesLocalesEditor: View {
             }
 
             if !estado.isEmpty { Text(estado).font(.caption).foregroundStyle(.secondary) }
-            Text("Cada voz es un comando de tu VozClonPOC. \"Detectar\" arma el comando solo escaneando tus proyectos entrenados. Es batch (genera y luego suena); en CPU tarda unos segundos.")
+            Text("Los paquetes y runtimes gestionados viven en ~/.betodicta. “Detectar VozClonPOC” queda solo para migrar proyectos antiguos; crear, usar, restaurar y exportar voces nuevas ya es propio de BetoDicta.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .onAppear { refrescar() }

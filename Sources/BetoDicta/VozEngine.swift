@@ -34,8 +34,13 @@ enum VozEngine {
     /// Carpeta del pipeline internalizado (scripts de clonación + xtts_base).
     static var pipelineDir: URL { dir.appendingPathComponent("pipeline") }
     static var entrenoListo: Bool {
-        FileManager.default.fileExists(atPath: pipelineDir.appendingPathComponent("clonar/train.py").path)
-            && FileManager.default.fileExists(atPath: pipelineDir.appendingPathComponent("xtts_base/dvae.pth").path)
+        let requeridos = ["clonar/build_ds.py", "clonar/train.py", "clonar/persona.py",
+                          "clonar/pick_clips.py", "clonar/gen.py", "clonar/measure.py",
+                          "clonar/slim.py", "xtts_base/model.pth", "xtts_base/config.json",
+                          "xtts_base/vocab.json", "xtts_base/dvae.pth", "xtts_base/mel_stats.pth"]
+        return requeridos.allSatisfy {
+            FileManager.default.fileExists(atPath: pipelineDir.appendingPathComponent($0).path)
+        }
     }
 
     enum Estado { case noInstalado, instalando, listo }
@@ -133,19 +138,14 @@ enum VozEngine {
 
     /// Prepara el motor para ENTRENAR: instala las deps extra y deja el pipeline
     /// (scripts + xtts_base) bajo voz-engine/pipeline/. Requiere el motor base listo.
-    /// Nota: hoy el pipeline y xtts_base se copian de la carpeta VozClonPOC del usuario
-    /// (bootstrap de Alberto); en el producto se EMPAQUETAN en la app o se descargan.
+    /// Los scripts vienen dentro de BetoDicta y la base oficial se migra solo cuando
+    /// coincide su SHA-256 o se descarga por HTTPS. No depende de VozClonPOC/Hermes.
     static func instalarEntrenamiento(onProgreso: @escaping (String) -> Void,
                                       completion: @escaping (Bool, String) -> Void) {
         guard estado() == .listo else { completion(false, "Primero instala el motor de voz."); return }
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                onProgreso("Instalando herramientas de entrenamiento (Whisper, Resemblyzer, gráficas)…")
-                let uv = try localizarObajarUv(onProgreso)
-                try correr(uv, ["pip", "install", "--python", pythonURL.path] + pinsEntreno, onProgreso)
-                onProgreso("Copiando el pipeline de clonación…")
-                try prepararPipeline()
-                guard entrenoListo else { throw Err.proceso(0, "faltan scripts/xtts_base del pipeline") }
+                try instalarEntrenamientoSincrono(onProgreso: onProgreso)
                 DispatchQueue.main.async { completion(true, "Entrenamiento listo.") }
             } catch {
                 DispatchQueue.main.async { completion(false, "Falló: \(error.localizedDescription)") }
@@ -153,24 +153,87 @@ enum VozEngine {
         }
     }
 
-    /// Deja los scripts del pipeline + xtts_base bajo voz-engine/pipeline/.
-    private static func prepararPipeline() throws {
+    /// Misma instalación usada por la GUI, disponible para hooks QA/migraciones.
+    static func instalarEntrenamientoSincrono(onProgreso: @escaping (String) -> Void) throws {
+        guard estado() == .listo else { throw Err.proceso(0, "motor XTTS no instalado") }
+        onProgreso("Instalando herramientas de entrenamiento (Whisper, Resemblyzer, gráficas)…")
+        let uv = try localizarObajarUv(onProgreso)
+        try correr(uv, ["pip", "install", "--python", pythonURL.path] + pinsEntreno, onProgreso)
+        onProgreso("Preparando el pipeline propio de BetoDicta…")
+        try prepararPipeline(onProgreso)
+        guard entrenoListo else { throw Err.proceso(0, "faltan recursos del pipeline") }
+    }
+
+    private struct RecursoXTTS {
+        let nombre: String
+        let sha256: String
+        var url: String { "https://huggingface.co/coqui/XTTS-v2/resolve/main/\(nombre)" }
+    }
+
+    private static let recursosXTTS = [
+        RecursoXTTS(nombre: "model.pth", sha256: "c7ea20001c6a0a841c77e252d8409f6a74fb423e79b3206a0771ba5989776187"),
+        RecursoXTTS(nombre: "config.json", sha256: "ef262b1454dd2a77e1461b0b2cd53e19b8a7624cc131b837d36df67356bc75e8"),
+        RecursoXTTS(nombre: "vocab.json", sha256: "928260878a59da8a72a2a5b7687fea29d5106137669d90945430fe17e415304a"),
+        RecursoXTTS(nombre: "dvae.pth", sha256: "b29bc227d410d4991e0a8c09b858f77415013eeb9fba9650258e96095557d97a"),
+        RecursoXTTS(nombre: "mel_stats.pth", sha256: "1f69422a8a8f344c4fca2f0c6b8d41d2151d6615b7321e48e6bb15ae949b119c")
+    ]
+
+    /// Deja scripts EMBARCADOS + base oficial verificada bajo voz-engine/pipeline/.
+    private static func prepararPipeline(_ onProgreso: @escaping (String) -> Void) throws {
         let fm = FileManager.default
-        try? fm.createDirectory(at: pipelineDir.appendingPathComponent("clonar"), withIntermediateDirectories: true)
-        // Fuente bootstrap: la carpeta VozClonPOC del usuario (parametrizable).
-        let base = (Config.vozClonBase() as NSString).expandingTildeInPath
-        let srcClonar = base + "/clonar"
-        let srcXtts = base + "/xtts_base"
-        if let scripts = try? fm.contentsOfDirectory(atPath: srcClonar) {
-            for f in scripts where f.hasSuffix(".py") {
-                let dst = pipelineDir.appendingPathComponent("clonar/" + f)
-                try? fm.removeItem(at: dst)
-                try? fm.copyItem(atPath: srcClonar + "/" + f, toPath: dst.path)
-            }
+        try fm.createDirectory(at: pipelineDir.appendingPathComponent("clonar"),
+                               withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+        try fm.createDirectory(at: pipelineDir.appendingPathComponent("xtts_base"),
+                               withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+
+        // El bundle es la fuente de producción. La ruta del repo solo permite correr el
+        // binario de desarrollo antes de construir BetoDicta.app.
+        let fuenteBundle = Bundle.main.resourceURL?.appendingPathComponent("voice-pipeline/clonar")
+        let fuenteRepo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/voice-pipeline/clonar")
+        guard let srcClonar = [fuenteBundle, fuenteRepo].compactMap({ $0 }).first(where: {
+            fm.fileExists(atPath: $0.appendingPathComponent("train.py").path)
+        }) else { throw Err.proceso(0, "la app no contiene el pipeline de entrenamiento") }
+        for src in try fm.contentsOfDirectory(at: srcClonar, includingPropertiesForKeys: nil)
+            where src.pathExtension == "py" {
+            let dst = pipelineDir.appendingPathComponent("clonar/" + src.lastPathComponent)
+            try? fm.removeItem(at: dst); try fm.copyItem(at: src, to: dst)
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dst.path)
         }
-        let xttsDst = pipelineDir.appendingPathComponent("xtts_base")
-        if !fm.fileExists(atPath: xttsDst.path), fm.fileExists(atPath: srcXtts) {
-            try? fm.copyItem(atPath: srcXtts, toPath: xttsDst.path)
+
+        // Migración sin red: reutiliza recursos oficiales ya presentes SOLO si su hash
+        // coincide. En una Mac limpia los descarga por HTTPS desde Coqui/Hugging Face.
+        let baseLegada = URL(fileURLWithPath:
+            (Config.vozClonBase() as NSString).expandingTildeInPath).appendingPathComponent("xtts_base")
+        let dstBase = pipelineDir.appendingPathComponent("xtts_base")
+        for recurso in recursosXTTS {
+            let dst = dstBase.appendingPathComponent(recurso.nombre)
+            if sha256(dst) == recurso.sha256 {
+                try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dst.path)
+                continue
+            }
+            try? fm.removeItem(at: dst)
+            let candidatos = [coquiCache.appendingPathComponent(recurso.nombre),
+                              baseLegada.appendingPathComponent(recurso.nombre)]
+            if let local = candidatos.first(where: { sha256($0) == recurso.sha256 }) {
+                onProgreso("Migrando \(recurso.nombre) al entorno propio…")
+                try fm.copyItem(at: local, to: dst)
+            } else {
+                onProgreso("Descargando base oficial XTTS: \(recurso.nombre)…")
+                let tmp = dst.appendingPathExtension("download")
+                try? fm.removeItem(at: tmp)
+                try correr("/usr/bin/curl", ["--fail", "--location", "--retry", "3",
+                                                "--output", tmp.path, recurso.url], onProgreso)
+                guard sha256(tmp) == recurso.sha256 else {
+                    try? fm.removeItem(at: tmp)
+                    throw Err.proceso(0, "SHA-256 inválido para \(recurso.nombre)")
+                }
+                try fm.moveItem(at: tmp, to: dst)
+            }
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dst.path)
         }
     }
 
@@ -202,12 +265,16 @@ enum VozEngine {
     refs = [os.path.join(PKG, l.strip()) for l in open(rel("ref_list", "ref_list.txt")) if l.strip()]
     gpt_lat, spk = model.get_conditioning_latents(audio_path=refs)
     out = sys.stdout.buffer
-    for chunk in model.inference_stream(TXT, "es", gpt_lat, spk, temperature=0.55, enable_text_splitting=True):
+    for chunk in model.inference_stream(TXT, "es", gpt_lat, spk, temperature=0.55,
+                                        length_penalty=1.0, repetition_penalty=5.0,
+                                        top_k=30, top_p=0.80, enable_text_splitting=True):
         out.write(chunk.cpu().numpy().astype("<f4").tobytes()); out.flush()
     """
 
     static func asegurarStreamRunner() {
         try? runnerPy.data(using: .utf8)?.write(to: streamRunnerURL)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                ofItemAtPath: streamRunnerURL.path)
     }
 
     static var serverPyURL: URL { dir.appendingPathComponent("xtts_server.py") }
@@ -217,7 +284,7 @@ enum VozEngine {
     /// recarga el modelo por respuesta). Lo levanta BetoDicta cuando el clon local es
     /// el motor activo (preactivar).
     private static let serverPy = """
-    import os, sys, json, warnings, threading
+    import os, sys, json, warnings, threading, traceback
     warnings.filterwarnings("ignore")
     os.environ["COQUI_TOS_AGREED"]="1"; os.environ.setdefault("CUDA_VISIBLE_DEVICES","")
     import torch
@@ -256,16 +323,31 @@ enum VozEngine {
                 self.send_response(404); self.end_headers()
         def do_POST(self):
             n=int(self.headers.get("Content-Length",0)); txt=self.rfile.read(n).decode("utf-8")
-            self.send_response(200); self.send_header("Content-Type","application/octet-stream"); self.end_headers()
             try:
-                for ch in model.inference_stream(txt,"es",GPT,SPK,temperature=0.55,enable_text_splitting=True):
-                    self.wfile.write(ch.cpu().numpy().astype("<f4").tobytes()); self.wfile.flush()
-            except Exception: pass
+                kw=dict(temperature=0.55,length_penalty=1.0,repetition_penalty=5.0,
+                        top_k=30,top_p=0.80,enable_text_splitting=True)
+                if self.path.startswith("/generate"):
+                    wav=model.inference(txt,"es",GPT,SPK,**kw)["wav"]
+                    body=torch.as_tensor(wav).cpu().numpy().astype("<f4").tobytes()
+                    self.send_response(200); self.send_header("Content-Type","application/octet-stream")
+                    self.send_header("Content-Length",str(len(body))); self.end_headers()
+                    self.wfile.write(body)
+                    self.wfile.flush()
+                else:
+                    self.send_response(200); self.send_header("Content-Type","application/octet-stream"); self.end_headers()
+                    for ch in model.inference_stream(txt,"es",GPT,SPK,**kw):
+                        self.wfile.write(ch.cpu().numpy().astype("<f4").tobytes()); self.wfile.flush()
+            except Exception:
+                traceback.print_exc(file=sys.stderr); sys.stderr.flush()
     print("READY", flush=True); sys.stdout.flush()
     HTTPServer(("127.0.0.1",PORT), H).serve_forever()
     """
 
-    static func asegurarServerPy() { try? serverPy.data(using: .utf8)?.write(to: serverPyURL) }
+    static func asegurarServerPy() {
+        try? serverPy.data(using: .utf8)?.write(to: serverPyURL)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                ofItemAtPath: serverPyURL.path)
+    }
 
     /// Cache del modelo BASE de Coqui XTTS v2 (vocab.json/config.json comunes a TODO
     /// clon XTTS). Sirve para rellenar paquetes traídos de fuera que llegan incompletos.
@@ -273,11 +355,25 @@ enum VozEngine {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/tts/tts_models--multilingual--multi-dataset--xtts_v2")
     }
-    static func baseVocab() -> URL? { existe(coquiCache.appendingPathComponent("vocab.json")) }
-    static func baseConfig() -> URL? { existe(coquiCache.appendingPathComponent("config.json")) }
+    static func baseVocab() -> URL? {
+        existe(pipelineDir.appendingPathComponent("xtts_base/vocab.json"))
+            ?? existe(coquiCache.appendingPathComponent("vocab.json"))
+    }
+    static func baseConfig() -> URL? {
+        existe(pipelineDir.appendingPathComponent("xtts_base/config.json"))
+            ?? existe(coquiCache.appendingPathComponent("config.json"))
+    }
     private static func existe(_ u: URL) -> URL? { FileManager.default.fileExists(atPath: u.path) ? u : nil }
 
-    static func desinstalar() { try? FileManager.default.removeItem(at: dir) }
+    /// Quita SOLO el runtime XTTS. No borra voces, entrenamientos, el pipeline, Máxima
+    /// ni Qwen/MLX: reinstalar el motor no puede destruir trabajo del usuario.
+    static func desinstalar() {
+        XttsServer.detener()
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("venv"))
+        try? FileManager.default.removeItem(at: marcador)
+        try? FileManager.default.removeItem(at: streamRunnerURL)
+        try? FileManager.default.removeItem(at: serverPyURL)
+    }
 
     // Wrappers públicos para que otros módulos (EntrenadorPiper) reusen uv + el runner.
     static func uvBin(_ onProgreso: @escaping (String) -> Void) throws -> String {
@@ -287,6 +383,25 @@ enum VozEngine {
     static func correrUv(_ exe: String, _ args: [String],
                          _ onLinea: @escaping (String) -> Void) throws -> String {
         try correr(exe, args, onLinea)
+    }
+    /// Ejecuta una herramienta concreta sin pasar por un shell. Lo usan los runtimes
+    /// gestionados (Máxima, Piper, etc.) para conservar argumentos y rutas seguros.
+    @discardableResult
+    static func correrComando(_ exe: String, _ args: [String],
+                              _ onLinea: @escaping (String) -> Void = { _ in }) throws -> String {
+        try correr(exe, args, onLinea)
+    }
+
+    private static func sha256(_ archivo: URL) -> String? {
+        guard FileManager.default.fileExists(atPath: archivo.path) else { return nil }
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/shasum")
+        p.arguments = ["-a", "256", archivo.path]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+        do { try p.run(); p.waitUntilExit() } catch { return nil }
+        guard p.terminationStatus == 0,
+              let s = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        else { return nil }
+        return s.split(separator: " ").first.map(String.init)
     }
 
     // MARK: Utilidades

@@ -1,16 +1,10 @@
 import Foundation
 
-// MARK: - Biblioteca de voces LOCALES clonadas (Fase 7)
+// MARK: - Biblioteca de voces LOCALES clonadas
 //
-// El usuario entrena voces con VozClonPOC (XTTS, 100% local) y aquí las
-// REGISTRA para poder ELEGIRLAS ("quiero hablar con la voz que cloné"). Nada de
-// esto viaja en el Git: la app viene VACÍA y cada quien sube/agrega las suyas
-// (tu voz, la de tu mamá, quien sea). Parametrizable.
-//
-// Cada voz = un comando de shell donde {texto} y {salida} se sustituyen. Para
-// las voces de VozClonPOC el comando es:
-//   bash <base>/clonar.sh decir <proyecto> <ckpt> "{texto}" {salida}
-// El botón "Detectar" arma ese comando solo escaneando los proyectos entrenados.
+// BetoDicta crea, importa, usa, exporta y restaura sus propios paquetes XTTS. Nada
+// privado viaja en Git. El comando externo se conserva únicamente para migrar voces
+// históricas; una voz gestionada usa `paquete` y no depende de ese comando.
 
 struct VozLocal: Codable, Identifiable, Equatable {
     var id: String
@@ -28,10 +22,12 @@ struct VozLocal: Codable, Identifiable, Equatable {
     var mlxRef: String = ""    // muestra + transcripción para Qwen3-TTS/MLX (equilibrada)
     var mlxRefText: String = ""
     var mlxModelo: String = MlxVozEngine.modeloDefault
+    /// Máxima gestionada por BetoDicta: XTTS del paquete + restauración local común.
+    /// No contiene rutas a Hermes/VozClonPOC y viaja como metadato en el portable.
+    var maximaInterna: Bool = false
     var variante: String = "xtts" // "maxima" (restaurada), "xtts" (calidad), "mlx" (equilibrada), "onnx" (rápida)
-    /// Ruta de máxima identidad: conserva el paquete XTTS para el carril residente,
-    /// pero ejecuta el comando externo con su restauración de audio completa.
-    var tieneMaxima: Bool { !cmd.isEmpty && !paquete.isEmpty }
+    /// Acepta el nuevo carril interno y, por compatibilidad, comandos externos antiguos.
+    var tieneMaxima: Bool { !paquete.isEmpty && (maximaInterna || !cmd.isEmpty) }
     var tieneMlx: Bool {
         !mlxRef.isEmpty && !mlxRefText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && FileManager.default.fileExists(atPath: mlxRef)
@@ -39,15 +35,18 @@ struct VozLocal: Codable, Identifiable, Equatable {
 
     // Decode tolerante: JSON viejos sin campos nuevos siguen cargando.
     enum CodingKeys: String, CodingKey {
-        case id, nombre, cmd, persona, paquete, streaming, onnx, mlxRef, mlxRefText, mlxModelo, variante
+        case id, nombre, cmd, persona, paquete, streaming, onnx, mlxRef, mlxRefText,
+             mlxModelo, maximaInterna, variante
     }
     init(id: String, nombre: String, cmd: String, persona: String = "", paquete: String = "", streaming: Bool = true,
          onnx: String = "", mlxRef: String = "", mlxRefText: String = "",
-         mlxModelo: String = MlxVozEngine.modeloDefault, variante: String = "") {
+         mlxModelo: String = MlxVozEngine.modeloDefault, maximaInterna: Bool = false,
+         variante: String = "") {
         self.id = id; self.nombre = nombre; self.cmd = cmd; self.persona = persona
         self.paquete = paquete; self.streaming = streaming; self.onnx = onnx
         self.mlxRef = mlxRef; self.mlxRefText = mlxRefText
         self.mlxModelo = MlxVozEngine.modeloSeguro(mlxModelo)
+        self.maximaInterna = maximaInterna
         let pedida = variante.isEmpty ? (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts") : variante
         self.variante = ["maxima", "xtts", "mlx", "onnx"].contains(pedida) ? pedida : "xtts"
     }
@@ -64,6 +63,7 @@ struct VozLocal: Codable, Identifiable, Equatable {
         mlxRefText = (try? c.decode(String.self, forKey: .mlxRefText)) ?? ""
         mlxModelo = MlxVozEngine.modeloSeguro(
             (try? c.decode(String.self, forKey: .mlxModelo)) ?? MlxVozEngine.modeloDefault)
+        maximaInterna = (try? c.decode(Bool.self, forKey: .maximaInterna)) ?? false
         let guardada = (try? c.decode(String.self, forKey: .variante)) ?? ""
         variante = ["maxima", "xtts", "mlx", "onnx"].contains(guardada)
             ? guardada : (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts")
@@ -72,6 +72,13 @@ struct VozLocal: Codable, Identifiable, Equatable {
 
 enum VocesLocales {
     private static var url: URL { Config.dir.appendingPathComponent("voces_locales.json") }
+    private static var papeleraDir: URL { Config.dir.appendingPathComponent("papelera-voces") }
+
+    struct VozPapelera: Codable, Identifiable {
+        let id: String
+        let voz: VozLocal
+        let borradaEn: TimeInterval
+    }
 
     static func todas() -> [VozLocal] {
         guard let data = try? Data(contentsOf: url),
@@ -80,17 +87,47 @@ enum VocesLocales {
         // conocer mlxRef/mlxModelo. El manifiesto de la propia voz es la segunda copia.
         var reparada = false
         for i in list.indices {
-            guard let cfg = leerMlx(list[i].id) else { continue }
-            let ref = vocesDir.appendingPathComponent(list[i].id)
-                .appendingPathComponent("equilibrada/referencia.wav")
-            guard FileManager.default.fileExists(atPath: ref.path) else { continue }
-            if list[i].mlxRef != ref.path || list[i].mlxRefText != cfg.texto
-                || list[i].mlxModelo != cfg.modelo {
-                list[i].mlxRef = ref.path; list[i].mlxRefText = cfg.texto
-                list[i].mlxModelo = cfg.modelo; reparada = true
+            if !list[i].paquete.isEmpty {
+                // El runner lo controla BetoDicta. Al actualizar la receta, también se
+                // actualizan paquetes ya importados sin tocar modelo, refs ni persona.
+                let runner = URL(fileURLWithPath: list[i].paquete).appendingPathComponent("voz_gen.py")
+                let actual = try? String(contentsOf: runner, encoding: .utf8)
+                if actual != runnerBatch {
+                    try? runnerBatch.write(to: runner, atomically: true, encoding: .utf8)
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                            ofItemAtPath: runner.path)
+                }
+                // Paquetes antiguos llevaban solo persona.txt. Materializa también el
+                // skill portable para que el estilo viaje y pueda editarse visualmente.
+                if !list[i].persona.isEmpty {
+                    let skill = URL(fileURLWithPath: list[i].paquete)
+                        .appendingPathComponent("persona_SKILL.md")
+                    if !FileManager.default.fileExists(atPath: skill.path) {
+                        try? list[i].persona.write(to: skill, atomically: true,
+                                                   encoding: .utf8)
+                        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                                ofItemAtPath: skill.path)
+                    }
+                }
+                protegerPaquete(URL(fileURLWithPath: list[i].paquete))
             }
-            if cfg.activa, list[i].variante != "mlx" {
-                list[i].variante = "mlx"; reparada = true
+            if let cfg = leerMlx(list[i].id) {
+                let ref = vocesDir.appendingPathComponent(list[i].id)
+                    .appendingPathComponent("equilibrada/referencia.wav")
+                if FileManager.default.fileExists(atPath: ref.path) {
+                    if list[i].mlxRef != ref.path || list[i].mlxRefText != cfg.texto
+                        || list[i].mlxModelo != cfg.modelo {
+                        list[i].mlxRef = ref.path; list[i].mlxRefText = cfg.texto
+                        list[i].mlxModelo = cfg.modelo; reparada = true
+                    }
+                    if cfg.activa, list[i].variante != "mlx" {
+                        list[i].variante = "mlx"; reparada = true
+                    }
+                }
+            }
+            if !list[i].maximaInterna,
+               FileManager.default.fileExists(atPath: maximaConfigURL(list[i].id).path) {
+                list[i].maximaInterna = true; reparada = true
             }
         }
         if reparada { guardar(list) }
@@ -115,7 +152,10 @@ enum VocesLocales {
             .filter { $0.isLetter || $0.isNumber || $0 == "-" }
         var id = base.isEmpty ? "voz" : base
         var n = 2
-        while list.contains(where: { $0.id == id }) { id = "\(base)-\(n)"; n += 1 }
+        while list.contains(where: { $0.id == id })
+                || FileManager.default.fileExists(atPath: vocesDir.appendingPathComponent(id).path) {
+            id = "\(base)-\(n)"; n += 1
+        }
         let v = VozLocal(id: id, nombre: nombre, cmd: cmd, persona: persona, paquete: paquete)
         list.append(v); guardar(list)
         // Si es la primera, queda activa.
@@ -123,14 +163,84 @@ enum VocesLocales {
         return v
     }
 
-    static func borrar(_ id: String) {
-        // Borra la carpeta gestionada de esta voz (paquete XTTS o .onnx Piper), si existe.
-        let carpeta = vocesDir.appendingPathComponent(id)
-        if FileManager.default.fileExists(atPath: carpeta.path) {
-            try? FileManager.default.removeItem(at: carpeta)
+    /// Quitar = PAPELERA, nunca eliminación irreversible. Devuelve false si no pudo
+    /// preservar primero todos los archivos gestionados.
+    @discardableResult
+    static func borrar(_ id: String) -> Bool {
+        var list = todas()
+        guard let indice = list.firstIndex(where: { $0.id == id }) else { return false }
+        let voz = list[indice]; let fm = FileManager.default
+        let marca = "\(voz.id)-\(Int(Date().timeIntervalSince1970))"
+        let destino = papeleraDir.appendingPathComponent(marca)
+        do {
+            try fm.createDirectory(at: destino, withIntermediateDirectories: true,
+                                   attributes: [.posixPermissions: 0o700])
+            let registro = VozPapelera(id: marca, voz: voz,
+                                       borradaEn: Date().timeIntervalSince1970)
+            let data = try JSONEncoder().encode(registro)
+            let regURL = destino.appendingPathComponent("registro.json")
+            try data.write(to: regURL, options: .atomic)
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: regURL.path)
+            let carpeta = vocesDir.appendingPathComponent(id)
+            if fm.fileExists(atPath: carpeta.path) {
+                try fm.moveItem(at: carpeta, to: destino.appendingPathComponent("voz"))
+            }
+        } catch {
+            try? fm.removeItem(at: destino)
+            Log.log(.ia, "No pude poner la voz \(id) en papelera: \(error.localizedDescription)")
+            return false
         }
-        guardar(todas().filter { $0.id != id })
-        if Config.ttsVozLocal() == id { Config.set("tts_voz_local", to: todas().first?.id ?? "") }
+        list.remove(at: indice); guardar(list)
+        if Config.ttsVozLocal() == id { Config.set("tts_voz_local", to: list.first?.id ?? "") }
+        return true
+    }
+
+    static func papelera() -> [VozPapelera] {
+        let fm = FileManager.default
+        let carpetas = (try? fm.contentsOfDirectory(at: papeleraDir,
+            includingPropertiesForKeys: nil)) ?? []
+        return carpetas.compactMap { carpeta in
+            guard let data = try? Data(contentsOf: carpeta.appendingPathComponent("registro.json"))
+            else { return nil }
+            return try? JSONDecoder().decode(VozPapelera.self, from: data)
+        }.sorted { $0.borradaEn > $1.borradaEn }
+    }
+
+    /// Restaura configuración + carpeta completa. Si el id ya existe, crea otro sin
+    /// sobrescribir a la voz nueva.
+    @discardableResult
+    static func restaurar(_ entradaId: String) -> VozLocal? {
+        guard let entrada = papelera().first(where: { $0.id == entradaId }) else { return nil }
+        let fm = FileManager.default; let origen = papeleraDir.appendingPathComponent(entradaId)
+        var list = todas(); var voz = entrada.voz; let base = voz.id
+        var nuevoId = base; var n = 2
+        while list.contains(where: { $0.id == nuevoId })
+                || fm.fileExists(atPath: vocesDir.appendingPathComponent(nuevoId).path) {
+            nuevoId = "\(base)-\(n)"; n += 1
+        }
+        voz.id = nuevoId
+        let archivos = origen.appendingPathComponent("voz")
+        let destino = vocesDir.appendingPathComponent(nuevoId)
+        do {
+            try fm.createDirectory(at: vocesDir, withIntermediateDirectories: true,
+                                   attributes: [.posixPermissions: 0o700])
+            if fm.fileExists(atPath: archivos.path) { try fm.moveItem(at: archivos, to: destino) }
+            if fm.fileExists(atPath: destino.appendingPathComponent("betodicta-voz.json").path) {
+                voz.paquete = destino.path
+            }
+            let rapida = destino.appendingPathComponent("rapida/voz.onnx")
+            let onnxRaiz = destino.appendingPathComponent("voz.onnx")
+            if fm.fileExists(atPath: rapida.path) { voz.onnx = rapida.path }
+            else if fm.fileExists(atPath: onnxRaiz.path) { voz.onnx = onnxRaiz.path }
+            let ref = destino.appendingPathComponent("equilibrada/referencia.wav")
+            if fm.fileExists(atPath: ref.path) { voz.mlxRef = ref.path }
+            list.append(voz); guardar(list)
+            try? fm.removeItem(at: origen)
+            return voz
+        } catch {
+            Log.log(.ia, "No pude restaurar la voz \(entradaId): \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// La voz seleccionada (o la primera, o nil si no hay ninguna).
@@ -179,8 +289,40 @@ enum VocesLocales {
         return list[i]
     }
 
+    /// Vincula la receta Máxima PROPIA. Si `quitarLegacy` es true, borra únicamente
+    /// la referencia al comando antiguo; el paquete XTTS, persona y demás variantes
+    /// permanecen intactos.
+    @discardableResult
+    static func vincularMaximaInterna(a id: String, activar: Bool = true,
+                                      quitarLegacy: Bool = false) -> VozLocal? {
+        var list = todas()
+        guard let i = list.firstIndex(where: { $0.id == id }), !list[i].paquete.isEmpty,
+              FileManager.default.fileExists(atPath: list[i].paquete) else { return nil }
+        list[i].maximaInterna = true
+        if quitarLegacy { list[i].cmd = "" }
+        if activar { list[i].variante = "maxima" }
+        guardarMaxima(list[i])
+        guardar(list)
+        return list[i]
+    }
+
     /// Carpeta donde BetoDicta guarda los paquetes de voz importados (gestionados).
     static var vocesDir: URL { Config.dir.appendingPathComponent("voces") }
+
+    /// Una voz contiene biometría y frases privadas. Solo endurece paquetes gestionados
+    /// dentro de ~/.betodicta; nunca cambia permisos de una ruta externa del usuario.
+    private static func protegerPaquete(_ raiz: URL) {
+        let segura = raiz.standardizedFileURL.path.hasPrefix(vocesDir.standardizedFileURL.path + "/")
+        guard segura, FileManager.default.fileExists(atPath: raiz.path) else { return }
+        let fm = FileManager.default
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: raiz.path)
+        guard let en = fm.enumerator(at: raiz, includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+        for case let url as URL in en {
+            let esDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            try? fm.setAttributes([.posixPermissions: esDir ? 0o700 : 0o600],
+                                  ofItemAtPath: url.path)
+        }
+    }
 
     /// Resultado del import inteligente.
     enum ResultadoImport {
@@ -208,7 +350,9 @@ enum VocesLocales {
     model.cpu(); model.train(False)
     refs=[os.path.join(PKG,l.strip()) for l in open(rel("ref_list","ref_list.txt")) if l.strip()]
     g,s=model.get_conditioning_latents(audio_path=refs)
-    o=model.inference(TXT,"es",g,s,temperature=0.55,enable_text_splitting=True)
+    o=model.inference(TXT,"es",g,s,temperature=0.55,length_penalty=1.0,
+                      repetition_penalty=5.0,top_k=30,top_p=0.80,
+                      enable_text_splitting=True)
     torchaudio.save(OUT, torch.tensor(o["wav"]).unsqueeze(0), 24000)
     print("OK", OUT)
     """
@@ -236,18 +380,35 @@ enum VocesLocales {
         let v = agregar(nombre: nombre, cmd: "", persona: persona, paquete: "")
         try? fm.createDirectory(at: vocesDir, withIntermediateDirectories: true)
         let dst = vocesDir.appendingPathComponent(v.id)
+        func cancelarImportacion() {
+            try? fm.removeItem(at: dst)
+            let restantes = todas().filter { $0.id != v.id }
+            guardar(restantes)
+            if Config.ttsVozLocal() == v.id {
+                Config.set("tts_voz_local", to: restantes.first?.id ?? "")
+            }
+        }
         try? fm.removeItem(at: dst)
         try? fm.createDirectory(at: dst.appendingPathComponent("refs"), withIntermediateDirectories: true)
         // 4) Copiar modelo.
-        try? fm.copyItem(at: modelo, to: dst.appendingPathComponent(modelo.lastPathComponent))
+        let modeloDestino = dst.appendingPathComponent(modelo.lastPathComponent)
+        do { try fm.copyItem(at: modelo.resolvingSymlinksInPath(), to: modeloDestino) }
+        catch { cancelarImportacion(); return .faltaModelo }
         // 5) config/vocab: del paquete si vienen, si no del BASE de Coqui (comunes a todo XTTS).
-        func poner(_ nombreArch: String, base: URL?) {
+        func poner(_ nombreArch: String, base: URL?) -> Bool {
             let enOrigen = origen.appendingPathComponent(nombreArch)
-            if fm.fileExists(atPath: enOrigen.path) { try? fm.copyItem(at: enOrigen, to: dst.appendingPathComponent(nombreArch)) }
-            else if let base { try? fm.copyItem(at: base, to: dst.appendingPathComponent(nombreArch)) }
+            let fuente = fm.fileExists(atPath: enOrigen.path) ? enOrigen : base
+            guard let fuente else { return false }
+            do {
+                try fm.copyItem(at: fuente.resolvingSymlinksInPath(),
+                                to: dst.appendingPathComponent(nombreArch))
+                return true
+            } catch { return false }
         }
-        poner("config.json", base: VozEngine.baseConfig())
-        poner("vocab.json", base: VozEngine.baseVocab())
+        guard poner("config.json", base: VozEngine.baseConfig()),
+              poner("vocab.json", base: VozEngine.baseVocab()) else {
+            cancelarImportacion(); return .faltaModelo
+        }
         // 6) Refs: cualquier wav del paquete (raíz o refs/). Si no hay → pedir muestras.
         var refWavs = items.filter { $0.pathExtension.lowercased() == "wav" }
         if let sub = try? fm.contentsOfDirectory(at: origen.appendingPathComponent("refs"), includingPropertiesForKeys: nil) {
@@ -256,18 +417,33 @@ enum VocesLocales {
         var refLines: [String] = []
         for w in refWavs.prefix(8) {
             let d = dst.appendingPathComponent("refs/" + w.lastPathComponent)
-            try? fm.copyItem(at: w, to: d); refLines.append("refs/" + w.lastPathComponent)
+            if (try? fm.copyItem(at: w.resolvingSymlinksInPath(), to: d)) != nil {
+                refLines.append("refs/" + w.lastPathComponent)
+            }
         }
         try? refLines.joined(separator: "\n").write(to: dst.appendingPathComponent("ref_list.txt"), atomically: true, encoding: .utf8)
         // 7) Runner genérico + manifest (BetoDicta los controla).
         try? runnerBatch.write(to: dst.appendingPathComponent("voz_gen.py"), atomically: true, encoding: .utf8)
         if !persona.isEmpty { try? persona.write(to: dst.appendingPathComponent("persona.txt"), atomically: true, encoding: .utf8) }
+        for nombrePersona in ["persona_SKILL.md", "persona_PROMPT.md", "persona_corpus.txt"] {
+            let src = origen.appendingPathComponent(nombrePersona)
+            if fm.fileExists(atPath: src.path) {
+                try? fm.copyItem(at: src, to: dst.appendingPathComponent(nombrePersona))
+            }
+        }
         let manifest: [String: Any] = ["formato": "betodicta-voz-clonada/1", "nombre": nombre, "idioma": "es",
             "motor": "xtts", "persona_archivo": "persona.txt",
             "archivos": ["modelo": modelo.lastPathComponent, "config": "config.json", "vocab": "vocab.json",
                          "ref_list": "ref_list.txt", "refs_dir": "refs"]]
         if let mj = try? JSONSerialization.data(withJSONObject: manifest, options: .prettyPrinted) {
             try? mj.write(to: dst.appendingPathComponent("betodicta-voz.json"))
+        }
+        guard fm.fileExists(atPath: modeloDestino.path),
+              fm.fileExists(atPath: dst.appendingPathComponent("config.json").path),
+              fm.fileExists(atPath: dst.appendingPathComponent("vocab.json").path),
+              fm.fileExists(atPath: dst.appendingPathComponent("voz_gen.py").path),
+              fm.fileExists(atPath: dst.appendingPathComponent("betodicta-voz.json").path) else {
+            cancelarImportacion(); return .faltaModelo
         }
         // 8) Fijar ruta + estado.
         var list = todas()
@@ -289,6 +465,10 @@ enum VocesLocales {
                 (cfg["modelo"] as? String) ?? MlxVozEngine.modeloDefault)
             _ = vincularMlx(referencia: eqRef, transcripcion: texto, modelo: modelo,
                             a: v.id, activar: false)
+        }
+        let maxima = origen.appendingPathComponent("maxima/config.json")
+        if fm.fileExists(atPath: maxima.path) {
+            _ = vincularMaximaInterna(a: v.id, activar: false, quitarLegacy: true)
         }
         let voz = todas().first { $0.id == v.id } ?? v
         return refLines.isEmpty ? .faltaMuestras(voz) : .ok(voz)
@@ -340,7 +520,13 @@ enum VocesLocales {
         let dst = vocesDir.appendingPathComponent(v.id); try? fm.removeItem(at: dst)
         try? fm.createDirectory(at: dst, withIntermediateDirectories: true)
         let onnxDst = dst.appendingPathComponent("voz.onnx")
-        do { try fm.copyItem(at: onnx, to: onnxDst) } catch { borrar(v.id); return nil }
+        do { try fm.copyItem(at: onnx, to: onnxDst) } catch {
+            // Importación incompleta: es un temporal recién creado, no una voz del
+            // usuario; se limpia sin contaminar la papelera.
+            try? fm.removeItem(at: dst)
+            guardar(todas().filter { $0.id != v.id })
+            return nil
+        }
         // el .json de config (mismo nombre + .json) es necesario para Piper.
         let json = URL(fileURLWithPath: onnx.path + ".json")
         if fm.fileExists(atPath: json.path) { try? fm.copyItem(at: json, to: URL(fileURLWithPath: onnxDst.path + ".json")) }
@@ -410,13 +596,15 @@ enum VocesLocales {
 
     /// DESCARGAR/exportar el paquete de una voz a una carpeta destino (para llevarlo).
     @discardableResult
-    static func exportarPaquete(_ voz: VozLocal, a carpetaDestino: URL) -> URL? {
+    static func exportarPaquete(_ voz: VozLocal, a carpetaDestino: URL,
+                                reemplazar: Bool = false) -> URL? {
         guard !voz.paquete.isEmpty else { return nil }
         let origen = URL(fileURLWithPath: voz.paquete)
         let fm = FileManager.default
         guard fm.fileExists(atPath: origen.path) else { return nil }
         let nombreCarpeta = "Voz-" + voz.id
         let destino = carpetaDestino.appendingPathComponent(nombreCarpeta)
+        if fm.fileExists(atPath: destino.path), !reemplazar { return nil }
         try? fm.removeItem(at: destino)
         do {
             try fm.copyItem(at: origen, to: destino)
@@ -448,6 +636,18 @@ enum VocesLocales {
                 try fm.setAttributes([.posixPermissions: 0o600],
                                      ofItemAtPath: eq.appendingPathComponent("config.json").path)
             }
+            if voz.maximaInterna {
+                let maxDir = destino.appendingPathComponent("maxima")
+                try? fm.removeItem(at: maxDir)
+                try fm.createDirectory(at: maxDir, withIntermediateDirectories: true)
+                let cfg: [String: Any] = ["formato": "betodicta-maxima/1",
+                                          "motor": "xtts+resemble-enhance",
+                                          "nfe": 128, "tau": 0.15, "lambda": 0.5]
+                let data = try JSONSerialization.data(withJSONObject: cfg, options: .prettyPrinted)
+                try data.write(to: maxDir.appendingPathComponent("config.json"), options: .atomic)
+                try fm.setAttributes([.posixPermissions: 0o600],
+                                     ofItemAtPath: maxDir.appendingPathComponent("config.json").path)
+            }
             return destino
         }
         catch { return nil }
@@ -461,6 +661,24 @@ enum VocesLocales {
 
     private static func mlxConfigURL(_ id: String) -> URL {
         vocesDir.appendingPathComponent(id).appendingPathComponent("equilibrada/config.json")
+    }
+
+    private static func maximaConfigURL(_ id: String) -> URL {
+        vocesDir.appendingPathComponent(id).appendingPathComponent("maxima/config.json")
+    }
+
+    private static func guardarMaxima(_ voz: VozLocal) {
+        guard voz.maximaInterna else { return }
+        let u = maximaConfigURL(voz.id)
+        let d = u.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true,
+                                                  attributes: [.posixPermissions: 0o700])
+        let cfg: [String: Any] = ["formato": "betodicta-maxima/1",
+                                  "motor": "xtts+resemble-enhance",
+                                  "nfe": 128, "tau": 0.15, "lambda": 0.5]
+        guard let data = try? JSONSerialization.data(withJSONObject: cfg, options: .prettyPrinted) else { return }
+        try? data.write(to: u, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: u.path)
     }
 
     private static func guardarMlx(_ voz: VozLocal) {
@@ -490,8 +708,8 @@ enum VocesLocales {
                           activa: (cfg["activa"] as? Bool) ?? false)
     }
 
-    /// Escanea los proyectos entrenados de VozClonPOC y arma un comando listo por
-    /// cada uno (proyecto + su mejor checkpoint slim). Para el botón "Detectar".
+    /// Compatibilidad de migración: escanea proyectos históricos de VozClonPOC y arma
+    /// un comando listo por cada uno. Las voces nuevas se crean dentro de BetoDicta.
     /// Devuelve [(nombreSugerido, cmd)]. No agrega nada: el usuario confirma.
     static func detectarDeVozClon() -> [(nombre: String, cmd: String)] {
         let base = (Config.vozClonBase() as NSString).expandingTildeInPath

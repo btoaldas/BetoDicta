@@ -5,6 +5,79 @@ import Foundation
 enum VozLocalQA {
     static func ejecutarSiSePidio() {
         let env = ProcessInfo.processInfo.environment
+        if env["BETODICTA_MAXIMAINSTALLTEST"] == "1" {
+            do {
+                var ultima = ""
+                try VozMaximaEngine.instalarSincrono { linea in ultima = linea }
+                if let id = env["BETODICTA_MAXIMA_VOZ_ID"], !id.isEmpty {
+                    guard VocesLocales.vincularMaximaInterna(a: id, activar: true,
+                                                             quitarLegacy: true) != nil else {
+                        print("MAXIMAINSTALLTEST runtime=OK migración=FALLA id=\(id)"); exit(3)
+                    }
+                    VocesLocales.fijarActiva(id); Config.set("tts_proveedor", to: "xtts_local")
+                }
+                print("MAXIMAINSTALLTEST OK estado=listo último=\(ultima)")
+                exit(0)
+            } catch {
+                print("MAXIMAINSTALLTEST FALLA \(error.localizedDescription)"); exit(2)
+            }
+        }
+        if env["BETODICTA_TRAINPIPELINETEST"] == "1" {
+            do {
+                var ultima = ""
+                try VozEngine.instalarEntrenamientoSincrono { linea in ultima = linea }
+                print("TRAINPIPELINETEST \(VozEngine.entrenoListo ? "OK" : "FALLA") último=\(ultima)")
+                exit(VozEngine.entrenoListo ? 0 : 3)
+            } catch {
+                print("TRAINPIPELINETEST FALLA \(error.localizedDescription)"); exit(2)
+            }
+        }
+        if env["BETODICTA_VOZSAFETYTEST"] == "1" {
+            let biblioteca = Config.dir.appendingPathComponent("voces_locales.json")
+            let original = try? Data(contentsOf: biblioteca)
+            let temporal = VocesLocales.agregar(nombre: "QA Papelera \(UUID().uuidString.prefix(6))",
+                                                 cmd: "echo {texto} {salida}")
+            let movida = VocesLocales.borrar(temporal.id)
+            let entrada = VocesLocales.papelera().first { $0.voz.id == temporal.id }
+            let restaurada = entrada.flatMap { VocesLocales.restaurar($0.id) }
+            let ok = movida && entrada != nil && restaurada?.id == temporal.id
+            if let original {
+                try? original.write(to: biblioteca, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                        ofItemAtPath: biblioteca.path)
+            }
+            if let entrada {
+                try? FileManager.default.removeItem(at: Config.dir
+                    .appendingPathComponent("papelera-voces/\(entrada.id)"))
+            }
+            print("VOZSAFETYTEST papelera=\(movida) restaurada=\(restaurada?.id ?? "nil")")
+            exit(ok ? 0 : 3)
+        }
+        if let texto = env["BETODICTA_MAXIMATEST"], !texto.isEmpty {
+            guard let voz = VocesLocales.activa(), voz.maximaInterna,
+                  VozMaximaEngine.estado() == .listo else {
+                print("MAXIMATEST no-listo"); exit(2)
+            }
+            var terminado = false; var generado: URL?
+            VozMaximaEngine.decir(voz: voz, texto: texto) { url in
+                generado = url; terminado = true
+            }
+            let limite = Date().addingTimeInterval(600)
+            while !terminado, Date() < limite {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
+            }
+            guard let generado, FileManager.default.fileExists(atPath: generado.path) else {
+                print("MAXIMATEST FALLA sin-audio"); exit(3)
+            }
+            if let salida = env["BETODICTA_MAXIMA_OUT"], !salida.isEmpty {
+                let dst = URL(fileURLWithPath: salida)
+                try? FileManager.default.removeItem(at: dst)
+                try? FileManager.default.copyItem(at: generado, to: dst)
+            }
+            let bytes = (try? generado.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            print("MAXIMATEST OK id=\(voz.id) bytes=\(bytes) cmdLegacy=\(!voz.cmd.isEmpty)")
+            exit(bytes > 44 ? 0 : 4)
+        }
         if let variante = env["BETODICTA_VOZVARIANTTEST"], !variante.isEmpty {
             guard let voz = VocesLocales.activa() else {
                 print("VOZVARIANTTEST sin voz activa"); exit(2)

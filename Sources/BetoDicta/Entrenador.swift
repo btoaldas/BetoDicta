@@ -1,10 +1,10 @@
 import Foundation
 import AVFoundation
 
-// MARK: - Entrenador de clones de voz (planificación inteligente) — Fase asistente por voz
+// MARK: - Entrenador de clones de voz (planificación inteligente)
 //
 // El usuario suelta una carpeta de audios de UNA persona; BetoDicta entrena un clon
-// XTTS (pipeline de VozClonPOC internalizado, corre en el motor aislado, en background
+// XTTS (pipeline propio de BetoDicta, corre en el motor aislado, en background
 // con resiliencia) y al final emite un PAQUETE portable. Este archivo es el CEREBRO
 // de PARÁMETROS: según cuánto audio hay, recomienda etapas + checkpoints (el usuario
 // puede cambiarlos). Nada se entrena aquí todavía — solo se decide el plan.
@@ -111,8 +111,8 @@ enum Entrenador {
             DispatchQueue.main.async { onProgreso(Progreso(fase: "dataset", paso: 0, total: 0, texto: "Transcribiendo audios (Whisper)…")) }
             let ds = Process(); ds.executableURL = VozEngine.pythonURL
             ds.arguments = [clonar.appendingPathComponent("build_ds.py").path, carpeta.path, proyecto.path]
-            var env = ProcessInfo.processInfo.environment
-            env["COQUI_TOS_AGREED"] = "1"; env["VAL_N"] = "\(valN)"; env["VAL_SEC"] = "\(valSeg)"
+            var env = entornoProceso()
+            env["VAL_N"] = "\(valN)"; env["VAL_SEC"] = "\(valSeg)"
             if etapas > 0 { env["STEPS"] = "\(etapas)" }   // etapas elegidas por el usuario (0 = auto)
             ds.environment = env
             let dsLog = proyecto.appendingPathComponent("dataset.log")
@@ -129,7 +129,10 @@ enum Entrenador {
             // FASE 2 — train (train.py) en BACKGROUND → train.log.
             DispatchQueue.main.async { onProgreso(Progreso(fase: "train", paso: 0, total: 0, texto: "Arrancando el entrenamiento…")) }
             let tr = Process(); tr.executableURL = VozEngine.pythonURL
-            tr.arguments = [clonar.appendingPathComponent("train.py").path, proyecto.path]
+            // train.py lee el plan por ARGUMENTO. Antes solo se ponía STEPS en el entorno
+            // y la cantidad elegida en la interfaz podía quedar ignorada.
+            tr.arguments = [clonar.appendingPathComponent("train.py").path,
+                            proyecto.path, "\(etapas)"]
             tr.environment = env
             let trLog = proyecto.appendingPathComponent("train.log")
             fm.createFile(atPath: trLog.path, contents: nil)
@@ -194,8 +197,8 @@ enum Entrenador {
             func py(_ script: String, _ args: [String]) -> Bool {
                 let p = Process(); p.executableURL = VozEngine.pythonURL
                 p.arguments = [clonar.appendingPathComponent(script).path] + args
-                var env = ProcessInfo.processInfo.environment
-                env["COQUI_TOS_AGREED"] = "1"; env["VAL_N"] = "\(valN)"; env["VAL_SEC"] = "\(valSeg)"
+                var env = entornoProceso()
+                env["VAL_N"] = "\(valN)"; env["VAL_SEC"] = "\(valSeg)"
                 p.environment = env
                 p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
                 do { try p.run() } catch { return false }; p.waitUntilExit(); return p.terminationStatus == 0
@@ -234,7 +237,8 @@ enum Entrenador {
     // MARK: Post-train — persona + emitir el PAQUETE portable
 
     /// Genera la PERSONA (cómo habla) del proyecto con persona.py (Whisper ya transcribió
-    /// en el dataset). Devuelve el texto de persona_PROMPT.md (o "").
+    /// en el dataset). Devuelve la persona lista; conserva además corpus y prompt
+    /// detallado para que el usuario pueda revisarla o mejorarla.
     static func generarPersona(proyecto: URL, nombre: String) -> String {
         let clonar = VozEngine.pipelineDir.appendingPathComponent("clonar")
         let meta = proyecto.appendingPathComponent("dataset/metadata.csv")
@@ -243,7 +247,10 @@ enum Entrenador {
         p.arguments = [clonar.appendingPathComponent("persona.py").path, meta.path, proyecto.path, nombre]
         p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
         try? p.run(); p.waitUntilExit()
-        return (try? String(contentsOf: proyecto.appendingPathComponent("persona_PROMPT.md"), encoding: .utf8))?
+        let skill = proyecto.appendingPathComponent("persona_SKILL.md")
+        let prompt = proyecto.appendingPathComponent("persona_PROMPT.md")
+        return (try? String(contentsOf: FileManager.default.fileExists(atPath: skill.path) ? skill : prompt,
+                            encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
@@ -259,7 +266,7 @@ enum Entrenador {
         func py(_ script: String, _ args: [String]) {
             let p = Process(); p.executableURL = VozEngine.pythonURL
             p.arguments = [clonar.appendingPathComponent(script).path] + args
-            var env = ProcessInfo.processInfo.environment; env["COQUI_TOS_AGREED"] = "1"; p.environment = env
+            p.environment = entornoProceso()
             p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
             try? p.run(); p.waitUntilExit()
         }
@@ -267,7 +274,10 @@ enum Entrenador {
         let meta = proj.appendingPathComponent("dataset/metadata.csv")
         guard FileManager.default.fileExists(atPath: meta.path) else { try? FileManager.default.removeItem(at: proj); return "" }
         py("persona.py", [meta.path, proj.path, nombre])
-        let persona = (try? String(contentsOf: proj.appendingPathComponent("persona_PROMPT.md"), encoding: .utf8))?
+        let skill = proj.appendingPathComponent("persona_SKILL.md")
+        let prompt = proj.appendingPathComponent("persona_PROMPT.md")
+        let persona = (try? String(contentsOf: FileManager.default.fileExists(atPath: skill.path) ? skill : prompt,
+                                   encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         try? FileManager.default.removeItem(at: proj)
         return persona
@@ -285,7 +295,20 @@ enum Entrenador {
             let temp = fm.temporaryDirectory.appendingPathComponent("emitir_\(slug(nombre))_\(stamp)")
             try? fm.removeItem(at: temp)
             try? fm.createDirectory(at: temp.appendingPathComponent("refs"), withIntermediateDirectories: true)
-            try? fm.copyItem(at: checkpoint, to: temp.appendingPathComponent(checkpoint.lastPathComponent))
+            // El portable usa un checkpoint SLIM (solo inferencia), no el estado completo
+            // del optimizador. Si slim falla, conserva el checkpoint original como respaldo.
+            let slimDir = temp.appendingPathComponent("_slim")
+            try? fm.createDirectory(at: slimDir, withIntermediateDirectories: true)
+            let slim = Process(); slim.executableURL = VozEngine.pythonURL
+            slim.arguments = [VozEngine.pipelineDir.appendingPathComponent("clonar/slim.py").path,
+                              checkpoint.path, slimDir.path]
+            slim.environment = entornoProceso()
+            slim.standardOutput = FileHandle.nullDevice; slim.standardError = FileHandle.nullDevice
+            if (try? slim.run()) != nil { slim.waitUntilExit() }
+            let modelo = ((try? fm.contentsOfDirectory(at: slimDir, includingPropertiesForKeys: nil)) ?? [])
+                .first(where: { $0.pathExtension == "pth" }) ?? checkpoint
+            try? fm.copyItem(at: modelo, to: temp.appendingPathComponent(modelo.lastPathComponent))
+            try? fm.removeItem(at: slimDir)
             // Refs desde ref_list.txt del proyecto (rutas relativas al proyecto o absolutas).
             if let lista = try? String(contentsOf: proyecto.appendingPathComponent("ref_list.txt"), encoding: .utf8) {
                 for (i, l) in lista.split(separator: "\n").prefix(8).enumerated() {
@@ -295,7 +318,28 @@ enum Entrenador {
                     }
                 }
             }
-            if !persona.isEmpty { try? persona.write(to: temp.appendingPathComponent("persona.txt"), atomically: true, encoding: .utf8) }
+            if !persona.isEmpty {
+                try? persona.write(to: temp.appendingPathComponent("persona.txt"),
+                                   atomically: true, encoding: .utf8)
+            }
+            // El portable lleva persona activa + corpus/prompt para revisarla o volver a
+            // mejorarla en otra Mac, sin Hermes ni el proyecto original.
+            for nombrePersona in ["persona_SKILL.md", "persona_PROMPT.md", "persona_corpus.txt"] {
+                let src = proyecto.appendingPathComponent(nombrePersona)
+                if fm.fileExists(atPath: src.path) {
+                    try? fm.copyItem(at: src, to: temp.appendingPathComponent(nombrePersona))
+                }
+            }
+            // Todo clon XTTS creado por BetoDicta puede usar la restauración común. El
+            // portable lleva solo esta receta; el runtime/pesas se instalan una vez por Mac.
+            let maxima = temp.appendingPathComponent("maxima")
+            try? fm.createDirectory(at: maxima, withIntermediateDirectories: true)
+            let maximaCfg: [String: Any] = ["formato": "betodicta-maxima/1",
+                                            "motor": "xtts+resemble-enhance",
+                                            "nfe": 128, "tau": 0.15, "lambda": 0.5]
+            if let data = try? JSONSerialization.data(withJSONObject: maximaCfg, options: .prettyPrinted) {
+                try? data.write(to: maxima.appendingPathComponent("config.json"), options: .atomic)
+            }
             let manifest = ["nombre": nombre]
             if let mj = try? JSONSerialization.data(withJSONObject: manifest) {
                 try? mj.write(to: temp.appendingPathComponent("betodicta-voz.json"))
@@ -333,6 +377,24 @@ enum Entrenador {
     private static func registroTieneStep(_ log: URL) -> Bool {
         guard let t = try? String(contentsOf: log, encoding: .utf8) else { return false }
         return t.contains("GLOBAL_STEP:")
+    }
+
+    /// Entorno estable para procesos lanzados desde una app GUI (que normalmente no
+    /// hereda el PATH de Homebrew). Los scripts reciben rutas explícitas de audio.
+    private static func entornoProceso() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["COQUI_TOS_AGREED"] = "1"
+        let prefijos = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        env["PATH"] = (prefijos + [env["PATH"] ?? ""]).joined(separator: ":")
+        if let ffmpeg = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            env["BETODICTA_FFMPEG"] = ffmpeg
+        }
+        if let ffprobe = ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            env["BETODICTA_FFPROBE"] = ffprobe
+        }
+        return env
     }
 
     static func slug(_ s: String) -> String {
