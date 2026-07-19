@@ -72,7 +72,25 @@ enum VocesLocales {
 
     static func todas() -> [VozLocal] {
         guard let data = try? Data(contentsOf: url),
-              let list = try? JSONDecoder().decode([VozLocal].self, from: data) else { return [] }
+              var list = try? JSONDecoder().decode([VozLocal].self, from: data) else { return [] }
+        // Autorreparación ante downgrade: una versión vieja puede reescribir el JSON sin
+        // conocer mlxRef/mlxModelo. El manifiesto de la propia voz es la segunda copia.
+        var reparada = false
+        for i in list.indices {
+            guard let cfg = leerMlx(list[i].id) else { continue }
+            let ref = vocesDir.appendingPathComponent(list[i].id)
+                .appendingPathComponent("equilibrada/referencia.wav")
+            guard FileManager.default.fileExists(atPath: ref.path) else { continue }
+            if list[i].mlxRef != ref.path || list[i].mlxRefText != cfg.texto
+                || list[i].mlxModelo != cfg.modelo {
+                list[i].mlxRef = ref.path; list[i].mlxRefText = cfg.texto
+                list[i].mlxModelo = cfg.modelo; reparada = true
+            }
+            if cfg.activa, list[i].variante != "mlx" {
+                list[i].variante = "mlx"; reparada = true
+            }
+        }
+        if reparada { guardar(list) }
         return list
     }
 
@@ -136,6 +154,7 @@ enum VocesLocales {
                 || (pedida == "mlx" && list[i].tieneMlx)
                 || (pedida == "xtts" && !list[i].paquete.isEmpty) else { return }
         list[i].variante = pedida
+        if list[i].tieneMlx { guardarMlx(list[i]) }
         guardar(list)
     }
 
@@ -363,6 +382,7 @@ enum VocesLocales {
         list[i].mlxRefText = texto
         list[i].mlxModelo = MlxVozEngine.modeloSeguro(modelo)
         if activar { list[i].variante = "mlx" }
+        guardarMlx(list[i])
         guardar(list)
         return list[i]
     }
@@ -400,7 +420,8 @@ enum VocesLocales {
                                 to: eq.appendingPathComponent("referencia.wav"))
                 let cfg: [String: Any] = ["formato": "betodicta-qwen-mlx/1",
                                           "modelo": MlxVozEngine.modeloSeguro(voz.mlxModelo),
-                                          "texto": voz.mlxRefText]
+                                          "texto": voz.mlxRefText,
+                                          "activa": voz.variante == "mlx"]
                 let data = try JSONSerialization.data(withJSONObject: cfg, options: .prettyPrinted)
                 try data.write(to: eq.appendingPathComponent("config.json"), options: .atomic)
                 try fm.setAttributes([.posixPermissions: 0o600],
@@ -409,6 +430,43 @@ enum VocesLocales {
             return destino
         }
         catch { return nil }
+    }
+
+    private struct MlxGuardada {
+        let modelo: String
+        let texto: String
+        let activa: Bool
+    }
+
+    private static func mlxConfigURL(_ id: String) -> URL {
+        vocesDir.appendingPathComponent(id).appendingPathComponent("equilibrada/config.json")
+    }
+
+    private static func guardarMlx(_ voz: VozLocal) {
+        guard voz.tieneMlx else { return }
+        let u = mlxConfigURL(voz.id)
+        let d = u.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true,
+                                                  attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: d.path)
+        let cfg: [String: Any] = ["formato": "betodicta-qwen-mlx/1",
+                                  "modelo": MlxVozEngine.modeloSeguro(voz.mlxModelo),
+                                  "texto": voz.mlxRefText,
+                                  "activa": voz.variante == "mlx"]
+        guard let data = try? JSONSerialization.data(withJSONObject: cfg, options: .prettyPrinted) else { return }
+        try? data.write(to: u, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: u.path)
+    }
+
+    private static func leerMlx(_ id: String) -> MlxGuardada? {
+        guard let data = try? Data(contentsOf: mlxConfigURL(id)),
+              let cfg = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let texto = cfg["texto"] as? String,
+              !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return MlxGuardada(modelo: MlxVozEngine.modeloSeguro(
+            (cfg["modelo"] as? String) ?? MlxVozEngine.modeloDefault),
+                          texto: texto,
+                          activa: (cfg["activa"] as? Bool) ?? false)
     }
 
     /// Escanea los proyectos entrenados de VozClonPOC y arma un comando listo por

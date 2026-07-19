@@ -984,6 +984,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Simula que una versión vieja elimina los campos MLX del JSON. El manifiesto
+        // privado por voz debe restaurarlos sin perder la variante seleccionada.
+        if let id = ProcessInfo.processInfo.environment["BETODICTA_MLXHEALTEST"], !id.isEmpty {
+            var list = VocesLocales.todas()
+            guard let i = list.firstIndex(where: { $0.id == id }), list[i].tieneMlx else {
+                print("MLXHEALTEST falta voz vinculada"); exit(2)
+            }
+            list[i].mlxRef = ""; list[i].mlxRefText = ""
+            list[i].mlxModelo = MlxVozEngine.modeloDefault; list[i].variante = "xtts"
+            VocesLocales.guardar(list)
+            let sana = VocesLocales.todas().first { $0.id == id }
+            let ok = sana?.tieneMlx == true && sana?.variante == "mlx"
+            print("MLXHEALTEST id=\(id) restaurada=\(sana?.tieneMlx == true) variante=\(sana?.variante ?? "nil")")
+            exit(ok ? 0 : 3)
+        }
         // QA del flujo público completo Voz.decir con el proveedor/voz/variante activos.
         // BETODICTA_LOCALVOZTEST=1 .build/debug/BetoDicta
         if ProcessInfo.processInfo.environment["BETODICTA_LOCALVOZTEST"] == "1" {
