@@ -157,6 +157,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // persistente/default del usuario.
     private var activacionVozTimer: Timer?
     private var activacionVozObserver: NSObjectProtocol?
+    /// Una acción terminada debe devolver SIEMPRE el oyente de presencia. El
+    /// reloj general sigue siendo la red de seguridad, pero esta solicitud
+    /// conserva la intención hasta comprobar el estado `.escuchando` real.
+    private var activacionVozRearmePendiente = false
+    private var activacionVozRearmeOrigen = "arranque"
+    private var activacionVozRearmeInicio = Date.distantPast
+    private var activacionVozRearmeIntentos = 0
+    private var activacionVozUltimoForzado = Date.distantPast
     private var iniciandoDictado = false
     /// Si fn se soltó mientras el oyente todavía entregaba el micrófono, se
     /// ejecuta apenas Recorder arranque. `true` descarta (fn usado como atajo),
@@ -1863,15 +1871,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         principal.addItem(edicionItem)
         NSApp.mainMenu = principal
 
-        // Este nombre estable conserva la posición visible elegida por AppKit.
-        // Versiones previas usaban nombres automáticos/rotativos que podían
-        // terminar aparcados debajo del reloj y parecer completamente ausentes.
         // Ejecutar el binario suelto de SwiftPM para hooks de QA hacía que
         // macOS 26 lo registrara como OTRO proveedor ad-hoc de barra. Esas
         // identidades de desarrollo terminaron cruzadas con ChatGPT en
         // Control Center. Solo el bundle real debe publicar un status item.
+        // Deliberadamente NO usamos `autosaveName`: así no añadimos una segunda
+        // capa histórica de visibilidad. El bug cruzado de Control Center vive
+        // en un contenedor privado; el flujo local lo corrige externamente, sin
+        // pedir Acceso total al disco a la aplicación instalada.
         if Bundle.main.bundleURL.pathExtension.lowercased() == "app" {
-            crearStatusItem(autosaveName: "BetoDictaStatusProbe")
+            crearStatusItem()
         } else {
             Log.write("icono barra: omitido en ejecutable de desarrollo sin bundle")
         }
@@ -2210,16 +2219,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var iconoTimer: Timer?
     private var iconoVigilante: Timer?
     private var estadoIconoActual: EstadoIcono = .reposo
-
-    /// Crea y configura el único status item de la app. Un `autosaveName`
-    /// estable evita que AppKit herede la posición oculta de status items
-    /// automáticos creados por versiones anteriores.
-    private func crearStatusItem(autosaveName: String) {
+    private var iconoFallosEstructurales = 0
+    private var iconoUltimaRecreacion = Date.distantPast
+    /// Crea y configura el único status item de la app. No usa identidad de
+    /// autosave; la posición puede volver junto al resto de extras al reiniciar.
+    /// La corrupción cruzada de Control Center se trata en el flujo local; aquí
+    /// siempre se mantiene exactamente una referencia AppKit dentro del proceso.
+    private func crearStatusItem() {
+        if let anterior = statusItem {
+            NSStatusBar.system.removeStatusItem(anterior)
+            statusItem = nil
+        }
         // 18 pt: mismo ancho que otros extras compactos; en equipos con notch
         // evita que el micrófono sea el primero en desaparecer por 6 pt.
         let item = NSStatusBar.system.statusItem(withLength: 18)
-        item.autosaveName = autosaveName
-        item.behavior = [.removalAllowed]
+        // BetoDicta es LSUIElement y puede vivir sin Dock: permitir Cmd-arrastrar
+        // para eliminar su único acceso deja la app abierta pero inalcanzable.
+        // La visibilidad se controla desde la app, no destruyendo el status item.
+        item.behavior = []
         // `true` sobre un item que AppKit ya considera visible es un no-op,
         // incluso si su ventana quedó aparcada fuera de pantalla. El ciclo
         // false→true lo vuelve a insertar sin crear un segundo status item.
@@ -2246,6 +2263,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, let item, self.statusItem === item else { return }
             item.isVisible = true
             self.setIcono(self.estadoIconoActual)
+            self.iconoFallosEstructurales = 0
+            Log.write("icono barra: status item disponible (bundle=\(Bundle.main.bundleIdentifier ?? "sin-id"))")
         }
     }
 
@@ -2262,8 +2281,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// y repara tinte/imagen si el sistema los dejó vacíos.
     private func iniciarVigilanciaIcono() {
         iconoVigilante?.invalidate()
-        iconoVigilante = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self, let item = self.statusItem, let btn = item.button else { return }
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard let item = self.statusItem, let btn = item.button else {
+                self.recuperarStatusItem(origen: "referencia_ausente")
+                return
+            }
+            // `isVisible` puede seguir devolviendo true después de que AppKit
+            // invalida la ventana al reemplazar/reinstalar repetidamente el
+            // bundle. Dos observaciones consecutivas evitan reaccionar al breve
+            // desmontaje normal de la barra al cambiar pantalla o espacio.
+            if btn.window == nil {
+                self.iconoFallosEstructurales += 1
+                item.isVisible = false
+                item.isVisible = true
+                if self.iconoFallosEstructurales >= 2 {
+                    self.recuperarStatusItem(origen: "ventana_ausente")
+                }
+                return
+            }
+            self.iconoFallosEstructurales = 0
             var reparado = false
             if !item.isVisible { item.isVisible = true; reparado = true }
             if btn.isHidden { btn.isHidden = false; reparado = true }
@@ -2282,6 +2319,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Log.write("icono barra: visibilidad reparada (estado=\(self.estadoIconoActual))")
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        iconoVigilante = timer
+    }
+
+    /// Recuperación estructural: elimina la referencia inválida antes de crear
+    /// otra, de modo que nunca queden dos íconos vivos dentro del mismo proceso.
+    /// El límite evita un bucle si un gestor externo de barra decide ocultarlo.
+    private func recuperarStatusItem(origen: String, forzado: Bool = false) {
+        guard Bundle.main.bundleURL.pathExtension.lowercased() == "app" else { return }
+        let ahora = Date()
+        guard forzado || ahora.timeIntervalSince(iconoUltimaRecreacion) >= 20 else { return }
+        iconoUltimaRecreacion = ahora
+        Log.write("icono barra: reconstruyendo status item (\(origen))")
+        crearStatusItem()
+        statusItem?.menu = appMenu
     }
 
     /// Cambia el ícono de la barra según el estado y lo hace "latir".
@@ -2334,7 +2386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// estados y comprueba tinte visible, template y retorno limpio a reposo.
     private func probarIconosBarraSiSePidio() {
         guard ProcessInfo.processInfo.environment["BETODICTA_ICONTEST"] == "1" else { return }
-        guard let statusItem else {
+        guard statusItem != nil else {
             print("ICONTEST FALLA: ejecutar desde BetoDicta.app, no como binario suelto")
             fflush(stdout)
             exit(3)
@@ -2346,18 +2398,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var todoOK = true
         for (estado, nombre) in casos {
             setIcono(estado)
-            let ok = statusItem.button?.image?.isTemplate == true
-                && statusItem.button?.contentTintColor == nil
-                && statusItem.button?.alphaValue == 1
-                && statusItem.isVisible && statusItem.button?.isHidden == false
+            let ok = statusItem?.button?.image?.isTemplate == true
+                && statusItem?.button?.contentTintColor == nil
+                && statusItem?.button?.alphaValue == 1
+                && statusItem?.isVisible == true && statusItem?.button?.isHidden == false
             todoOK = todoOK && ok
             print("ICONTEST \(ok ? "OK" : "FALLA") \(nombre) template+tinte-sistema+visible")
         }
-        let reposoOK = statusItem.button?.toolTip == "BetoDicta — listo para dictar"
+        let reposoOK = statusItem?.button?.toolTip == "BetoDicta — listo para dictar"
         todoOK = todoOK && reposoOK
         print("ICONTEST \(reposoOK ? "OK" : "FALLA") retorno al micrófono")
-        fflush(stdout)
-        exit(todoOK ? 0 : 3)
+        // Segundo ángulo: simula la invalidación que se observó tras varias
+        // compilaciones. Debe aparecer una referencia NUEVA, con menú e imagen.
+        if let viejo = statusItem {
+            NSStatusBar.system.removeStatusItem(viejo)
+            statusItem = nil
+        }
+        recuperarStatusItem(origen: "qa_invalidacion", forzado: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { exit(4) }
+            let reconstruido = self.statusItem?.button?.image?.isTemplate == true
+                && self.statusItem?.isVisible == true
+                && self.statusItem?.menu === self.appMenu
+            todoOK = todoOK && reconstruido
+            print("ICONTEST \(reconstruido ? "OK" : "FALLA") reconstrucción sin duplicado")
+            fflush(stdout)
+            exit(todoOK ? 0 : 3)
+        }
     }
     private func latir(_ btn: NSStatusBarButton) {
         // Cambio directo: animator() dejaba animaciones encoladas capaces de
@@ -2986,11 +3053,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             object: nil, queue: .main
         ) { [weak self] _ in self?.reconciliarActivacionVoz() }
         let timer = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
-            self?.reconciliarActivacionVoz()
+            self?.vigilarActivacionVoz()
         }
         RunLoop.main.add(timer, forMode: .common)
         activacionVozTimer = timer
-        reconciliarActivacionVoz()
+        activacionVozRearmePendiente = true
+        activacionVozRearmeOrigen = "arranque"
+        activacionVozRearmeInicio = Date()
+        vigilarActivacionVoz()
     }
 
     private var activacionVozOcupada: Bool {
@@ -3006,15 +3076,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// pausado. `reconciliar` vuelve a comprobar que todo esté realmente libre.
     private func solicitarRearmeActivacionVoz(origen: String) {
         guard Config.agenteNucleoActivo(), Config.agenteActivacionReposo() else { return }
+        activacionVozRearmePendiente = true
+        activacionVozRearmeOrigen = origen
+        activacionVozRearmeInicio = Date()
+        activacionVozRearmeIntentos = 0
+        activacionVozUltimoForzado = .distantPast
+        AgenteLog.registrar("activacion_reposo_rearme_solicitado", ["origen": origen])
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
             guard let self else { return }
-            self.reconciliarActivacionVoz()
-            AgenteLog.registrar("activacion_reposo_rearme", [
-                "origen": origen,
-                "ocupado": self.activacionVozOcupada,
-                "estado": ActivacionVoz.shared.estado.descripcion,
-            ])
+            self.vigilarActivacionVoz()
         }
+    }
+
+    /// Conserva el rearme como una obligación hasta observar el micrófono local
+    /// realmente activo. Ante una carrera transitoria con TTS/Recorder adelanta
+    /// hasta tres reintentos; después respeta el backoff normal de Apple Speech.
+    private func vigilarActivacionVoz() {
+        let habilitado = Config.agenteNucleoActivo() && Config.agenteActivacionReposo()
+        guard habilitado else {
+            activacionVozRearmePendiente = false
+            reconciliarActivacionVoz()
+            return
+        }
+        let estado = ActivacionVoz.shared.estado
+        if estado.activo {
+            if activacionVozRearmePendiente {
+                AgenteLog.registrar("activacion_reposo_rearmada", [
+                    "origen": activacionVozRearmeOrigen,
+                    "intentos": activacionVozRearmeIntentos,
+                    "demora_ms": Int(Date().timeIntervalSince(activacionVozRearmeInicio) * 1000),
+                ])
+            }
+            activacionVozRearmePendiente = false
+            return
+        }
+        let ocupado = activacionVozOcupada
+        reconciliarActivacionVoz()
+        guard !ocupado else { return }
+        if !activacionVozRearmePendiente {
+            activacionVozRearmePendiente = true
+            activacionVozRearmeOrigen = "autorecuperacion"
+            activacionVozRearmeInicio = Date()
+            activacionVozRearmeIntentos = 0
+            activacionVozUltimoForzado = .distantPast
+        }
+        let recuperable: Bool
+        switch estado {
+        case .pausado, .desactivado, .error: recuperable = true
+        case .preparando, .escuchando, .sinFrases, .sinPermiso, .noDisponible:
+            recuperable = false
+        }
+        guard recuperable, activacionVozRearmeIntentos < 3,
+              Date().timeIntervalSince(activacionVozUltimoForzado) >= 1.2 else { return }
+        activacionVozRearmeIntentos += 1
+        activacionVozUltimoForzado = Date()
+        ActivacionVoz.shared.permitirReintentoInmediato()
+        AgenteLog.registrar("activacion_reposo_rearme", [
+            "origen": activacionVozRearmeOrigen,
+            "intento": activacionVozRearmeIntentos,
+            "estado": estado.descripcion,
+        ])
+        reconciliarActivacionVoz()
     }
 
     /// Flujo real opcional: listener activo → procesamiento → reposo → listener

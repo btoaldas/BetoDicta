@@ -281,6 +281,14 @@ final class ActivacionVoz: @unchecked Sendable {
         }
     }
 
+    /// Una acción recién terminada puede coincidir con el cierre asíncrono del
+    /// Recorder/TTS y producir un error de dispositivo ocupado. AppDelegate usa
+    /// esta señal de forma acotada para no obligar al usuario a esperar todo el
+    /// backoff de 15 s. No arranca nada por sí sola ni ignora permisos.
+    func permitirReintentoInmediato() {
+        cola.async { [weak self] in self?.proximoIntento = .distantPast }
+    }
+
     private func publicar(_ nuevo: Estado) {
         candadoEstado.lock()
         let cambio = estadoGuardado != nuevo

@@ -70,6 +70,26 @@ install: bundle
 	ditto $(BUNDLE) /Applications/$(APP).app
 	@echo "Instalado en /Applications/$(APP).app"
 
+# macOS 26 puede asociar el ícono a la app que lanzó BetoDicta durante el
+# desarrollo. Este mantenimiento no abre AppKit: respalda y elimina únicamente
+# la referencia cruzada ec.bto.betodicta de una fila extranjera.
+reparar-icono:
+	@xcrun swift scripts/reparar-icono-barra.swift
+
+probar-reparacion-icono:
+	@xcrun swift scripts/reparar-icono-barra.swift --probar
+
+# Flujo de desarrollo seguro: evita reinstalar sobre un proceso vivo, abre la
+# app nueva y corrige la asociación que macOS 26 puede crear con la herramienta
+# que lanzó el build (Codex/Terminal). No forma parte del DMG ni toca otras apps.
+instalar-local:
+	-killall $(APP)
+	$(MAKE) install
+	open -a /Applications/$(APP).app
+	sleep 3
+	$(MAKE) reparar-icono
+	@echo "BetoDicta instalado, abierto y con la barra verificada"
+
 clean:
 	rm -rf build
 
