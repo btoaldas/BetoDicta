@@ -6,11 +6,20 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.44.0"
-    static let fecha = "2026-07-18"
+    static let numero = "0.45.0"
+    static let fecha = "2026-07-19"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.45.0", "2026-07-19", [
+            "ACTIVACIÓN MANOS LIBRES CONFIGURABLE: el nombre y las frases pertenecen al usuario; una pausa local despierta al asistente, ofrece un acuse breve editable y abre un turno limpio. El listener es opt-in, libera el micrófono al trabajar y convive con una pasarela Siri/Atajos instalable",
+            "DICTADO ASISTIDO SIN MANOS: dicta, transcribe, escribe, corrige, actualiza o mejora un texto; BetoDicta quita únicamente la orden, pule con degradación al original, pega en la aplicación activa y conserva opcionalmente el portapapeles. Decir solo ‘dictado’ abre una segunda toma automática",
+            "ATAJOS Y RECETAS PORTABLES: instaladores firmados para Escuchar asistente, BetoDicta Universal y Música; biblioteca editable para resumen/jornada/reunión/selección/estado del Mac/HomeKit/audio, con permisos, riesgo, evidencia e importación o exportación JSON",
+            "TAREAS, NOTAS Y APPLE: recordatorios locales con fecha, calendario y avisos recuperables; resúmenes configurables; EventKit para Recordatorios/Calendario y creación de Notas de Apple con formato, lectura posterior y confirmación únicamente cuando el contenido real coincide",
+            "CLIMA REAL: consulta por ciudad o mediante una ubicación aproximada opcional del Mac, con permiso explícito, HTTPS, caché breve en memoria y respuesta verificable sin entregar la pregunta a una IA que pueda inventarla",
+            "VOCES LOCALES MÁS SEGURAS: carril Máxima XTTS restaurado dentro de BetoDicta, alternativa equilibrada Qwen3-TTS/MLX en Apple Silicon, paquetes/personas recuperables, confirmación antes de cambiar o quitar y failover cuando un audio generado está dañado",
+            "ROBUSTEZ DEL ASISTENTE: evita fugas de instrucciones, preserva la cascada de proveedores, encadena texto generado hacia borradores/WhatsApp, verifica música y actualización, y reconoce formas naturales como ‘grabemos la pantalla’ sin confundir grabaciones de audio ni narraciones",
+        ]),
         ("0.44.0", "2026-07-18", [
             "ASISTENTE POR VOZ CONFIGURABLE: nombre, personalidad, frases de activación, memoria corta local, tres niveles de autonomía y respuestas en texto o texto+voz; resuelve localmente primero y usa Hermes, una IA conectada o Codex solo cuando hace falta",
             "CUENTA CHATGPT MEDIANTE CODEX OFICIAL: autorización delegada al CLI, modelo y esfuerzo de razonamiento elegibles, failover y uso separado para asistente, pulido, traducción y modos; nunca se mezcla con STT, TTS, embeddings ni con la API de OpenAI",
