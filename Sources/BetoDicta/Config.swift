@@ -644,13 +644,21 @@ struct Config {
     /// Default 2.5s → suena en ~2.5s (vs 4s por lotes) y cubre las pausas. Parametrizable.
     static func ttsXttsColchonSeg() -> Double { (json()["tts_xtts_colchon_seg"] as? Double) ?? 2.5 }
     /// DORMIR el clon (descargar el modelo, liberar RAM/CPU) tras N minutos sin usarse;
-    /// se despierta al grabar (fn). Default ON, 5 min. No satura la Mac cuando no lo usas.
+    /// se despierta al grabar (fn). Default ON, 15 min. No satura la Mac cuando no lo usas.
     static func ttsXttsDormir() -> Bool { (json()["tts_xtts_dormir"] as? Bool) ?? true }
-    static func ttsXttsDormirMin() -> Double { (json()["tts_xtts_dormir_min"] as? Double) ?? 5 }
+    static func ttsXttsDormirMin() -> Double { (json()["tts_xtts_dormir_min"] as? Double) ?? 15 }
+    /// Ventana especial tras abrir BetoDicta: evita pagar la carga fría si el primer
+    /// uso llega varios minutos después. Cero la desactiva. Solo conserva el motor activo.
+    static func ttsXttsArranqueMin() -> Double { (json()["tts_xtts_arranque_min"] as? Double) ?? 60 }
+    static func ttsXttsWarmupDummy() -> Bool { (json()["tts_xtts_warmup_dummy"] as? Bool) ?? true }
+    static func ttsXttsWarmupTexto() -> String { (json()["tts_xtts_warmup_texto"] as? String) ?? "Hola." }
     /// Motor equilibrado Qwen3-TTS/MLX. Parámetros propios: no cambian XTTS ni Piper.
     static func ttsMlxPreactivar() -> Bool { (json()["tts_mlx_preactivar"] as? Bool) ?? true }
     static func ttsMlxDormir() -> Bool { (json()["tts_mlx_dormir"] as? Bool) ?? true }
-    static func ttsMlxDormirMin() -> Double { (json()["tts_mlx_dormir_min"] as? Double) ?? 5 }
+    static func ttsMlxDormirMin() -> Double { (json()["tts_mlx_dormir_min"] as? Double) ?? 15 }
+    static func ttsMlxArranqueMin() -> Double { (json()["tts_mlx_arranque_min"] as? Double) ?? 60 }
+    static func ttsMlxWarmupDummy() -> Bool { (json()["tts_mlx_warmup_dummy"] as? Bool) ?? true }
+    static func ttsMlxWarmupTexto() -> String { (json()["tts_mlx_warmup_texto"] as? String) ?? "Hola." }
     /// Audio acumulado antes de empezar a reproducir y tamaño de chunk generado.
     static func ttsMlxColchonSeg() -> Double { (json()["tts_mlx_colchon_seg"] as? Double) ?? 0.8 }
     static func ttsMlxIntervalo() -> Double { (json()["tts_mlx_intervalo"] as? Double) ?? 0.32 }

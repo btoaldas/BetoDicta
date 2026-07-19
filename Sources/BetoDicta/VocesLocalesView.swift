@@ -18,6 +18,9 @@ struct MotorVozControl: View {
     @State private var colchonSeg = Config.ttsXttsColchonSeg()
     @State private var dormir = Config.ttsXttsDormir()
     @State private var dormirMin = Config.ttsXttsDormirMin()
+    @State private var arranqueMin = Config.ttsXttsArranqueMin()
+    @State private var warmupDummy = Config.ttsXttsWarmupDummy()
+    @State private var warmupTexto = Config.ttsXttsWarmupTexto()
     @State private var reco = ""
 
     var body: some View {
@@ -40,6 +43,22 @@ struct MotorVozControl: View {
                     .onChange(of: preactivar) { _, v in Config.set("tts_xtts_preactivar", to: v); Voz.preactivarLocal() }
                 Text("⚠️ Mantiene el clon (~2 GB) cargado en RAM mientras es tu voz activa: el Agente responde en ~1-2s en vez de recargar el modelo (~15s) cada vez. Si tu Mac va justa de memoria, apágalo (la 1ª respuesta tardará más). \(XttsServer.corriendo ? "🟢 en RAM ahora" : "⚪️ no cargado")")
                     .font(.caption2).foregroundStyle(.secondary)
+                if preactivar {
+                    HStack {
+                        Text("Al abrir: conservar \(Int(arranqueMin)) min").font(.caption2)
+                        Slider(value: $arranqueMin, in: 0...120, step: 5) { _ in
+                            Config.set("tts_xtts_arranque_min", to: arranqueMin)
+                        }.frame(width: 180)
+                    }
+                    Toggle("Calentar el generador con una frase silenciosa", isOn: $warmupDummy)
+                        .font(.caption2)
+                        .onChange(of: warmupDummy) { _, v in Config.set("tts_xtts_warmup_dummy", to: v) }
+                    if warmupDummy {
+                        TextField("Frase de calentamiento", text: $warmupTexto)
+                            .font(.caption2)
+                            .onChange(of: warmupTexto) { _, v in Config.set("tts_xtts_warmup_texto", to: v) }
+                    }
+                }
                 // Modo rápido: streaming (suena en ~1-2s) con el server a baja prioridad.
                 Toggle("Modo RÁPIDO (streaming: suena en ~1-2s mientras genera)", isOn: $rapido)
                     .font(.caption)
@@ -105,6 +124,9 @@ struct MotorMlxControl: View {
     @State private var preactivar = Config.ttsMlxPreactivar()
     @State private var dormir = Config.ttsMlxDormir()
     @State private var dormirMin = Config.ttsMlxDormirMin()
+    @State private var arranqueMin = Config.ttsMlxArranqueMin()
+    @State private var warmupDummy = Config.ttsMlxWarmupDummy()
+    @State private var warmupTexto = Config.ttsMlxWarmupTexto()
     @State private var colchon = Config.ttsMlxColchonSeg()
     @State private var intervalo = Config.ttsMlxIntervalo()
 
@@ -130,6 +152,22 @@ struct MotorMlxControl: View {
                     .onChange(of: preactivar) { _, v in
                         Config.set("tts_mlx_preactivar", to: v); Voz.preactivarLocal()
                     }
+                if preactivar {
+                    HStack {
+                        Text("Al abrir: conservar \(Int(arranqueMin)) min").font(.caption2)
+                        Slider(value: $arranqueMin, in: 0...120, step: 5) { _ in
+                            Config.set("tts_mlx_arranque_min", to: arranqueMin)
+                        }.frame(width: 180)
+                    }
+                    Toggle("Precompilar Metal con una frase silenciosa", isOn: $warmupDummy)
+                        .font(.caption2)
+                        .onChange(of: warmupDummy) { _, v in Config.set("tts_mlx_warmup_dummy", to: v) }
+                    if warmupDummy {
+                        TextField("Frase de calentamiento", text: $warmupTexto)
+                            .font(.caption2)
+                            .onChange(of: warmupTexto) { _, v in Config.set("tts_mlx_warmup_texto", to: v) }
+                    }
+                }
                 Toggle("Dormir Qwen3‑MLX tras inactividad", isOn: $dormir)
                     .font(.caption)
                     .onChange(of: dormir) { _, v in Config.set("tts_mlx_dormir", to: v) }

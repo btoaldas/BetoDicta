@@ -13,6 +13,7 @@ import Foundation
 
 enum Ahorro {
     private static var ultimaActividad = Date()
+    private static var protegidoHasta = Date.distantPast
     private static var dormido = false
     private static var reloj: Timer?
 
@@ -25,13 +26,29 @@ enum Ahorro {
     /// Se llama al usar BetoDicta (grabar/fn): resetea el reloj y DESPIERTA si dormía.
     static func marcarActividad() {
         ultimaActividad = Date()
+        protegidoHasta = .distantPast
         if dormido { despertar() }
+    }
+
+    /// Evita que el ahorro global deshaga la precarga inicial antes de la primera orden.
+    /// Al primer uso real, `marcarActividad` cambia a la ventana post-uso normal.
+    static func protegerArranque(minutos: Double) {
+        guard minutos > 0 else { return }
+        protegidoHasta = max(protegidoHasta, Date().addingTimeInterval(minutos * 60))
     }
 
     private static func revisar() {
         guard Config.ahorroGlobal(), !dormido else { return }
-        let umbral = max(1, Config.ttsXttsDormirMin()) * 60
+        guard Date() >= protegidoHasta else { return }
+        let umbral = max(1, minutosMotorActivo()) * 60
         if Date().timeIntervalSince(ultimaActividad) > umbral { dormir() }
+    }
+
+    private static func minutosMotorActivo() -> Double {
+        guard Config.ttsProveedor() == "xtts_local", let voz = VocesLocales.activa() else {
+            return Config.ttsXttsDormirMin()
+        }
+        return voz.variante == "mlx" ? Config.ttsMlxDormirMin() : Config.ttsXttsDormirMin()
     }
 
     private static func dormir() {

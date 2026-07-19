@@ -1316,10 +1316,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let ref = ProcessInfo.processInfo.environment["BETODICTA_MLXTEST"], !ref.isEmpty {
             let rt = ProcessInfo.processInfo.environment["BETODICTA_MLXREFTEXT"] ?? ""
             let modelo = ProcessInfo.processInfo.environment["BETODICTA_MLXMODEL"] ?? MlxVozEngine.modeloDefault
+            let probarWarmup = ProcessInfo.processInfo.environment["BETODICTA_MLXWARMUP"] == "1"
             let voz = VozLocal(id: "qa-mlx", nombre: "QA MLX", cmd: "", mlxRef: ref,
                                mlxRefText: rt, mlxModelo: modelo, variante: "mlx")
             let t0 = Date()
-            MlxVozServer.asegurar(voz: voz) { listo in
+            MlxVozServer.asegurar(voz: voz, protegerMinutos: probarWarmup ? 60 : 0) { listo in
                 print("MLXTEST carga=\(String(format: "%.2f", Date().timeIntervalSince(t0)))s listo=\(listo)")
                 guard listo, let u = URL(string: "http://127.0.0.1:\(MlxVozServer.puerto)/say?stream=0") else { exit(2) }
                 func pedir(_ n: Int, _ then: @escaping (Bool) -> Void) {
@@ -1332,23 +1333,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         then(ok)
                     }.resume()
                 }
-                pedir(1) { a in pedir(2) { b in
-                    guard a && b else { MlxVozServer.detener(); exit(3) }
-                    let t = Date()
-                    MlxVozServer.decir(voz: voz,
-                        texto: "Hola mijo, esta es la prueba de voz equilibrada en vivo. Cuídate mucho, que Diosito te bendiga.",
-                        empezar: { print("MLXTEST streaming inicio=\(String(format: "%.2f", Date().timeIntervalSince(t)))s") },
-                        completion: { ok in
-                            print("MLXTEST streaming fin=\(String(format: "%.2f", Date().timeIntervalSince(t)))s ok=\(ok)")
-                            if ok, let id = ProcessInfo.processInfo.environment["BETODICTA_MLXLINKID"], !id.isEmpty {
-                                let vinculada = VocesLocales.vincularMlx(
-                                    referencia: URL(fileURLWithPath: ref), transcripcion: rt,
-                                    modelo: voz.mlxModelo, a: id, activar: true)
-                                print("MLXTEST vínculo id=\(id) ok=\(vinculada != nil)")
-                            }
-                            MlxVozServer.detener(); exit(ok ? 0 : 4)
-                        })
-                } }
+                let pedidos = {
+                    pedir(1) { a in pedir(2) { b in
+                        guard a && b else { MlxVozServer.detener(); exit(3) }
+                        if probarWarmup { MlxVozServer.detener(); exit(0) }
+                        let t = Date()
+                        MlxVozServer.decir(voz: voz,
+                            texto: "Hola mijo, esta es la prueba de voz equilibrada en vivo. Cuídate mucho, que Diosito te bendiga.",
+                            empezar: { print("MLXTEST streaming inicio=\(String(format: "%.2f", Date().timeIntervalSince(t)))s") },
+                            completion: { ok in
+                                print("MLXTEST streaming fin=\(String(format: "%.2f", Date().timeIntervalSince(t)))s ok=\(ok)")
+                                if ok, let id = ProcessInfo.processInfo.environment["BETODICTA_MLXLINKID"], !id.isEmpty {
+                                    let vinculada = VocesLocales.vincularMlx(
+                                        referencia: URL(fileURLWithPath: ref), transcripcion: rt,
+                                        modelo: voz.mlxModelo, a: id, activar: true)
+                                    print("MLXTEST vínculo id=\(id) ok=\(vinculada != nil)")
+                                }
+                                MlxVozServer.detener(); exit(ok ? 0 : 4)
+                            })
+                    } }
+                }
+                if probarWarmup {
+                    MlxVozServer.precalentar(voz: voz, frase: "Hola.") { ok in
+                        print("MLXTEST calentamiento_silencioso=\(ok)")
+                        guard ok else { MlxVozServer.detener(); exit(5) }
+                        pedidos()
+                    }
+                } else { pedidos() }
             }
             RunLoop.main.run(); return
         }
@@ -1358,8 +1369,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let pkg = ProcessInfo.processInfo.environment["BETODICTA_XTTSSERVER"], !pkg.isEmpty {
             let textoQA = ProcessInfo.processInfo.environment["BETODICTA_XTTSTEXT"]
                 ?? "Hola mi hijo, esta es una prueba rápida. Chao chao."
+            let probarWarmup = ProcessInfo.processInfo.environment["BETODICTA_XTTSWARMUP"] == "1"
             let t0 = Date()
-            XttsServer.asegurar(paquete: URL(fileURLWithPath: pkg)) { listo in
+            XttsServer.asegurar(paquete: URL(fileURLWithPath: pkg),
+                                protegerMinutos: probarWarmup ? 60 : 0) { listo in
                 print("XTTSSERVER carga=\(String(format: "%.1f", Date().timeIntervalSince(t0)))s listo=\(listo)")
                 guard listo, let u = URL(string: "http://127.0.0.1:\(XttsServer.puerto)/say") else { exit(1) }
                 var correctos = 0
@@ -1377,7 +1390,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         then()
                     }.resume()
                 }
-                pedir(1) { pedir(2) { XttsServer.detener(); exit(correctos == 2 ? 0 : 2) } }
+                let pedidos = {
+                    pedir(1) { pedir(2) { XttsServer.detener(); exit(correctos == 2 ? 0 : 2) } }
+                }
+                if probarWarmup {
+                    XttsServer.precalentar(frase: "Hola.") { ok in
+                        print("XTTSSERVER calentamiento_silencioso=\(ok)")
+                        guard ok else { XttsServer.detener(); exit(3) }
+                        pedidos()
+                    }
+                } else { pedidos() }
             }
             RunLoop.main.run(); return
         }
@@ -2033,7 +2055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // el pulido responda rápido aunque dictes cada varios minutos.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { CalientaRed.iniciarLatido() }
         // Preactiva el clon local (modelo XTTS en RAM) si es el motor activo → voz rápida.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { Voz.preactivarLocal() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { Voz.preactivarLocal(arranque: true) }
         // Modo AHORRO: reloj de inactividad global que libera lo pesado (clon + latido)
         // tras N min sin usar; fn (grabar) despierta todo.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { Ahorro.iniciar() }

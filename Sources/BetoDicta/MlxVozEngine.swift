@@ -101,6 +101,7 @@ enum MlxVozServer {
     private static let fin = MlxFin()
     private static var stream: MlxStreamPlayer?
     private static var ultimoUso = Date()
+    private static var protegidoHasta = Date.distantPast
     private static var vigia: Timer?
 
     static var corriendo: Bool { proceso?.isRunning == true || adoptado }
@@ -118,7 +119,8 @@ enum MlxVozServer {
         vigia?.invalidate()
         let t = Timer(timeInterval: 30, repeats: true) { _ in
             guard corriendo, Config.ttsMlxDormir() else { return }
-            if Date().timeIntervalSince(ultimoUso) > Config.ttsMlxDormirMin() * 60 {
+            let limiteUso = ultimoUso.addingTimeInterval(Config.ttsMlxDormirMin() * 60)
+            if Date() > max(limiteUso, protegidoHasta) {
                 Log.log(.ia, "Qwen3-MLX dormido por inactividad (RAM liberada)")
                 detener()
             }
@@ -126,15 +128,21 @@ enum MlxVozServer {
         RunLoop.main.add(t, forMode: .common); vigia = t
     }
 
-    static func asegurar(voz: VozLocal, onListo: @escaping (Bool) -> Void) {
+    static func asegurar(voz: VozLocal, protegerMinutos: Double = 0,
+                         onListo: @escaping (Bool) -> Void) {
         // Toda la máquina de estados vive en main. Preactivar y hablar pueden coincidir;
         // ambos esperan UNA sola carga en vez de lanzar dos procesos o usarlo prematuro.
         guard Thread.isMainThread else {
-            DispatchQueue.main.async { asegurar(voz: voz, onListo: onListo) }
+            DispatchQueue.main.async {
+                asegurar(voz: voz, protegerMinutos: protegerMinutos, onListo: onListo)
+            }
             return
         }
         guard MlxVozEngine.estado() == .listo, voz.tieneMlx else { onListo(false); return }
         ultimoUso = Date()
+        protegidoHasta = protegerMinutos > 0
+            ? max(protegidoHasta, Date().addingTimeInterval(protegerMinutos * 60))
+            : .distantPast
         let id = identidad(voz)
         if corriendo && identidadActiva == id {
             if listo { onListo(true) }
@@ -212,6 +220,7 @@ enum MlxVozServer {
             return
         }
         ultimoUso = Date()
+        protegidoHasta = .distantPast
         let ejecutar = {
             guard corriendo, identidadActiva == identidad(voz) else { completion(false); return }
             if voz.streaming { decirStream(texto, empezar: empezar, completion: completion) }
@@ -240,8 +249,32 @@ enum MlxVozServer {
         if proceso?.isRunning == true { proceso?.terminate() }
         else if adoptado { pedirApagado() }
         proceso = nil; adoptado = false; identidadActiva = ""; listo = false
+        protegidoHasta = .distantPast
         tokenActivo = ""
         completarInicio(false)
+    }
+
+    /// Infiere una frase mínima y descarta su PCM para compilar/calentar kernels Metal.
+    /// No habla, no cambia de variante y su fallo siempre degrada suavemente.
+    static func precalentar(voz: VozLocal, frase: String,
+                            completion: ((Bool) -> Void)? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { precalentar(voz: voz, frase: frase, completion: completion) }
+            return
+        }
+        let texto = frase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard listo, corriendo, identidadActiva == identidad(voz), !texto.isEmpty,
+              let u = URL(string: "http://127.0.0.1:\(puerto)/say?stream=0") else {
+            completion?(false); return
+        }
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 180
+        autorizar(&req); req.httpBody = texto.data(using: .utf8)
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            let ok = err == nil && (200..<300).contains(code) && (data?.count ?? 0) >= 8
+            if !ok { Log.log(.ia, "Qwen3-MLX: calentamiento silencioso omitido") }
+            DispatchQueue.main.async { completion?(ok) }
+        }.resume()
     }
 
     private static func completarInicio(_ ok: Bool) {

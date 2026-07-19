@@ -35,7 +35,7 @@ enum Voz {
 
     /// Preactiva SOLO el servidor de la variante local elegida. XTTS y Qwen/MLX nunca
     /// quedan cargados a la vez: cambia calidad/velocidad sin desperdiciar RAM.
-    static func preactivarLocal() {
+    static func preactivarLocal(arranque: Bool = false) {
         guard Config.ttsActivo(), Config.ttsProveedor() == "xtts_local",
               let voz = VocesLocales.activa() else {
             XttsServer.detener(); MlxVozServer.detener(); return
@@ -52,8 +52,13 @@ enum Voz {
             guard Config.ttsMlxPreactivar(), MlxVozEngine.estado() == .listo else {
                 MlxVozServer.detener(); return
             }
-            MlxVozServer.asegurar(voz: voz) { listo in
+            let proteccion = arranque ? Config.ttsMlxArranqueMin() : 0
+            if arranque { Ahorro.protegerArranque(minutos: proteccion) }
+            MlxVozServer.asegurar(voz: voz, protegerMinutos: proteccion) { listo in
                 Log.log(.ia, "Qwen3-MLX \(listo ? "listo (equilibrada en RAM)" : "no arrancó")")
+                if listo, arranque, Config.ttsMlxWarmupDummy() {
+                    MlxVozServer.precalentar(voz: voz, frase: Config.ttsMlxWarmupTexto())
+                }
             }
             return
         }
@@ -62,8 +67,14 @@ enum Voz {
               !voz.paquete.isEmpty, voz.variante != "onnx" else {
             XttsServer.detener(); return
         }
-        XttsServer.asegurar(paquete: URL(fileURLWithPath: voz.paquete)) { listo in
+        let proteccion = arranque ? Config.ttsXttsArranqueMin() : 0
+        if arranque { Ahorro.protegerArranque(minutos: proteccion) }
+        XttsServer.asegurar(paquete: URL(fileURLWithPath: voz.paquete),
+                           protegerMinutos: proteccion) { listo in
             Log.log(.ia, "servidor XTTS \(listo ? "listo (modelo en RAM)" : "no arrancó")")
+            if listo, arranque, Config.ttsXttsWarmupDummy() {
+                XttsServer.precalentar(frase: Config.ttsXttsWarmupTexto())
+            }
         }
     }
 

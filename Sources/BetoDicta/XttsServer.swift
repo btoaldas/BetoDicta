@@ -15,6 +15,7 @@ enum XttsServer {
     static var paqueteActivo = ""
     private static let salud = "http://127.0.0.1:8791/health"
     private static var ultimoUso = Date()      // para dormir por inactividad
+    private static var protegidoHasta = Date.distantPast
     private static var vigia: Timer?
     private static var adoptado = false
     private static var logHandle: FileHandle?
@@ -22,7 +23,21 @@ enum XttsServer {
     static var corriendo: Bool { proceso?.isRunning == true || adoptado }
 
     /// Marca que se acaba de usar (para el reloj de inactividad).
-    static func tocar() { ultimoUso = Date() }
+    static func tocar() {
+        ultimoUso = Date()
+        // Un uso real cambia la política de arranque (60 min) por la post-uso (15 min).
+        protegidoHasta = .distantPast
+    }
+
+    private static func marcarCarga(protegerMinutos: Double) {
+        ultimoUso = Date()
+        if protegerMinutos > 0 {
+            protegidoHasta = max(protegidoHasta,
+                                  Date().addingTimeInterval(protegerMinutos * 60))
+        } else {
+            protegidoHasta = .distantPast
+        }
+    }
 
     /// Vigila la inactividad: si el clon no se usa en N minutos, lo DUERME (mata el
     /// server → libera ~2GB de RAM + CPU). Se despierta al grabar (fn) vía preactivarLocal.
@@ -30,7 +45,8 @@ enum XttsServer {
         vigia?.invalidate()
         let t = Timer(timeInterval: 30, repeats: true) { _ in
             guard corriendo, Config.ttsXttsDormir() else { return }
-            if Date().timeIntervalSince(ultimoUso) > Config.ttsXttsDormirMin() * 60 {
+            let limiteUso = ultimoUso.addingTimeInterval(Config.ttsXttsDormirMin() * 60)
+            if Date() > max(limiteUso, protegidoHasta) {
                 Log.log(.ia, "clon local dormido por inactividad (RAM liberada); fn lo despierta")
                 detener()
             }
@@ -40,16 +56,19 @@ enum XttsServer {
 
     /// Asegura el servidor levantado para ESTE paquete (lo reinicia si cambió la voz).
     /// `onListo(true)` cuando el modelo está cargado (GET /health responde).
-    static func asegurar(paquete: URL, onListo: @escaping (Bool) -> Void) {
+    static func asegurar(paquete: URL, protegerMinutos: Double = 0,
+                         onListo: @escaping (Bool) -> Void) {
         guard VozEngine.estado() == .listo else { onListo(false); return }
-        tocar()
-        if corriendo && paqueteActivo == paquete.path { onListo(true); return }
+        marcarCarga(protegerMinutos: protegerMinutos)
+        if corriendo && paqueteActivo == paquete.path {
+            iniciarVigilancia(); onListo(true); return
+        }
         // Si BetoDicta se cerró a la fuerza, el Python puede quedar adoptado por launchd.
         // Reúsalo si es la MISMA voz: evita cargar 2 GB otra vez y chocar con el puerto.
         if let s = saludActual(), s.motor == "betodicta-xtts" {
             if s.paquete == paquete.path {
                 proceso = nil; adoptado = true; paqueteActivo = paquete.path
-                onListo(true); return
+                iniciarVigilancia(); onListo(true); return
             }
             pedirApagado()   // otra voz ocupa el puerto; apágala antes de cambiar
             for _ in 0..<20 where saludActual() != nil { Thread.sleep(forTimeInterval: 0.1) }
@@ -87,7 +106,10 @@ enum XttsServer {
             for _ in 0..<80 {
                 Thread.sleep(forTimeInterval: 0.5)
                 if !(p.isRunning) { DispatchQueue.main.async { onListo(false) }; return }
-                if ping() { DispatchQueue.main.async { onListo(true) }; return }
+                if ping() {
+                    DispatchQueue.main.async { iniciarVigilancia(); onListo(true) }
+                    return
+                }
             }
             DispatchQueue.main.async { onListo(false) }
         }
@@ -97,7 +119,27 @@ enum XttsServer {
         if proceso?.isRunning == true { proceso?.terminate() }
         else if adoptado { pedirApagado() }
         proceso = nil; adoptado = false; paqueteActivo = ""
+        protegidoHasta = .distantPast
+        vigia?.invalidate(); vigia = nil
         try? logHandle?.close(); logHandle = nil
+    }
+
+    /// Hace una inferencia corta y descarta el audio. Calienta el camino real sin hablar;
+    /// si falla, no bloquea ni cambia la voz elegida.
+    static func precalentar(frase: String, completion: ((Bool) -> Void)? = nil) {
+        let texto = frase.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard corriendo, !texto.isEmpty,
+              let u = URL(string: "http://127.0.0.1:\(puerto)/generate") else {
+            completion?(false); return
+        }
+        var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 120
+        req.httpBody = texto.data(using: .utf8)
+        URLSession.shared.dataTask(with: req) { data, resp, err in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            let ok = err == nil && (200..<300).contains(code) && (data?.count ?? 0) >= 8
+            if !ok { Log.log(.ia, "XTTS: calentamiento silencioso omitido") }
+            DispatchQueue.main.async { completion?(ok) }
+        }.resume()
     }
 
     /// Conserva un diagnóstico local y privado. Antes la salida iba a /dev/null y una
