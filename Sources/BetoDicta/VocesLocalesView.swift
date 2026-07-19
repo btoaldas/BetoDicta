@@ -289,7 +289,7 @@ struct VocesLocalesEditor: View {
         VStack(alignment: .leading, spacing: 6) {
             MotorVozControl()
             MotorMlxControl()
-            Text("Tus voces clonadas (100% local). Cada persona puede conservar Calidad XTTS, Equilibrada Qwen3‑MLX y Rápida Piper/ONNX.")
+            Text("Tus voces clonadas (100% local). Cada persona puede conservar Máxima XTTS restaurada, Calidad XTTS, Equilibrada Qwen3‑MLX y Rápida Piper/ONNX.")
                 .font(.caption).foregroundStyle(.secondary)
             Toggle("Si una variante falla, probar otra de la misma persona", isOn: $failoverVariantes)
                 .font(.caption)
@@ -309,15 +309,18 @@ struct VocesLocalesEditor: View {
                             Image(systemName: activa == v.id ? "largecircle.fill.circle" : "circle")
                         }.buttonStyle(.plain)
                         Text(v.nombre).font(.callout)
+                        if v.tieneMaxima { Text("✨").font(.caption2).help("Máxima identidad: XTTS con restauración") }
                         if v.tieneMlx { Text("⚖️").font(.caption2).help("Voz equilibrada Qwen3‑MLX") }
                         if !v.onnx.isEmpty { Text("⚡").font(.caption2).help("Voz rápida (Piper)") }
                         if !v.persona.isEmpty { Text("· persona ✓").font(.caption2).foregroundStyle(.secondary) }
                         Spacer()
-                        let cantidadVariantes = (!v.paquete.isEmpty ? 1 : 0) + (v.tieneMlx ? 1 : 0) + (!v.onnx.isEmpty ? 1 : 0)
+                        let cantidadVariantes = (v.tieneMaxima ? 1 : 0) + (!v.paquete.isEmpty ? 1 : 0)
+                            + (v.tieneMlx ? 1 : 0) + (!v.onnx.isEmpty ? 1 : 0)
                         if cantidadVariantes > 1 {
                             Picker("", selection: Binding(
                                 get: { v.variante },
                                 set: { VocesLocales.fijarVariante(v.id, $0); refrescar(); Voz.preactivarLocal() })) {
+                                if v.tieneMaxima { Text("✨ Máxima").tag("maxima") }
                                 if !v.paquete.isEmpty { Text("Calidad").tag("xtts") }
                                 if v.tieneMlx { Text("⚖️ Equilibrada").tag("mlx") }
                                 if !v.onnx.isEmpty { Text("⚡ Rápida").tag("onnx") }

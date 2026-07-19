@@ -28,7 +28,10 @@ struct VozLocal: Codable, Identifiable, Equatable {
     var mlxRef: String = ""    // muestra + transcripción para Qwen3-TTS/MLX (equilibrada)
     var mlxRefText: String = ""
     var mlxModelo: String = MlxVozEngine.modeloDefault
-    var variante: String = "xtts" // "xtts" (calidad), "mlx" (equilibrada), "onnx" (rápida)
+    var variante: String = "xtts" // "maxima" (restaurada), "xtts" (calidad), "mlx" (equilibrada), "onnx" (rápida)
+    /// Ruta de máxima identidad: conserva el paquete XTTS para el carril residente,
+    /// pero ejecuta el comando externo con su restauración de audio completa.
+    var tieneMaxima: Bool { !cmd.isEmpty && !paquete.isEmpty }
     var tieneMlx: Bool {
         !mlxRef.isEmpty && !mlxRefText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && FileManager.default.fileExists(atPath: mlxRef)
@@ -46,7 +49,7 @@ struct VozLocal: Codable, Identifiable, Equatable {
         self.mlxRef = mlxRef; self.mlxRefText = mlxRefText
         self.mlxModelo = MlxVozEngine.modeloSeguro(mlxModelo)
         let pedida = variante.isEmpty ? (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts") : variante
-        self.variante = ["xtts", "mlx", "onnx"].contains(pedida) ? pedida : "xtts"
+        self.variante = ["maxima", "xtts", "mlx", "onnx"].contains(pedida) ? pedida : "xtts"
     }
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -62,7 +65,7 @@ struct VozLocal: Codable, Identifiable, Equatable {
         mlxModelo = MlxVozEngine.modeloSeguro(
             (try? c.decode(String.self, forKey: .mlxModelo)) ?? MlxVozEngine.modeloDefault)
         let guardada = (try? c.decode(String.self, forKey: .variante)) ?? ""
-        variante = ["xtts", "mlx", "onnx"].contains(guardada)
+        variante = ["maxima", "xtts", "mlx", "onnx"].contains(guardada)
             ? guardada : (paquete.isEmpty && !onnx.isEmpty ? "onnx" : "xtts")
     }
 }
@@ -144,18 +147,36 @@ enum VocesLocales {
         if let i = list.firstIndex(where: { $0.id == id }) { list[i].streaming = on; guardar(list) }
     }
 
-    /// Una persona conserva Calidad (XTTS), Equilibrada (Qwen3/MLX) y Rápida
-    /// (Piper/ONNX). La elección es por voz, no global, y nunca borra otra variante.
+    /// Una persona conserva Máxima (XTTS restaurada), Calidad (XTTS residente),
+    /// Equilibrada (Qwen3/MLX) y Rápida (Piper/ONNX). La elección es por voz,
+    /// no global, y nunca borra otra variante.
     static func fijarVariante(_ id: String, _ variante: String) {
         var list = todas()
         guard let i = list.firstIndex(where: { $0.id == id }) else { return }
-        let pedida = ["xtts", "mlx", "onnx"].contains(variante) ? variante : "xtts"
+        let pedida = ["maxima", "xtts", "mlx", "onnx"].contains(variante) ? variante : "xtts"
         guard (pedida == "onnx" && !list[i].onnx.isEmpty)
                 || (pedida == "mlx" && list[i].tieneMlx)
+                || (pedida == "maxima" && list[i].tieneMaxima)
                 || (pedida == "xtts" && !list[i].paquete.isEmpty) else { return }
         list[i].variante = pedida
         if list[i].tieneMlx { guardarMlx(list[i]) }
         guardar(list)
+    }
+
+    /// Vincula a una voz importada el runner de máxima identidad (por ejemplo,
+    /// XTTS + restauración). Se conserva el paquete para la variante residente.
+    /// El comando nunca se ejecuta aquí y debe mantener ambos marcadores seguros.
+    @discardableResult
+    static func vincularMaxima(cmd: String, a id: String, activar: Bool = true) -> VozLocal? {
+        let comando = cmd.trimmingCharacters(in: .whitespacesAndNewlines)
+        var list = todas()
+        guard let i = list.firstIndex(where: { $0.id == id }), !list[i].paquete.isEmpty,
+              comando.contains("{texto}"), comando.contains("{salida}") else { return nil }
+        list[i].cmd = comando
+        if activar { list[i].variante = "maxima" }
+        if list[i].tieneMlx { guardarMlx(list[i]) }
+        guardar(list)
+        return list[i]
     }
 
     /// Carpeta donde BetoDicta guarda los paquetes de voz importados (gestionados).

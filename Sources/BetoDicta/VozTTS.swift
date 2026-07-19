@@ -40,6 +40,11 @@ enum Voz {
               let voz = VocesLocales.activa() else {
             XttsServer.detener(); MlxVozServer.detener(); return
         }
+        // Máxima usa el runner XTTS + restauración externa. No cargamos además el
+        // servidor residente de 2 GB: evitar duplicar RAM/CPU es parte del contrato.
+        if voz.variante == "maxima", voz.tieneMaxima {
+            XttsServer.detener(); MlxVozServer.detener(); return
+        }
         if voz.variante == "mlx", voz.tieneMlx {
             XttsServer.detener()
             guard Config.ttsMlxPreactivar(), MlxVozEngine.estado() == .listo else {
@@ -174,16 +179,18 @@ enum Voz {
     private static func intentarLocal(_ voz: VozLocal, texto: String,
                                       empezar: (() -> Void)?, done: (() -> Void)?,
                                       alAgotar: @escaping () -> Void) {
-        let principal = ["xtts", "mlx", "onnx"].contains(voz.variante) ? voz.variante : "xtts"
+        let principal = ["maxima", "xtts", "mlx", "onnx"].contains(voz.variante) ? voz.variante : "xtts"
         let resto: [String]
         switch principal {
-        case "mlx": resto = ["xtts", "onnx"]
-        case "onnx": resto = ["mlx", "xtts"]
-        default: resto = ["mlx", "onnx"]
+        case "maxima": resto = ["xtts", "mlx", "onnx"]
+        case "mlx": resto = ["maxima", "xtts", "onnx"]
+        case "onnx": resto = ["mlx", "xtts", "maxima"]
+        default: resto = ["maxima", "mlx", "onnx"]
         }
         let candidatas = Config.ttsLocalVariantesFailover() ? [principal] + resto : [principal]
         let disponibles = candidatas.filter { variante in
             switch variante {
+            case "maxima": return voz.tieneMaxima
             case "mlx": return voz.tieneMlx && MlxVozEngine.estado() == .listo
             case "onnx": return !voz.onnx.isEmpty && PiperTTS.disponible
             default: return (!voz.paquete.isEmpty && VozEngine.estado() == .listo) || !voz.cmd.isEmpty
@@ -199,6 +206,13 @@ enum Voz {
                 ejecutarEnMain { probar(indice + 1) }
             }
             switch variante {
+            case "maxima":
+                XttsServer.detener(); MlxVozServer.detener()
+                XttsLocalTTS.decirCon(cmd: voz.cmd, texto: texto) { url in
+                    if let url, let data = try? Data(contentsOf: url) {
+                        reproducir(data, empezar, done)
+                    } else { fallo() }
+                }
             case "mlx":
                 XttsServer.detener()
                 MlxVozServer.decir(voz: voz, texto: texto, empezar: empezar) { ok in
@@ -264,7 +278,9 @@ enum Voz {
             else { DispatchQueue.main.async { done?() } }
         }
         let usaPiper = !voz.onnx.isEmpty && (voz.paquete.isEmpty || voz.variante == "onnx")
-        if voz.variante == "mlx", voz.tieneMlx, MlxVozEngine.estado() == .listo {
+        if voz.variante == "maxima", voz.tieneMaxima {
+            XttsLocalTTS.decirCon(cmd: voz.cmd, texto: saludo, completion: cb)
+        } else if voz.variante == "mlx", voz.tieneMlx, MlxVozEngine.estado() == .listo {
             MlxVozServer.decir(voz: voz, texto: saludo, empezar: nil) { _ in done?() }
         } else if usaPiper, PiperTTS.disponible {
             PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: saludo, completion: cb)
