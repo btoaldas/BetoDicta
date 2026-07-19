@@ -71,11 +71,28 @@ ModoIAQA.ejecutarSiSePidio()
 AplicacionesMacQA.ejecutarSiSePidio()
 AgenteCoreQA.ejecutarSiSePidio()
 RecetasQA.ejecutarSiSePidio()
+ClimaQA.ejecutarSiSePidio()
 AgenteCodex.ejecutarPruebaSiSePidio()
 DocumentosMac.ejecutarPruebaSiSePidio()
 NotasApple.ejecutarPruebaSiSePidio()
 VozLocalQA.ejecutarSiSePidio()
 TareasNotasQA.ejecutarSiSePidio()
+
+// Consulta meteorológica real de integración, sin abrir la interfaz. Requiere
+// una ciudad explícita para no solicitar ubicación desde un proceso de QA.
+if let consulta = ProcessInfo.processInfo.environment["BETODICTA_CLIMALIVETEST"],
+   !consulta.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    var recibido: ResultadoHerramientaApple?
+    ClimaServicio.consultar(consulta) { recibido = $0 }
+    let limite = Date().addingTimeInterval(25)
+    while recibido == nil, Date() < limite {
+        _ = RunLoop.current.run(mode: .default,
+                                before: Date().addingTimeInterval(0.05))
+    }
+    let r = recibido ?? .init(ok: false, mensaje: "La consulta meteorológica excedió 25 segundos.")
+    print("CLIMALIVETEST \(r.ok ? "OK" : "FALLA") | \(r.mensaje)")
+    fflush(stdout); exit(r.ok ? 0 : 13)
+}
 
 // Sin sesión gráfica (SSH, sandbox de un agente, launchd de fondo) AppKit
 // aborta en _RegisterApplication al crear NSApplication. Los modos QA de

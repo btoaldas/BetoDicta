@@ -1138,6 +1138,7 @@ struct SettingsView: View {
     ]
     static let creditosDatos: [(String, String)] = [
         ("LiteLLM — precios de modelos que se actualizan solos", "https://github.com/BerriAI/litellm"),
+        ("Open-Meteo + GeoNames — clima y geocodificación", "https://open-meteo.com/"),
         ("Whisper (OpenAI) — modelos ggml de ggerganov/whisper.cpp", "https://huggingface.co/ggerganov/whisper.cpp"),
         ("Voxtral (Mistral) — GGUF de ggml-org / handy-computer", "https://huggingface.co/ggml-org/Voxtral-Mini-3B-2507-GGUF"),
         ("Nemotron y Canary (NVIDIA) — GGUF de handy-computer", "https://huggingface.co/handy-computer"),

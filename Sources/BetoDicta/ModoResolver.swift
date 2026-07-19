@@ -763,6 +763,9 @@ enum ModoResolver {
                 acciones: [ModoAccionPlan(modo: m, destinatario: nil)],
                 contenido: r.contenido), fuente: .natural, confianza: 0.99)
         }
+        if Config.agenteNucleoActivo(), let clima = AgenteNucleo.planificarClima(texto) {
+            return clima
+        }
         if let plan = ModoPlanificador.detectarNatural(texto, catalogo: catalogo) { return plan }
         if permitirCapturas, let plan = AgenteNucleo.planificarCaptura(texto) { return plan }
         return nil

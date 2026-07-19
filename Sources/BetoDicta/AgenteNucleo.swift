@@ -54,6 +54,8 @@ enum PoliticaAgente {
                 r = .reversible
             } else {
                 switch id {
+                case "clima":
+                    r = .lectura
                 case "musica", "archivo", "finder", "safari", "mapas", "spotlight", "aplicacion":
                     r = .reversible
                 case "recordatorios", "calendario", "notas", "nota_local", "tarea_local", "archivo_nuevo",
@@ -142,6 +144,8 @@ enum MensajesAgente {
         if cadena.transforms.isEmpty, cadena.acciones.count == 1,
            ["captura_pantalla", "captura_compartir"]
             .contains(cadena.acciones[0].modo.accion) { return true }
+        if cadena.transforms.isEmpty, cadena.acciones.count == 1,
+           cadena.acciones[0].modo.accion == "clima" { return true }
         return cadena.transforms.isEmpty && cadena.acciones.count == 1
             && cadena.acciones[0].modo.base == "musica"
     }
@@ -359,6 +363,7 @@ enum AgenteNucleo {
             case "archivo", "archivo_nuevo": return Config.agenteHerramientaArchivos()
             case "captura_pantalla", "grabar_pantalla", "captura_compartir":
                 return Config.agenteHerramientaCapturas()
+            case "clima": return Config.agenteHerramientaClima()
             case "atajo_apple": return Config.agenteHerramientaAtajos()
             case "gmail", "correo", "outlook", "whatsapp", "mensajes":
                 return Config.agenteHerramientaComunicaciones()
@@ -426,6 +431,18 @@ enum AgenteNucleo {
             fuente: .natural, confianza: 0.99)
     }
 
+    /// Consulta de solo lectura. Funciona con ciudad explícita o con una única
+    /// lectura de Core Location; nunca se entrega al cerebro de chat para que
+    /// invente datos meteorológicos.
+    static func planificarClima(_ texto: String) -> ModoPreguntaPlan? {
+        guard Config.agenteHerramientaClima(),
+              SolicitudClima.interpretar(texto) != nil else { return nil }
+        let m = accion("clima", nombre: "Consultar clima")
+        return ModoPlanificador.pregunta(para: ModoCadena(transforms: [],
+            acciones: [ModoAccionPlan(modo: m, destinatario: nil)], contenido: texto),
+            fuente: .natural, confianza: 0.99)
+    }
+
     /// Reutiliza la última RESPUESTA solo ante un pronombre imperativo inequívoco.
     /// Una frase corriente nunca hereda contenido en silencio.
     static func completarSeguimiento(_ texto: String, referencia: String?) -> String? {
@@ -454,6 +471,10 @@ enum AgenteNucleo {
                     acciones: [ModoAccionPlan(modo: m, destinatario: nil)],
                     contenido: r.contenido), fuente: .natural, confianza: 0.99)
         }
+
+        // El clima es tiempo real: debe resolverse antes de cualquier IA para
+        // que Codex/Hermes no contesten con datos inventados o desactualizados.
+        if let clima = planificarClima(texto) { return clima }
 
         // Reutiliza primero el planificador maduro de Modos (correo, WhatsApp,
         // traducción, apps, búsquedas…). Evita un Agente dentro de otro Agente.
@@ -588,7 +609,7 @@ enum AgenteNucleo {
             return MemoriaAgente.ultimoResumen() ?? "Todavía no tengo una conversación anterior guardada."
         }
         if s.contains("que puedes hacer") || s.contains("tus capacidades") {
-            return "Puedo conversar, consultar tus tareas y notas, buscar y abrir archivos o aplicaciones, poner música, crear recordatorios y eventos, ejecutar tus rutinas y usar Hermes o un Atajo de Apple cuando los configures."
+            return "Puedo conversar, consultar el clima, tus tareas y notas, buscar y abrir archivos o aplicaciones, poner música, crear recordatorios y eventos, ejecutar tus rutinas y usar Hermes o un Atajo de Apple cuando los configures."
         }
         return nil
     }

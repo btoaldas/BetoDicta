@@ -433,6 +433,7 @@ enum Acciones {
         ("captura_pantalla", "Captura de pantalla",           "", ""),
         ("grabar_pantalla",  "Grabación de pantalla",         "", ""),
         ("captura_compartir", "Captura para compartir",       "", ""),
+        ("clima",          "Consultar clima actual",          "", ""),
         ("atajo_apple",   "Atajo Apple / Siri",              "", "com.apple.shortcuts"),
         ("rutina",        "Rutina del asistente",            "", ""),
         ("nota_local",    "Nota local de BetoDicta",         "", ""),

@@ -334,8 +334,21 @@ struct Config {
     static func agenteHerramientaComunicaciones() -> Bool { (json()["agente_tool_comunicaciones"] as? Bool) ?? true }
     static func agenteHerramientaAtajos() -> Bool { (json()["agente_tool_atajos"] as? Bool) ?? false }
     static func agenteHerramientaCapturas() -> Bool { (json()["agente_tool_capturas"] as? Bool) ?? true }
+    static func agenteHerramientaClima() -> Bool { (json()["agente_tool_clima"] as? Bool) ?? true }
     static func agenteHerramientaNotasApple() -> Bool {
         (json()["agente_tool_notas_apple"] as? Bool) ?? true
+    }
+    /// Cuando una consulta no contiene ciudad, pide una ubicación puntual a
+    /// Core Location. Nunca habilita seguimiento continuo ni persiste coordenadas.
+    static func climaUsarUbicacionActual() -> Bool {
+        (json()["clima_ubicacion_actual"] as? Bool) ?? true
+    }
+    /// Respaldo opcional si el usuario desactiva/deniega ubicación. Se geocodifica
+    /// al consultar y no contiene coordenadas ni credenciales.
+    static func climaUbicacionPredeterminada() -> String {
+        String(((json()["clima_ubicacion_predeterminada"] as? String) ?? "")
+            .replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).prefix(140))
     }
     /// Vacío conserva la carpeta predeterminada de la cuenta predeterminada.
     /// Se limita porque termina como un literal escapado del diccionario oficial

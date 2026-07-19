@@ -32,6 +32,8 @@
 	<string>BetoDicta crea los recordatorios que tú confirmes por voz.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BetoDicta graba tu voz para transcribirla con el motor que elijas.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>BetoDicta usa una ubicación aproximada únicamente cuando le preguntas por el clima sin indicar una ciudad.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>BetoDicta captura o graba la pantalla únicamente cuando tú se lo pides al asistente.</string>
 </dict>

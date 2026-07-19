@@ -4852,15 +4852,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: completion)
         }
         func mostrarResultado(_ r: ResultadoHerramientaApple) {
-            AgenteLog.registrar("resultado_herramienta", ["accion": id, "ok": r.ok,
-                                                           "mensaje": r.mensaje])
+            var evidencia: [String: Any] = ["accion": id, "ok": r.ok,
+                                            "mensaje": r.mensaje]
+            r.evidencia.forEach { evidencia[$0.key] = $0.value }
+            AgenteLog.registrar("resultado_herramienta", evidencia)
             if !recorder.isRecording {
                 setIcono(.reposo)
                 panel.show((r.ok ? "✓ " : "⚠️ ") + r.mensaje)
-                panel.hide(after: r.ok ? 2.6 : 3.6)
+                panel.hide(after: id == "clima" ? 6 : (r.ok ? 2.6 : 3.6))
             }
             if contextoAgente, !r.ok, id != "grabar_pantalla" {
                 responderBreveAgente(r.mensaje, evento: "fallo_herramienta")
+            } else if contextoAgente, r.ok, id == "clima" {
+                responderBreveAgente(r.mensaje, evento: "resultado_clima")
             } else if contextoAgente, r.ok, id == "rutina",
                       RutinasAgenteStore.devuelveResultado(id: modo.prompt) {
                 responderBreveAgente(r.mensaje, evento: "resultado_rutina")
@@ -4963,6 +4967,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "calendario" where !t.isEmpty:
             esperaAsincrona = true; muestraGenerica = false
             AppleAgenda.crearEvento(t) { r in mostrarResultado(r); completar() }
+        case "clima" where !t.isEmpty:
+            esperaAsincrona = true; muestraGenerica = false
+            if !recorder.isRecording { setIcono(.procesando); panel.update("🌦️ Consultando clima…") }
+            ClimaServicio.consultar(t) { r in mostrarResultado(r); completar() }
         case "captura_pantalla", "grabar_pantalla", "captura_compartir":
             esperaAsincrona = true; muestraGenerica = false
             let tipoForzado: TipoCapturaMac? = id == "grabar_pantalla" ? .video

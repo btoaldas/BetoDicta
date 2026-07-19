@@ -56,6 +56,24 @@ enum AgenteCoreQA {
         comprobar("memoria no invade una narración",
                   AgenteNucleo.completarSeguimiento("Ayer lo envié por WhatsApp", referencia: "secreto") == nil)
 
+        let climaPuyo = AgenteNucleo.planificarClima(
+            "¿Me puedes decir el clima de Puyo, Pastaza, Ecuador?")
+        comprobar("clima explícito entra antes de la IA",
+                  climaPuyo?.cadena.acciones.first?.modo.accion == "clima"
+                    && climaPuyo?.cadena.contenido.contains("Puyo") == true)
+        let climaActual = AgenteNucleo.planificarClima(
+            "¿Puedes decirme cómo está el clima del día de hoy?")
+        comprobar("clima sin ciudad usa herramienta local",
+                  climaActual?.cadena.acciones.first?.modo.accion == "clima")
+        comprobar("narración meteorológica no se desvía",
+                  AgenteNucleo.planificarClima(
+                    "Ayer conversamos sobre el clima de Puyo durante la reunión") == nil)
+        let climaResolver = ModoResolver.detectarPedidoNatural(
+            "Qué tiempo hará mañana en Quito", catalogo: ModoCatalogo(modos: ModosStore.todos()))
+        comprobar("resolver natural conserva el día y la ciudad",
+                  climaResolver?.cadena.acciones.first?.modo.accion == "clima"
+                    && climaResolver?.cadena.contenido == "Qué tiempo hará mañana en Quito")
+
         let generarYEnviar = AgenteNucleo.planificar(
             "crea una redacción de un verso sin esfuerzo, algo como ejemplo, y después mándaselo a Alberto por WhatsApp",
             catalogo: ModoCatalogo(modos: ModosStore.todos()),

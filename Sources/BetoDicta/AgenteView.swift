@@ -73,7 +73,12 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var toolComunicaciones: Bool { didSet { Config.set("agente_tool_comunicaciones", to: toolComunicaciones) } }
     @Published var toolAtajos: Bool { didSet { Config.set("agente_tool_atajos", to: toolAtajos) } }
     @Published var toolCapturas: Bool { didSet { Config.set("agente_tool_capturas", to: toolCapturas) } }
+    @Published var toolClima: Bool { didSet { Config.set("agente_tool_clima", to: toolClima) } }
     @Published var toolNotasApple: Bool { didSet { Config.set("agente_tool_notas_apple", to: toolNotasApple) } }
+    @Published var climaUbicacionActual: Bool { didSet { Config.set("clima_ubicacion_actual", to: climaUbicacionActual) } }
+    @Published var climaUbicacionPredeterminada: String {
+        didSet { Config.set("clima_ubicacion_predeterminada", to: climaUbicacionPredeterminada) }
+    }
     @Published var notasAppleCarpeta: String { didSet { Config.set("notas_apple_carpeta", to: notasAppleCarpeta) } }
     @Published var notasAppleCrearCarpeta: Bool { didSet { Config.set("notas_apple_crear_carpeta", to: notasAppleCrearCarpeta) } }
     @Published var notasAppleMostrar: Bool { didSet { Config.set("notas_apple_mostrar", to: notasAppleMostrar) } }
@@ -123,7 +128,10 @@ final class AgenteSettingsModel: ObservableObject {
         toolAplicaciones = Config.agenteHerramientaAplicaciones()
         toolComunicaciones = Config.agenteHerramientaComunicaciones()
         toolAtajos = Config.agenteHerramientaAtajos(); toolCapturas = Config.agenteHerramientaCapturas()
+        toolClima = Config.agenteHerramientaClima()
         toolNotasApple = Config.agenteHerramientaNotasApple()
+        climaUbicacionActual = Config.climaUsarUbicacionActual()
+        climaUbicacionPredeterminada = Config.climaUbicacionPredeterminada()
         notasAppleCarpeta = Config.notasAppleCarpeta()
         notasAppleCrearCarpeta = Config.notasAppleCrearCarpeta()
         notasAppleMostrar = Config.notasAppleMostrarCreada()
@@ -186,6 +194,15 @@ final class AgenteSettingsModel: ObservableObject {
             musicaAtajo = AppleAtajos.nombreMusicaIncluido
             musicaAtajoPrimero = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.cargarAtajos() }
+        }
+    }
+    func probarClima() {
+        aviso = "Consultando Open-Meteo…"
+        let lugar = climaUbicacionPredeterminada.trimmingCharacters(in: .whitespacesAndNewlines)
+        let consulta = lugar.isEmpty ? "clima de hoy" : "clima de \(lugar)"
+        ClimaServicio.consultar(consulta) { [weak self] r in
+            self?.permisosTick += 1
+            self?.aviso = r.mensaje
         }
     }
     func actualizarCodex() {
@@ -402,6 +419,31 @@ struct AgenteView: View {
             }
 
             card("Herramientas nativas", "wrench.and.screwdriver.fill") {
+                Toggle("Clima actual y pronóstico", isOn: $m.toolClima)
+                if m.toolClima {
+                    Toggle("Usar mi ubicación actual si no digo una ciudad",
+                           isOn: $m.climaUbicacionActual)
+                    field("Ubicación de respaldo", text: $m.climaUbicacionPredeterminada,
+                          placeholder: "Ej.: Puyo, Pastaza, Ecuador")
+                    HStack {
+                        Text("Ubicación: \(UbicacionClima.nombreEstado())")
+                        Spacer()
+                        Button(UbicacionClima.estado() == .notDetermined
+                               ? "Solicitar permiso" : "Ajustes de ubicación…") {
+                            if UbicacionClima.estado() == .notDetermined {
+                                UbicacionClima.shared.solicitarPermiso()
+                            } else { UbicacionClima.abrirPrivacidad() }
+                            m.permisosTick += 1
+                        }.controlSize(.small)
+                        Button("Probar clima ahora") { m.probarClima() }.controlSize(.small)
+                    }.font(.caption)
+                    Text("Solo pide una ubicación aproximada al consultar; no te rastrea ni guarda coordenadas. Para obtener el clima, envía la ciudad o las coordenadas actuales por HTTPS a Open-Meteo. Si dices una ciudad, no usa GPS.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Link("Datos meteorológicos: Open-Meteo",
+                         destination: URL(string: "https://open-meteo.com/")!)
+                        .font(.caption)
+                }
+                Divider()
                 Toggle("Música", isOn: $m.toolMusica)
                 Toggle("Aplicaciones instaladas", isOn: $m.toolAplicaciones)
                 Toggle("Borradores en Gmail, Mail, Outlook, WhatsApp y Mensajes", isOn: $m.toolComunicaciones)
@@ -540,6 +582,9 @@ struct AgenteView: View {
             if !m.aviso.isEmpty { Text(m.aviso).font(.caption).foregroundStyle(violeta) }
         }
         .onAppear { m.cargarAtajos(); m.actualizarCodex() }
+        .onReceive(NotificationCenter.default.publisher(for: .betoUbicacionClimaCambio)) { _ in
+            m.permisosTick += 1
+        }
     }
 
     private var universal: some View {

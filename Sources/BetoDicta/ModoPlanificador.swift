@@ -695,6 +695,7 @@ enum ModoPlanificador {
                 ? "Mostrar resultados de archivos en Finder"
                 : "Buscar un archivo en la Mac"
             case "archivo_nuevo": return "Crear un archivo local y elegir dónde guardarlo"
+            case "clima": return "Consultar el clima"
             case "nota_local": return "Guardar una nota local"
             case "tarea_local": return "Guardar una tarea local"
             case "atajo_apple": return "Ejecutar el Atajo Apple configurado"
