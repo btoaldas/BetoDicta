@@ -94,6 +94,23 @@ enum ModoRegressionQA {
                                            yaDisparada: false, segundos: 2)
         if !pausaOK { fallos += 1 }
         print("MODEREGRESSION PAUSA \(pausaOK ? "OK" : "✗")")
+
+        // “reproduce” y “busca” son intenciones DENTRO del modo Música. No
+        // deben convertir una orden simple en una cadena música+música o
+        // música+búsqueda web.
+        let musicaReproducir = "modo música spotify reproduce música andina"
+        let musicaBuscar = "modo música busca Julio Jaramillo"
+        let reproducir = ModoResolver.detectarExacto(musicaReproducir, catalogo: catalogo)
+        let buscar = ModoResolver.detectarExacto(musicaBuscar, catalogo: catalogo)
+        let musicaOK = ModosStore.detectarCadena(musicaReproducir) == nil
+            && ModosStore.detectarCadena(musicaBuscar) == nil
+            && reproducir?.modo.id == "musica"
+            && reproducir?.modo.musicaProveedor == "spotify"
+            && reproducir?.textoLimpio == "reproduce música andina"
+            && buscar?.modo.id == "musica"
+            && buscar?.textoLimpio == "busca Julio Jaramillo"
+        if !musicaOK { fallos += 1 }
+        print("MODEREGRESSION MUSICA \(musicaOK ? "OK" : "✗") reproducir=\(reproducir?.textoLimpio ?? "nil") buscar=\(buscar?.textoLimpio ?? "nil")")
         print("MODEREGRESSION \(fallos == 0 ? "TODO OK" : "✗ \(fallos) FALLOS")")
         fflush(stdout)
         exit(fallos == 0 ? 0 : 3)

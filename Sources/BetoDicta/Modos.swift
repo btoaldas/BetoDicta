@@ -575,6 +575,18 @@ extension ModosStore {
         var transforms: [Modo] = []
         var acciones: [ModoAccionPlan] = []
         func agregarAccion(_ m: Modo) {
+            // “modo música Spotify, reproduce…” sigue siendo UNA herramienta.
+            // El verbo reproducir no debe crear una segunda etapa musical solo
+            // porque la primera ya congeló un proveedor distinto de `auto`.
+            if m.base == "musica", let indice = acciones.firstIndex(where: {
+                $0.modo.base == "musica"
+            }) {
+                if acciones[indice].modo.musicaProveedor == "auto",
+                   m.musicaProveedor != "auto" {
+                    acciones[indice].modo.musicaProveedor = m.musicaProveedor
+                }
+                return
+            }
             let firma: String
             if m.base == "buscar" { firma = "buscar:\(m.buscador)" }
             else if m.base == "musica" { firma = "musica:\(m.musicaProveedor)" }
@@ -606,6 +618,11 @@ extension ModosStore {
                 }
                 transforms.append(m)
             } else if v.id == "buscar" {
+                // Dentro de “modo música, busca Julio Jaramillo”, `busca` define
+                // la intención del reproductor. No es una segunda acción de
+                // navegador. Al dejar la cadena con una sola etapa, el resolvedor
+                // exacto conserva todo el resto para `Musica.intencion`.
+                if acciones.contains(where: { $0.modo.base == "musica" }) { break }
                 var b = modo("buscar")
                 if let eng = Buscadores.reconocer(w) { b.buscador = eng }
                 else {
