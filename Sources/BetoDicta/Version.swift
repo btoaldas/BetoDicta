@@ -6,11 +6,22 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.43.0"
-    static let fecha = "2026-07-17"
+    static let numero = "0.44.0"
+    static let fecha = "2026-07-18"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.44.0", "2026-07-18", [
+            "ASISTENTE POR VOZ CONFIGURABLE: nombre, personalidad, frases de activación, memoria corta local, tres niveles de autonomía y respuestas en texto o texto+voz; resuelve localmente primero y usa Hermes, una IA conectada o Codex solo cuando hace falta",
+            "CUENTA CHATGPT MEDIANTE CODEX OFICIAL: autorización delegada al CLI, modelo y esfuerzo de razonamiento elegibles, failover y uso separado para asistente, pulido, traducción y modos; nunca se mezcla con STT, TTS, embeddings ni con la API de OpenAI",
+            "ACCIONES NATIVAS VERIFICABLES: Recordatorios y Calendario mediante EventKit, búsqueda de archivos con Spotlight/Finder, borradores en Gmail/Mail/Outlook que nunca se envían solos, documentos Word con estructura visual y ejecución de Atajos elegidos por el usuario",
+            "MODO MÚSICA CON FAILOVER: Apple Music, Spotify y proveedores web; distingue reproducir de buscar, intenta una coincidencia real, verifica la reproducción y conserva un Atajo firmado como puente opcional",
+            "CAPTURA Y GRABACIÓN POR VOZ: pantalla, ventana, selección o cuadrante; destino, nombre, portapapeles, apertura, micrófono y clics. Las grabaciones sin duración se detienen con una sola fn o el menú, se guardan por fragmentos recuperables y ocultan el notch",
+            "WHATSAPP SEGURO PARA ADJUNTOS: política configurable entre solo portapapeles, preparar sin enviar y autoenviar explícito; el autoenvío exige detectar una vista previa nueva y un único botón Enviar, y bloquea retornos automáticos accidentales",
+            "INTERFAZ Y AUDITORÍA: menú compacto de consumos, panel con desplazamiento, permisos explicados por función, registros locales protegidos y una matriz QA reproducible para rutas naturales, acciones y regresiones",
+            "ACTUALIZADOR CORREGIDO: tras autenticar todo el DMG con Ed25519 y montarlo en solo lectura, acepta la identidad fijada del certificado autofirmado de BetoDicta sin crear un bypass para archivos no autenticados",
+            "ENTRENAMIENTO PIPER: progreso y confirmaciones muestran el estado real en lugar de porcentajes estáticos o capas visuales superpuestas",
+        ]),
         ("0.43.0", "2026-07-17", [
             "VERSIÓN ESTABLE: lleva al canal general todo lo probado en la beta 0.42.0 y vuelve a dejar GitHub latest disponible para las instalaciones que reciben solo versiones estables",
             "INTENCIÓN NATURAL MULTIETAPA: entiende pedidos como \"resume, traduce al quichua y envía por correo y WhatsApp a Alberto\", conserva destinatarios y confirma el plan completo antes de ejecutar acciones externas; fn confirma y X continúa como dictado normal",
