@@ -621,6 +621,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Audio batch corrupto debe saltar exactamente una vez al siguiente motor,
+        // sin anunciar que empezó ni completar como éxito.
+        if ProcessInfo.processInfo.environment["BETODICTA_TTSFAILOVERTEST"] == "1" {
+            Voz.probarFailoverAudioInvalidoQA { ok, detalle in
+                print("TTSFAILOVERTEST \(ok ? "OK" : "✗") \(detalle)")
+                exit(ok ? 0 : 5)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                print("TTSFAILOVERTEST ✗ timeout"); exit(6)
+            }
+            return
+        }
         // Regresión de continuación: un checkpoint rodante más nuevo que el hito debe
         // ganar, y el plan previo al dataset debe sobrevivir con permiso 0600.
         if ProcessInfo.processInfo.environment["BETODICTA_RESUMETEST"] == "1" {

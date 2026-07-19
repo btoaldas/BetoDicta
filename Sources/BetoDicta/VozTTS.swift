@@ -70,7 +70,7 @@ enum Voz {
     /// Detiene cualquier voz en curso (Apple o audio reproduciéndose).
     static func detener() {
         TTS.detener()
-        player?.stop(); player = nil
+        player?.stop(); player = nil; fin.cancelar()
         MlxVozServer.pararVoz()
     }
 
@@ -89,7 +89,7 @@ enum Voz {
     static func cancelar() {
         cancelado = true
         TTS.detener()
-        player?.stop(); player = nil
+        player?.stop(); player = nil; fin.cancelar()
         ElevenLabsStreamTTS.cancelar()
         XttsStreamTTS.cancelar()
         TTSCloudStream.cancelar()
@@ -138,7 +138,7 @@ enum Voz {
                     if ok { done?() } else {
                         Log.log(.ia, "TTS ElevenLabs WS falló → batch")
                         ElevenLabsTTS.decir(texto) { data in
-                            if let data { reproducir(data, empezar, done) } else {
+                            if let data { reproducir(data, empezar, done, fallo: siguiente) } else {
                                 Log.log(.ia, "TTS ElevenLabs batch falló → siguiente motor"); siguiente()
                             }
                         }
@@ -146,7 +146,7 @@ enum Voz {
                 }
             } else {
                 ElevenLabsTTS.decir(texto) { data in
-                    if let data { reproducir(data, empezar, done) } else {
+                    if let data { reproducir(data, empezar, done, fallo: siguiente) } else {
                         Log.log(.ia, "TTS ElevenLabs falló → siguiente motor"); siguiente()
                     }
                 }
@@ -161,7 +161,7 @@ enum Voz {
             if let p = TTSCloud.proveedor(motor) {
                 let batch: () -> Void = {
                     TTSCloud.decir(motor, texto: texto) { data in
-                        if let data { reproducir(data, empezar, done) } else {
+                        if let data { reproducir(data, empezar, done, fallo: siguiente) } else {
                             Log.log(.ia, "TTS \(motor) no disponible → siguiente motor"); siguiente()
                         }
                     }
@@ -219,7 +219,7 @@ enum Voz {
                 }
                 generado { url in
                     if let url, let data = try? Data(contentsOf: url) {
-                        reproducir(data, empezar, done)
+                        reproducir(data, empezar, done, fallo: fallo)
                     } else { fallo() }
                 }
             case "mlx":
@@ -230,7 +230,7 @@ enum Voz {
             case "onnx":
                 PiperTTS.decir(onnx: URL(fileURLWithPath: voz.onnx), texto: texto) { url in
                     if let url, let data = try? Data(contentsOf: url) {
-                        reproducir(data, empezar, done)
+                        reproducir(data, empezar, done, fallo: fallo)
                     } else { fallo() }
                 }
             default:
@@ -247,7 +247,9 @@ enum Voz {
         guard !voz.paquete.isEmpty, VozEngine.estado() == .listo else {
             guard !voz.cmd.isEmpty else { fallo(); return }
             XttsLocalTTS.decirCon(cmd: voz.cmd, texto: texto) { url in
-                if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) }
+                if let url, let data = try? Data(contentsOf: url) {
+                    reproducir(data, empezar, done, fallo: fallo)
+                }
                 else { fallo() }
             }
             return
@@ -255,7 +257,9 @@ enum Voz {
         let pkg = URL(fileURLWithPath: voz.paquete)
         let batch: () -> Void = {
             VozEngine.correrPaquete(carpeta: pkg, texto: texto) { url in
-                if let url, let data = try? Data(contentsOf: url) { reproducir(data, empezar, done) }
+                if let url, let data = try? Data(contentsOf: url) {
+                    reproducir(data, empezar, done, fallo: fallo)
+                }
                 else { fallo() }
             }
         }
@@ -301,22 +305,93 @@ enum Voz {
         }
     }
 
-    /// Reproduce audio (mp3/wav) ya generado. `empezar` justo antes de sonar (sync texto).
-    private static func reproducir(_ data: Data, _ empezar: (() -> Void)?, _ done: (() -> Void)?) {
+    /// Reproduce audio (mp3/wav) ya generado. `empezar` se emite únicamente si
+    /// AVAudioPlayer arrancó de verdad. Bytes corruptos o un error de decodificación
+    /// llaman `fallo` UNA sola vez para que continúe la cascada; nunca fingen éxito.
+    private static func reproducir(_ data: Data, _ empezar: (() -> Void)?,
+                                   _ done: (() -> Void)?, fallo: (() -> Void)? = nil) {
         DispatchQueue.main.async {
+            let fallar: (String) -> Void = { detalle in
+                fin.cancelar(); player?.stop(); player = nil
+                Log.log(.ia, "TTS: audio no reproducible (\(detalle)) → siguiente motor")
+                (fallo ?? done)?()
+            }
             do {
                 let p = try AVAudioPlayer(data: data)
+                guard p.prepareToPlay() else { fallar("no se pudo preparar"); return }
+                fin.preparar(exito: done, fallo: fallo ?? done)
                 p.delegate = fin
-                fin.alTerminar = done
                 player = p
+                guard p.play() else { fallar("play() rechazó el audio"); return }
                 empezar?()
-                p.play()
             } catch {
-                Log.log(.ia, "TTS: no pude reproducir el audio (\(error.localizedDescription)) → voz de macOS")
-                TTS.hablar("") { done?() }   // cae a nada; el llamador ya tiene su texto pegado
-                done?()
+                fallar(error.localizedDescription)
             }
         }
+    }
+
+    /// Hook sin sonido: valida que datos corruptos no disparen `empezar`/`done`,
+    /// activen exactamente un failover y mantengan todos los callbacks en main.
+    static func probarFailoverAudioInvalidoQA(_ completion: @escaping (Bool, String) -> Void) {
+        ejecutarEnMain {
+            var inicios = 0, finales = 0, fallos = 0, todoMain = true
+            reproducir(Data("esto no es audio".utf8), {
+                inicios += 1; todoMain = todoMain && Thread.isMainThread
+            }, {
+                finales += 1; todoMain = todoMain && Thread.isMainThread
+            }, fallo: {
+                fallos += 1; todoMain = todoMain && Thread.isMainThread
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    let invalidoOK = inicios == 0 && finales == 0 && fallos == 1 && todoMain
+                    guard invalidoOK else {
+                        completion(false, "inválido: inicios=\(inicios) finales=\(finales) fallos=\(fallos) main=\(todoMain)")
+                        return
+                    }
+                    probarAudioSilenciosoQA { validoOK, validoDetalle in
+                        completion(validoOK,
+                                   "inválido: inicios=0 finales=0 fallos=1 main=true; \(validoDetalle)")
+                    }
+                }
+            })
+        }
+    }
+
+    /// Segundo ángulo del hook: un WAV PCM válido y silencioso debe iniciar y
+    /// terminar exactamente una vez, sin activar la cascada de fallo.
+    private static func probarAudioSilenciosoQA(_ completion: @escaping (Bool, String) -> Void) {
+        var inicios = 0, finales = 0, fallos = 0, todoMain = true
+        reproducir(wavSilencioQA(), {
+            inicios += 1; todoMain = todoMain && Thread.isMainThread
+        }, {
+            finales += 1; todoMain = todoMain && Thread.isMainThread
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                let ok = inicios == 1 && finales == 1 && fallos == 0 && todoMain
+                completion(ok, "válido: inicios=\(inicios) finales=\(finales) fallos=\(fallos) main=\(todoMain)")
+            }
+        }, fallo: {
+            fallos += 1; todoMain = todoMain && Thread.isMainThread
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                completion(false, "válido: inicios=\(inicios) finales=\(finales) fallos=\(fallos) main=\(todoMain)")
+            }
+        })
+    }
+
+    private static func wavSilencioQA() -> Data {
+        let muestraHz: UInt32 = 8_000
+        let muestras: UInt32 = 400       // 50 ms, inaudible y suficiente para el delegate.
+        let bytesAudio = muestras * 2    // mono PCM16
+        var data = Data()
+        func texto(_ s: String) { data.append(contentsOf: s.utf8) }
+        func entero<T: FixedWidthInteger>(_ valor: T) {
+            var v = valor.littleEndian
+            Swift.withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
+        }
+        texto("RIFF"); entero(UInt32(36) + bytesAudio); texto("WAVE")
+        texto("fmt "); entero(UInt32(16)); entero(UInt16(1)); entero(UInt16(1))
+        entero(muestraHz); entero(muestraHz * 2); entero(UInt16(2)); entero(UInt16(16))
+        texto("data"); entero(bytesAudio)
+        data.append(Data(count: Int(bytesAudio)))
+        return data
     }
 
     private static let fin = FinReproduccion()
@@ -324,8 +399,26 @@ enum Voz {
 
 private final class FinReproduccion: NSObject, AVAudioPlayerDelegate {
     var alTerminar: (() -> Void)?
+    var alFallar: (() -> Void)?
+
+    func preparar(exito: (() -> Void)?, fallo: (() -> Void)?) {
+        alTerminar = exito; alFallar = fallo
+    }
+
+    func cancelar() { alTerminar = nil; alFallar = nil }
+
+    private func resolver(_ exito: Bool) {
+        let cb = exito ? alTerminar : alFallar
+        cancelar()
+        DispatchQueue.main.async { cb?() }
+    }
+
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        let cb = alTerminar; alTerminar = nil; DispatchQueue.main.async { cb?() }
+        resolver(flag)
+    }
+
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        resolver(false)
     }
 }
 
