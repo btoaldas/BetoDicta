@@ -277,8 +277,18 @@ enum Voz {
                 if ok { done?() } else { porStream() }
             }
         } else {
-            if Config.ttsXttsPreactivar() { XttsServer.asegurar(paquete: pkg) { _ in } }
-            porStream()
+            // ESPERAR al servidor residente en vez de hablar por stream_runner mientras
+            // arranca: el runner recarga el modelo (~12 s medidos) EN CADA frase y encima
+            // duplicaba la carga (server + runner a la vez, ~4 GB). Con el server, la
+            // primera frase paga la carga UNA vez y las siguientes suenan en ~0.5-2.5 s.
+            // Falla suave: si el server no levanta, sigue la cascada de siempre.
+            XttsServer.asegurar(paquete: pkg) { listo in
+                if listo {
+                    XttsServer.decir(texto: texto, empezar: empezar) { ok in
+                        if ok { done?() } else { porStream() }
+                    }
+                } else { porStream() }
+            }
         }
     }
 
