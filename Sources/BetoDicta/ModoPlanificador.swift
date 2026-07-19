@@ -240,8 +240,7 @@ enum ModoPlanificador {
         for j in (i + 1)..<limite {
             if j + 1 < limite {
                 let dos = ts[j].normal + " " + ts[j + 1].normal
-                if ["apple music", "youtube music"].contains(dos),
-                   let p = Musica.reconocerProveedor(en: dos) { return (p, j + 1) }
+                if let p = Musica.reconocerProveedorCompuesto(dos) { return (p, j + 1) }
             }
             if let p = Musica.reconocerProveedor(en: ts[j].normal) { return (p, j) }
             if !["en", "por", "con", "el", "la", "un", "una", "musica", "music"].contains(ts[j].normal) { break }

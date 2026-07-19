@@ -563,8 +563,9 @@ struct Config {
     /// Cascada del modo Música. Los no disponibles se saltan; los proveedores web
     /// mantienen un respaldo que funciona aunque no haya ninguna app instalada.
     static func musicaCascada() -> [String] {
-        let a = (json()["musica_cascada"] as? [String]) ?? ["apple_music", "spotify", "youtube_music", "youtube"]
-        return a.isEmpty ? ["apple_music", "youtube_music", "youtube"] : a
+        let a = (json()["musica_cascada"] as? [String])
+            ?? ["apple_music", "spotify", "betodicta_youtube", "youtube_music", "youtube"]
+        return a.isEmpty ? ["apple_music", "betodicta_youtube", "youtube_music", "youtube"] : a
     }
     static func musicaIntentarReproducir() -> Bool { (json()["musica_intentar_reproducir"] as? Bool) ?? true }
     /// Qué hace “pon música” sin artista/título: una pista distinta al azar
@@ -583,6 +584,20 @@ struct Config {
     /// Música con Accesibilidad. Sin permiso/red, continúa por el failover.
     static func musicaCatalogoAutomatico() -> Bool {
         (json()["musica_catalogo_automatico"] as? Bool) ?? true
+    }
+    /// Reproductor de YouTube embebido dentro de BetoDicta. La intención hablada
+    /// sigue distinguiendo buscar/reproducir; este interruptor permite impedir el
+    /// autoplay incluso cuando el usuario dijo “pon”.
+    static func musicaInternaAutoReproducir() -> Bool {
+        (json()["musica_interna_autoplay"] as? Bool) ?? true
+    }
+    static func musicaInternaAvanzarSolo() -> Bool {
+        (json()["musica_interna_avanzar"] as? Bool) ?? true
+    }
+    static func musicaInternaConsultaPredeterminada() -> String {
+        let s = ((json()["musica_interna_consulta_default"] as? String) ?? "música para escuchar")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? "música para escuchar" : String(s.prefix(160))
     }
     /// Proveedores propios: [{nombre,url}], URL con {q}.
     static func musicaProveedoresPersonales() -> [[String: String]] {

@@ -621,8 +621,7 @@ extension ModosStore {
                 if j < tokens.count {
                     if j + 1 < tokens.count {
                         let dos = limpioTok(tokens[j]) + " " + limpioTok(tokens[j + 1])
-                        if ["apple music", "youtube music"].contains(dos),
-                           let p = Musica.reconocerProveedor(en: dos) {
+                        if let p = Musica.reconocerProveedorCompuesto(dos) {
                             m.musicaProveedor = p; i = j + 2
                         } else if let p = Musica.reconocerProveedor(en: limpioTok(tokens[j])) {
                             m.musicaProveedor = p; i = j + 1
@@ -807,8 +806,7 @@ extension ModosStore {
                     let uno = limpioTok(toks[candidato])
                     let dos = candidato + 1 < toks.count
                         ? uno + " " + limpioTok(toks[candidato + 1]) : uno
-                    if ["apple music", "youtube music"].contains(dos),
-                       let p = Musica.reconocerProveedor(en: dos) {
+                    if let p = Musica.reconocerProveedorCompuesto(dos) {
                         m.musicaProveedor = p; w = candidato + 2
                     } else if let p = Musica.reconocerProveedor(en: uno) {
                         m.musicaProveedor = p; w = candidato + 1

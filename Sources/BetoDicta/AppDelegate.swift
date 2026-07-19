@@ -443,6 +443,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // QA visual/real del reproductor interno. `cue` prepara el video oficial
+        // de prueba sin sonido; `play` exige estado 1; `controls` verifica además
+        // pausa/reanudación/stop y navegación anterior-siguiente.
+        if let modo = ProcessInfo.processInfo.environment["BETODICTA_YTPLAYERTEST"],
+           ["cue", "play", "controls"].contains(modo) {
+            let player = ReproductorYouTubeInterno.shared
+            player.mostrar(); player.model.consulta = "M7lc1UVf-VE"
+            player.model.buscar(reproducir: modo != "cue") { r in
+                if modo == "controls", r.reproduciendo {
+                    player.model.alternar()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        let pausa = !player.model.reproduciendo
+                        player.model.alternar()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                            let reanuda = player.model.reproduciendo
+                            player.model.detener()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                                let stop = !player.model.reproduciendo
+                                    && player.model.estado == "Reproducción detenida."
+                                player.model.resultados = [
+                                    .init(id: "M7lc1UVf-VE", titulo: "Uno", canal: "QA", miniatura: nil),
+                                    .init(id: "dQw4w9WgXcQ", titulo: "Dos", canal: "QA", miniatura: nil),
+                                ]
+                                player.model.seleccionar(0, reproducir: false)
+                                player.model.siguiente(); let siguiente = player.model.indiceActual == 1
+                                player.model.anterior(); let anterior = player.model.indiceActual == 0
+                                let ok = pausa && reanuda && stop && siguiente && anterior
+                                print("YTPLAYERTEST \(ok ? "TODO OK" : "FALLA") pausa=\(pausa) reanuda=\(reanuda) stop=\(stop) siguiente=\(siguiente) anterior=\(anterior)")
+                                fflush(stdout); exit(ok ? 0 : 5)
+                            }
+                        }
+                    }
+                    return
+                }
+                print("YTPLAYERTEST \(r.encontro && (modo == "cue" || r.reproduciendo) ? "OK" : "FALLA") reproduce=\(r.reproduciendo) | \(r.mensaje)")
+                fflush(stdout)
+                if ProcessInfo.processInfo.environment["BETODICTA_YTPLAYEREXIT"] == "1" {
+                    exit(r.encontro && (modo == "cue" || r.reproduciendo) ? 0 : 3)
+                }
+            }
+            return
+        }
         if let orden = ProcessInfo.processInfo.environment["BETODICTA_MUSICFLOWTEST"],
            !orden.isEmpty {
             let solicitado = Musica.reconocerProveedor(en: orden) ?? "auto"
@@ -1901,6 +1943,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(recientes)
         menu.addItem(withTitle: "Exportar dictados de hoy", action: #selector(exportToday), keyEquivalent: "e")
         menu.addItem(withTitle: "Abrir historial", action: #selector(openHistory), keyEquivalent: "")
+        menu.addItem(withTitle: "Reproductor de música…", action: #selector(openMusicPlayer), keyEquivalent: "")
         menu.addItem(withTitle: "Ver registro (log)", action: #selector(openLog), keyEquivalent: "l")
         let dev = NSMenuItem(title: "Modo desarrollo", action: #selector(toggleDevMode(_:)), keyEquivalent: "")
         dev.tag = 79
@@ -2376,6 +2419,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func openLogPublic() { openLog() }
 
     @objc private func openSettings() { Log.log(.ui, "abrir configuración"); SettingsWindowController.shared.show() }
+    @objc private func openMusicPlayer() {
+        Log.log(.ui, "abrir reproductor interno")
+        DispatchQueue.main.async { ReproductorYouTubeInterno.shared.mostrar() }
+    }
     @objc private func detenerGrabacionPantalla() {
         doblePulsacion.reiniciar()
         if CapturaMac.detenerGrabacion() {

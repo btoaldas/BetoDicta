@@ -178,6 +178,13 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var musicaCatalogo: Bool { didSet { Config.set("musica_catalogo_automatico", to: musicaCatalogo) } }
     @Published var musicaAtajo: String { didSet { Config.set("musica_atajo_apple", to: musicaAtajo) } }
     @Published var musicaAtajoPrimero: Bool { didSet { Config.set("musica_atajo_primero", to: musicaAtajoPrimero) } }
+    @Published var musicaInternaAuto: Bool { didSet { Config.set("musica_interna_autoplay", to: musicaInternaAuto) } }
+    @Published var musicaInternaAvanzar: Bool { didSet { Config.set("musica_interna_avanzar", to: musicaInternaAvanzar) } }
+    @Published var musicaInternaConsulta: String {
+        didSet { Config.set("musica_interna_consulta_default", to: String(musicaInternaConsulta.prefix(160))) }
+    }
+    @Published var youtubeEstado = ""
+    @Published var youtubeTrabajando = false
     @Published var rutinas: [RutinaAgente]
     @Published var aviso = ""
     @Published var permisosTick = 0
@@ -236,7 +243,11 @@ final class AgenteSettingsModel: ObservableObject {
         musicaSinConsulta = Config.musicaSinConsulta()
         musicaCatalogo = Config.musicaCatalogoAutomatico()
         musicaAtajo = Config.musicaAtajoApple(); musicaAtajoPrimero = Config.musicaAtajoPrimero()
+        musicaInternaAuto = Config.musicaInternaAutoReproducir()
+        musicaInternaAvanzar = Config.musicaInternaAvanzarSolo()
+        musicaInternaConsulta = Config.musicaInternaConsultaPredeterminada()
         rutinas = RutinasAgenteStore.todas(); atajosDetalle = AppleAtajosCatalogo.todos()
+        actualizarEstadoYouTube()
     }
 
     func moverMusica(_ i: Int, _ delta: Int) {
@@ -269,6 +280,57 @@ final class AgenteSettingsModel: ObservableObject {
         }
         Config.set("musica_proveedores_personales", to: restantes); quitarMusica(id)
     }
+
+    func actualizarEstadoYouTube(mensaje: String? = nil) {
+        if let mensaje { youtubeEstado = mensaje; return }
+        if YouTubeOAuth.conectada {
+            youtubeEstado = "✓ Cuenta Google conectada por OAuth externo"
+        } else if YouTubeOAuth.tieneAPIKey {
+            youtubeEstado = "✓ Clave de YouTube Data API guardada"
+        } else if YouTubeOAuth.tieneCliente {
+            youtubeEstado = "Credenciales OAuth importadas; falta autorizar la cuenta"
+        } else {
+            youtubeEstado = "Sin conexión: importa OAuth de escritorio o guarda una API key"
+        }
+    }
+
+    func guardarYouTubeKey(_ valor: String) -> Bool {
+        let key = valor.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard key.count >= 20, !key.contains("\n") else {
+            actualizarEstadoYouTube(mensaje: "La clave no parece válida."); return false
+        }
+        ApiKeys.set("YOUTUBE_DATA_API_KEY", key); actualizarEstadoYouTube(); return true
+    }
+
+    func quitarYouTubeKey() { ApiKeys.set("YOUTUBE_DATA_API_KEY", ""); actualizarEstadoYouTube() }
+
+    func importarOAuthYouTube() {
+        let p = NSOpenPanel(); p.title = "Credenciales OAuth de Google para BetoDicta"
+        p.allowedContentTypes = [.json]; p.allowsMultipleSelection = false
+        guard p.runModal() == .OK, let u = p.url else { return }
+        switch YouTubeOAuth.importarCliente(desde: u) {
+        case .success:
+            actualizarEstadoYouTube(mensaje: "Credenciales OAuth importadas. Pulsa «Conectar cuenta Google». ")
+        case .failure(let e): actualizarEstadoYouTube(mensaje: e.localizedDescription)
+        }
+    }
+
+    func conectarYouTube() {
+        youtubeTrabajando = true; youtubeEstado = "Esperando autorización en tu navegador…"
+        YouTubeOAuth.conectar { [weak self] ok, mensaje in
+            self?.youtubeTrabajando = false
+            self?.actualizarEstadoYouTube(mensaje: ok ? "✓ \(mensaje)" : mensaje)
+        }
+    }
+
+    func desconectarYouTube() {
+        youtubeTrabajando = true
+        YouTubeOAuth.desconectar { [weak self] mensaje in
+            self?.youtubeTrabajando = false; self?.actualizarEstadoYouTube(mensaje: mensaje)
+        }
+    }
+
+    func abrirReproductorInterno() { ReproductorYouTubeInterno.shared.mostrar() }
 
     func cargarAtajos() {
         AppleAtajosCatalogo.refrescar { [weak self] items in
@@ -357,6 +419,7 @@ struct AgenteView: View {
     @StateObject private var m = AgenteSettingsModel()
     @State private var proveedorNombre = ""
     @State private var proveedorURL = ""
+    @State private var youtubeKey = ""
     @State private var estadoActivacion = ActivacionVoz.shared.estado
 
     private let violeta = Color(red: 0.36, green: 0.28, blue: 0.62)
@@ -853,6 +916,75 @@ struct AgenteView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Text("Si no puede reproducir o la app no está, continúa por la cascada y termina en búsqueda web.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Label("Reproductor interno de BetoDicta", systemImage: "music.note.house.fill")
+                        .font(.subheadline).bold()
+                    Spacer()
+                    Button("Abrir reproductor") { m.abrirReproductorInterno() }
+                        .controlSize(.small)
+                        .help("Abrir el buscador y reproductor musical dentro de BetoDicta")
+                }
+                Text("Busca con la API oficial de YouTube y reproduce con el IFrame Player oficial. No raspa páginas ni guarda tu contraseña de Google.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("Reproducir automáticamente el primer resultado cuando digo “pon”",
+                       isOn: $m.musicaInternaAuto)
+                    .help("Apágalo si prefieres revisar los resultados antes de pulsar Play")
+                Toggle("Avanzar al resultado siguiente cuando termine una canción",
+                       isOn: $m.musicaInternaAvanzar)
+                    .help("Continúa automáticamente por la cola visible del reproductor")
+                field("Si digo solo “pon música”", text: $m.musicaInternaConsulta,
+                      placeholder: "música para escuchar")
+
+                HStack(spacing: 7) {
+                    Circle().fill(YouTubeOAuth.conectada || YouTubeOAuth.tieneAPIKey ? Color.green : Color.orange)
+                        .frame(width: 7, height: 7)
+                    Text(m.youtubeEstado).font(.caption).foregroundStyle(.secondary)
+                    if m.youtubeTrabajando { ProgressView().controlSize(.small) }
+                }
+
+                HStack {
+                    SecureField(YouTubeOAuth.tieneAPIKey ? "Clave guardada (escribe para reemplazar)" : "YouTube Data API key",
+                                text: $youtubeKey)
+                        .textFieldStyle(.roundedBorder)
+                        .help("Clave propia de YouTube Data API v3; se guarda con permisos 0600")
+                    Button("Guardar clave") {
+                        if m.guardarYouTubeKey(youtubeKey) { youtubeKey = "" }
+                    }.controlSize(.small).disabled(youtubeKey.isEmpty)
+                        .help("Guardar la clave de forma local y privada")
+                    if YouTubeOAuth.tieneAPIKey {
+                        Button("Quitar") { m.quitarYouTubeKey() }.controlSize(.small)
+                            .help("Eliminar la clave de YouTube guardada en esta Mac")
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button("Importar OAuth de escritorio…") { m.importarOAuthYouTube() }
+                        .controlSize(.small)
+                        .help("Importar el JSON descargado de Google Cloud para una aplicación de escritorio")
+                    if YouTubeOAuth.tieneCliente && !YouTubeOAuth.conectada {
+                        Button("Conectar cuenta Google") { m.conectarYouTube() }
+                            .controlSize(.small).disabled(m.youtubeTrabajando)
+                            .help("Autorizar YouTube en el navegador externo; BetoDicta nunca ve tu contraseña")
+                    }
+                    if YouTubeOAuth.conectada {
+                        Button("Desconectar cuenta") { m.desconectarYouTube() }
+                            .controlSize(.small).disabled(m.youtubeTrabajando)
+                            .help("Borrar el token revocable guardado en esta Mac")
+                    }
+                    Spacer()
+                    Button("Activar API en Google Cloud ↗") {
+                        NSWorkspace.shared.open(URL(string: "https://console.cloud.google.com/apis/library/youtube.googleapis.com")!)
+                    }.controlSize(.small)
+                        .help("Abrir la página oficial de YouTube Data API v3")
+                }
+                Text("Para OAuth, crea en tu propio proyecto de Google un cliente de tipo “Aplicación de escritorio”, descarga su JSON e impórtalo. La autorización se abre siempre en tu navegador, porque Google prohíbe pedir credenciales dentro de una ventana embebida.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+
+            Divider()
             Toggle("Probar primero un Atajo de Apple Music", isOn: $m.musicaAtajoPrimero)
             if m.musicaAtajoPrimero {
                 field("Atajo de música", text: $m.musicaAtajo, placeholder: "Reproducir con BetoDicta")

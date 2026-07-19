@@ -260,8 +260,7 @@ enum ModoResolver {
         var valor = reconocer(normalizados[candidato])
         if modo.base == "musica", candidato + 1 < normalizados.count {
             let dos = normalizados[candidato] + " " + normalizados[candidato + 1]
-            if ["apple music", "youtube music"].contains(dos),
-               let p = Musica.reconocerProveedor(en: dos) {
+            if let p = Musica.reconocerProveedorCompuesto(dos) {
                 valor = p; consumidas = candidato + 2
             }
         }

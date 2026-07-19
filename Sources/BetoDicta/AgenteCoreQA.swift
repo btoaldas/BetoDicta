@@ -146,6 +146,10 @@ enum AgenteCoreQA {
 
         comprobar("proveedor Spotify", Musica.reconocerProveedor(en: "en Spotify") == "spotify")
         comprobar("proveedor Apple Music", Musica.reconocerProveedor(en: "Apple Music") == "apple_music")
+        comprobar("proveedor interno por voz",
+                  Musica.reconocerProveedor(en: "interno") == "betodicta_youtube"
+                    && Musica.reconocerProveedorCompuesto("reproductor interno") == "betodicta_youtube"
+                    && Musica.reconocerProveedor(en: "BetoDicta") == "betodicta_youtube")
         comprobar("proveedor YouTube Music conserva la consulta",
                   Musica.reconocerProveedor(en: "Reproduce en YouTube Music pasillo ecuatoriano")
                     == "youtube_music"
@@ -215,6 +219,22 @@ enum AgenteCoreQA {
         comprobar("consulta de búsqueda musical queda limpia",
                   Musica.extraerConsulta("modo música, busca Julio Jaramillo",
                                          proveedor: "auto") == "Julio Jaramillo")
+        comprobar("consulta del reproductor interno queda limpia",
+                  Musica.extraerConsulta("modo música interno, reproduce Julio Jaramillo",
+                                         proveedor: "betodicta_youtube") == "Julio Jaramillo",
+                  Musica.extraerConsulta("modo música interno, reproduce Julio Jaramillo",
+                                         proveedor: "betodicta_youtube"))
+        comprobar("IDs y enlaces oficiales de YouTube se validan",
+                  YouTubeDataAPI.idDirecto("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+                    && YouTubeDataAPI.idDirecto("https://music.youtube.com/watch?v=dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+                    && YouTubeDataAPI.idDirecto("https://example.com/watch?v=dQw4w9WgXcQ") == nil)
+        let oauthEscritorio = #"{"installed":{"client_id":"qa.apps.googleusercontent.com","client_secret":"solo-qa"}}"#.data(using: .utf8)!
+        let oauthWeb = #"{"web":{"client_id":"qa.apps.googleusercontent.com","client_secret":"solo-qa"}}"#.data(using: .utf8)!
+        let oauthInyectado = #"{"installed":{"client_id":"qa.apps.googleusercontent.com","client_secret":"abc\nOTRA_CLAVE=1"}}"#.data(using: .utf8)!
+        comprobar("OAuth YouTube acepta escritorio y rechaza web/inyección",
+                  YouTubeOAuth.clienteEsValido(oauthEscritorio)
+                    && !YouTubeOAuth.clienteEsValido(oauthWeb)
+                    && !YouTubeOAuth.clienteEsValido(oauthInyectado))
         let ordenMusicaAgente = PerfilAgente.invocacion(
             en: "Oye, \(nombreQA), pon música", activadores: activadores)?.contenido
         let planMusicaAgente = ordenMusicaAgente.flatMap {
@@ -789,6 +809,12 @@ enum AgenteCoreQA {
                     && musicaExacta?.modo.musicaProveedor == "spotify"
                     && musicaExacta?.textoLimpio == "Jessy Uribe",
                   "base=\(musicaExacta?.modo.base ?? "nil") proveedor=\(musicaExacta?.modo.musicaProveedor ?? "nil") texto=\(musicaExacta?.textoLimpio ?? "nil")")
+        let musicaInternaExacta = ModoResolver.detectarExacto(
+            "modo música interno, Julio Jaramillo", catalogo: catalogo)
+        comprobar("modo Música interno exacto",
+                  musicaInternaExacta?.modo.musicaProveedor == "betodicta_youtube"
+                    && musicaInternaExacta?.textoLimpio == "Julio Jaramillo",
+                  "proveedor=\(musicaInternaExacta?.modo.musicaProveedor ?? "nil") texto=\(musicaInternaExacta?.textoLimpio ?? "nil")")
         let cadenaMusica = ModosStore.detectarCadena(
             "modo traducir inglés modo música YouTube Music, buenos días")
         comprobar("Música coexiste en cadena",
@@ -811,6 +837,13 @@ enum AgenteCoreQA {
                     && Musica.extraerConsulta(reproducirMusicaNatural?.cadena.contenido ?? "",
                                               proveedor: "auto") == "Julio Jaramillo",
                   "acción=\(reproducirMusicaNatural?.cadena.acciones.first?.modo.musicaAccion ?? "nil") · \(reproducirMusicaNatural?.cadena.contenido ?? "nil")")
+        let musicaInternaNatural = ModoPlanificador.detectarNatural(
+            "Reproduce en reproductor interno música de Julio Jaramillo", catalogo: catalogo)
+        comprobar("planificador elige reproductor interno",
+                  musicaInternaNatural?.cadena.acciones.first?.modo.base == "musica"
+                    && musicaInternaNatural?.cadena.acciones.first?.modo.musicaProveedor == "betodicta_youtube"
+                    && musicaInternaNatural?.cadena.acciones.first?.modo.musicaAccion == "reproducir",
+                  "proveedor=\(musicaInternaNatural?.cadena.acciones.first?.modo.musicaProveedor ?? "nil")")
         var simBuscar: ResultadoMusica?
         Musica.ejecutar("Julio Jaramillo", intencion: .buscar, simular: true) { simBuscar = $0 }
         comprobar("simulación buscar solo abre resultados", simBuscar?.estado == .busqueda)

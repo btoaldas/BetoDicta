@@ -37,6 +37,8 @@ enum Musica {
                         plantilla: "music://music.apple.com/search?term={q}", esWeb: false),
         ProveedorMusica(id: "spotify", nombre: "Spotify", bundle: "com.spotify.client",
                         plantilla: "spotify:search:{q}", esWeb: false),
+        ProveedorMusica(id: "betodicta_youtube", nombre: "BetoDicta · YouTube", bundle: "",
+                        plantilla: "https://www.youtube.com/results?search_query={q}", esWeb: false),
         ProveedorMusica(id: "youtube_music", nombre: "YouTube Music", bundle: "",
                         plantilla: "https://music.youtube.com/search?q={q}", esWeb: true),
         ProveedorMusica(id: "youtube", nombre: "YouTube", bundle: "",
@@ -81,7 +83,14 @@ enum Musica {
 
     static func reconocerProveedor(en texto: String) -> String? {
         let s = PerfilAgente.normalizar(texto)
+        if s == "interno" { return "betodicta_youtube" }
         let alias: [(String, String)] = [
+            ("reproductor interno", "betodicta_youtube"),
+            ("youtube interno", "betodicta_youtube"),
+            ("musica interno", "betodicta_youtube"),
+            ("musica interna", "betodicta_youtube"),
+            ("beto dicta", "betodicta_youtube"),
+            ("betodicta", "betodicta_youtube"),
             ("youtube music", "youtube_music"), ("apple music", "apple_music"),
             ("musica de apple", "apple_music"), ("apple", "apple_music"),
             ("spotify", "spotify"),
@@ -89,6 +98,18 @@ enum Musica {
         ]
         if let a = alias.first(where: { s.contains($0.0) }) { return a.1 }
         return personales().first { s.contains(PerfilAgente.normalizar($0.nombre)) }?.id
+    }
+
+    /// Solo consume dos palabras cuando forman el nombre completo de un motor;
+    /// así “YouTube música andina” no se come “música” como parte del proveedor.
+    static func reconocerProveedorCompuesto(_ texto: String) -> String? {
+        let s = PerfilAgente.normalizar(texto)
+        let validos: Set<String> = [
+            "apple music", "youtube music", "reproductor interno", "youtube interno",
+            "musica interna", "musica interno", "beto dicta",
+        ]
+        guard validos.contains(s) else { return nil }
+        return reconocerProveedor(en: s)
     }
 
     static func quitarNombreProveedor(_ texto: String, id: String) -> String {
@@ -114,7 +135,7 @@ enum Musica {
     static func intencion(_ texto: String) -> IntencionMusica {
         let patronesBusqueda = [
             #"^(?:por\s+favor[,;:]?\s*)?(?:modo\s+)?m[uú]sica[,;:]?\s*(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)(?:\b|\s)"#,
-            #"^(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)\s+(?:en\s+)?(?:apple\s+music|youtube\s+music|spotify|youtube|soundcloud|bandcamp|m[uú]sica|canci[oó]n(?:es)?)\b"#,
+            #"^(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)\s+(?:en\s+)?(?:reproductor\s+interno|youtube\s+interno|beto\s*dicta|apple\s+music|youtube\s+music|spotify|youtube|soundcloud|bandcamp|m[uú]sica|canci[oó]n(?:es)?)\b"#,
             #"^(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)(?:\b|\s)"#,
         ]
         for patron in patronesBusqueda {
@@ -134,8 +155,10 @@ enum Musica {
         var s = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         let patrones = [
             #"^(?:por\s+favor[,;:]?\s*)?(?:modo\s+)?m[uú]sica[,;:]?\s*"#,
+            #"^(?:intern[oa]|reproductor\s+interno|youtube\s+interno|beto\s*dicta|betodicta)[,;:]?\s+(?=(?:pon|reproduce|toca|escucha|busca|encuentra|muestra))"#,
             #"^(?:por\s+favor[,;:]?\s*)?(?:pon(?:me)?|poner|reproduce|reproducir|toca(?:me)?|escucha(?:me)?|b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)\s*"#,
-            #"^(?:en|por|con)\s+(?:apple\s+music|youtube\s+music|spotify|youtube|soundcloud|bandcamp)[,;:]?\s*"#,
+            #"^(?:reproductor\s+interno|youtube\s+interno|m[uú]sica\s+intern[oa]|beto\s*dicta|betodicta)[,;:]?\s*"#,
+            #"^(?:en|por|con)\s+(?:reproductor\s+interno|youtube\s+interno|beto\s*dicta|apple\s+music|youtube\s+music|spotify|youtube|soundcloud|bandcamp)[,;:]?\s*"#,
             #"^(?:(?:una|la|alguna|cualquier|cualquiera)\s+)?(?:m[uú]sica|canci[oó]n(?:es)?|tema|playlist|radio|[aá]lbum)\s*(?:(?:cualquiera|cualquier)\s+)?(?:de\s+)?"#,
             #"^(?:algo|alguna|cualquiera|cualquier)\s+(?:de\s+)?"#,
         ]
@@ -422,6 +445,33 @@ enum Musica {
                         AgenteLog.registrar("musica_failover", ["de": "apple_music_arranque",
                                                                 "motivo": "no confirmó reproducción"])
                         cascada(["apple_music"])
+                    }
+                }
+                return
+            }
+
+            // Reproductor propio: la búsqueda usa exclusivamente YouTube Data
+            // API y la reproducción el IFrame Player oficial. La contraseña de
+            // Google nunca entra en BetoDicta; OAuth ocurre en el navegador.
+            if !simular, primero?.id == "betodicta_youtube" {
+                let debeReproducir = intencion == .reproducir
+                DispatchQueue.main.async {
+                    ReproductorYouTubeInterno.shared.ejecutar(
+                        consulta, reproducir: debeReproducir) { r in
+                        let estado: EstadoMusica = r.reproduciendo ? .reproduciendo
+                            : (r.encontro ? .busqueda : .fallo)
+                        AgenteLog.registrar(r.encontro ? "musica" : "musica_failover", [
+                            "proveedor": "betodicta_youtube", "consulta": consulta,
+                            "ok": r.encontro, "intencion": intencion.rawValue,
+                            "estado": estado.rawValue, "detalle": r.mensaje,
+                        ])
+                        if r.reproduciendo || (intencion == .buscar && r.encontro)
+                            || (solicitado == "betodicta_youtube" && r.encontro) {
+                            completion(.init(ok: true, proveedor: "betodicta_youtube",
+                                             mensaje: r.mensaje, estado: estado))
+                        } else {
+                            cascada(["betodicta_youtube"])
+                        }
                     }
                 }
                 return
