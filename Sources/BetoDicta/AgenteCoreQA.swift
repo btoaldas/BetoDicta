@@ -12,29 +12,32 @@ enum AgenteCoreQA {
             print("AGENTCORE \(ok ? "OK" : "✗") \(nombre)\(detalle.isEmpty ? "" : " | " + detalle)")
         }
 
-        let activadores = ["oye Bto", "oye Jarvis", "oye mamá"]
-        let a = PerfilAgente.invocacion(en: "Oye, Bto: ¿qué tareas tengo hoy?", activadores: activadores)
-        comprobar("activación Bto", a?.contenido == "¿qué tareas tengo hoy?", a?.contenido ?? "nil")
-        let b = PerfilAgente.invocacion(en: "Oye mamá, recuérdame llamar a Rafael", activadores: activadores)
-        comprobar("activación personalizada", b?.frase == "oye mamá" && b?.contenido.hasPrefix("recuérdame") == true)
+        let nombreQA = "Atenea"
+        let fraseQA = "Oye \(nombreQA)"
+        let fraseAlternaQA = "Hola Nicanor"
+        let activadores = [fraseQA, fraseAlternaQA, "Escucha Ñusta"]
+        let a = PerfilAgente.invocacion(en: "Oye, \(nombreQA): ¿qué tareas tengo hoy?", activadores: activadores)
+        comprobar("activación con nombre inyectado", a?.contenido == "¿qué tareas tengo hoy?", a?.contenido ?? "nil")
+        let b = PerfilAgente.invocacion(en: "\(fraseAlternaQA), recuérdame llamar a Rafael", activadores: activadores)
+        comprobar("activación personalizada", b?.frase == fraseAlternaQA && b?.contenido.hasPrefix("recuérdame") == true)
         comprobar("sin falso positivo intermedio",
-                  PerfilAgente.invocacion(en: "Ayer dije oye Jarvis en una película", activadores: activadores) == nil)
-        let listaActivadores = FrasesConfigurables.parsear("\"Oye, Bto\"\nOye Jarvis\n“Oye, mamá”")
+                  PerfilAgente.invocacion(en: "Ayer dije \(fraseAlternaQA) en una película", activadores: activadores) == nil)
+        let listaActivadores = FrasesConfigurables.parsear("\"Oye, \(nombreQA)\"\n\(fraseAlternaQA)\n“Escucha, Ñusta”")
         comprobar("activadores con coma/comillas",
-                  listaActivadores == ["Oye, Bto", "Oye Jarvis", "Oye, mamá"],
+                  listaActivadores == ["Oye, \(nombreQA)", fraseAlternaQA, "Escucha, Ñusta"],
                   listaActivadores.joined(separator: " | "))
         comprobar("coma del STT no cambia la activación",
-                  PerfilAgente.invocacion(en: "Oye, Bto, abre Gmail", activadores: listaActivadores)?.contenido == "abre Gmail")
+                  PerfilAgente.invocacion(en: "Oye, \(nombreQA), abre Gmail", activadores: listaActivadores)?.contenido == "abre Gmail")
         comprobar("no degrada a activador de una palabra",
                   PerfilAgente.invocacion(en: "Oye, ¿qué pasó?", activadores: listaActivadores) == nil)
-        let activadoresPeligrosos = ["oye", "bto", "beto", "oye bto"]
+        let activadoresPeligrosos = ["oye", nombreQA, nombreQA.lowercased(), fraseQA]
         comprobar("ignora activadores configurados de una palabra",
                   PerfilAgente.invocacion(en: "Oye, qué tontera, esto era solo un dictado",
                                            activadores: activadoresPeligrosos) == nil
-                    && PerfilAgente.invocacion(en: "Beto está trabajando hoy",
+                    && PerfilAgente.invocacion(en: "\(nombreQA) está trabajando hoy",
                                                activadores: activadoresPeligrosos) == nil)
         comprobar("conserva activador deliberado de dos palabras",
-                  PerfilAgente.invocacion(en: "Oye, Bto, abre Gmail",
+                  PerfilAgente.invocacion(en: "Oye, \(nombreQA), abre Gmail",
                                            activadores: activadoresPeligrosos)?.contenido == "abre Gmail")
 
         let seguimiento = AgenteNucleo.completarSeguimiento(
@@ -161,17 +164,17 @@ enum AgenteCoreQA {
         comprobar("consulta de búsqueda musical queda limpia",
                   Musica.extraerConsulta("modo música, busca Julio Jaramillo",
                                          proveedor: "auto") == "Julio Jaramillo")
-        let ordenMusicaBto = PerfilAgente.invocacion(
-            en: "Oye, Bto, pon música", activadores: activadores)?.contenido
-        let planMusicaBto = ordenMusicaBto.flatMap {
+        let ordenMusicaAgente = PerfilAgente.invocacion(
+            en: "Oye, \(nombreQA), pon música", activadores: activadores)?.contenido
+        let planMusicaAgente = ordenMusicaAgente.flatMap {
             AgenteNucleo.planificar($0, catalogo: ModoCatalogo(modos: ModosStore.todos()),
                                     ignorarInterruptor: true)
         }
-        comprobar("Oye Bto pon música atraviesa activador y núcleo",
-                  ordenMusicaBto == "pon música"
-                    && planMusicaBto?.cadena.acciones.first?.modo.base == "musica"
-                    && planMusicaBto?.cadena.acciones.first?.modo.musicaAccion == "reproducir"
-                    && planMusicaBto?.cadena.contenido.isEmpty == true)
+        comprobar("nombre inyectado + música atraviesa activador y núcleo",
+                  ordenMusicaAgente == "pon música"
+                    && planMusicaAgente?.cadena.acciones.first?.modo.base == "musica"
+                    && planMusicaAgente?.cadena.acciones.first?.modo.musicaAccion == "reproducir"
+                    && planMusicaAgente?.cadena.contenido.isEmpty == true)
         let catalogoFixture = """
         {"resultCount":1,"results":[{"trackId":154339650,"trackName":"Nuestro Juramento","artistName":"julio jaramillo","trackViewUrl":"https://music.apple.com/ec/album/nuestro-juramento/154339397?i=154339650"}]}
         """.data(using: .utf8)!
@@ -211,7 +214,7 @@ enum AgenteCoreQA {
                     && captura.guardar && captura.copiar && captura.abrir,
                   "\(captura.area.rawValue) · \(captura.destino.rawValue) · \(captura.nombre ?? "nil")")
         let capturaSTT = SolicitudCapturaMac.interpretar(
-            "Oye, Bto, haz una captura de una sección, guárdala en Descargas con el nombre de informe y, por favor, copia la y luego abre la.")
+            "Oye, \(nombreQA), haz una captura de una sección, guárdala en Descargas con el nombre de informe y, por favor, copia la y luego abre la.")
         comprobar("captura tolera pronombres separados por STT",
                   capturaSTT.area == .seleccion && capturaSTT.destino == .descargas
                     && capturaSTT.nombre == "informe" && capturaSTT.guardar
@@ -277,7 +280,7 @@ enum AgenteCoreQA {
         let planGrabacion = ModoResolver.detectarPedidoNatural(
             fraseGrabacionExacta, catalogo: ModoCatalogo(modos: ModosStore.todos()),
             permitirCapturas: true)
-        comprobar("grabación natural funciona sin Oye Bto ni modo",
+        comprobar("grabación natural funciona sin activador ni modo",
                   planGrabacion?.cadena.acciones.first?.modo.accion == "grabar_pantalla"
                     && planGrabacion?.cadena.contenido == fraseGrabacionExacta,
                   planGrabacion?.descripcion ?? "nil")
@@ -301,7 +304,7 @@ enum AgenteCoreQA {
         comprobar("grabación exige silencio total del asistente",
                   MensajesAgente.requiereSilencioTotal(cadenaGrabacion))
 
-        let fraseManualWA = "Oye, Bto, haz una grabación en pantalla y luego guarda en mis documentos, "
+        let fraseManualWA = "Oye, \(nombreQA), haz una grabación en pantalla y luego guarda en mis documentos, "
             + "cópialo en el portapapeles o envíalo por WhatsApp a Alberto"
         let grabacionManualWA = SolicitudCapturaMac.interpretar(
             fraseManualWA, duracionPredeterminada: 0)
@@ -319,7 +322,7 @@ enum AgenteCoreQA {
                     && !argsManualWA.contains("-U") && !argsManualWA.contains("-V"),
                   grabacionManualWA.detallePlan + " | " + argsManualWA.joined(separator: " "))
         let grabacionDocumentosSinPreposicion = SolicitudCapturaMac.interpretar(
-            "Oye, Bto, graba la pantalla hasta que yo la detenga y guarda mis documentos",
+            "Oye, \(nombreQA), graba la pantalla hasta que yo la detenga y guarda mis documentos",
             duracionPredeterminada: 30)
         comprobar("guarda mis documentos conserva destino y control continuo",
                   grabacionDocumentosSinPreposicion.destino == .documentos
@@ -442,7 +445,7 @@ enum AgenteCoreQA {
         let planCapturaSinActivador = ModoResolver.detectarPedidoNatural(
             fraseCapturaExacta, catalogo: ModoCatalogo(modos: ModosStore.todos()),
             permitirCapturas: true)
-        comprobar("captura exacta funciona sin Oye Bto ni modo",
+        comprobar("captura exacta funciona sin activador ni modo",
                   planCapturaSinActivador?.cadena.acciones.first?.modo.accion == "captura_pantalla"
                     && planCapturaSinActivador?.cadena.contenido == fraseCapturaExacta)
         comprobar("narración de captura no acciona",
@@ -530,7 +533,7 @@ enum AgenteCoreQA {
                     == ["automatico", "low", "medium", "high", "xhigh"])
 
         let catalogo = ModoCatalogo(modos: ModosStore.todos())
-        let gmailLargo = "Oye Bto, abre Gmail y escribe un correo electrónico bien estructurado para albertoalex@gmail.com y que diga lo siguiente y que trate sobre el siguiente asunto: Necesito que se prepare un programa para un evento mañana en la Universidad Estatal Amazónica."
+        let gmailLargo = "\(fraseQA), abre Gmail y escribe un correo electrónico bien estructurado para albertoalex@gmail.com y que diga lo siguiente y que trate sobre el siguiente asunto: Necesito que se prepare un programa para un evento mañana en la Universidad Estatal Amazónica."
         let invGmail = PerfilAgente.invocacion(en: gmailLargo, activadores: activadores)
         let planGmail = invGmail.flatMap { OrdenEstructurada.detectar($0.contenido,
             catalogo: catalogo, aplicaciones: []) }
@@ -854,9 +857,9 @@ enum AgenteCoreQA {
         comprobar("rutina parametrizable", dr?.rutina.id == rutina.id && dr?.contenido == "música andina")
         comprobar("riesgo de rutina consolidado", RutinasAgenteStore.riesgo(rutina) == .cambioLocal)
 
-        let atajo = AppleAtajos.url(nombre: "Casa Bto", texto: "enciende la luz & música")?.absoluteString ?? ""
+        let atajo = AppleAtajos.url(nombre: "Casa Prueba", texto: "enciende la luz & música")?.absoluteString ?? ""
         comprobar("Atajo codifica el texto", atajo.hasPrefix("shortcuts://run-shortcut?")
-                    && atajo.contains("Casa%20Bto") && !atajo.contains(" & "), atajo)
+                    && atajo.contains("Casa%20Prueba") && !atajo.contains(" & "), atajo)
 
         let planRecordatorioHora = ModoPlanificador.detectarNatural(
             "recuérdame mañana a las 8:00 p.m. llamar a Rafael", catalogo: catalogo)

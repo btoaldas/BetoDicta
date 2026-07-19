@@ -441,6 +441,67 @@ enum ArchivosMac {
     }
 }
 
+// MARK: - Pasarela inversa Siri/Atajos → BetoDicta
+
+/// Siri solo ejecuta Atajos por su nombre. Este puente no suplanta a Siri ni
+/// mantiene otro micrófono: el Atajo abre una URL local, y la app inicia un
+/// turno Agente limpio con el nombre/configuración vigentes.
+enum PasarelaSiriBeto {
+    static func urlEscuchar(token: String = Config.agentePasarelaSiriToken()) -> URL {
+        var componentes = URLComponents()
+        componentes.scheme = "betodicta"
+        componentes.host = "agente"
+        componentes.path = "/escuchar"
+        componentes.queryItems = [URLQueryItem(name: "t", value: token)]
+        return componentes.url!
+    }
+
+    static func nombreSugerido(_ nombreAgente: String) -> String {
+        let limpio = String(nombreAgente.replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        return limpio.isEmpty ? "BetoDicta" : limpio
+    }
+
+    static func esOrdenEscuchar(_ url: URL,
+                                tokenEsperado: String = Config.agentePasarelaSiriToken()) -> Bool {
+        guard url.scheme?.lowercased() == "betodicta",
+              url.host?.lowercased() == "agente",
+              url.path.lowercased() == "/escuchar",
+              url.user == nil, url.password == nil, url.port == nil,
+              url.fragment == nil,
+              let componentes = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = componentes.queryItems, items.count == 1,
+              items[0].name == "t", items[0].value == tokenEsperado else { return false }
+        return true
+    }
+
+    /// Apple exige la creación/importación visible del Atajo. Dejamos la URL
+    /// exacta en el portapapeles y abrimos el editor, sin automatizar permisos.
+    static func preparar(nombreAgente: String) -> ResultadoHerramientaApple {
+        let url = urlEscuchar()
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        guard pb.setString(url.absoluteString, forType: .string) else {
+            return .init(ok: false, mensaje: "No pude copiar la URL de la pasarela.")
+        }
+        guard let editor = URL(string: "shortcuts://create-shortcut"),
+              NSWorkspace.shared.open(editor) else {
+            return .init(ok: false,
+                         mensaje: "Copié la URL, pero no pude abrir Atajos.")
+        }
+        let nombre = nombreSugerido(nombreAgente)
+        return .init(ok: true,
+            mensaje: "Atajos abierto. Nómbralo «\(nombre)», agrega Abrir URL y pega la URL local que quedó copiada.")
+    }
+
+    static func probar() -> ResultadoHerramientaApple {
+        guard NSWorkspace.shared.open(urlEscuchar()) else {
+            return .init(ok: false, mensaje: "No pude abrir la pasarela local de BetoDicta.")
+        }
+        return .init(ok: true, mensaje: "Pasarela enviada a BetoDicta.")
+    }
+}
+
 // MARK: - Pasarela oficial de Atajos (herramienta Apple/Siri)
 
 enum AppleAtajos {

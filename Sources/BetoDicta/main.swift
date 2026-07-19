@@ -85,7 +85,9 @@ if ProcessInfo.processInfo.environment["BETODICTA_WAKEWORDTEST"] == "1" {
 }
 if let ruta = ProcessInfo.processInfo.environment["BETODICTA_WAKEAUDIOTEST"],
    !ruta.isEmpty {
-    let frase = ProcessInfo.processInfo.environment["BETODICTA_WAKEPHRASE"] ?? "Oye Bto"
+    let frase = ProcessInfo.processInfo.environment["BETODICTA_WAKEPHRASE"]
+        ?? Config.agenteActivadores().first
+        ?? "oye \(Config.agenteNombre())"
     guard let wav = try? Data(contentsOf: URL(fileURLWithPath: ruta)) else {
         print("WAKEAUDIOTEST FALLA no pude leer \(ruta)"); exit(4)
     }

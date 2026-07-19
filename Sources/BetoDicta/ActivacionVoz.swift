@@ -29,10 +29,14 @@ final class ActivacionVoz: @unchecked Sendable {
 
     struct Despertar {
         enum Forma: String {
-            /// El usuario continuó en la misma oración: "Oye Gloria, abre…".
+            /// Compatibilidad avanzada: frase y orden dentro de la misma toma.
             case ordenCorrida = "orden_corrida"
             /// Dijo únicamente la frase y pausó: acusar recibo y abrir otro turno.
             case turnoNuevo = "turno_nuevo"
+        }
+        enum Origen: String {
+            case reposoAppleLocal = "reposo_apple_local"
+            case atajoSiri = "atajo_siri"
         }
 
         let id: UUID
@@ -42,6 +46,7 @@ final class ActivacionVoz: @unchecked Sendable {
         let audioPrevio: Data
         let fecha: Date
         let forma: Forma
+        let origen: Origen
 
         var soloFrase: Bool { forma == .turnoNuevo }
     }
@@ -123,15 +128,13 @@ final class ActivacionVoz: @unchecked Sendable {
     private var anillo = Data()
     private var maxAnilloBytes = 128_000
     private var bytesAudioTotales = 0
-    /// Voz real observada en PCM. La pausa de acuse se mide desde aquí, no desde
-    /// la latencia variable con que Apple publique un parcial de texto.
+    /// Última voz real observada en PCM. DictationTranscriber progresivo puede
+    /// mantener un resultado como parcial aun tras varios segundos; esta señal
+    /// acústica confirma la pausa sin depender de `isFinal`.
     private var ultimaVozAudio = Date.distantPast
     private var generacion = UUID()
     private var preparando = false
     private var detectado = false
-    /// Una coincidencia sin contenido todavía no despierta de inmediato: Apple
-    /// suele emitir primero "Oye Gloria" y después la orden corrida. Esta marca
-    /// deja una ventana corta para distinguir ambos gestos sin cortar palabras.
     private var candidatoAcuse: (token: UUID, inv: PerfilAgente.Invocacion,
                                  inicioSegmento: Double)?
     private var habilitadoAnterior = false
@@ -245,9 +248,14 @@ final class ActivacionVoz: @unchecked Sendable {
     /// Suelta el dispositivo antes de que el Recorder normal lo tome. El callback
     /// llega en main únicamente cuando el tap y el AVAudioEngine ya terminaron.
     func suspender(completion: (() -> Void)? = nil) {
-        // En la configuración tradicional (manos libres apagado) no introducir
-        // ni siquiera un salto de cola: preservar la respuesta instantánea de fn.
-        guard ocupaMicrofono else {
+        // Si manos libres está habilitado, pasar SIEMPRE por la cola aunque el
+        // estado público todavía diga `pausado`: puede existir un arranque
+        // encolado por el timer. Esta barrera garantiza que ese arranque ocurra
+        // antes del cierre y que Recorder reciba el micrófono completamente libre.
+        // Con manos libres apagado conservamos el camino instantáneo de fn.
+        let listenerHabilitado = Config.agenteNucleoActivo()
+            && Config.agenteActivacionReposo()
+        guard ocupaMicrofono || listenerHabilitado else {
             if let completion {
                 if Thread.isMainThread { completion() }
                 else { DispatchQueue.main.async(execute: completion) }
@@ -342,10 +350,12 @@ final class ActivacionVoz: @unchecked Sendable {
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !texto.isEmpty else { continue }
                             let inicio = CMTimeGetSeconds(r.range.start)
+                            let final = r.isFinal
                             self?.cola.async { [weak self] in
                                 self?.evaluarEnCola(texto, frases: frases,
                                                    generacion: gen,
-                                                   inicioSegmento: inicio)
+                                                   inicioSegmento: inicio,
+                                                   final: final)
                             }
                         }
                     } catch {
@@ -527,77 +537,86 @@ final class ActivacionVoz: @unchecked Sendable {
     #endif
 
     private func evaluarEnCola(_ texto: String, frases: [String],
-                               generacion gen: UUID, inicioSegmento: Double) {
+                               generacion gen: UUID, inicioSegmento: Double,
+                               final: Bool) {
         guard generacion == gen, !detectado else { return }
-        switch Self.decisionParcial(texto, frases: frases) {
+        switch Self.decisionParcial(texto, frases: frases, final: final,
+                                    permitirOrdenCorrida: Config.agenteActivacionOrdenCorrida()) {
         case .ignorar:
-            return
-        case .entregar(let inv):
+            // Si el parcial creció a “frase + contenido” (o Apple corrigió la
+            // frase a otra cosa), ya no es el timbre aislado: cancelar el reloj.
             candidatoAcuse = nil
-            entregarDespertarEnCola(inv, forma: .ordenCorrida,
+            return
+        case .entregar(let inv, let forma):
+            candidatoAcuse = nil
+            entregarDespertarEnCola(inv, forma: forma,
                                     generacion: gen, inicioSegmento: inicioSegmento)
         case .esperar(let inv):
-            // No reiniciar el reloj por parciales idénticos: un stream que repite
-            // "Oye Gloria" no debe mantener al usuario esperando indefinidamente.
+            // No reiniciar el reloj por cada parcial idéntico. Si después llega
+            // contenido, `.ignorar` lo cancela antes de que venza la pausa.
             guard candidatoAcuse == nil else { return }
             let token = UUID()
             candidatoAcuse = (token, inv, inicioSegmento)
-            programarAcuseTrasSilencio(token: token, generacion: gen)
+            programarAcuseTrasSilencio(token: token, generacion: gen,
+                                       demora: Config.agenteActivacionEsperaAcuse())
         }
     }
 
-    private func programarAcuseTrasSilencio(token: UUID, generacion gen: UUID) {
-        let espera = Config.agenteActivacionEsperaAcuse()
-        cola.asyncAfter(deadline: .now() + espera) { [weak self] in
+    private func programarAcuseTrasSilencio(token: UUID, generacion gen: UUID,
+                                             demora: Double) {
+        cola.asyncAfter(deadline: .now() + max(0.05, demora)) { [weak self] in
             guard let self, self.generacion == gen, !self.detectado,
                   self.candidatoAcuse?.token == token,
                   let candidato = self.candidatoAcuse else { return }
-            // Si la persona sigue hablando, esperar otra ventana. El parcial con
-            // contenido suele llegar antes; esta rama solo evita cortar habla lenta.
-            if Date().timeIntervalSince(self.ultimaVozAudio) < espera {
-                self.programarAcuseTrasSilencio(token: token, generacion: gen)
+            let espera = Config.agenteActivacionEsperaAcuse()
+            let transcurrido = Date().timeIntervalSince(self.ultimaVozAudio)
+            if transcurrido < espera {
+                self.programarAcuseTrasSilencio(token: token, generacion: gen,
+                                                demora: espera - transcurrido)
                 return
             }
+            self.candidatoAcuse = nil
             self.entregarDespertarEnCola(candidato.inv, forma: .turnoNuevo,
                                          generacion: gen,
                                          inicioSegmento: candidato.inicioSegmento)
         }
     }
 
-    /// Misma escala que `Recorder.onLevel`: evita depender de una segunda API o
-    /// modelo para saber que el usuario aún está hablando.
+    /// Misma escala que `Recorder.onLevel`. Muestrear reduce CPU en escucha
+    /// continua; el umbral conservador evita que ruido tenue reinicie la pausa.
     private static func contieneVoz(_ pcm16: Data) -> Bool {
         guard pcm16.count >= 2 else { return false }
         var suma = 0.0
         var n = 0
         pcm16.withUnsafeBytes { raw in
             let muestras = raw.bindMemory(to: Int16.self)
-            // Muestrear 1 de cada 4 reduce CPU en escucha continua sin perder voz.
             for i in stride(from: 0, to: muestras.count, by: 4) {
                 let v = Double(muestras[i]) / 32768.0
                 suma += v * v; n += 1
             }
         }
         let rms = sqrt(suma / Double(max(1, n)))
-        let nivel = sqrt(min(rms * 12.0, 1.0))
-        return nivel > 0.15
+        return sqrt(min(rms * 12.0, 1.0)) > 0.15
     }
 
     private enum DecisionParcial {
         case ignorar
         case esperar(PerfilAgente.Invocacion)
-        case entregar(PerfilAgente.Invocacion)
+        case entregar(PerfilAgente.Invocacion, Despertar.Forma)
     }
 
-    /// Función pura y testeable: el reconocimiento de la frase no implica aún
-    /// que sepamos si el usuario continuará en el mismo aliento.
-    private static func decisionParcial(_ texto: String, frases: [String]) -> DecisionParcial {
+    /// La política predeterminada es un timbre: solo una frase finalizada y sin
+    /// contenido despierta. La orden corrida existe como compatibilidad opt-in.
+    private static func decisionParcial(_ texto: String, frases: [String], final: Bool,
+                                        permitirOrdenCorrida: Bool) -> DecisionParcial {
         guard let inv = PerfilAgente.invocacionTolerante(en: texto,
                                                          activadores: frases) else {
             return .ignorar
         }
-        return inv.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? .esperar(inv) : .entregar(inv)
+        if inv.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return final ? .entregar(inv, .turnoNuevo) : .esperar(inv)
+        }
+        return permitirOrdenCorrida ? .entregar(inv, .ordenCorrida) : .ignorar
     }
 
     private func entregarDespertarEnCola(_ inv: PerfilAgente.Invocacion,
@@ -615,7 +634,8 @@ final class ActivacionVoz: @unchecked Sendable {
                                      inicioSegmento: inicioSegmento)
             : Data()
         let despertar = Despertar(id: UUID(), frase: inv.frase, audioPrevio: previo,
-                                  fecha: Date(), forma: forma)
+                                  fecha: Date(), forma: forma,
+                                  origen: .reposoAppleLocal)
         let callback = alDespertar
         // No escribir `texto`: podría contener conversación ambiental. Solo la
         // frase deliberada y el tamaño técnico del búfer pasan al diagnóstico.
@@ -681,28 +701,37 @@ final class ActivacionVoz: @unchecked Sendable {
     // MARK: QA sin micrófono
 
     static func ejecutarQA() -> (Bool, [String]) {
-        let frases = ["Oye Bto", "Hola Jarvis", "Oye mamá"]
+        // Nombres deliberadamente ajenos al producto: comprueba que la lógica
+        // depende de la lista inyectada y no de Bto ni del nombre de esta Mac.
+        let nombreQA = "Atenea"
+        let fraseQA = "Oye \(nombreQA)"
+        let fraseAlternaQA = "Hola Nicanor"
+        let frases = [fraseQA, fraseAlternaQA, "Escucha Ñusta"]
         var lineas: [String] = []
         func caso(_ nombre: String, _ ok: @autoclosure () -> Bool) -> Bool {
             let valor = ok(); lineas.append("\(valor ? "OK" : "FALLA") \(nombre)")
             return valor
         }
         let a = caso("puntuación", PerfilAgente.invocacion(
-            en: "Oye, Bto: abre el calendario", activadores: frases)?.contenido == "abre el calendario")
+            en: "Oye, \(nombreQA): abre el calendario",
+            activadores: frases)?.contenido == "abre el calendario")
         let b = caso("nombre configurable", PerfilAgente.invocacion(
-            en: "Hola Jarvis pon música", activadores: frases)?.frase == "Hola Jarvis")
+            en: "\(fraseAlternaQA) pon música",
+            activadores: frases)?.frase == fraseAlternaQA)
         let c = caso("no aparece en mitad", PerfilAgente.invocacion(
-            en: "Ayer dije oye Bto en una película", activadores: frases) == nil)
+            en: "Ayer dije \(fraseQA) en una película", activadores: frases) == nil)
         let d = caso("una palabra insegura", PerfilAgente.invocacion(
             en: "Oye qué pasó", activadores: ["Oye"]) == nil)
         let e = caso("recorta prebuffer", PerfilAgente.invocacionDedicada(
-            en: "ruido anterior. Oye, Bto, dime mis tareas", frase: "Oye Bto")?.contenido == "dime mis tareas")
+            en: "ruido anterior. Oye, \(nombreQA), dime mis tareas",
+            frase: fraseQA)?.contenido == "dime mis tareas")
         let f = caso("no recorta si STT omitió frase", PerfilAgente.invocacionDedicada(
-            en: "dime mis tareas", frase: "Oye Bto") == nil)
+            en: "dime mis tareas", frase: fraseQA) == nil)
         let g = caso("nombre raro con una letra extra", PerfilAgente.invocacionTolerante(
-            en: "Oye Beteo dime mis tareas", activadores: ["Oye Beto"])?.contenido == "dime mis tareas")
+            en: "Oye Ateneaa dime mis tareas",
+            activadores: [fraseQA])?.contenido == "dime mis tareas")
         let h = caso("no confunde una palabra vecina", PerfilAgente.invocacionTolerante(
-            en: "Oye beta revisa el informe", activadores: ["Oye Beto"]) == nil)
+            en: "Oye Andrea revisa el informe", activadores: [fraseQA]) == nil)
         let muestra = Data(repeating: 1, count: 128_000) // segundos 6…10 del flujo
         let recortada = recortarPrebuffer(muestra, bytesTotales: 320_000,
                                           inicioSegmento: 8)
@@ -713,41 +742,78 @@ final class ActivacionVoz: @unchecked Sendable {
         let invalida = recortarPrebuffer(muestra, bytesTotales: 320_000,
                                          inicioSegmento: .nan)
         let k = caso("rango temporal inválido no destruye audio", invalida == muestra)
-        let l = caso("Gloria configurable espera tras frase sola", {
-            if case .esperar(let inv) = decisionParcial("Oye, Gloria",
-                                                        frases: ["Oye Gloria"]) {
-                return inv.frase == "Oye Gloria" && inv.contenido.isEmpty
+        let l = caso("parcial de frase sola todavía no despierta", {
+            if case .esperar(let inv) = decisionParcial(fraseQA, frases: [fraseQA],
+                                                        final: false,
+                                                        permitirOrdenCorrida: false) {
+                return inv.frase == fraseQA && inv.contenido.isEmpty
             }
             return false
         }())
-        let m = caso("Gloria + orden corrida no espera el acuse", {
-            if case .entregar(let inv) = decisionParcial(
-                "Oye, Gloria, abre el calendario", frases: ["Oye Gloria"]) {
+        let m = caso("frase sola final abre un turno limpio", {
+            if case .entregar(let inv, .turnoNuevo) = decisionParcial(
+                fraseQA, frases: [fraseQA], final: true,
+                permitirOrdenCorrida: false) {
+                return inv.frase == fraseQA && inv.contenido.isEmpty
+            }
+            return false
+        }())
+        let n = caso("timbre predeterminado rechaza contenido pegado", {
+            if case .ignorar = decisionParcial("\(fraseQA), abre el calendario",
+                                               frases: [fraseQA], final: true,
+                                               permitirOrdenCorrida: false) { return true }
+            return false
+        }())
+        let o = caso("orden corrida solo funciona al habilitarla", {
+            if case .entregar(let inv, .ordenCorrida) = decisionParcial(
+                "\(fraseQA), abre el calendario", frases: [fraseQA], final: false,
+                permitirOrdenCorrida: true) {
                 return inv.contenido == "abre el calendario"
             }
             return false
         }())
-        let n = caso("un activador distinto no despierta Gloria", {
-            if case .ignorar = decisionParcial("Oye Bto abre el calendario",
-                                               frases: ["Oye Gloria"]) { return true }
+        let p = caso("un activador distinto no despierta", {
+            if case .ignorar = decisionParcial("Oye Octavio abre el calendario",
+                                               frases: [fraseQA], final: true,
+                                               permitirOrdenCorrida: true) { return true }
             return false
         }())
         var voz = [Int16](repeating: 0, count: 800)
         for i in voz.indices { voz[i] = i.isMultiple(of: 2) ? 7_000 : -7_000 }
         let datosVoz = voz.withUnsafeBytes { Data($0) }
-        let o = caso("compuerta acústica distingue voz de silencio",
-                     contieneVoz(datosVoz) && !contieneVoz(Data(repeating: 0, count: 1_600)))
+        let p2 = caso("compuerta acústica distingue voz de silencio",
+                      contieneVoz(datosVoz)
+                        && !contieneVoz(Data(repeating: 0, count: 1_600)))
         let canales = [
             Config.canalesAcuse(formato: "texto", ttsDisponible: true),
             Config.canalesAcuse(formato: "texto_voz", ttsDisponible: true),
             Config.canalesAcuse(formato: "voz", ttsDisponible: true),
             Config.canalesAcuse(formato: "voz", ttsDisponible: false),
         ]
-        let p = caso("acuse cubre texto, ambos, voz y respaldo sin TTS",
+        let q = caso("acuse cubre texto, ambos, voz y respaldo sin TTS",
                      canales[0] == (true, false)
                         && canales[1] == (true, true)
                         && canales[2] == (false, true)
                         && canales[3] == (true, false))
-        return ([a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p].allSatisfy { $0 }, lineas)
+        let tokenQA = "0123456789abcdef0123456789abcdef"
+        let r = caso("pasarela Siri solo acepta ruta y capacidad local exactas",
+                     PasarelaSiriBeto.esOrdenEscuchar(
+                        PasarelaSiriBeto.urlEscuchar(token: tokenQA),
+                        tokenEsperado: tokenQA))
+        let s = caso("pasarela Siri rechaza ruta, token y credenciales ajenas",
+                     !PasarelaSiriBeto.esOrdenEscuchar(
+                        URL(string: "betodicta://agente/borrar?t=\(tokenQA)")!,
+                        tokenEsperado: tokenQA)
+                        && !PasarelaSiriBeto.esOrdenEscuchar(
+                            URL(string: "betodicta://usuario:clave@agente/escuchar?t=\(tokenQA)")!,
+                            tokenEsperado: tokenQA)
+                        && !PasarelaSiriBeto.esOrdenEscuchar(
+                            URL(string: "betodicta://agente/escuchar")!,
+                            tokenEsperado: tokenQA)
+                        && !PasarelaSiriBeto.esOrdenEscuchar(
+                            URL(string: "betodicta://agente/escuchar?t=incorrecto")!,
+                            tokenEsperado: tokenQA))
+        return ([a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, p2, q, r, s]
+            .allSatisfy { $0 }, lineas)
     }
 }

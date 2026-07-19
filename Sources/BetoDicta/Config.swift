@@ -8,6 +8,7 @@ struct Config {
     static let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".betodicta")
 
     private static let lock = NSLock()
+    private static let pasarelaTokenLock = NSLock()
     private static var cache: [String: Any]?
 
     private static func json() -> [String: Any] {
@@ -279,8 +280,10 @@ struct Config {
     /// Frases que invocan al asistente dentro de un dictado y, únicamente si el
     /// usuario activa la opción separada, también desde la escucha manos libres.
     static func agenteActivadores() -> [String] {
-        let a = (json()["agente_activadores"] as? [String]) ?? ["oye beto", "oye betodicta", "oye jarvis"]
-        // Una sola palabra ("oye", "beto", "mamá"…) aparece con demasiada
+        let nombre = agenteNombre().trimmingCharacters(in: .whitespacesAndNewlines)
+        let predeterminados = ["oye \(nombre)", "\(nombre) escucha"]
+        let a = (json()["agente_activadores"] as? [String]) ?? predeterminados
+        // Una sola palabra ("oye", solo el nombre, etc.) aparece con demasiada
         // frecuencia en un dictado normal. Se conserva en el JSON para que el
         // usuario no pierda su configuración, pero no puede despertar al agente.
         return FrasesConfigurables.activadoresSeguros(a)
@@ -291,17 +294,24 @@ struct Config {
     static func agenteActivacionReposo() -> Bool {
         (json()["agente_activacion_reposo"] as? Bool) ?? false
     }
-    /// Segundos de PCM conservados únicamente en RAM. Permiten que una orden
-    /// corrida (por ejemplo, "Oye Gloria, abre…") no pierda sus primeras palabras durante el
-    /// traspaso Apple Speech → Recorder. Nunca se escriben antes de despertar.
-    static func agenteActivacionPrebuffer() -> Double {
-        min(8, max(2, (json()["agente_activacion_prebuffer_seg"] as? Double) ?? 4))
+    /// Modo avanzado y opcional. Apagado por defecto: la frase funciona como
+    /// un timbre, BetoDicta acusa recibo y recién entonces escucha la orden.
+    /// Encendido conserva el gesto histórico de frase + orden en una sola toma.
+    static func agenteActivacionOrdenCorrida() -> Bool {
+        (json()["agente_activacion_orden_corrida"] as? Bool) ?? false
     }
-    /// Ventana breve para distinguir dos gestos naturales sin perder ninguno:
-    /// "Oye Gloria, abre…" (orden corrida) y "Oye Gloria" + pausa (nuevo turno).
+    /// Silencio continuo que confirma que la frase terminó. Apple no siempre
+    /// publica `isFinal` en dictado progresivo, por lo que esta pausa acústica
+    /// es el respaldo determinista. Parametrizable para cada forma de hablar.
     static func agenteActivacionEsperaAcuse() -> Double {
         min(3.0, max(0.8,
                      (json()["agente_activacion_espera_acuse_seg"] as? Double) ?? 2.0))
+    }
+    /// Segundos de PCM conservados únicamente en RAM. Permiten que una orden
+    /// corrida (frase configurada + orden) no pierda sus primeras palabras durante el
+    /// traspaso Apple Speech → Recorder. Nunca se escriben antes de despertar.
+    static func agenteActivacionPrebuffer() -> Double {
+        min(8, max(2, (json()["agente_activacion_prebuffer_seg"] as? Double) ?? 4))
     }
     /// Acuse específico al despertar. Es independiente de las respuestas finales
     /// del Agente: puede apagarse o personalizarse sin alterar sus acciones.
@@ -317,10 +327,24 @@ struct Config {
         }
         return "texto"
     }
+    static func agenteActivacionAcuses() -> [String] {
+        let nuevos = json()["agente_activacion_acuses"] as? [String]
+        let legado = (json()["agente_activacion_acuse_texto"] as? String).map { [$0] }
+        let base = nuevos ?? legado ?? ["Te escucho.", "Dímelo.", "Cuéntame.", "Aquí estoy."]
+        var vistos = Set<String>()
+        return base.compactMap { valor -> String? in
+            let limpio = String(valor.replacingOccurrences(of: "\0", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).prefix(90))
+            let firma = PerfilAgente.normalizar(limpio)
+            guard !limpio.isEmpty, !firma.isEmpty, vistos.insert(firma).inserted else { return nil }
+            return limpio
+        }.prefix(12).map { $0 }
+    }
     static func agenteActivacionAcuseTexto() -> String {
-        let s = (json()["agente_activacion_acuse_texto"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return s.isEmpty ? "Sí, te escucho. ¿Qué necesitas?" : s
+        agenteActivacionAcuses().first ?? "Te escucho."
+    }
+    static func agenteActivacionAcuseElegido() -> String {
+        agenteActivacionAcuses().randomElement() ?? "Te escucho."
     }
     static func agenteActivacionAcuseConVoz() -> Bool {
         agenteActivacionAcuse()
@@ -331,6 +355,24 @@ struct Config {
         guard agenteActivacionAcuse() else { return false }
         return canalesAcuse(formato: agenteActivacionAcuseFormato(),
                             ttsDisponible: ttsActivo()).texto
+    }
+    /// Capacidad local para la URL que abre un turno desde Atajos/Siri. No es
+    /// una credencial de nube, pero impide que otra app o una web invoque la
+    /// ruta genérica y encienda el Recorder. Se genera una sola vez por Mac y
+    /// queda dentro de config.json (0600).
+    static func agentePasarelaSiriToken() -> String {
+        pasarelaTokenLock.lock(); defer { pasarelaTokenLock.unlock() }
+        if let existente = json()["agente_pasarela_siri_token"] as? String,
+           existente.count >= 32,
+           existente.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }) {
+            return existente
+        }
+        let nuevo = (UUID().uuidString + UUID().uuidString)
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+        asegurarDirSeguro()
+        set("agente_pasarela_siri_token", to: nuevo)
+        return nuevo
     }
     /// Política pura compartida por producción y QA. Voz solicitada sin TTS
     /// degrada explícitamente a texto; ninguna combinación válida queda muda.
@@ -624,7 +666,11 @@ struct Config {
             protegerSecreto(cfg)
         }
         lock.unlock()
-        Log.log(.config, "cambio: \(key) = \(value)")
+        if key == "agente_pasarela_siri_token" {
+            Log.log(.config, "cambio: \(key) = [oculto]")
+        } else {
+            Log.log(.config, "cambio: \(key) = \(value)")
+        }
     }
 
     /// Fija permisos 0600 a un archivo que puede contener secretos (claves,

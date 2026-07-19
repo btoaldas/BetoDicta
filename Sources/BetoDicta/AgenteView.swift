@@ -68,6 +68,9 @@ final class AgenteSettingsModel: ObservableObject {
                                             object: nil)
         }
     }
+    @Published var activacionOrdenCorrida: Bool {
+        didSet { Config.set("agente_activacion_orden_corrida", to: activacionOrdenCorrida) }
+    }
     @Published var activacionEsperaAcuse: Double {
         didSet { Config.set("agente_activacion_espera_acuse_seg", to: activacionEsperaAcuse) }
     }
@@ -77,8 +80,13 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var activacionAcuseFormato: String {
         didSet { Config.set("agente_activacion_acuse_formato", to: activacionAcuseFormato) }
     }
-    @Published var activacionAcuseTexto: String {
-        didSet { Config.set("agente_activacion_acuse_texto", to: activacionAcuseTexto) }
+    @Published var activacionAcuses: String {
+        didSet {
+            let lista = activacionAcuses.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            Config.set("agente_activacion_acuses", to: lista)
+        }
     }
     @Published var autonomia: String { didSet { Config.set("agente_autonomia", to: autonomia) } }
     @Published var motor: String { didSet { Config.set("agente_motor", to: motor) } }
@@ -148,10 +156,11 @@ final class AgenteSettingsModel: ObservableObject {
         activadores = FrasesConfigurables.formatear(Config.agenteActivadores())
         activacionReposo = Config.agenteActivacionReposo()
         activacionPrebuffer = Config.agenteActivacionPrebuffer()
+        activacionOrdenCorrida = Config.agenteActivacionOrdenCorrida()
         activacionEsperaAcuse = Config.agenteActivacionEsperaAcuse()
         activacionAcuse = Config.agenteActivacionAcuse()
         activacionAcuseFormato = Config.agenteActivacionAcuseFormato()
-        activacionAcuseTexto = Config.agenteActivacionAcuseTexto()
+        activacionAcuses = Config.agenteActivacionAcuses().joined(separator: "\n")
         autonomia = Config.agenteAutonomia(); motor = Config.agenteMotor()
         fallback = Config.agenteFallbackCerebro(); proveedorIA = Config.agenteIAProveedor()
         modeloIA = Config.agenteIAModelo(); memoria = Config.agenteMemoriaActiva()
@@ -364,14 +373,18 @@ struct AgenteView: View {
                             .frame(width: 8, height: 8)
                         Text(estadoActivacion.descripcion).font(.caption)
                     }
-                    HStack {
-                        Text("Orden corrida: conservar \(String(format: "%.1f", m.activacionPrebuffer)) s en RAM")
-                            .font(.caption)
-                        Slider(value: $m.activacionPrebuffer, in: 2...8, step: 0.5)
-                            .frame(maxWidth: 230)
+                    Toggle("Permitir frase + orden en una sola toma (avanzado)",
+                           isOn: $m.activacionOrdenCorrida)
+                    if m.activacionOrdenCorrida {
+                        HStack {
+                            Text("Conservar \(String(format: "%.1f", m.activacionPrebuffer)) s en RAM")
+                                .font(.caption)
+                            Slider(value: $m.activacionPrebuffer, in: 2...8, step: 0.5)
+                                .frame(maxWidth: 230)
+                        }
                     }
                     HStack {
-                        Text("Pausa para distinguir frase sola: \(String(format: "%.1f", m.activacionEsperaAcuse)) s")
+                        Text("Pausa para abrir el turno: \(String(format: "%.1f", m.activacionEsperaAcuse)) s")
                             .font(.caption)
                         Slider(value: $m.activacionEsperaAcuse, in: 0.8...3.0, step: 0.1)
                             .frame(maxWidth: 230)
@@ -383,15 +396,24 @@ struct AgenteView: View {
                             Text("Texto y voz").tag("texto_voz")
                             Text("Solo voz").tag("voz")
                         }.pickerStyle(.segmented)
-                        field("Respuesta", text: $m.activacionAcuseTexto,
-                              placeholder: "Sí, te escucho. ¿Qué necesitas?")
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Respuestas rápidas · una por línea").font(.subheadline)
+                            TextEditor(text: $m.activacionAcuses)
+                                .font(.body).frame(minHeight: 62, maxHeight: 88)
+                                .padding(5).background(Color(nsColor: .textBackgroundColor))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            Text("BetoDicta elige una al azar y luego abre un turno limpio.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                         if ["texto_voz", "voz"].contains(m.activacionAcuseFormato),
                            !Config.ttsActivo() {
                             Text("TTS está apagado: por seguridad se mostrará el acuse en texto. Activa la voz del asistente en Avanzado para oírlo.")
                                 .font(.caption).foregroundStyle(.orange)
                         }
                     }
-                    Text("Puedes decir “\(ejemploActivador)” y continuar en la misma oración, o hacer una pausa para que el asistente responda y abra un turno limpio. El disparador sale siempre de tu lista; no está fijado a “Oye Bto”.")
+                    Text(m.activacionOrdenCorrida
+                         ? "Puedes decir solo “\(ejemploActivador)” o añadir la orden en la misma toma."
+                         : "Di solamente “\(ejemploActivador)” y haz una pausa. El silencio acústico configurado confirma el timbre; después del acuse, habla tu pedido en un turno limpio. Si aparece contenido pegado, el candidato se cancela.")
                         .font(.caption).foregroundStyle(.secondary)
                     Text("Antes de despertar, BetoDicta conserva únicamente el búfer circular en RAM: no guarda ni sube audio y no registra texto ambiental. Como una app de terceros mantiene el micrófono en uso, macOS muestra obligatoriamente su indicador de privacidad. Para no verlo, deja esta opción apagada y usa fn o un Atajo invocado mediante Siri.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -399,6 +421,24 @@ struct AgenteView: View {
                         Text("La activación flexible local requiere macOS 26. En versiones anteriores, fn y las frases dentro del dictado siguen funcionando normalmente.")
                             .font(.caption).foregroundStyle(.orange)
                     }
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Pasarela inversa con Siri").font(.subheadline)
+                    Text("Crea un Atajo llamado “\(PasarelaSiriBeto.nombreSugerido(m.nombre))”. Después puedes decir “Oye Siri, \(PasarelaSiriBeto.nombreSugerido(m.nombre))”: Siri abrirá BetoDicta directamente en el mismo turno de escucha, aunque manos libres esté apagado.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Preparar Atajo…") {
+                            let r = PasarelaSiriBeto.preparar(nombreAgente: m.nombre)
+                            m.aviso = r.mensaje
+                        }
+                        Button("Probar pasarela") {
+                            let r = PasarelaSiriBeto.probar()
+                            m.aviso = r.mensaje
+                        }
+                    }
+                    Text("Apple exige crear o importar el Atajo una vez. El nombre es dinámico: si cambias el asistente, renombra también el Atajo. Para sinónimos como “Dile a \(PasarelaSiriBeto.nombreSugerido(m.nombre))”, duplica el mismo puente con ese nombre.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Personalidad").font(.subheadline)
