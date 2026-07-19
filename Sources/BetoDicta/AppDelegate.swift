@@ -340,6 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AutoAyudaControles.shared.detener()
         iconoTimer?.invalidate(); iconoVigilante?.invalidate()
         activacionVozTimer?.invalidate()
         if let o = activacionVozObserver { NotificationCenter.default.removeObserver(o) }
@@ -2028,6 +2029,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Updater.estaGrabando = { [weak self] in self?.recorder.isRecording ?? false }
         Updater.buscarAlArrancar() // ¿versión nueva? avisa abajo-izq (o instala si Autoactualizar)
         Updater.iniciarMonitoreo() // cron liviano mientras la app permanezca abierta
+        AutoAyudaControles.shared.activar()
         TareasRecordatorios.shared.iniciar { [weak self] aviso in
             self?.presentarAvisoPendiente(aviso)
         }
@@ -2067,6 +2069,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         fflush(stdout)
                     }
                 }
+            }
+        }
+        // Auditoría real de la jerarquía AppKit/SwiftUI: abre Ajustes, aplica la
+        // capa central y falla si algún control expuesto queda sin ayuda AX.
+        if ProcessInfo.processInfo.environment["BETODICTA_HELPWINDOWTEST"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let secciones = ["Ajustes", "Modelos", "Modos", "Asistente",
+                                 "Tareas y notas", "Historial", "Acciones",
+                                 "Transcribir", "Estadísticas", "Créditos"]
+                var indice = 0
+                var total = 0
+                var faltan = Set<String>()
+                var siguiente: (() -> Void)!
+                siguiente = {
+                    guard indice < secciones.count else {
+                        AutoAyudaControles.shared.probarBurbujaQA { burbujaOK, detalle in
+                            print("HELPWINDOWTEST secciones=\(secciones.count) controles_observados=\(total) sin_ayuda=\(faltan.count)")
+                            print("HELPWINDOWTEST burbuja_instantanea=\(burbujaOK ? "OK" : "FALLA") \(detalle)")
+                            faltan.sorted().prefix(20).forEach { print("HELPWINDOWTEST FALTA \($0)") }
+                            let ok = total >= 100 && faltan.isEmpty && burbujaOK
+                            print("HELPWINDOWTEST \(ok ? "TODO OK" : "FALLA")")
+                            fflush(stdout); exit(ok ? 0 : 4)
+                        }
+                        return
+                    }
+                    let nombre = secciones[indice]
+                    SettingsWindowController.shared.show(irA: nombre)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        let r = AutoAyudaControles.shared.diagnostico()
+                        total += r.controles
+                        faltan.formUnion(r.sinAyuda)
+                        print("HELPWINDOWTEST \(nombre) controles=\(r.controles) sin_ayuda=\(r.sinAyuda.count)")
+                        indice += 1
+                        siguiente()
+                    }
+                }
+                siguiente()
             }
         }
         // Abrir un editor directo (capturas del manual / pruebas de UI)

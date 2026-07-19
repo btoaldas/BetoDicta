@@ -92,7 +92,7 @@ struct TranscribeView: View {
                             } label: {
                                 Image(systemName: preview.sonando == g.wav ? "stop.circle.fill" : "play.circle")
                                     .foregroundStyle(acentoTr)
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).help("Escuchar este dictado guardado")
                             Text(fecha(g.fecha)).font(.system(.caption, design: .monospaced))
                             Text(g.textoPrevio.isEmpty ? "(sin texto)" : g.textoPrevio)
                                 .font(.caption).lineLimit(1).foregroundStyle(.secondary)
@@ -101,6 +101,7 @@ struct TranscribeView: View {
                                 reTranscribir(g.wav)
                             } label: { Image(systemName: "arrow.clockwise") }
                                 .buttonStyle(.plain).disabled(trabajando)
+                                .help("Volver a transcribir este audio con el motor y modo elegidos")
                         }
                     }
                 }

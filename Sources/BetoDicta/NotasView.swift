@@ -301,6 +301,7 @@ struct NotasView: View {
                     Image(systemName: p.hecho ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(p.hecho ? .green : .secondary)
                 }.buttonStyle(.plain)
+                    .help(p.hecho ? "Marcar esta tarea como pendiente" : "Marcar esta tarea como completada")
             } else { Image(systemName: "note.text").foregroundStyle(acentoNo) }
             VStack(alignment: .leading, spacing: 4) {
                 Text(p.texto).font(.callout).strikethrough(p.hecho)
@@ -329,6 +330,7 @@ struct NotasView: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
             Button { NotasStore.borrar(p.id) } label: { Image(systemName: "trash") }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
+                .help("Eliminar esta tarea o nota local")
         }
     }
 }

@@ -35,6 +35,7 @@ struct SeccionPlegable<Content: View>: View {
                     Spacer()
                 }.contentShape(Rectangle())   // toda la fila es clicable
             }.buttonStyle(.plain)
+                .help(abierto ? "Ocultar la sección \(titulo)" : "Mostrar la sección \(titulo)")
             if abierto { content() }
         }
     }
@@ -68,6 +69,12 @@ final class SettingsModel: ObservableObject {
     @Published var pulidoProveedor: String { didSet { Config.set("pulido_proveedor", to: pulidoProveedor) } }
     @Published var promptPulido: String { didSet { Config.set("prompt_pulido", to: promptPulido) } }
     @Published var panelVisible: Bool { didSet { Config.set("panel_visible", to: panelVisible) } }
+    @Published var autoAyuda: Bool {
+        didSet {
+            Config.set("autoayuda_controles", to: autoAyuda)
+            NotificationCenter.default.post(name: .betoAutoAyudaCambio, object: nil)
+        }
+    }
     @Published var mostrarEnDock: Bool {
         didSet {
             Config.set("mostrar_en_dock", to: mostrarEnDock)
@@ -177,6 +184,7 @@ final class SettingsModel: ObservableObject {
         pulidoProveedor = Config.pulidoProveedor()
         promptPulido = Config.customPrompt() ?? ""
         panelVisible = Config.panelVisible()
+        autoAyuda = Config.autoAyudaControles()
         mostrarEnDock = Config.showInDock()
         arrancarInicio = SMAppService.mainApp.status == .enabled
         modoDesarrollo = Config.devMode()
@@ -472,6 +480,7 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("Abrir la sección \(s.rawValue) de BetoDicta")
                 .padding(.horizontal, 10)
                 .padding(.vertical, 2)
             }
@@ -639,6 +648,9 @@ struct SettingsView: View {
                 Toggle("Sonidos de inicio y fin", isOn: $m.sonidos)
                 Toggle("Cancelar con Esc", isOn: $m.escCancela)
                 Toggle("Mostrar el panel al dictar", isOn: $m.panelVisible)
+                Toggle("Mostrar autoayuda rápida al pasar el cursor", isOn: $m.autoAyuda)
+                Text("Explica al instante para qué sirve cada botón o enlace. VoiceOver conserva estas descripciones aunque ocultes la burbuja.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle("Mostrar en el Dock", isOn: $m.mostrarEnDock)
                 Toggle("Arrancar al iniciar sesión", isOn: $m.arrancarInicio)
                 VStack(alignment: .leading, spacing: 4) {
@@ -693,8 +705,10 @@ struct SettingsView: View {
                                             Spacer()
                                             Button { moverCascada(orden.map { $0.id }, i, -1) } label: { Image(systemName: "chevron.up") }
                                                 .buttonStyle(.plain).disabled(i == 0)
+                                                .help("Subir esta IA en el failover de pulido")
                                             Button { moverCascada(orden.map { $0.id }, i, 1) } label: { Image(systemName: "chevron.down") }
                                                 .buttonStyle(.plain).disabled(i == orden.count - 1)
+                                                .help("Bajar esta IA en el failover de pulido")
                                         }
                                     }
                                 }.padding(.top, 4)

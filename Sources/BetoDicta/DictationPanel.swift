@@ -140,6 +140,10 @@ final class DictationPanel {
         // Clickeable: tocar el notch (fuera de las etiquetas) CANCELA lo que esté en curso.
         let background = ClickableBackground(frame: NSRect(x: 0, y: 0, width: width, height: height))
         background.onClick = { [weak self] in self?.onCancelar?() }
+        background.setAccessibilityRole(.button)
+        background.setAccessibilityLabel("Cancelar la acción actual")
+        background.setAccessibilityHelp("Cancela la grabación, el procesamiento o la respuesta que esté en curso.")
+        background.toolTip = "Cancelar la grabación o acción actual"
         background.wantsLayer = true
         background.layer?.backgroundColor = NSColor.black.cgColor
         background.layer?.cornerRadius = 12
@@ -175,6 +179,10 @@ final class DictationPanel {
         motorLabel.textColor = NSColor(calibratedWhite: 0.55, alpha: 1)
         motorLabel.alignment = .center
         motorLabel.maximumNumberOfLines = 1
+        motorLabel.setAccessibilityRole(.button)
+        motorLabel.setAccessibilityLabel("Cambiar motor de transcripción")
+        motorLabel.setAccessibilityHelp("Abre la cascada de motores para cambiar el transcriptor, incluso durante un dictado.")
+        motorLabel.toolTip = "Cambiar el motor de transcripción"
         let motorH = max(8, notchHeight - capH - 7)
         motorLabel.frame = NSRect(x: width - wing + 1,
                                   y: strip + capH + 4,
@@ -230,6 +238,10 @@ final class DictationPanel {
         modoLabel.textColor = NSColor(calibratedWhite: 0.62, alpha: 1)
         modoLabel.alignment = .center
         modoLabel.maximumNumberOfLines = 1
+        modoLabel.setAccessibilityRole(.button)
+        modoLabel.setAccessibilityLabel("Cambiar modo")
+        modoLabel.setAccessibilityHelp("Abre la lista de modos para elegir qué hacer con el dictado.")
+        modoLabel.toolTip = "Cambiar qué hará BetoDicta con este dictado"
         modoLabel.frame = NSRect(x: 1, y: strip + notchHeight - 11, width: wing - 2, height: 10)
         modoLabel.onClick = onModoClick
         background.addSubview(modoLabel)   // encima del meter (z-order)

@@ -386,8 +386,10 @@ struct OnboardingView: View {
                             Spacer()
                             Button { pm.subir(i) } label: { Image(systemName: "chevron.up") }
                                 .buttonStyle(.borderless).disabled(i == 0)
+                                .help("Subir este motor una posición en la cascada")
                             Button { pm.bajar(i) } label: { Image(systemName: "chevron.down") }
                                 .buttonStyle(.borderless).disabled(i == pm.lista.count - 1)
+                                .help("Bajar este motor una posición en la cascada")
                         }
                         .padding(10).background(Color(nsColor: .controlBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -729,6 +731,7 @@ struct OnboardingView: View {
                     ProgressView(value: p).frame(width: 90)
                     Button { Descargas.shared.cancelar(o.claves) } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.borderless).foregroundStyle(.secondary)
+                        .help("Cancelar esta descarga")
                 }
             } else if o.descargado() {
                 if o.enUso() {
@@ -738,7 +741,7 @@ struct OnboardingView: View {
                 }
             } else {
                 Button { o.descargar() } label: { Label(gb(o.tamañoMB), systemImage: "arrow.down.circle") }
-                    .controlSize(.small)
+                    .controlSize(.small).help("Descargar este modelo local (\(gb(o.tamañoMB)))")
             }
         }
         .padding(10).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 8))

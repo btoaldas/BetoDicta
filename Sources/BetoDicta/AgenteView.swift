@@ -883,10 +883,12 @@ struct AgenteView: View {
                     Spacer()
                     Button { m.moverMusica(i, -1) } label: { Image(systemName: "chevron.up") }
                         .buttonStyle(.plain).disabled(i == 0)
+                        .help("Subir este proveedor en el failover de música")
                     Button { m.moverMusica(i, 1) } label: { Image(systemName: "chevron.down") }
                         .buttonStyle(.plain).disabled(i == m.cascadaMusica.count - 1)
+                        .help("Bajar este proveedor en el failover de música")
                     Button { m.quitarMusica(id) } label: { Image(systemName: "xmark.circle") }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.plain).help("Quitar este proveedor del failover de música")
                 }
             }
             let faltan = Musica.catalogo().filter { !m.cascadaMusica.contains($0.id) }
@@ -937,7 +939,7 @@ struct AgenteView: View {
                             Button(role: .destructive) {
                                 m.rutinas.removeAll { $0.id == rutina.id }
                             } label: { Image(systemName: "trash") }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.plain).help("Eliminar esta rutina personal")
                         }
                     }
                     if !rutina.descripcion.isEmpty {
@@ -981,7 +983,7 @@ struct AgenteView: View {
                                 .textFieldStyle(.roundedBorder)
                             Toggle("Opcional", isOn: $paso.opcional).font(.caption)
                             Button { rutina.pasos.removeAll { $0.id == paso.id } } label: { Image(systemName: "minus.circle") }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.plain).help("Quitar este paso de la rutina")
                         }
                     }
                     Button("Agregar paso") { rutina.pasos.append(PasoRutinaAgente()) }.controlSize(.small)

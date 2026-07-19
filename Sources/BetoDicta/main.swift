@@ -64,6 +64,7 @@ if let appPath = ProcessInfo.processInfo.environment["BETODICTA_VERIFYTEST"] {
     exit(ok ? 0 : 3)
 }
 
+AutoAyudaQA.ejecutarSiSePidio()
 ModoPlanQA.ejecutarSiSePidio()
 ModoRegressionQA.ejecutarSiSePidio()
 ModoAudioQA.ejecutarSiSePidio()

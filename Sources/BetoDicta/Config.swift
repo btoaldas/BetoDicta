@@ -663,6 +663,9 @@ struct Config {
     static func translate() -> Bool { (json()["traducir"] as? Bool) ?? false }
     static func translateTo() -> String { (json()["traducir_idioma"] as? String) ?? "inglés" }
     static func panelVisible() -> Bool { (json()["panel_visible"] as? Bool) ?? true }
+    /// Autoayuda instantánea al posar el cursor sobre botones y enlaces. La
+    /// descripción para VoiceOver permanece disponible aunque se apague la burbuja.
+    static func autoAyudaControles() -> Bool { (json()["autoayuda_controles"] as? Bool) ?? true }
     static func exportFolder() -> URL {
         if let s = json()["carpeta_exportar"] as? String, !s.isEmpty {
             return URL(fileURLWithPath: (s as NSString).expandingTildeInPath)

@@ -118,7 +118,8 @@ struct IAPersonalizadaEditor: View {
                             Text(k).font(.caption).frame(width: 140, alignment: .leading)
                             Text(store.items[i].headers[k] ?? "").font(.caption).foregroundStyle(.secondary)
                             Spacer()
-                            Button { store.items[i].headers[k] = nil; store.guardar() } label: { Image(systemName: "minus.circle").foregroundStyle(.red) }.buttonStyle(.borderless)
+                            Button { store.items[i].headers[k] = nil; store.guardar() } label: { Image(systemName: "minus.circle").foregroundStyle(.red) }
+                                .buttonStyle(.borderless).help("Quitar este encabezado adicional")
                         }
                     }
                     HStack {

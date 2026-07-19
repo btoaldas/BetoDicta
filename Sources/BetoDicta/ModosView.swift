@@ -150,6 +150,9 @@ struct ModosView: View {
                 } label: {
                     Image(systemName: expandido == modo.id ? "chevron.up" : "chevron.down")
                 }.buttonStyle(.plain).foregroundStyle(.secondary)
+                    .help(expandido == modo.id
+                          ? "Ocultar la configuración de \(modo.nombre)"
+                          : "Mostrar y editar la configuración de \(modo.nombre)")
             }
             if expandido == modo.id, let b = m.binding(modo.id) {
                 editor(b)

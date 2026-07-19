@@ -260,6 +260,7 @@ Tres formas, de la más rápida a la más completa:
 - **Sonidos de inicio y fin**: el "tink" al empezar y el "glass" al entregar.
 - **Cancelar con Esc**: Esc a mitad del dictado descarta todo.
 - **Mostrar el panel al dictar**: apágalo para modo ninja (dictas sin panel).
+- **Autoayuda rápida**: al posar el cursor sobre cualquier botón o enlace aparece en una fracción de segundo una explicación de qué hace, antes de que tengas que probarlo. Viene activada; puedes apagar solo la burbuja visual con **Mostrar autoayuda rápida al pasar el cursor**. Las descripciones de accesibilidad para VoiceOver permanecen disponibles.
 - **Mostrar en el Dock**: la app vive en la barra de menú; enciende esto si además la quieres en el Dock.
 - **Arrancar al iniciar sesión**: BetoDicta se abre sola al prender el Mac.
 - **Auto-cerrar tras N segundos de silencio**: el guardián que te salva si olvidas la tecla abierta (15–300 s).

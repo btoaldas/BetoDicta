@@ -116,7 +116,7 @@ struct HistorialView: View {
                 if !busqueda.isEmpty {
                     Button { busqueda = ""; rank = [:]; ordenSem = [] } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).help("Limpiar la búsqueda del historial")
                 }
             }
             .padding(8)

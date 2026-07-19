@@ -140,7 +140,7 @@ struct KeytermsEditor: View {
                         Spacer()
                         Button { borrar(item.id) } label: {
                             Image(systemName: "trash").foregroundStyle(.red)
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(.plain).help("Eliminar este término del glosario")
                     }
                 }
                 .onDelete { store.remove($0) }
@@ -192,8 +192,10 @@ struct VozView: View {
                     HStack(spacing: 8) {
                         Text(url.lastPathComponent).font(.caption).monospaced()
                         Spacer()
-                        Button { reproducir(url) } label: { Image(systemName: "play.circle") }.buttonStyle(.borderless)
-                        Button { AudioMatch.borrar(url); refrescar() } label: { Image(systemName: "trash").foregroundStyle(.red) }.buttonStyle(.borderless)
+                        Button { reproducir(url) } label: { Image(systemName: "play.circle") }
+                            .buttonStyle(.borderless).help("Escuchar esta muestra de voz")
+                        Button { AudioMatch.borrar(url); refrescar() } label: { Image(systemName: "trash").foregroundStyle(.red) }
+                            .buttonStyle(.borderless).help("Eliminar esta muestra de voz")
                     }
                 }
             }
@@ -375,6 +377,7 @@ struct RulesEditor: View {
                     Button("Exportar…") { exportar() }
                 } label: { Image(systemName: "square.and.arrow.up.on.square") }.frame(width: 44)
                 Button { store.add() } label: { Image(systemName: "plus") }
+                    .help("Agregar una regla de reemplazo")
             }
             // Flag experimental: coincidir por AUDIO (tu voz grabada).
             Toggle(isOn: Binding(get: { porAudio },
@@ -513,6 +516,7 @@ struct RulesEditor: View {
                         Button { store.remove(rule.id) } label: {
                             Image(systemName: "trash").foregroundStyle(.red)
                         }.buttonStyle(.plain).frame(width: 22)
+                            .help("Eliminar esta regla de reemplazo")
                     }
                     .opacity(rule.activo ? 1 : 0.5)
                 }

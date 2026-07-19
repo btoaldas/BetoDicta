@@ -381,7 +381,7 @@ struct VocesLocalesEditor: View {
                             VocesLocales.fijarActiva(v.id); activa = v.id; Voz.preactivarLocal()
                         } label: {
                             Image(systemName: activa == v.id ? "largecircle.fill.circle" : "circle")
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(.plain).help("Usar la voz local \(v.nombre)")
                         Text(v.nombre).font(.callout)
                         if v.tieneMaxima { Text("✨").font(.caption2).help("Máxima identidad: XTTS con restauración") }
                         if v.tieneMlx { Text("⚖️").font(.caption2).help("Voz equilibrada Qwen3‑MLX") }

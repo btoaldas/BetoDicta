@@ -293,11 +293,11 @@ struct ModelsView: View {
                             Button("Usar") { m.usarModeloLocal(modelo.archivo) }
                                 .disabled(m.modeloLocalActual() == modelo.archivo)
                             Button { m.borrar(modelo) } label: { Image(systemName: "trash").foregroundStyle(.red) }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.plain).help("Eliminar este modelo local descargado")
                         } else {
                             Button { m.descargar(modelo) } label: {
                                 Image(systemName: "arrow.down.circle").foregroundStyle(acentoM)
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).help("Descargar este modelo para usarlo localmente")
                         }
                     }
                     .padding(10).background(Color(nsColor: .controlBackgroundColor))
@@ -437,11 +437,11 @@ struct ModelsView: View {
     }
     private func botonBorrar(_ action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: "trash").foregroundStyle(.red) }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).help("Eliminar este modelo local descargado")
     }
     private func botonDescargar(_ action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: "arrow.down.circle").foregroundStyle(acentoM) }
-            .buttonStyle(.plain)
+            .buttonStyle(.plain).help("Descargar este modelo para usarlo localmente")
     }
 
     /// Fila estándar de un modelo del motor transcribe.cpp.
@@ -574,6 +574,7 @@ struct CloudRow: View {
                 Button { mostrarKey.toggle() } label: {
                     Image(systemName: mostrarKey ? "eye.slash" : "eye")
                 }.buttonStyle(.plain)
+                    .help(mostrarKey ? "Ocultar la clave de API" : "Mostrar temporalmente la clave de API")
                 Button("Guardar") { guardar() }
             }
             // Cloudflare Workers AI necesita el Account ID en la URL (como el chat).
