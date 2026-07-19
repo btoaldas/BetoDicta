@@ -58,6 +58,12 @@ enum AgenteCoreQA {
 
         comprobar("proveedor Spotify", Musica.reconocerProveedor(en: "en Spotify") == "spotify")
         comprobar("proveedor Apple Music", Musica.reconocerProveedor(en: "Apple Music") == "apple_music")
+        comprobar("proveedor YouTube Music conserva la consulta",
+                  Musica.reconocerProveedor(en: "Reproduce en YouTube Music pasillo ecuatoriano")
+                    == "youtube_music"
+                    && Musica.extraerConsulta(
+                        "Reproduce en YouTube Music pasillo ecuatoriano.",
+                        proveedor: "youtube_music") == "pasillo ecuatoriano")
         comprobar("consulta musical limpia",
                   Musica.extraerConsulta("reproduce en Spotify música de Jessy Uribe", proveedor: "spotify") == "Jessy Uribe",
                   Musica.extraerConsulta("reproduce en Spotify música de Jessy Uribe", proveedor: "spotify"))
@@ -74,6 +80,36 @@ enum AgenteCoreQA {
                                                          descripcion: "Pausar", titulo: "")
                     && !SpotifyControl.esBotonReproducir(rol: "AXGroup",
                                                          descripcion: "Reproducir", titulo: ""))
+        let pwaYouTubeMusic = AplicacionMac(
+            nombre: "YouTube Music",
+            bundleId: "com.ejemplo.browser.app.hash-distinto",
+            ruta: "/Users/prueba/Applications/YouTube Music.app",
+            alias: ["youtube music"])
+        comprobar("YouTube Music descubre cualquier PWA por nombre, no por hash",
+                  YouTubeMusicControl.aplicacionInstalada(en: [pwaYouTubeMusic])?.bundleId
+                    == pwaYouTubeMusic.bundleId)
+        comprobar("YouTube Music solo acepta resultados etiquetados",
+                  YouTubeMusicControl.esBotonResultado(
+                    rol: "AXButton", descripcion: "Reproducir Música Andina: Carnavalito")
+                    && YouTubeMusicControl.esBotonResultado(
+                        rol: "AXButton", descripcion: "Play Nuestro Juramento — Julio Jaramillo")
+                    && !YouTubeMusicControl.esBotonResultado(
+                        rol: "AXButton", descripcion: "Reproducir")
+                    && !YouTubeMusicControl.esBotonResultado(
+                        rol: "AXGroup", descripcion: "Reproducir Música Andina"))
+        comprobar("YouTube Music verifica consulta contra título, artista o álbum",
+                  YouTubeMusicControl.coincide(
+                    consulta: "música andina",
+                    contexto: "El Cóndor Pasa · Los Sikuris · Música Andina: Carnavalito")
+                    && YouTubeMusicControl.coincide(
+                        consulta: "pasillo ecuatoriano",
+                        contexto: "PASILLOS ECUATORIANOS ANTIGUOS")
+                    && YouTubeMusicControl.coincide(
+                        consulta: "Julio Jaramillo",
+                        contexto: "Nuestro Juramento · Julio Jaramillo")
+                    && !YouTubeMusicControl.coincide(
+                        consulta: "Julio Jaramillo",
+                        contexto: "No veo bien · RØZ y Nsqk"))
         comprobar("Apple Music tiene espera acotada de arranque en frío",
                   Musica.esperasArranqueApple(yaAbierto: true).first == 0
                     && Musica.esperasArranqueApple(yaAbierto: true).count

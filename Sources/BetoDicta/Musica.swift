@@ -427,6 +427,33 @@ enum Musica {
                 return
             }
 
+            // YouTube Music usa su app/PWA instalada cuando existe y la web
+            // como failover. «Busca» termina en resultados; «reproduce» pulsa
+            // el primer resultado AX y exige que la barra de ESA ventana pase
+            // a «Pausar» antes de anunciar éxito.
+            if !simular, !consulta.isEmpty, primero?.id == "youtube_music" {
+                let debeReproducir = intencion == .reproducir
+                    && Config.musicaIntentarReproducir()
+                YouTubeMusicControl.ejecutar(consulta, reproducir: debeReproducir) { r in
+                    let estado: EstadoMusica = r.reproduciendo ? .reproduciendo
+                        : (r.ok ? .busqueda : .fallo)
+                    let proveedor = r.via.isEmpty
+                        ? "youtube_music" : "youtube_music_\(r.via)"
+                    AgenteLog.registrar(r.ok ? "musica" : "musica_failover", [
+                        "proveedor": proveedor, "consulta": consulta, "ok": r.ok,
+                        "intencion": intencion.rawValue, "estado": estado.rawValue,
+                        "detalle": r.detalle
+                    ])
+                    if r.ok {
+                        completion(.init(ok: true, proveedor: proveedor,
+                                         mensaje: r.detalle, estado: estado))
+                    } else {
+                        cascada(["youtube_music"])
+                    }
+                }
+                return
+            }
+
             // `spotify:search:` solo abre resultados. Cuando Spotify es el
             // proveedor elegido y la orden dice pon/reproduce, la capa AX pulsa
             // el primer botón visible y comprueba el player state antes de
