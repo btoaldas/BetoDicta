@@ -304,7 +304,10 @@ enum Updater {
             completion(.error("no pude montar el DMG")); return
         }
         let appNueva = URL(fileURLWithPath: vol).appendingPathComponent("BetoDicta.app")
-        guard firmaConfiable(appNueva) else {
+        // El DMG completo ya pasó Ed25519 y está montado solo lectura. Esa es
+        // la autenticidad distribuible; el certificado autofirmado fija además
+        // la identidad del bundle sin exigir instalarlo como raíz de confianza.
+        guard firmaConfiable(appNueva, contenidoAutenticado: true) else {
             desmontarDMG(vol)
             instalando = false; try? FileManager.default.removeItem(at: dmgLocal)
             Log.log(.sistema, "actualización RECHAZADA: el bundle no conserva la identidad de BetoDicta")
@@ -469,7 +472,7 @@ enum Updater {
     /// de BetoDicta.
     /// No usa la confianza pública del certificado autofirmado (no existe en una
     /// instalación normal); la autenticidad fuerte ya la da Ed25519 sobre el DMG.
-    static func firmaConfiable(_ app: URL) -> Bool {
+    static func firmaConfiable(_ app: URL, contenidoAutenticado: Bool = false) -> Bool {
         guard let bundle = Bundle(url: app), bundle.bundleIdentifier == "ec.bto.betodicta",
               let ejecutable = bundle.executableURL,
               FileManager.default.isExecutableFile(atPath: ejecutable.path) else { return false }
@@ -477,8 +480,18 @@ enum Updater {
         guard SecStaticCodeCreateWithPath(app as CFURL, [], &nuevoCode) == errSecSuccess,
               let nuevo = nuevoCode else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode)
-        guard SecStaticCodeCheckValidity(nuevo, flags, nil) == errSecSuccess else { return false }
         guard let esperado = certReleaseSHA(), let shaNuevo = certLiderSHA(nuevo) else { return false }
-        return esperado == shaNuevo
+        guard esperado == shaNuevo else { return false }
+
+        let estado = SecStaticCodeCheckValidity(nuevo, flags, nil)
+        if estado == errSecSuccess { return true }
+
+        // Un certificado autofirmado NO es una raíz pública y, correctamente,
+        // macOS devuelve CSSMERR_TP_NOT_TRUSTED (-2147409622) aunque la firma y
+        // su leaf sean los esperados. Solo aceptamos ese caso cuando el llamador
+        // ya autenticó TODO el DMG con Ed25519 y lo montó read-only. No se usa
+        // como bypass general para una app descargada o modificable.
+        let autofirmadoNoConfiado: OSStatus = -2147409622
+        return contenidoAutenticado && estado == autofirmadoNoConfiado
     }
 }
