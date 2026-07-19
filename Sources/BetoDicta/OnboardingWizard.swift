@@ -6,9 +6,10 @@ import Carbon.HIToolbox
 // MARK: - Asistente de primer arranque (wizard)
 //
 // La primera vez que la app corre en una máquina (o hasta que el usuario lo
-// termine), muestra un asistente paso a paso. 8 pasos:
+// termine), muestra un asistente paso a paso. 9 pasos:
 //   0 Bienvenida · 1 Permisos · 2 IA nube · 3 IA local · 4 Failover ·
-//   5 Aprendizaje + glosario · 6 Preferencias · 7 Listo (+ donar)
+//   5 Aprendizaje + glosario · 6 Preferencias · 7 Asistente + Atajos ·
+//   8 Listo (+ donar)
 //
 // Robusto al reinicio de accesibilidad: el flag "wizard_completado" SOLO se
 // pone al pulsar "Finalizar". Si el usuario activa accesibilidad y la app se
@@ -179,7 +180,19 @@ struct OnboardingView: View {
     @State private var axAlArrancar: Bool = AXIsProcessTrusted()
     @State private var nuevaPalabra = ""
 
-    private let totalPasos = 8
+    // Nombre/presencia y puentes portables. Ningún Atajo se importa solo: el
+    // wizard abre cada instalador y macOS conserva el consentimiento final.
+    @State private var agenteActivo = Config.agenteNucleoActivo()
+    @State private var nombreAgente = Config.agenteNombre()
+    @State private var activadoresAgente = FrasesConfigurables.formatear(Config.agenteActivadores())
+    @State private var manosLibres = Config.agenteActivacionReposo()
+    @State private var acuseAgente = Config.agenteActivacionAcuse()
+    @State private var formatoAcuseAgente = Config.agenteActivacionAcuseFormato()
+    @State private var siriCompatibilidadLocal = Config.agenteCompatibilidadSiriLocal()
+    @State private var atajosInstalados: [String] = []
+    @State private var avisoAtajos = ""
+
+    private let totalPasos = 9
     private let reloj = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -195,6 +208,15 @@ struct OnboardingView: View {
             mic = AVCaptureDevice.authorizationStatus(for: .audio)
             ax = AXIsProcessTrusted()
         }
+        .onChange(of: paso) { _, nuevo in
+            if nuevo == 7 { refrescarAtajosIncluidos() }
+        }
+        .onChange(of: agenteActivo) { guardarAsistente() }
+        .onChange(of: activadoresAgente) { guardarAsistente() }
+        .onChange(of: manosLibres) { guardarAsistente() }
+        .onChange(of: acuseAgente) { guardarAsistente() }
+        .onChange(of: formatoAcuseAgente) { guardarAsistente() }
+        .onChange(of: siriCompatibilidadLocal) { guardarAsistente() }
     }
 
     @ViewBuilder private var contenido: some View {
@@ -206,6 +228,7 @@ struct OnboardingView: View {
         case 4: failover
         case 5: aprendizaje
         case 6: preferencias
+        case 7: asistenteYAtajos
         default: listo
         }
     }
@@ -455,7 +478,84 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: Paso 7 — Listo + donar
+    // MARK: Paso 7 — Nombre del asistente + Atajos portables
+    private var asistenteYAtajos: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            encabezado("Tu asistente y sus Atajos",
+                       "Ponle el nombre que quieras. Los instaladores viajan con BetoDicta y puedes reinstalarlos después.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Toggle("Activar el núcleo del asistente", isOn: $agenteActivo)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("¿Cómo quieres que se llame?").font(.headline)
+                        TextField("Bto, Gloria, Jarvis, Mamá…", text: nombreAgenteBinding)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Ejemplo: di “Oye \(nombreAgenteLimpio)” al comenzar un dictado.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Frases de activación · una por línea").font(.headline)
+                        TextEditor(text: $activadoresAgente)
+                            .frame(minHeight: 62, maxHeight: 82)
+                            .padding(5).background(Color(nsColor: .textBackgroundColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        Text("Deben tener al menos dos palabras. La puntuación y las comas no importan.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    wizToggle("Escuchar la frase en reposo (opcional)", isOn: $manosLibres,
+                              nota: "Apple Speech trabaja localmente. macOS mostrará su indicador de micrófono; puedes dejarlo apagado y usar fn o Siri.")
+                    if manosLibres {
+                        wizToggle("Compatibilidad “Oye Siri” mientras BetoDicta escucha",
+                                  isOn: $siriCompatibilidadLocal,
+                                  nota: "Reconoce localmente solo “Oye Siri” + el nombre elegido. No roba otras órdenes de Siri.")
+                    }
+                    wizToggle("Responder cuando reconoce la frase", isOn: $acuseAgente,
+                              nota: "Confirma rápidamente “Te escucho” antes de abrir el turno limpio.")
+                    if acuseAgente {
+                        Picker("Respuesta", selection: $formatoAcuseAgente) {
+                            Text("Solo texto").tag("texto")
+                            Text("Texto y voz").tag("texto_voz")
+                            Text("Solo voz").tag("voz")
+                        }.pickerStyle(.segmented)
+                    }
+
+                    Divider()
+                    Text("Atajos incluidos").font(.headline)
+                    Text("Importa solo los que quieras. BetoDicta abre el paquete firmado, pero macOS te muestra sus acciones y tú confirmas “Añadir atajo”.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(AtajoIncluidoID.allCases) { id in
+                        let info = AtajosIncluidos.info(id, nombreAgente: nombreAgenteLimpio)
+                        let instalado = AtajosIncluidos.estaInstalado(
+                            id, nombreAgente: nombreAgenteLimpio,
+                            nombres: atajosInstalados)
+                        HStack(alignment: .top, spacing: 9) {
+                            Image(systemName: instalado ? "checkmark.circle.fill" : "arrow.down.circle")
+                                .foregroundStyle(instalado ? .green : .orange)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(info.nombre).font(.subheadline).bold()
+                                Text(info.detalle).font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(instalado ? "Reinstalar…" : "Instalar…") {
+                                instalarAtajoIncluido(id)
+                            }.controlSize(.small)
+                        }
+                    }
+                    HStack {
+                        Button("Actualizar estado") { refrescarAtajosIncluidos() }
+                            .controlSize(.small)
+                        if !avisoAtajos.isEmpty {
+                            Text(avisoAtajos).font(.caption).foregroundStyle(acento)
+                        }
+                    }
+                    Text("Las recetas de trabajo, universidad, casa, resumen, selección y HomeKit se enrutan por BetoDicta Universal; no necesitas veinte copias del mismo puente.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    // MARK: Paso 8 — Listo + donar
     private var listo: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack { Spacer()
@@ -509,12 +609,71 @@ struct OnboardingView: View {
 
     // MARK: Navegación
     private var permisosOK: Bool { mic == .authorized && ax && axAlArrancar }
-    private func avanzar() { paso = min(paso + 1, totalPasos - 1); Config.set("wizard_paso", to: paso) }
+    private func avanzar() {
+        if paso == 7 { guardarAsistente() }
+        paso = min(paso + 1, totalPasos - 1)
+        Config.set("wizard_paso", to: paso)
+    }
     private func retroceder() { paso = max(paso - 1, 0); Config.set("wizard_paso", to: paso) }
     private func finalizar() {
+        guardarAsistente()
         Config.set("wizard_completado", to: true)
         Config.set("wizard_paso", to: 0)
         WizardWindowController.shared.close()
+    }
+
+    // MARK: Asistente y Atajos
+    private var nombreAgenteLimpio: String {
+        let n = PasarelaSiriBeto.nombreSugerido(nombreAgente)
+        return n.isEmpty ? "Bto" : n
+    }
+
+    private func frasesAutomaticas(_ nombre: String) -> [String] {
+        let n = PasarelaSiriBeto.nombreSugerido(nombre)
+        return ["oye \(n)", "\(n) escucha"]
+    }
+
+    private var nombreAgenteBinding: Binding<String> {
+        Binding(get: { nombreAgente }, set: { nuevo in
+            let anteriores = frasesAutomaticas(nombreAgente).map(PerfilAgente.normalizar)
+            let actuales = FrasesConfigurables.parsear(activadoresAgente)
+                .map(PerfilAgente.normalizar)
+            nombreAgente = nuevo
+            if actuales == anteriores {
+                activadoresAgente = FrasesConfigurables.formatear(frasesAutomaticas(nuevo))
+            }
+            guardarAsistente()
+        })
+    }
+
+    private func guardarAsistente() {
+        let nombre = nombreAgenteLimpio
+        let frases = FrasesConfigurables.activadoresSeguros(
+            FrasesConfigurables.parsear(activadoresAgente))
+        Config.set("agente_nucleo_activo", to: agenteActivo)
+        Config.set("agente_nombre", to: nombre)
+        Config.set("agente_activadores", to: frases.isEmpty ? frasesAutomaticas(nombre) : frases)
+        Config.set("agente_activacion_reposo", to: manosLibres)
+        Config.set("agente_activacion_acuse", to: acuseAgente)
+        Config.set("agente_activacion_acuse_formato", to: formatoAcuseAgente)
+        Config.set("agente_siri_compatibilidad_local", to: siriCompatibilidadLocal)
+        NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
+                                        object: nil)
+    }
+
+    private func refrescarAtajosIncluidos() {
+        AppleAtajos.listar { nombres in atajosInstalados = nombres }
+    }
+
+    private func instalarAtajoIncluido(_ id: AtajoIncluidoID) {
+        guardarAsistente()
+        let r = AtajosIncluidos.instalar(id, nombreAgente: nombreAgenteLimpio)
+        avisoAtajos = r.mensaje
+        if r.ok {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                refrescarAtajosIncluidos()
+            }
+        }
     }
 
     // MARK: Modelos locales

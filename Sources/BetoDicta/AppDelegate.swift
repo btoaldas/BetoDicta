@@ -2977,10 +2977,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func reconciliarActivacionVoz() {
         let habilitado = Config.agenteNucleoActivo() && Config.agenteActivacionReposo()
+        var activadores = Config.agenteActivadores()
+        if Config.agenteCompatibilidadSiriLocal() {
+            activadores += PasarelaSiriBeto.activadoresLocales(
+                nombreAgente: Config.agenteNombre())
+        }
         ActivacionVoz.shared.reconciliar(
             habilitado: habilitado,
             puedeEscuchar: !activacionVozOcupada,
-            activadores: Config.agenteActivadores()
+            activadores: activadores
         ) { [weak self] despertar in
             self?.despertarPorVoz(despertar)
         }
@@ -2995,7 +3000,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             reconciliarActivacionVoz()
             return
         }
-        prepararTurnoAgente(despertar)
+        let entregado: ActivacionVoz.Despertar
+        if Config.agenteCompatibilidadSiriLocal(),
+           PasarelaSiriBeto.esActivadorLocal(despertar.frase,
+                                             nombreAgente: Config.agenteNombre()) {
+            entregado = .init(id: despertar.id, frase: despertar.frase,
+                              audioPrevio: despertar.audioPrevio,
+                              fecha: despertar.fecha, forma: despertar.forma,
+                              origen: .pasarelaSiriLocal)
+            AgenteLog.registrar("pasarela_siri_local", [
+                "frase": despertar.frase,
+                "motivo": "listener_betodicta_ocupaba_microfono",
+            ])
+        } else {
+            entregado = despertar
+        }
+        prepararTurnoAgente(entregado)
     }
 
     private func prepararTurnoAgente(_ despertar: ActivacionVoz.Despertar) {

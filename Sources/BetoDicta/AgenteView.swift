@@ -44,7 +44,13 @@ final class AgenteSettingsModel: ObservableObject {
                                             object: nil)
         }
     }
-    @Published var nombre: String { didSet { Config.set("agente_nombre", to: nombre) } }
+    @Published var nombre: String {
+        didSet {
+            Config.set("agente_nombre", to: nombre)
+            NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
+                                            object: nil)
+        }
+    }
     @Published var personalidad: String { didSet { Config.set("agente_personalidad", to: personalidad) } }
     @Published var activadores: String {
         didSet {
@@ -57,6 +63,13 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var activacionReposo: Bool {
         didSet {
             Config.set("agente_activacion_reposo", to: activacionReposo)
+            NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
+                                            object: nil)
+        }
+    }
+    @Published var siriCompatibilidadLocal: Bool {
+        didSet {
+            Config.set("agente_siri_compatibilidad_local", to: siriCompatibilidadLocal)
             NotificationCenter.default.post(name: .betoActivacionVozConfiguracionCambio,
                                             object: nil)
         }
@@ -155,6 +168,7 @@ final class AgenteSettingsModel: ObservableObject {
         personalidad = Config.agentePersonalidad()
         activadores = FrasesConfigurables.formatear(Config.agenteActivadores())
         activacionReposo = Config.agenteActivacionReposo()
+        siriCompatibilidadLocal = Config.agenteCompatibilidadSiriLocal()
         activacionPrebuffer = Config.agenteActivacionPrebuffer()
         activacionOrdenCorrida = Config.agenteActivacionOrdenCorrida()
         activacionEsperaAcuse = Config.agenteActivacionEsperaAcuse()
@@ -237,12 +251,20 @@ final class AgenteSettingsModel: ObservableObject {
         }
     }
     func instalarAtajoMusica() {
-        let r = AppleAtajos.instalarMusicaIncluido()
+        instalarAtajoIncluido(.musica)
+    }
+    func estaInstalado(_ id: AtajoIncluidoID) -> Bool {
+        AtajosIncluidos.estaInstalado(id, nombreAgente: nombre, nombres: atajos)
+    }
+    func instalarAtajoIncluido(_ id: AtajoIncluidoID) {
+        let r = AtajosIncluidos.instalar(id, nombreAgente: nombre)
         aviso = r.mensaje
         if r.ok {
-            musicaAtajo = AppleAtajos.nombreMusicaIncluido
-            musicaAtajoPrimero = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.cargarAtajos() }
+            if id == .musica {
+                musicaAtajo = AppleAtajos.nombreMusicaIncluido
+                musicaAtajoPrimero = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.cargarAtajos() }
         }
     }
     func probarClima() {
@@ -301,28 +323,6 @@ final class AgenteSettingsModel: ObservableObject {
         let orden = OrdenUniversalBeto(accion: "estado_mac")
         AtajoUniversalBetoDicta.ejecutar(orden, simular: true) { [weak self] r in
             self?.aviso = r.ok ? "Contrato universal validado: \(r.mensaje)" : r.mensaje
-        }
-    }
-    func copiarGuiaUniversal() {
-        let guia = """
-        Crea un Atajo llamado “BetoDicta Universal”:
-        1. Si hace falta, activa manualmente Atajos → Ajustes → Avanzado →
-           “Permitir ejecutar scripts”. BetoDicta no cambia ese permiso.
-        2. Añade la acción “Ejecutar script de shell”.
-        3. En “Pasar entrada”, elige “a stdin”.
-        4. Usa este comando:
-        /Applications/BetoDicta.app/Contents/Resources/betodicta-universal.sh
-        5. La entrada debe ser el JSON estructurado que copia BetoDicta.
-        6. El resultado es JSON con ok, mensaje y evidencia.
-
-        Los Atajos que este contrato invoque se habilitan individualmente en
-        Ajustes → Asistente y conservan su nivel de riesgo. Para acciones
-        externas, pregunta primero y solo entonces agrega "confirmado": true.
-        """
-        copyText(guia)
-        aviso = "Copié la guía del Atajo universal."
-        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.shortcuts") {
-            NSWorkspace.shared.openApplication(at: u, configuration: .init(), completionHandler: nil)
         }
     }
 }
@@ -425,19 +425,24 @@ struct AgenteView: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Pasarela inversa con Siri").font(.subheadline)
-                    Text("Crea un Atajo llamado “\(PasarelaSiriBeto.nombreSugerido(m.nombre))”. Después puedes decir “Oye Siri, \(PasarelaSiriBeto.nombreSugerido(m.nombre))”: Siri abrirá BetoDicta directamente en el mismo turno de escucha, aunque manos libres esté apagado.")
+                    Text("Instala el Atajo incluido con el nombre “\(PasarelaSiriBeto.nombreSugerido(m.nombre))”. Con manos libres apagado, puedes decir “Oye Siri, \(PasarelaSiriBeto.nombreSugerido(m.nombre))” y Siri abrirá un turno limpio.")
                         .font(.caption).foregroundStyle(.secondary)
+                    Toggle("Mantener esa frase cuando BetoDicta ya usa el micrófono",
+                           isOn: $m.siriCompatibilidadLocal)
+                    Text(m.activacionReposo && m.siriCompatibilidadLocal
+                         ? "Mientras la escucha continua ocupa el micrófono, BetoDicta reconoce localmente solo “Oye Siri” + tu nombre configurado. No suplanta a Siri ni intercepta otras órdenes; el registro distingue esta ruta local."
+                         : "Con la escucha continua apagada, la frase pasa por Siri y el Atajo importado. Si la enciendes, activa este respaldo para evitar la competencia por el micrófono.")
+                        .font(.caption2).foregroundStyle(.secondary)
                     HStack {
-                        Button("Preparar Atajo…") {
-                            let r = PasarelaSiriBeto.preparar(nombreAgente: m.nombre)
-                            m.aviso = r.mensaje
+                        Button(m.estaInstalado(.asistente) ? "Reinstalar Atajo…" : "Instalar Atajo…") {
+                            m.instalarAtajoIncluido(.asistente)
                         }
                         Button("Probar pasarela") {
                             let r = PasarelaSiriBeto.probar()
                             m.aviso = r.mensaje
                         }
                     }
-                    Text("Apple exige crear o importar el Atajo una vez. El nombre es dinámico: si cambias el asistente, renombra también el Atajo. Para sinónimos como “Dile a \(PasarelaSiriBeto.nombreSugerido(m.nombre))”, duplica el mismo puente con ese nombre.")
+                    Text("El paquete viaja firmado dentro de BetoDicta y no contiene claves. macOS siempre te muestra sus acciones y exige que confirmes la importación. Si cambias el nombre del asistente, reinstálalo con el nombre nuevo.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -710,6 +715,7 @@ struct AgenteView: View {
                 }
             }
 
+            instaladoresAtajos
             universal
             musica
             rutinas
@@ -722,6 +728,35 @@ struct AgenteView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .betoActivacionVozEstadoCambio)) { _ in
             estadoActivacion = ActivacionVoz.shared.estado
+        }
+    }
+
+    private var instaladoresAtajos: some View {
+        card("Atajos incluidos y reinstalables", "square.and.arrow.down.on.square") {
+            Text("BetoDicta trae tres paquetes firmados. Tú decides cuál importar; la app nunca acepta permisos ni pulsa “Añadir atajo” por ti. Las recetas Trabajo, Universidad o Casa usan el Atajo Universal y no necesitan duplicarse.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(AtajoIncluidoID.allCases) { id in
+                let info = AtajosIncluidos.info(id, nombreAgente: m.nombre)
+                let instalado = m.estaInstalado(id)
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: instalado ? "checkmark.circle.fill" : "arrow.down.circle")
+                        .foregroundStyle(instalado ? .green : .orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(info.nombre).font(.subheadline).bold()
+                        Text(info.detalle).font(.caption2).foregroundStyle(.secondary)
+                        Text("Riesgo sugerido: \(info.riesgo.nombre)"
+                             + (info.requiereScripts ? " · usa el puente local firmado" : ""))
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Button(instalado ? "Reinstalar…" : "Instalar…") {
+                        m.instalarAtajoIncluido(id)
+                    }.controlSize(.small)
+                }
+            }
+            Button("Actualizar estado") { m.cargarAtajos() }.controlSize(.small)
+            Text("Los Atajos con scripts pueden pedir una autorización adicional de macOS la primera vez que se ejecutan. Ese permiso también queda bajo tu control.")
+                .font(.caption2).foregroundStyle(.secondary)
         }
     }
 
@@ -738,9 +773,10 @@ struct AgenteView: View {
                                      etiqueta: "Validar el Atajo universal sin ejecutar acciones") {
                     m.probarUniversal()
                 }.fixedSize()
-                BotonNativoAccesible(titulo: "Crear en Atajos…",
-                                     etiqueta: "Crear el Atajo universal en Atajos de Apple") {
-                    m.copiarGuiaUniversal()
+                BotonNativoAccesible(titulo: m.estaInstalado(.universal)
+                                     ? "Reinstalar…" : "Instalar…",
+                                     etiqueta: "Instalar el Atajo universal incluido") {
+                    m.instalarAtajoIncluido(.universal)
                 }.fixedSize()
             }.controlSize(.small)
             Text("Los Atajos Apple siguen siendo herramientas externas: debes habilitar cada uno arriba. El contrato nunca contiene ni exporta claves.")
@@ -764,14 +800,16 @@ struct AgenteView: View {
             Toggle("Probar primero un Atajo de Apple Music", isOn: $m.musicaAtajoPrimero)
             if m.musicaAtajoPrimero {
                 field("Atajo de música", text: $m.musicaAtajo, placeholder: "Reproducir con BetoDicta")
-                let instalado = m.atajos.contains(m.musicaAtajo)
+                let instalado = m.estaInstalado(.musica)
                 HStack(spacing: 8) {
                     Image(systemName: instalado ? "checkmark.circle.fill" : "arrow.down.circle")
                         .foregroundStyle(instalado ? .green : .orange)
                     Text(instalado ? "Atajo incluido instalado" : "Falta autorizar el Atajo incluido una vez")
                         .font(.caption)
-                    if !instalado, m.musicaAtajo == AppleAtajos.nombreMusicaIncluido {
-                        Button("Instalar…") { m.instalarAtajoMusica() }.controlSize(.small)
+                    if m.musicaAtajo == AppleAtajos.nombreMusicaIncluido {
+                        Button(instalado ? "Reinstalar…" : "Instalar…") {
+                            m.instalarAtajoMusica()
+                        }.controlSize(.small)
                     }
                 }
                 if !m.atajos.isEmpty {

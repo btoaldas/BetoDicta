@@ -179,7 +179,12 @@ enum PerfilAgente {
     /// puntuación. No mantiene el micrófono abierto: opera sobre el dictado normal.
     static func invocacion(en texto: String) -> Invocacion? {
         guard Config.agenteNucleoActivo() else { return nil }
-        return invocacion(en: texto, activadores: Config.agenteActivadores())
+        var activadores = Config.agenteActivadores()
+        if Config.agenteCompatibilidadSiriLocal() {
+            activadores += PasarelaSiriBeto.activadoresLocales(
+                nombreAgente: Config.agenteNombre())
+        }
+        return invocacion(en: texto, activadores: activadores)
     }
 
     static func invocacion(en texto: String, activadores: [String]) -> Invocacion? {

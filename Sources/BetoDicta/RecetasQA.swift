@@ -88,6 +88,33 @@ enum RecetasQA {
         check("descubrimiento conserva UUID y paréntesis", listado.count == 2
             && listado[0].nombre == "Mi Atajo (con paréntesis)"
             && listado[0].id == "91CC624C-869A-409C-80E7-6EF2BF771982")
+        check("tres instaladores viajan con BetoDicta",
+              AtajoIncluidoID.allCases.allSatisfy {
+                  guard let u = AtajosIncluidos.paquete($0),
+                        let a = try? FileManager.default.attributesOfItem(atPath: u.path),
+                        let n = a[.size] as? NSNumber else { return false }
+                  return n.intValue > 1_000
+              })
+        check("instalador Siri usa nombre dinámico",
+              AtajosIncluidos.nombreEsperado(.asistente, nombreAgente: "Ñusta") == "Ñusta"
+                && AtajosIncluidos.estaInstalado(.asistente, nombreAgente: "Ñusta",
+                                                 nombres: ["Ñusta"])
+                && !AtajosIncluidos.estaInstalado(.asistente, nombreAgente: "Ñusta",
+                                                  nombres: ["Bto", "Gloria"]))
+        let instaladorDinamico = AtajosIncluidos.paqueteParaInstalar(
+            .asistente, nombreAgente: "Ñusta")
+        let permisosInstalador = instaladorDinamico.flatMap {
+            (try? FileManager.default.attributesOfItem(atPath: $0.path))?[.posixPermissions]
+                as? NSNumber
+        }?.intValue
+        let mismoPaquete = instaladorDinamico.flatMap { try? Data(contentsOf: $0) }
+            == AtajosIncluidos.paquete(.asistente).flatMap { try? Data(contentsOf: $0) }
+        check("copia dinámica conserva firma y queda privada",
+              instaladorDinamico?.lastPathComponent == "Ñusta.shortcut"
+                && permisosInstalador == 0o600 && mismoPaquete)
+        check("Atajo Universal reemplaza copias por receta",
+              AtajosIncluidos.nombreEsperado(.universal, nombreAgente: "Otro")
+                == "BetoDicta Universal")
         let paquete = PaqueteRecetasBeto(esquema: 1, nombre: "QA", creadoEn: "2026-07-19",
                                          recetas: incluidas)
         check("paquete válido", RecetasPortables.validar(paquete) == nil)

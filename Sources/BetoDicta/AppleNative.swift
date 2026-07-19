@@ -462,6 +462,25 @@ enum PasarelaSiriBeto {
         return limpio.isEmpty ? "BetoDicta" : limpio
     }
 
+    /// Frases deliberadas para el caso en que BetoDicta ya posee el micrófono
+    /// y el detector nativo de Siri no puede adelantarse. Siempre se derivan del
+    /// nombre configurado; nunca hay nombres de personas hardcodeados.
+    static func activadoresLocales(nombreAgente: String) -> [String] {
+        let nombre = nombreSugerido(nombreAgente)
+        return FrasesConfigurables.activadoresSeguros([
+            "oye siri \(nombre)",
+            "oye siri dile a \(nombre)",
+            "oye siri envia a \(nombre)",
+            "oye siri abre \(nombre)",
+        ])
+    }
+
+    static func esActivadorLocal(_ frase: String, nombreAgente: String) -> Bool {
+        let normal = PerfilAgente.normalizar(frase)
+        return activadoresLocales(nombreAgente: nombreAgente)
+            .contains { PerfilAgente.normalizar($0) == normal }
+    }
+
     static func esOrdenEscuchar(_ url: URL,
                                 tokenEsperado: String = Config.agentePasarelaSiriToken()) -> Bool {
         guard url.scheme?.lowercased() == "betodicta",
@@ -475,23 +494,11 @@ enum PasarelaSiriBeto {
         return true
     }
 
-    /// Apple exige la creación/importación visible del Atajo. Dejamos la URL
-    /// exacta en el portapapeles y abrimos el editor, sin automatizar permisos.
+    /// Abre el instalador firmado que viaja en el bundle. El Atajo consulta la
+    /// capacidad local en tiempo de ejecución, así que el paquete es portable y
+    /// no contiene el token de esta Mac. Apple conserva la confirmación visible.
     static func preparar(nombreAgente: String) -> ResultadoHerramientaApple {
-        let url = urlEscuchar()
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        guard pb.setString(url.absoluteString, forType: .string) else {
-            return .init(ok: false, mensaje: "No pude copiar la URL de la pasarela.")
-        }
-        guard let editor = URL(string: "shortcuts://create-shortcut"),
-              NSWorkspace.shared.open(editor) else {
-            return .init(ok: false,
-                         mensaje: "Copié la URL, pero no pude abrir Atajos.")
-        }
-        let nombre = nombreSugerido(nombreAgente)
-        return .init(ok: true,
-            mensaje: "Atajos abierto. Nómbralo «\(nombre)», agrega Abrir URL y pega la URL local que quedó copiada.")
+        AtajosIncluidos.instalar(.asistente, nombreAgente: nombreAgente)
     }
 
     static func probar() -> ResultadoHerramientaApple {
@@ -512,17 +519,11 @@ enum AppleAtajos {
     /// su importación una vez; la app nunca modifica silenciosamente su biblioteca
     /// de Atajos.
     static func paqueteMusicaIncluido() -> URL? {
-        Bundle.main.url(forResource: nombreMusicaIncluido, withExtension: "shortcut")
+        AtajosIncluidos.paquete(.musica)
     }
 
     static func instalarMusicaIncluido() -> ResultadoHerramientaApple {
-        guard let u = paqueteMusicaIncluido() else {
-            return .init(ok: false, mensaje: "No encontré el Atajo incluido en esta instalación.")
-        }
-        guard NSWorkspace.shared.open(u) else {
-            return .init(ok: false, mensaje: "No pude abrir el instalador del Atajo de música.")
-        }
-        return .init(ok: true, mensaje: "Atajos te pedirá confirmar la importación una sola vez.")
+        AtajosIncluidos.instalar(.musica, nombreAgente: Config.agenteNombre())
     }
 
     static func listar(completion: @escaping ([String]) -> Void) {

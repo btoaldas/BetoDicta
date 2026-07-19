@@ -294,6 +294,13 @@ struct Config {
     static func agenteActivacionReposo() -> Bool {
         (json()["agente_activacion_reposo"] as? Bool) ?? false
     }
+    /// Cuando la escucha local ya ocupa el micrófono, macOS puede no entregar
+    /// «Oye Siri» al detector nativo. Este respaldo reconoce únicamente
+    /// «Oye Siri» + el nombre dinámico del asistente y abre el mismo turno; no
+    /// intercepta órdenes generales dirigidas a Siri.
+    static func agenteCompatibilidadSiriLocal() -> Bool {
+        (json()["agente_siri_compatibilidad_local"] as? Bool) ?? true
+    }
     /// Modo avanzado y opcional. Apagado por defecto: la frase funciona como
     /// un timbre, BetoDicta acusa recibo y recién entonces escucha la orden.
     /// Encendido conserva el gesto histórico de frase + orden en una sola toma.

@@ -36,6 +36,9 @@ final class ActivacionVoz: @unchecked Sendable {
         }
         enum Origen: String {
             case reposoAppleLocal = "reposo_apple_local"
+            /// BetoDicta ya poseía el micrófono y reconoció localmente la frase
+            /// exacta «Oye Siri» + nombre configurado. No se atribuye a Siri.
+            case pasarelaSiriLocal = "pasarela_siri_local"
             case atajoSiri = "atajo_siri"
         }
 
@@ -813,7 +816,19 @@ final class ActivacionVoz: @unchecked Sendable {
                         && !PasarelaSiriBeto.esOrdenEscuchar(
                             URL(string: "betodicta://agente/escuchar?t=incorrecto")!,
                             tokenEsperado: tokenQA))
-        return ([a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, p2, q, r, s]
+        let t = caso("respaldo Siri deriva el nombre y sus variantes",
+                     PasarelaSiriBeto.esActivadorLocal("Oye Siri, Atenea",
+                                                       nombreAgente: nombreQA)
+                        && PasarelaSiriBeto.esActivadorLocal("Oye Siri dile a Atenea",
+                                                            nombreAgente: nombreQA)
+                        && !PasarelaSiriBeto.esActivadorLocal("Oye Siri Gloria",
+                                                             nombreAgente: nombreQA))
+        let u = caso("respaldo Siri no roba órdenes generales",
+                     !PasarelaSiriBeto.esActivadorLocal("Oye Siri pon música",
+                                                       nombreAgente: nombreQA)
+                        && !PasarelaSiriBeto.esActivadorLocal("Oye Siri",
+                                                             nombreAgente: nombreQA))
+        return ([a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, p2, q, r, s, t, u]
             .allSatisfy { $0 }, lineas)
     }
 }

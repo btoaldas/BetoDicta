@@ -69,6 +69,13 @@ fi
 grep -q "$V" Sources/BetoDicta/Version.swift || fail "El historial de Version.swift no menciona $V"
 ok "Historial de novedades incluye $V"
 
+# Los instaladores de Atajos son parte del producto. Verificamos firma Apple,
+# estructura y puente antes del build para no publicar un paquete vacío o roto.
+scripts/verify-shortcut-installers.sh >/tmp/bd-shortcuts.log 2>&1 \
+  || { cat /tmp/bd-shortcuts.log; fail "Instaladores de Atajos inválidos"; }
+cat /tmp/bd-shortcuts.log
+ok "Instaladores de Atajos firmados e íntegros"
+
 # ── Clave de releases: privada local, pública embebida ─────────────────────
 [ -f "$UPDATE_KEY" ] || fail "Falta la clave privada de releases: $UPDATE_KEY"
 [ -f "$UPDATE_PUB" ] || fail "Falta la clave pública embebida: $UPDATE_PUB"

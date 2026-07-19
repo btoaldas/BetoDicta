@@ -90,7 +90,7 @@ La primera vez que abres BetoDicta aparece un **asistente** que te lleva de la m
 
 ![Bienvenida del asistente](img/wizard-bienvenida.png)
 
-Son 8 pasos:
+Son 9 pasos:
 
 0. **Bienvenida** — qué hace la app y qué vas a configurar.
 1. **Permisos** — micrófono y accesibilidad, con **check en vivo**: apenas concedes cada uno, su fila se pone en **verde "Activado"**.
@@ -111,7 +111,8 @@ Son 8 pasos:
 6. **Preferencias** — tecla de dictado, micrófono, sonidos, panel, Esc, multimedia, volumen, Dock, arranque al iniciar sesión y modo desarrollo. Cada opción con su nota de qué hace y para qué.
 
    ![Preferencias del asistente](img/wizard-preferencias.png)
-7. **¡Listo!** — a dictar (y, si te sirve, un cafecito para apoyar el proyecto).
+7. **Asistente y Atajos** — decide si quieres activar el asistente, escribe el **nombre libre** con el que lo llamarás y configura sus frases de presencia. La escucha manos libres y la compatibilidad local con *“Oye Siri + nombre”* son opcionales. Desde esta misma pantalla puedes revisar e importar, uno por uno, los paquetes firmados **Escuchar asistente**, **BetoDicta Universal** y **Reproducir música**. macOS siempre muestra **Añadir atajo**: BetoDicta no acepta ese permiso por ti.
+8. **¡Listo!** — a dictar (y, si te sirve, un cafecito para apoyar el proyecto).
 
 Todo lo que elijas aquí se puede cambiar después en Configuración. Los valores de fábrica ya vienen bien para la mayoría.
 
@@ -375,8 +376,10 @@ Los envíos de correo/WhatsApp, publicaciones, compras, borrados y cualquier acc
 - **Captura/grabación → WhatsApp**: *“toma una captura y envíala por WhatsApp a Alberto”* o *“graba la pantalla, guarda en mis Documentos y envíala por WhatsApp a Alberto”* conserva todas las acciones. En **Ajustes → Asistente → Capturas y grabaciones** eliges la política: **solo abrir y dejar en el portapapeles**, **pegar en el chat sin enviar** (recomendado) o **pegar y autoenviar**. El autoenvío nunca se activa por una frase: debe quedar habilitado expresamente. Antes de pulsar el único botón accesible llamado **Enviar**, BetoDicta compara la interfaz anterior y posterior al pegado y exige evidencia de que apareció una vista previa nueva del adjunto; si no puede demostrarlo, lo deja preparado. Así no envía por accidente un texto que ya estaba escrito en el chat. Además, cualquier Enter automático pendiente de otro dictado queda bloqueado durante la preparación. Para grupos o chats sin identificador público, abre WhatsApp y conserva el archivo en el portapapeles.
 - **Recordatorios y Calendario**: crean el elemento mediante **EventKit**, la API nativa de macOS, después de tu permiso y según el nivel de autonomía. Ya no dependen de simular ⌘N/⌘V.
 - **Notas de Apple**: crea la nota mediante el diccionario oficial de automatización, vuelve a leer su contenido y solo confirma el éxito si coincide. En *Ajustes → Asistente → Herramientas nativas* puedes apagar la herramienta, elegir una **carpeta**, decidir si BetoDicta debe crearla cuando falte y si abre la nota al terminar. El mismo panel muestra el permiso y ofrece **Probar sin dejar nota**: crea, verifica y borra un elemento temporal. Entiende *“Título: Compras”* o *“Titulada Compras: …”* y conserva párrafos, encabezados (`#`), listas numeradas o con viñetas, casillas y citas. Si Notas o el permiso falla, abre la app, conserva todo en el portapapeles y **no inventa éxito**. Sigue siendo distinta de **Nota local**, que vive en Tareas y notas.
-- **Pasarela inversa Siri → BetoDicta**: en *Asistente → Presencia* pulsa **Preparar Atajo…**. BetoDicta copia una URL local única de esta instalación y abre Atajos; crea un Atajo con el nombre actual del asistente, agrega **Abrir URL** y pega lo copiado. Después, *“Oye Siri, Gloria”* ejecuta ese Atajo y abre directamente un turno Agente, incluso si manos libres está apagado. La URL lleva una capacidad aleatoria privada para que otra app no pueda encender el Recorder con una ruta genérica; no la publiques. Si cambias el nombre, renombra el Atajo; para sinónimos, duplica el mismo puente. Apple exige esta creación/autorización visible una sola vez: BetoDicta no la salta ni suplanta a Siri.
-- **Atajos Apple / Siri**: Siri no ofrece una API pública para recibir una orden de texto arbitraria. BetoDicta usa la pasarela oficial de **Atajos** y descubre los que ya están instalados. Cada uno aparece **apagado por defecto**; tú lo habilitas individualmente y marcas su riesgo (lectura, reversible, cambio local, externo o destructivo). La ejecución tiene timeout y devuelve evidencia. HomeKit y Concentración solo pasan por Atajos que hayas autorizado.
+- **Pasarela inversa Siri → BetoDicta**: en *Asistente → Presencia* pulsa **Instalar**. BetoDicta abre un paquete `.shortcut` firmado cuyo nombre ya corresponde al nombre configurado del asistente; tú revisas la acción y pulsas **Añadir atajo**. El paquete no contiene claves: ejecuta un ayudante incluido que lee localmente la capacidad privada de esta instalación. Después, *“Oye Siri, Gloria”* abre un turno Agente aun con manos libres apagado. Si cambias el nombre, usa **Reinstalar** para generar el paquete con el nombre nuevo. Apple exige esa autorización visible y BetoDicta nunca la acepta en silencio.
+- **Convivencia con Siri cuando manos libres usa el micrófono**: una app normal no tiene el detector privilegiado de Siri y su escucha continua puede impedir que macOS oiga *“Oye Siri”*. Si activas **Compatibilidad local con Oye Siri**, BetoDicta reconoce exclusivamente *“Oye Siri + nombre configurado”* y abre el mismo turno; por ejemplo *“Oye Siri, Gloria”*. El nombre es dinámico y no está escrito en el código. No intercepta *“Oye Siri”* a secas ni órdenes genéricas como *“Oye Siri, pon música”*, que siguen reservadas para Apple. Con manos libres apagado se usa el Atajo nativo instalado.
+- **Atajos incluidos y reinstalables**: el asistente, **BetoDicta Universal** y **BetoDicta · Reproducir música** viajan firmados dentro de la app. Puedes instalarlos en el primer arranque o recuperarlos más tarde desde *Ajustes → Asistente → Atajos incluidos y reinstalables*. BetoDicta crea la programación; el usuario solo revisa e importa. Reinstalar nunca borra ni reemplaza un Atajo sin la confirmación visible de macOS.
+- **Atajos Apple / Siri**: Siri no ofrece una API pública para recibir una orden de texto arbitraria. BetoDicta usa la pasarela oficial de **Atajos** y descubre los que ya están instalados. Cada herramienta aparece **apagada por defecto**; tú la habilitas individualmente y marcas su riesgo (lectura, reversible, cambio local, externo o destructivo). La ejecución tiene timeout y devuelve evidencia. HomeKit y Concentración solo pasan por Atajos que hayas autorizado.
 
 **Modo Música con failover**
 
@@ -412,12 +415,9 @@ Con **Importar/Exportar JSON** puedes llevar toda la biblioteca o paquetes **Tra
 
 **Atajo universal BetoDicta**
 
-En vez de mantener decenas de Atajos de Apple, puedes crear uno llamado **BetoDicta Universal**. En *Ajustes → Asistente → Atajo universal*:
+En vez de mantener decenas de Atajos de Apple, BetoDicta incluye uno firmado llamado **BetoDicta Universal**. En *Ajustes → Asistente → Atajo universal* pulsa **Instalar** o **Reinstalar**: macOS muestra el contenido y tú confirmas **Añadir atajo**. El paquete ya contiene la acción **Ejecutar script de shell**, pasa la entrada a `stdin` y llama al ayudante incluido en la aplicación; no tienes que programarlo a mano. Si macOS bloquea scripts, debes habilitar una vez *Atajos → Ajustes → Avanzado → Permitir ejecutar scripts*; BetoDicta no cambia ese permiso de seguridad por su cuenta.
 
-1. Pulsa **Crear en Atajos…**: BetoDicta abre Atajos y copia la guía.
-2. Crea un Atajo con la acción **Ejecutar script de shell**, pasando la entrada **a stdin**. Si macOS la tiene bloqueada, tú debes habilitar una vez *Atajos → Ajustes → Avanzado → Permitir ejecutar scripts*; BetoDicta no cambia ese permiso de seguridad por su cuenta.
-3. Usa `/Applications/BetoDicta.app/Contents/Resources/betodicta-universal.sh`.
-4. La entrada es JSON (el botón **Copiar JSON de ejemplo** da una plantilla); la salida siempre es JSON con `ok`, `mensaje` y `evidencia`.
+La entrada es JSON (el botón **Copiar JSON de ejemplo** da una plantilla); la salida siempre es JSON con `ok`, `mensaje` y `evidencia`. Las recetas portables se enrutan por este puente estable, por lo que no hace falta instalar un Atajo diferente para cada rutina.
 
 El contrato admite `musica`, `calendario`, `recordatorio`, `aplicacion`, `atajo`, `homekit`, `foco`, `captura`, `estado_mac` y `resumen_dia`. El script usa archivos temporales privados, no recibe claves y conserva el mismo control de autonomía. Un Atajo Apple invocado por el contrato sigue necesitando habilitación individual. Para una acción externa, el JSON devuelve `requiere_confirmacion`; solo un Atajo que haya mostrado su propia pregunta visible debe reenviar la orden con `"confirmado": true`. **Validar sin ejecutar** comprueba el recorrido sin abrir apps ni controlar dispositivos.
 
