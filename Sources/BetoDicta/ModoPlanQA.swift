@@ -40,6 +40,12 @@ enum ModoPlanQA {
             Caso(texto: "Por favor redacta un correo: necesitamos revisar el contrato.",
                  transforms: ["correo"], acciones: [], idioma: nil, destinatario: nil,
                  contiene: "necesitamos revisar"),
+            Caso(texto: "Haz una redacción de un verso sin esfuerzo, algo simpático, como ejemplo. Después mándaselo a Alberto por WhatsApp.",
+                 transforms: ["generar"], acciones: ["whatsapp"], idioma: nil,
+                 destinatario: "Alberto", contiene: "una redacción de un verso"),
+            Caso(texto: "Crea una redacción básica de un verso y después mándaselo a Alberto por WhatsApp.",
+                 transforms: ["generar"], acciones: ["whatsapp"], idioma: nil,
+                 destinatario: "Alberto", contiene: "una redacción básica de un verso"),
             Caso(texto: "Anótame una tarea: revisar el Quipux y configurar el MikroTik.",
                  transforms: ["tarea"], acciones: [], idioma: nil, destinatario: nil,
                  contiene: "revisar el Quipux"),
@@ -107,7 +113,10 @@ enum ModoPlanQA {
             "El texto dice traduce esto, pero es una cita del manual",
             "Ayer me preguntaste si traducíamos el documento",
             "La guía explica que puedes abrir Safari desde el Finder",
-            "Nos gustaría un resumen de la reunión, pero aún no lo pedimos"
+            "Nos gustaría un resumen de la reunión, pero aún no lo pedimos",
+            "Ayer creé un verso y después lo envié a Alberto por WhatsApp",
+            "La redacción de un verso fue enviada por WhatsApp",
+            "Haz un esfuerzo y después llama a Alberto"
         ]
 
         var fallos = 0

@@ -3930,7 +3930,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             AgenteLog.registrar("plan", ["descripcion": plan.descripcion,
                 "nivel": PoliticaAgente.nivel.rawValue,
                 "riesgo": PoliticaAgente.riesgo(de: plan.cadena).rawValue,
-                "contenido": plan.cadena.contenido])
+                "contenido": plan.cadena.contenido,
+                "transforms": plan.cadena.transforms.map(\.id),
+                "acciones": plan.cadena.acciones.map { $0.modo.accion },
+                "destinatarios": plan.cadena.acciones.compactMap(\.destinatario)])
             if PoliticaAgente.autoEjecutar(plan.cadena) {
                 ejecutarCadenaDelAgente(plan.cadena, wav: wav, history: history)
             } else {
@@ -4148,6 +4151,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !recorder.isRecording { panel.update("✨ \(m.nombre)…") }
         LLMPostProcess.procesarModo(texto, modo: m) { [weak self] out in
             Log.write("  ↳ \(m.nombre): \(out)")
+            if contextoAgente {
+                AgenteLog.registrar("resultado_transformacion", [
+                    "modo": m.id,
+                    "nombre": m.nombre,
+                    "texto": out,
+                    "acciones_pendientes": acciones.map { $0.modo.accion },
+                    "destinatarios": acciones.compactMap(\.destinatario),
+                ])
+            }
             if !m.almacen.isEmpty,
                !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 NotasStore.agregar(tipo: m.almacen, texto: out)

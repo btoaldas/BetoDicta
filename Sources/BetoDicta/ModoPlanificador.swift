@@ -110,6 +110,20 @@ enum ModoPlanificador {
         "redactes", "redacte", "escribas", "escriba", "prepara", "preparame", "preparar",
         "prepares", "prepare", "crea", "creame", "crear", "crees", "cree"
     ]
+    /// Redacción libre que no cae en los formatos cerrados correo/oficio/nota.
+    /// La lista evita verbos ambiguos en primera persona (p. ej. «creé») y exige
+    /// además un objeto creativo cercano antes de proponer la etapa.
+    private static let verbosGenerar: Set<String> = [
+        "haz", "hazme", "crea", "creame", "crear", "genera", "generame", "generar",
+        "redacta", "redactame", "redactar", "escribe", "escribeme", "escribir",
+        "prepara", "preparame", "preparar", "inventa", "inventame", "inventar",
+        "compone", "componme", "componer"
+    ]
+    private static let objetosGeneracion: Set<String> = [
+        "redaccion", "verso", "poema", "texto", "mensaje", "saludo", "respuesta",
+        "carta", "cuento", "historia", "publicacion", "guion", "frase", "parrafo",
+        "contenido", "ejemplo"
+    ]
     private static let verbosGuardar: Set<String> = [
         "anota", "anotame", "anotar", "apunta", "apuntame", "apuntar", "guarda",
         "guardame", "guardar", "guardes", "agrega", "agregame", "agregar", "agregues",
@@ -249,6 +263,24 @@ enum ModoPlanificador {
         return nil
     }
 
+    private static func objetoGeneracion(desde i: Int, en ts: [Token]) -> Int? {
+        let limite = min(ts.count, i + 9)
+        guard i + 1 < limite else { return nil }
+        return ((i + 1)..<limite).first { objetosGeneracion.contains(ts[$0].normal) }
+    }
+
+    /// Etapa interna para «crea un verso … y después mándaselo…». Conserva la
+    /// IA/modelo configurados en Asistente, pero usa un prompt acotado para que
+    /// la IA devuelva el contenido y no prometa falsamente ejecutar WhatsApp.
+    private static func modoGeneracion(catalogo: ModoCatalogo) -> Modo? {
+        guard var m = modo("asistente", catalogo: catalogo) else { return nil }
+        m.id = "generar"
+        m.nombre = "Redactar"
+        m.icono = "pencil.and.outline"
+        m.prompt = "Redacta el contenido descrito por el pedido. Devuelve únicamente el texto final solicitado, sin explicar el proceso, sin saludar y sin afirmar que enviarás, abrirás o ejecutarás acciones posteriores."
+        return m
+    }
+
     private static func destinoAgente(desde i: Int, en ts: [Token]) -> (String, Int)? {
         let limite = min(ts.count, i + 6)
         guard i + 1 < limite else { return nil }
@@ -369,6 +401,16 @@ enum ModoPlanificador {
             if verbosRedactar.contains(t), puedeAgregar(en: i),
                let (id, j) = destinoRedaccion(desde: i, en: ts), let m = modo(id, catalogo: catalogo) {
                 agregarTransform(m, a: &p); marcar(i, j, confianza: 0.92); i = j + 1; continue
+            }
+            if verbosGenerar.contains(t), puedeAgregar(en: i),
+               let j = objetoGeneracion(desde: i, en: ts),
+               let m = modoGeneracion(catalogo: catalogo) {
+                // El objeto («un verso», «una redacción»…) forma parte del pedido
+                // que verá la IA. Solo se recorta el verbo; `finEtapaAnterior`
+                // queda después del objeto para exigir un puente antes de otra etapa.
+                agregarTransform(m, a: &p)
+                marcar(i, j, contenidoDespuesDe: i, confianza: 0.96)
+                i = j + 1; continue
             }
             if verbosGuardar.contains(t), puedeAgregar(en: i),
                let (id, j) = destinoRedaccion(desde: i, en: ts), ["nota", "tarea"].contains(id),
@@ -800,6 +842,7 @@ enum ModoPlanificador {
         let verbo = zona.contains { verbosTraducir.contains($0) || verbosResumir.contains($0)
             || verbosFormalizar.contains($0) || verbosBuscar.contains($0)
             || verbosEnvio.contains($0) || verbosRedactar.contains($0)
+            || verbosGenerar.contains($0)
             || verbosGuardar.contains($0) || verbosAbrir.contains($0) || verbosAgente.contains($0)
             || verbosMusica.contains($0) || verbosRecordar.contains($0)
             || verbosAgendar.contains($0) || verbosArchivo.contains($0) }
@@ -820,6 +863,7 @@ enum ModoPlanificador {
             let esVerbo = verbosTraducir.contains(t) || verbosResumir.contains(t)
                 || verbosFormalizar.contains(t) || verbosBuscar.contains(t)
                 || verbosEnvio.contains(t) || verbosRedactar.contains(t)
+                || verbosGenerar.contains(t)
                 || verbosGuardar.contains(t) || verbosAbrir.contains(t) || verbosAgente.contains(t)
                 || verbosMusica.contains(t) || verbosRecordar.contains(t)
                 || verbosAgendar.contains(t) || verbosArchivo.contains(t)
@@ -832,9 +876,10 @@ enum ModoPlanificador {
                 if cerca.contains(where: { mediosEnvio[$0] != nil }) { return true }
                 continue
             }
-            if verbosRedactar.contains(t) || verbosGuardar.contains(t) {
+            if verbosRedactar.contains(t) || verbosGenerar.contains(t) || verbosGuardar.contains(t) {
                 if cerca.contains(where: { ["correo", "email", "mail", "oficio", "memorando",
-                                            "nota", "notas", "tarea", "pendiente", "recordatorio"].contains($0) }) {
+                                            "nota", "notas", "tarea", "pendiente", "recordatorio"].contains($0)
+                                            || objetosGeneracion.contains($0) }) {
                     return true
                 }
                 continue

@@ -56,6 +56,22 @@ enum AgenteCoreQA {
         comprobar("memoria no invade una narración",
                   AgenteNucleo.completarSeguimiento("Ayer lo envié por WhatsApp", referencia: "secreto") == nil)
 
+        let generarYEnviar = AgenteNucleo.planificar(
+            "crea una redacción de un verso sin esfuerzo, algo como ejemplo, y después mándaselo a Alberto por WhatsApp",
+            catalogo: ModoCatalogo(modos: ModosStore.todos()),
+            ignorarInterruptor: true)
+        comprobar("generación encadena WhatsApp y destinatario",
+                  generarYEnviar?.cadena.transforms.map(\.id) == ["generar"]
+                    && generarYEnviar?.cadena.acciones.map(\.modo.accion) == ["whatsapp"]
+                    && generarYEnviar?.cadena.acciones.first?.destinatario == "Alberto"
+                    && generarYEnviar?.cadena.contenido.localizedCaseInsensitiveContains("redacción de un verso") == true,
+                  generarYEnviar.map { "\($0.descripcion) | \($0.cadena.contenido)" } ?? "nil")
+        comprobar("generación libre no confunde una narración",
+                  AgenteNucleo.planificar(
+                    "Ayer creé un verso y después lo envié a Alberto por WhatsApp",
+                    catalogo: ModoCatalogo(modos: ModosStore.todos()),
+                    ignorarInterruptor: true) == nil)
+
         comprobar("proveedor Spotify", Musica.reconocerProveedor(en: "en Spotify") == "spotify")
         comprobar("proveedor Apple Music", Musica.reconocerProveedor(en: "Apple Music") == "apple_music")
         comprobar("proveedor YouTube Music conserva la consulta",
