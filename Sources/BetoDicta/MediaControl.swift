@@ -13,6 +13,8 @@ private enum MediaAdapter {
     static let play = 0
     static let pause = 1
 
+    typealias Ahora = (reproduciendo: Bool, titulo: String, artista: String, id: String?)
+
     private static var scriptPath: String? {
         Bundle.main.path(forResource: "mediaremote-adapter", ofType: "pl")
     }
@@ -22,14 +24,21 @@ private enum MediaAdapter {
 
     /// ¿Hay algo reproduciéndose ahora? (lee "playing" del JSON del adapter)
     static func isPlaying() -> Bool {
-        guard let out = run(["get"]) else { return false }
-        // Respuesta JSON con campo "playing":true/false
-        if let data = out.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let playing = json["playing"] as? Bool {
-            return playing
-        }
-        return out.contains("\"playing\":true")
+        ahora()?.reproduciendo ?? false
+    }
+
+    /// Metadatos reales del centro multimedia. `uniqueIdentifier` coincide con
+    /// el trackId del catálogo Apple y permite verificar incluso durante el
+    /// breve instante en que Music aún no expone `current track` por AppleScript.
+    static func ahora(timeout: TimeInterval = 3) -> Ahora? {
+        guard let out = run(["get", "--no-artwork"], timeout: timeout),
+              let data = out.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let playing = json["playing"] as? Bool else { return nil }
+        let titulo = json["title"] as? String ?? ""
+        let artista = json["artist"] as? String ?? ""
+        let id = json["uniqueIdentifier"].map { String(describing: $0) }
+        return (playing, titulo, artista, id)
     }
 
     @discardableResult
@@ -37,7 +46,7 @@ private enum MediaAdapter {
         run(["send", String(command)]) != nil
     }
 
-    private static func run(_ args: [String]) -> String? {
+    private static func run(_ args: [String], timeout: TimeInterval = 3) -> String? {
         guard let scriptPath, let frameworkPath else {
             Log.debug("adapter: recursos no encontrados en el bundle")
             return nil
@@ -50,11 +59,16 @@ private enum MediaAdapter {
         task.standardError = FileHandle.nullDevice
         do {
             try task.run()
-            // El adapter responde al instante para get/send; tope de seguridad
-            let deadline = Date().addingTimeInterval(3)
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            // El adapter normalmente responde al instante. El límite sí es
+            // efectivo: una falla de MediaRemote nunca puede congelar el hilo.
+            let deadline = Date().addingTimeInterval(max(0.5, timeout))
+            while task.isRunning, Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            if task.isRunning { task.terminate() }
             task.waitUntilExit()
-            _ = deadline
+            guard task.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             return String(data: data, encoding: .utf8)
         } catch {
             Log.debug("adapter: no se pudo lanzar perl: \(error.localizedDescription)")
@@ -69,6 +83,20 @@ final class MediaControl {
     private var previousVolume: Int?
     private var wasMuted = false
     private var didMute = false
+
+    /// Reanuda el reproductor que macOS considera activo. Sirve para “pon
+    /// música” sin consulta: no adivina una canción ni simula teclas.
+    @discardableResult
+    static func reproducirActual() -> Bool {
+        guard MediaAdapter.send(MediaAdapter.play) else { return false }
+        Thread.sleep(forTimeInterval: 0.12)
+        return MediaAdapter.isPlaying()
+    }
+
+    static func estadoActual(timeout: TimeInterval = 3) -> (reproduciendo: Bool,
+                                   titulo: String, artista: String, id: String?)? {
+        MediaAdapter.ahora(timeout: timeout)
+    }
 
     /// Al empezar a dictar: pausa REAL lo que suene.
     func dictationStarted() {
