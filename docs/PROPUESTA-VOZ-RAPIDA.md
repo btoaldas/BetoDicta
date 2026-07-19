@@ -1,7 +1,8 @@
 # Propuesta: voz clonada SÚPER RÁPIDA sin perder calidad (carriles MLX nuevos, sin romper nada)
 
 **Fecha:** 2026-07-19 · **Autor:** Claude (investigación 28 agentes web + benchmarks propios) · **Para revisión de:** Codex
-**Estado:** PROPUESTA — nada de esto está implementado. Se pide opinión antes de tocar código.
+**Estado:** EJECUCIÓN CONTROLADA — shootout completado; robustez y calentamiento implementados. Ningún
+motor experimental se integró porque todavía no superó la referencia XTTS en identidad.
 
 ---
 
@@ -149,11 +150,9 @@ y motor del Entrenador actual).
 | `voz_caliente_tras_uso_min` | **15** | Tras CADA uso, mantener caliente 15 min más; luego dormir hasta el próximo uso. |
 | `voz_warmup_dummy` | ON | Al levantar, generar una frase corta muda (compila kernels Metal / llena cachés) para que la primera frase real ya sea rápida. |
 
-Notas de implementación (para cuando se apruebe): `XttsServer` ya tiene vigía de inactividad
-(`tts_xtts_dormir_min`, hoy 15 ✓) y preactivación al arranque (`tts_xtts_preactivar` ✓) — falta solo la
-ventana de arranque de 60 min y el dummy. `MlxVozServer` tiene `tts_mlx_dormir_min: 1` → subir a 15 según
-esta spec. RAM pico si conviven dos motores calientes: XTTS ~2 GB + Chatterbox ~4 GB = ~6 GB de 64 GB (holgado,
-pero ver pregunta a Codex #3).
+Implementado: XTTS y Qwen3‑MLX tienen su propia ventana inicial, su tiempo post-uso, calentamiento silencioso
+y controles en la interfaz. Solo permanece caliente la variante activa; cambiar de carril descarga la anterior.
+El ahorro global respeta la ventana inicial y, al primer uso real, pasa a contar el tiempo post-uso.
 
 ---
 
@@ -176,10 +175,85 @@ pero ver pregunta a Codex #3).
 ## 8. Resumen ejecutivo
 
 - **Mantener TODO lo actual tal cual** (XTTS = referencia de calidad, intocable).
-- **Añadir Chatterbox-MLX como carril experimental OFF** — único candidato con RTF medido en este Mac (0.41),
-  MIT, español, y que reusa la infra mlx-audio ya embarcada.
+- **Evaluar Chatterbox-MLX sin integrarlo primero** — fue rápido, pero el shootout posterior no superó la
+  identidad XTTS; por el propio gate de este documento quedó fuera de la app.
 - **Qwen3-TTS Base fine-tune como ruta de entrenamiento formal** (Apache, oficial) y **F5-Spanish como plan C**
   (conversión a MLX ya probada por terceros).
 - **Gol:** primera palabra ≤ 1 s con motor caliente, calidad ≥ XTTS actual, todo local, todo parametrizable,
   warm-up 60 min al abrir + 15 min tras cada uso.
 - **Si algo se comporta o entrena mal: toggle OFF y quedamos exactamente como hoy.**
+
+---
+
+## 9. Resultado de la ejecución (2026-07-19)
+
+### 9.1 Fallo real encontrado y corregido en XTTS
+
+El problema de que la voz empezaba bien y luego se cortaba no era una pérdida del checkpoint. Para textos
+largos, Coqui intentaba dividir el texto con `enable_text_splitting=True`, pero el runtime aislado de BetoDicta
+no incluye spaCy. El servidor ya había respondido HTTP 200 cuando Python lanzaba la excepción; por eso el
+cliente podía confundir audio vacío/truncado con una respuesta correcta.
+
+Corrección aplicada:
+
+- segmentación española liviana y local, dentro del límite real del tokenizer;
+- inferencia por segmentos sin spaCy, con 80 ms de separación natural;
+- transferencia HTTP `chunked`: solo un final completo se acepta como éxito;
+- la ruta residente y la ruta de respaldo usan la misma regla;
+- hook QA con dos respuestas consecutivas, texto largo, duración de audio, RTF y error real.
+
+Pruebas sobre la voz instalada `mama-rafaela`:
+
+| Prueba | Resultado |
+|---|---|
+| Texto largo, pedido 1 | 30,17 s de audio; RTF 0,921; HTTP 200; completo |
+| Texto largo, pedido 2 | 31,52 s de audio; RTF 0,897; HTTP 200; completo |
+| Streaming detallado | primer PCM 0,443 s; RTF 0,740; sin vaciados del colchón desde 0,5 s |
+| Seis respuestas calientes | RTF 0,625–0,753; memoria estable; cero degradación progresiva |
+| Ruta de respaldo sin servidor | WAV válido de 300.332 bytes |
+
+El colchón de Alberto permanece en 2 s: la medición demuestra que puede bajarse, pero no se reduce a
+ciegas porque la estabilidad tiene prioridad.
+
+### 9.2 Shootout Chatterbox-MLX
+
+Se generó el mismo texto con la misma referencia real de 12 s. Resultados:
+
+- audio: 16,40 s;
+- RTF en proceso nuevo: 0,37; RTF caliente repetido: 0,28–0,30;
+- inteligibilidad Whisper: 0,9592;
+- similitud de voz: **0,8178**, menor que XTTS (**0,8753** en la comparativa existente);
+- la versión actual de `mlx-audio` genera Chatterbox completo: no ofrece chunks reales para este motor.
+
+**Decisión: NO-GO a integración.** Es rápido y estable, pero no iguala la identidad de XTTS; por tanto no
+se añadió un toggle decorativo ni otro servidor pesado. Las muestras quedaron en
+`~/Downloads/Comparativa_Voz_Rapida_BetoDicta_2026-07-19/` para escucharlas.
+
+### 9.3 Qwen3-MLX, F5 y respuestas arquitectónicas
+
+- **Qwen3-MLX:** sigue como carril equilibrado separado. El calentamiento real cargó el servidor en 2,23 s,
+  precompiló silenciosamente y completó dos generaciones. Un fine-tune formal queda bloqueado por el gate
+  correcto: demostrar primero, con un checkpoint trivial, que la conversión hacia MLX conserva los pesos.
+- **F5-Spanish:** no entra en BetoDicta por ahora. Sus pesos compatibles tienen licencia no comercial; no es
+  una base adecuada para un producto que debe poder usarse libremente. No se descargó ni se alteró el Mac.
+- **Arquitectura futura:** un motor experimental iría en proceso/puerto separado, pero solo el activo puede
+  permanecer caliente. Así un crash no contamina Qwen y nunca conviven varios modelos de 4 GB.
+- **Streaming:** Qwen sí tiene entrega progresiva; Chatterbox no en la versión evaluada. Partir frases ayuda
+  a la latencia, pero no debe venderse como WebSocket/streaming verdadero.
+- **Rollback:** cualquier candidato futuro necesita toggle OFF por defecto, manifiesto tolerante, watchdog,
+  verificación de audio completo y prueba A/B antes de poder activarse.
+
+### 9.4 Política térmica aplicada
+
+- al abrir: solo el motor local activo queda protegido **60 min**;
+- tras el primer uso: cambia a **15 min** de inactividad;
+- frase silenciosa configurable para calentar el camino real (y Metal en MLX);
+- XTTS y Qwen3‑MLX tienen controles independientes; 0 min desactiva la protección inicial;
+- si el calentamiento falla, se registra y la cascada continúa: nunca detiene al asistente.
+
+Fuentes primarias consultadas: [MLX Audio](https://github.com/Blaizzy/mlx-audio),
+[releases de MLX Audio](https://github.com/Blaizzy/mlx-audio/releases),
+[Chatterbox MLX](https://huggingface.co/mlx-community/chatterbox-fp16),
+[Qwen3-TTS oficial](https://github.com/QwenLM/Qwen3-TTS),
+[F5-TTS oficial](https://github.com/SWivid/F5-TTS) y
+[F5-Spanish MLX Compat](https://huggingface.co/Juanfa/F5-Spanish-MLX-Compat).
