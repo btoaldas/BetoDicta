@@ -6,8 +6,10 @@ import Foundation
 // Ajustes. Todo parametrizable POR proveedor (voz/modelo/streaming), key propia del
 // usuario. Sin key → nil → failover al siguiente motor (nunca truena).
 //
-//   Con WebSocket (baja latencia): ElevenLabs (ya), Cartesia, Deepgram, PlayHT.
-//   Sin WS (batch): OpenAI, Gemini (Google), Azure.  (Inworld tiene WS; aquí batch.)
+//   Con WebSocket IMPLEMENTADO: ElevenLabs (cliente propio), Cartesia y Deepgram.
+//   Por HTTP/batch en BetoDicta: OpenAI, Gemini, Azure, Inworld y PlayHT.
+//   Que el proveedor publique un protocolo WS no significa que el adaptador ya exista:
+//   el selector solo promete streaming cuando TTSCloudStream realmente lo implementa.
 //
 // `decir` devuelve audio LISTO para reproducir (mp3, o wav si el proveedor da PCM).
 
@@ -31,10 +33,10 @@ enum TTSCloud {
                          vozDefault: "aura-2-celeste-es", modeloDefault: "aura-2", nota: "Baja latencia; español latino."),
         TTSNubeProveedor(id: "cartesia_tts", nombre: "Cartesia Sonic", keyEnv: "CARTESIA_API_KEY", ws: true,
                          vozDefault: "", modeloDefault: "sonic-2", nota: "Líder de latencia; clona. Requiere key + voice id."),
-        TTSNubeProveedor(id: "inworld_tts", nombre: "Inworld", keyEnv: "INWORLD_API_KEY", ws: true,
-                         vozDefault: "Ashley", modeloDefault: "inworld-tts-1", nota: "Barato; clona gratis. Requiere key."),
-        TTSNubeProveedor(id: "playht_tts", nombre: "PlayHT", keyEnv: "PLAYHT_API_KEY", ws: true,
-                         vozDefault: "", modeloDefault: "Play3.0-mini", nota: "Clona. Requiere key + user id (PLAYHT_USER_ID)."),
+        TTSNubeProveedor(id: "inworld_tts", nombre: "Inworld", keyEnv: "INWORLD_API_KEY", ws: false,
+                         vozDefault: "Ashley", modeloDefault: "inworld-tts-1", nota: "HTTP/batch en BetoDicta; su WS aún no está integrado."),
+        TTSNubeProveedor(id: "playht_tts", nombre: "PlayHT", keyEnv: "PLAYHT_API_KEY", ws: false,
+                         vozDefault: "", modeloDefault: "Play3.0-mini", nota: "HTTP/batch en BetoDicta; requiere key + PLAYHT_USER_ID."),
         TTSNubeProveedor(id: "azure_tts", nombre: "Azure Speech", keyEnv: "AZURE_SPEECH_KEY", ws: false,
                          vozDefault: "es-EC-AndreaNeural", modeloDefault: "", nota: "Español EC nativo. Requiere key + región (AZURE_SPEECH_REGION)."),
     ]
