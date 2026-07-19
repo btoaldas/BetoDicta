@@ -1,4 +1,4 @@
-# Paquete QA BetoDicta 0.46.0
+# Paquete QA BetoDicta 0.47.0
 
 Este paquete separa dos preguntas distintas:
 

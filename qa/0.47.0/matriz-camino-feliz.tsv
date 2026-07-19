@@ -1,12 +1,12 @@
 # frase	esperado	textoEsperado (* = no comparar literal)	argumentoEsperado
 modo traducir inglés buenos días	traducir	buenos días	idioma=inglés
 modo traducir quichua cómo estás	traducir	cómo estás	idioma=quichua
-modo correo estimado equipo nos vemos mañana	correo	estimado equipo nos vemos mañana	
-modo oficio solicito apoyo para los juegos internos	oficio	solicito apoyo para los juegos internos	
-modo tarea revisar el Quipux mañana	tarea	revisar el Quipux mañana	
-modo nota la clave del proyecto es transparencia	nota	la clave del proyecto es transparencia	
-modo resumir este informe contiene cinco conclusiones	resumir	este informe contiene cinco conclusiones	
-modo agente dime qué tareas tengo hoy	agente	dime qué tareas tengo hoy	
+modo correo estimado equipo nos vemos mañana	correo	estimado equipo nos vemos mañana
+modo oficio solicito apoyo para los juegos internos	oficio	solicito apoyo para los juegos internos
+modo tarea revisar el Quipux mañana	tarea	revisar el Quipux mañana
+modo nota la clave del proyecto es transparencia	nota	la clave del proyecto es transparencia
+modo resumir este informe contiene cinco conclusiones	resumir	este informe contiene cinco conclusiones
+modo agente dime qué tareas tengo hoy	agente	dime qué tareas tengo hoy
 modo buscar wikipedia Universidad Estatal Amazónica	buscar	Universidad Estatal Amazónica	buscador=wikipedia
 modo buscar google mejores rutas hacia Puyo	buscar	mejores rutas hacia Puyo	buscador=google
 modo música interno reproduce Julio Jaramillo	musica	*	proveedor=betodicta_youtube

@@ -772,7 +772,7 @@ Todo vive en tu Mac, en `~/.betodicta/`:
 
 ### Diagnóstico reproducible
 
-El proyecto incluye un paquete QA en [`qa/0.46.0/`](../qa/0.46.0/README.md):
+El proyecto incluye un paquete QA en [`qa/0.47.0/`](../qa/0.47.0/README.md):
 30 recorridos de **camino feliz**, 50 pruebas de **estrés/degradación**, matrices
 automáticas y una hoja CSV para anotar qué oyó el STT y qué hizo la app. La prueba
 segura se ejecuta con `scripts/qa-paquete.sh --automatico`; no abre aplicaciones,

@@ -6,11 +6,19 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.46.0"
+    static let numero = "0.47.0"
     static let fecha = "2026-07-19"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.47.0", "2026-07-19", [
+            "VOZ XTTS ESTABLE HASTA EL FINAL: segmenta localmente los textos largos sin depender de spaCy, conserva pausas naturales y valida el cierre completo del flujo HTTP para no aceptar audios truncados ni frases que se mueren al final",
+            "CALENTAMIENTO LOCAL PARAMETRIZABLE: conserva únicamente el motor de voz activo, lo protege 60 minutos al abrir y 15 minutos después de usarlo, y puede precompilar XTTS o Qwen3-MLX con una frase silenciosa editable",
+            "ACTIVACIÓN MANOS LIBRES REARMADA: al terminar, cancelar o responder, el oyente de presencia vuelve de forma verificable; el ícono de la barra se reconstruye si macOS lo pierde y conserva el color dinámico de plantilla",
+            "MODO MÚSICA MÁS PRECISO: diferencia buscar de reproducir dentro del mismo modo, reconoce proveedor y orden sin fabricar etapas duplicadas y conserva la degradación configurada entre reproductores",
+            "QA REPRODUCIBLE VERSIONADO: paquete de camino feliz y estrés con 15 comprobaciones locales automáticas, guiones manuales, evidencia privada y pruebas específicas para voz, modos, permisos, tareas y acciones",
+            "CALIDAD ANTES QUE NOVEDAD: Chatterbox-MLX se midió como carril experimental y no se activó al quedar por debajo de la identidad de XTTS; la voz de referencia y todos los motores existentes permanecen intactos",
+        ]),
         ("0.46.0", "2026-07-19", [
             "REPRODUCTOR INTERNO DE MÚSICA: BetoDicta · YouTube integra búsqueda, cola, Anterior, Play/Pausa, Stop y Siguiente; diferencia buscar de reproducir, verifica el estado real y participa en la cascada configurable de Modo Música",
             "GOOGLE SIN CONTRASEÑAS EMBEBIDAS: búsqueda mediante YouTube Data API v3 con API key propia u OAuth de escritorio en el navegador externo, PKCE y retorno exclusivo a 127.0.0.1; el token revocable queda protegido en el archivo privado de claves",

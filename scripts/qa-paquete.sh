@@ -4,7 +4,7 @@
 set -u
 umask 077
 
-VERSION_PAQUETE="0.46.0"
+VERSION_PAQUETE="0.47.0"
 SCRIPT_DIR="${0:A:h}"
 REPO="${SCRIPT_DIR:h}"
 if [[ -f "$SCRIPT_DIR/matriz-camino-feliz.tsv" ]]; then
