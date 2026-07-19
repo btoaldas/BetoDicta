@@ -88,9 +88,18 @@ enum VocesLocales {
         var reparada = false
         for i in list.indices {
             if !list[i].paquete.isEmpty {
+                let raiz = URL(fileURLWithPath: list[i].paquete)
+                // Un portable puede traer la personalidad como skill (la forma
+                // recomendada para editar/transportar el estilo) sin duplicarla en
+                // persona.txt. Recuperarla aquí evita que una importación o un
+                // downgrade deje a la voz hablando sin su manera propia de expresarse.
+                if list[i].persona.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let recuperada = leerPersonaPortable(en: raiz)
+                    if !recuperada.isEmpty { list[i].persona = recuperada; reparada = true }
+                }
                 // El runner lo controla BetoDicta. Al actualizar la receta, también se
                 // actualizan paquetes ya importados sin tocar modelo, refs ni persona.
-                let runner = URL(fileURLWithPath: list[i].paquete).appendingPathComponent("voz_gen.py")
+                let runner = raiz.appendingPathComponent("voz_gen.py")
                 let actual = try? String(contentsOf: runner, encoding: .utf8)
                 if actual != runnerBatch {
                     try? runnerBatch.write(to: runner, atomically: true, encoding: .utf8)
@@ -100,16 +109,17 @@ enum VocesLocales {
                 // Paquetes antiguos llevaban solo persona.txt. Materializa también el
                 // skill portable para que el estilo viaje y pueda editarse visualmente.
                 if !list[i].persona.isEmpty {
-                    let skill = URL(fileURLWithPath: list[i].paquete)
-                        .appendingPathComponent("persona_SKILL.md")
-                    if !FileManager.default.fileExists(atPath: skill.path) {
-                        try? list[i].persona.write(to: skill, atomically: true,
-                                                   encoding: .utf8)
-                        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
-                                                                ofItemAtPath: skill.path)
+                    for nombre in ["persona.txt", "persona_SKILL.md"] {
+                        let archivo = raiz.appendingPathComponent(nombre)
+                        if !FileManager.default.fileExists(atPath: archivo.path) {
+                            try? list[i].persona.write(to: archivo, atomically: true,
+                                                       encoding: .utf8)
+                            try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                                    ofItemAtPath: archivo.path)
+                        }
                     }
                 }
-                protegerPaquete(URL(fileURLWithPath: list[i].paquete))
+                protegerPaquete(raiz)
             }
             if let cfg = leerMlx(list[i].id) {
                 let ref = vocesDir.appendingPathComponent(list[i].id)
@@ -368,14 +378,12 @@ enum VocesLocales {
         guard let modelo = pths.first(where: { $0.lastPathComponent.lowercased().contains("slim") })
             ?? pths.max(by: { (tam($0)) < (tam($1)) }) else { return .faltaModelo }
         // 2) Nombre + persona (si vienen).
-        var nombre = origen.lastPathComponent, persona = ""
+        var nombre = origen.lastPathComponent
         if let mData = try? Data(contentsOf: origen.appendingPathComponent("betodicta-voz.json")),
            let j = try? JSONSerialization.jsonObject(with: mData) as? [String: Any] {
             if let n = j["nombre"] as? String, !n.isEmpty { nombre = n }
         }
-        if let t = try? String(contentsOf: origen.appendingPathComponent("persona.txt"), encoding: .utf8) {
-            persona = t.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let persona = leerPersonaPortable(en: origen)
         // 3) Registrar + carpeta gestionada.
         let v = agregar(nombre: nombre, cmd: "", persona: persona, paquete: "")
         try? fm.createDirectory(at: vocesDir, withIntermediateDirectories: true)
@@ -424,11 +432,19 @@ enum VocesLocales {
         try? refLines.joined(separator: "\n").write(to: dst.appendingPathComponent("ref_list.txt"), atomically: true, encoding: .utf8)
         // 7) Runner genérico + manifest (BetoDicta los controla).
         try? runnerBatch.write(to: dst.appendingPathComponent("voz_gen.py"), atomically: true, encoding: .utf8)
-        if !persona.isEmpty { try? persona.write(to: dst.appendingPathComponent("persona.txt"), atomically: true, encoding: .utf8) }
+        if !persona.isEmpty {
+            for nombre in ["persona.txt", "persona_SKILL.md"] {
+                let archivo = dst.appendingPathComponent(nombre)
+                try? persona.write(to: archivo, atomically: true, encoding: .utf8)
+                try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: archivo.path)
+            }
+        }
         for nombrePersona in ["persona_SKILL.md", "persona_PROMPT.md", "persona_corpus.txt"] {
             let src = origen.appendingPathComponent(nombrePersona)
             if fm.fileExists(atPath: src.path) {
-                try? fm.copyItem(at: src, to: dst.appendingPathComponent(nombrePersona))
+                let destino = dst.appendingPathComponent(nombrePersona)
+                try? fm.removeItem(at: destino)
+                try? fm.copyItem(at: src, to: destino)
             }
         }
         let manifest: [String: Any] = ["formato": "betodicta-voz-clonada/1", "nombre": nombre, "idioma": "es",
@@ -475,6 +491,22 @@ enum VocesLocales {
     }
 
     private static func tam(_ u: URL) -> Int { (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+
+    /// Lee la personalidad desde cualquiera de los formatos portables aceptados.
+    /// Limita el tamaño para no cargar por accidente un corpus/modelo renombrado como
+    /// texto. El skill tiene prioridad porque es el artefacto editable y transportable.
+    private static func leerPersonaPortable(en raiz: URL) -> String {
+        for nombre in ["persona_SKILL.md", "persona.txt", "persona_PROMPT.md"] {
+            let archivo = raiz.appendingPathComponent(nombre)
+            guard let valores = try? archivo.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  valores.isRegularFile == true,
+                  let bytes = valores.fileSize, bytes > 0, bytes <= 1_048_576,
+                  let texto = try? String(contentsOf: archivo, encoding: .utf8) else { continue }
+            let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !limpio.isEmpty { return limpio }
+        }
+        return ""
+    }
 
     /// Auto-genera la PERSONA de una voz (si está vacía) transcribiendo sus refs con
     /// Whisper. Para clones de fuera sin persona. Actualiza la voz + persona.txt.

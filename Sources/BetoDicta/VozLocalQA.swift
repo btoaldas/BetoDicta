@@ -53,6 +53,47 @@ enum VozLocalQA {
             print("VOZSAFETYTEST papelera=\(movida) restaurada=\(restaurada?.id ?? "nil")")
             exit(ok ? 0 : 3)
         }
+        if env["BETODICTA_VOZPERSONATEST"] == "1" {
+            let fm = FileManager.default
+            let biblioteca = Config.dir.appendingPathComponent("voces_locales.json")
+            let original = try? Data(contentsOf: biblioteca)
+            let temporal = fm.temporaryDirectory
+                .appendingPathComponent("bd-persona-skill-\(UUID().uuidString)")
+            try? fm.createDirectory(at: temporal, withIntermediateDirectories: true)
+            defer { try? fm.removeItem(at: temporal) }
+            try? Data([0x42, 0x44]).write(to: temporal.appendingPathComponent("modelo-slim.pth"))
+            try? "{}".write(to: temporal.appendingPathComponent("config.json"),
+                              atomically: true, encoding: .utf8)
+            try? "{}".write(to: temporal.appendingPathComponent("vocab.json"),
+                              atomically: true, encoding: .utf8)
+            try? Data("RIFF-qa".utf8).write(to: temporal.appendingPathComponent("referencia.wav"))
+            let estilo = "# Persona QA\nHabla con cariño y termina diciendo chao chao."
+            try? estilo.write(to: temporal.appendingPathComponent("persona_SKILL.md"),
+                               atomically: true, encoding: .utf8)
+
+            var importada: VozLocal?
+            switch VocesLocales.importarPaquete(desde: temporal) {
+            case .ok(let voz), .faltaMuestras(let voz): importada = voz
+            case .faltaModelo: break
+            }
+            let voz = importada.flatMap { nueva in
+                VocesLocales.todas().first { $0.id == nueva.id }
+            }
+            let skill = voz.map { URL(fileURLWithPath: $0.paquete)
+                .appendingPathComponent("persona_SKILL.md") }
+            let permisos = skill.flatMap { try? fm.attributesOfItem(atPath: $0.path)[.posixPermissions] as? NSNumber }
+            let ok = voz?.persona.contains("chao chao") == true
+                && skill.map { fm.fileExists(atPath: $0.path) } == true
+                && permisos?.intValue == 0o600
+
+            if let voz { try? fm.removeItem(at: URL(fileURLWithPath: voz.paquete)) }
+            if let original {
+                try? original.write(to: biblioteca, options: .atomic)
+                try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: biblioteca.path)
+            } else { try? fm.removeItem(at: biblioteca) }
+            print("VOZPERSONATEST importada=\(voz != nil) persona=\(voz?.persona.contains("chao chao") == true) skill0600=\(permisos?.intValue == 0o600)")
+            exit(ok ? 0 : 4)
+        }
         if let texto = env["BETODICTA_MAXIMATEST"], !texto.isEmpty {
             guard let voz = VocesLocales.activa(), voz.maximaInterna,
                   VozMaximaEngine.estado() == .listo else {
