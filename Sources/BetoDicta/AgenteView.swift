@@ -68,6 +68,18 @@ final class AgenteSettingsModel: ObservableObject {
                                             object: nil)
         }
     }
+    @Published var activacionEsperaAcuse: Double {
+        didSet { Config.set("agente_activacion_espera_acuse_seg", to: activacionEsperaAcuse) }
+    }
+    @Published var activacionAcuse: Bool {
+        didSet { Config.set("agente_activacion_acuse", to: activacionAcuse) }
+    }
+    @Published var activacionAcuseFormato: String {
+        didSet { Config.set("agente_activacion_acuse_formato", to: activacionAcuseFormato) }
+    }
+    @Published var activacionAcuseTexto: String {
+        didSet { Config.set("agente_activacion_acuse_texto", to: activacionAcuseTexto) }
+    }
     @Published var autonomia: String { didSet { Config.set("agente_autonomia", to: autonomia) } }
     @Published var motor: String { didSet { Config.set("agente_motor", to: motor) } }
     @Published var fallback: Bool { didSet { Config.set("agente_fallback_local", to: fallback) } }
@@ -136,6 +148,10 @@ final class AgenteSettingsModel: ObservableObject {
         activadores = FrasesConfigurables.formatear(Config.agenteActivadores())
         activacionReposo = Config.agenteActivacionReposo()
         activacionPrebuffer = Config.agenteActivacionPrebuffer()
+        activacionEsperaAcuse = Config.agenteActivacionEsperaAcuse()
+        activacionAcuse = Config.agenteActivacionAcuse()
+        activacionAcuseFormato = Config.agenteActivacionAcuseFormato()
+        activacionAcuseTexto = Config.agenteActivacionAcuseTexto()
         autonomia = Config.agenteAutonomia(); motor = Config.agenteMotor()
         fallback = Config.agenteFallbackCerebro(); proveedorIA = Config.agenteIAProveedor()
         modeloIA = Config.agenteIAModelo(); memoria = Config.agenteMemoriaActiva()
@@ -310,6 +326,11 @@ struct AgenteView: View {
 
     private let violeta = Color(red: 0.36, green: 0.28, blue: 0.62)
 
+    private var ejemploActivador: String {
+        FrasesConfigurables.activadoresSeguros(FrasesConfigurables.parsear(m.activadores)).first
+            ?? "la frase configurada"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
@@ -328,8 +349,8 @@ struct AgenteView: View {
                         .padding(5).background(Color(nsColor: .textBackgroundColor))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                     Text(m.activacionReposo
-                         ? "Una frase por línea y mínimo dos palabras. La puntuación no importa: “Oye, Bto” coincide con “Oye Bto”. Activadores genéricos de una palabra se ignoran. Funcionan tanto con fn como en la escucha local opcional de abajo."
-                         : "Una frase por línea y mínimo dos palabras. La puntuación no importa: “Oye, Bto” coincide con “Oye Bto”. Activadores de una palabra como “oye” o “Bto” se ignoran para que un dictado normal no llame al agente. Funciona dentro del dictado iniciado con fn; el micrófono no queda escuchando en reposo.")
+                         ? "Una frase por línea y mínimo dos palabras. La puntuación no importa: el ejemplo “\(ejemploActivador)” también coincide si el transcriptor agrega comas. Activadores genéricos de una palabra se ignoran. Funcionan tanto con fn como en la escucha local opcional de abajo."
+                         : "Una frase por línea y mínimo dos palabras. La puntuación no importa. Activadores de una palabra como “oye” o solo el nombre se ignoran para que un dictado normal no llame al agente. Funciona dentro del dictado iniciado con fn; el micrófono no queda escuchando en reposo.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Divider()
@@ -349,7 +370,30 @@ struct AgenteView: View {
                         Slider(value: $m.activacionPrebuffer, in: 2...8, step: 0.5)
                             .frame(maxWidth: 230)
                     }
-                    Text("Puedes decir “Oye Bto” y continuar sin cortar la frase. Antes de despertar, BetoDicta conserva únicamente este búfer circular en memoria: no guarda ni sube el audio y no registra el texto ambiental. macOS puede descargar una vez el modelo local del idioma y mostrará su indicador de micrófono. La escucha se pausa al dictar, hablar, confirmar o capturar.")
+                    HStack {
+                        Text("Pausa para distinguir frase sola: \(String(format: "%.1f", m.activacionEsperaAcuse)) s")
+                            .font(.caption)
+                        Slider(value: $m.activacionEsperaAcuse, in: 0.8...3.0, step: 0.1)
+                            .frame(maxWidth: 230)
+                    }
+                    Toggle("Responder al reconocer la frase", isOn: $m.activacionAcuse)
+                    if m.activacionAcuse {
+                        Picker("Acuse", selection: $m.activacionAcuseFormato) {
+                            Text("Solo texto").tag("texto")
+                            Text("Texto y voz").tag("texto_voz")
+                            Text("Solo voz").tag("voz")
+                        }.pickerStyle(.segmented)
+                        field("Respuesta", text: $m.activacionAcuseTexto,
+                              placeholder: "Sí, te escucho. ¿Qué necesitas?")
+                        if ["texto_voz", "voz"].contains(m.activacionAcuseFormato),
+                           !Config.ttsActivo() {
+                            Text("TTS está apagado: por seguridad se mostrará el acuse en texto. Activa la voz del asistente en Avanzado para oírlo.")
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    Text("Puedes decir “\(ejemploActivador)” y continuar en la misma oración, o hacer una pausa para que el asistente responda y abra un turno limpio. El disparador sale siempre de tu lista; no está fijado a “Oye Bto”.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Antes de despertar, BetoDicta conserva únicamente el búfer circular en RAM: no guarda ni sube audio y no registra texto ambiental. Como una app de terceros mantiene el micrófono en uso, macOS muestra obligatoriamente su indicador de privacidad. Para no verlo, deja esta opción apagada y usa fn o un Atajo invocado mediante Siri.")
                         .font(.caption).foregroundStyle(.secondary)
                     if !ActivacionVoz.disponible {
                         Text("La activación flexible local requiere macOS 26. En versiones anteriores, fn y las frases dentro del dictado siguen funcionando normalmente.")

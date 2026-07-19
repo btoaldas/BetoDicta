@@ -137,6 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// `false` transcribe. Evita una grabación huérfana por esa carrera breve.
     private var cierreAlArrancar: Bool?
     private var despertarPendiente: ActivacionVoz.Despertar?
+    /// La frase sola puede producir un saludo TTS antes de abrir el nuevo turno.
+    /// Separarlo de `agenteActivo` evita que una respuesta del cerebro se mezcle
+    /// con este traspaso breve y permite que fn lo interrumpa limpiamente.
+    private var activacionAcuseEnCurso = false
     // Contexto (app/sitio al frente) capturado al arrancar el dictado, para los
     // triggers de modo por app/web. url se completa async (AppleScript navegador).
     private var ctxDictado: (sesion: UUID, valor: ModoContexto)?
@@ -213,15 +217,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if iniciandoDictado {
             cierreAlArrancar = true
             despertarPendiente = nil
+            activacionAcuseEnCurso = false
             return
         }
         if CapturaMac.grabacionContinuaEnCurso {
             detenerGrabacionPantalla(); return
         }
-        let habia = agenteActivo || AgenteHermes.enCurso || AgenteCodex.enCurso
+        let habia = agenteActivo || activacionAcuseEnCurso
+            || AgenteHermes.enCurso || AgenteCodex.enCurso
             || CapturaMac.enCurso || Voz.hablando
         agenteToken += 1          // invalida CUALQUIER respuesta en vuelo (Hermes o IA local)
         agenteActivo = false
+        activacionAcuseEnCurso = false
+        despertarPendiente = nil
         AgenteHermes.cancelar()   // mata el proceso de Hermes
         AgenteCodex.cancelar()    // cancela la generación oficial de Codex
         CapturaMac.cancelar()     // cancela selector/grabación nativa si sigue activa
@@ -288,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ActivacionVoz.shared.reconciliar(habilitado: true, puedeEscuchar: true,
                                               activadores: [frase]) { despertar in
                 let ms = Int(Double(despertar.audioPrevio.count) / 32.0)
-                print("WAKEDETECTTEST OK frase=\(despertar.frase) prebuffer_ms=\(ms)")
+                print("WAKEDETECTTEST OK frase=\(despertar.frase) forma=\(despertar.forma.rawValue) prebuffer_ms=\(ms)")
                 ActivacionVoz.shared.suspender {
                     print("WAKEDETECTTEST OK micrófono liberado")
                     fflush(stdout); exit(0)
@@ -2829,6 +2837,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let habilitado = Config.agenteNucleoActivo() && Config.agenteActivacionReposo()
         let ocupado = iniciandoDictado || recorder.isRecording || hayConfirmacion
             || agenteActivo || AgenteHermes.enCurso || AgenteCodex.enCurso
+            || activacionAcuseEnCurso || despertarPendiente != nil
             || Voz.hablando || CapturaMac.enCurso || CapturaMac.grabacionContinuaEnCurso
         ActivacionVoz.shared.reconciliar(
             habilitado: habilitado,
@@ -2844,6 +2853,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // la carrera. En ese caso se descarta; nunca se pisa la operación actual.
         let ocupado = iniciandoDictado || recorder.isRecording || hayConfirmacion
             || agenteActivo || AgenteHermes.enCurso || AgenteCodex.enCurso
+            || activacionAcuseEnCurso || despertarPendiente != nil
             || Voz.hablando || CapturaMac.enCurso || CapturaMac.grabacionContinuaEnCurso
         guard Config.agenteNucleoActivo(), Config.agenteActivacionReposo(), !ocupado else {
             AgenteLog.registrar("activacion_reposo_descartada", ["motivo": "app_ocupada"])
@@ -2855,8 +2865,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AgenteLog.registrar("activacion_reposo_entregada", [
             "frase": despertar.frase,
             "audio_ms": Int(Double(despertar.audioPrevio.count) / 32.0),
+            "forma": despertar.forma.rawValue,
         ])
-        startDictation()
+        if despertar.soloFrase { acusarActivacionYEscuchar(despertar) }
+        else { startDictation() }
+    }
+
+    /// La voz del propio asistente jamás se graba: si el usuario pidió un acuse
+    /// hablado, esperamos a que termine y recién entonces abrimos el Recorder.
+    /// En texto, el turno arranca de inmediato y el mensaje permanece en el notch.
+    private func acusarActivacionYEscuchar(_ despertar: ActivacionVoz.Despertar) {
+        guard despertarPendiente?.id == despertar.id else { return }
+        let continuar: () -> Void = { [weak self] in
+            guard let self, self.despertarPendiente?.id == despertar.id,
+                  self.activacionAcuseEnCurso else { return }
+            self.activacionAcuseEnCurso = false
+            self.panel.finRespuestaIA()
+            self.startDictation()
+        }
+        guard Config.agenteActivacionAcuse() else {
+            startDictation(); return
+        }
+        activacionAcuseEnCurso = true
+        let texto = Config.agenteActivacionAcuseTexto()
+        let muestraTexto = Config.agenteActivacionAcuseMuestraTexto()
+        if muestraTexto { panel.respuestaIA(texto) }
+        AgenteLog.registrar("activacion_reposo_acuse", [
+            "frase": despertar.frase,
+            "formato": Config.agenteActivacionAcuseFormato(),
+            "texto_visible": muestraTexto,
+            "voz": Config.agenteActivacionAcuseConVoz(),
+        ])
+        guard Config.agenteActivacionAcuseConVoz() else {
+            continuar(); return
+        }
+        Voz.decir(texto, empezar: { [weak self] in
+            guard let self, self.despertarPendiente?.id == despertar.id,
+                  self.activacionAcuseEnCurso else { return }
+            if muestraTexto { self.panel.respuestaIA(texto) }
+        }, completion: continuar)
     }
 
     func toggle() {
@@ -2869,6 +2916,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.write("hotkey: confirmación aceptada con UNA pulsación (toggle)")
             ModosLog.registrar("confirmacion_hotkey", ["fase": "toggle", "doble_fn": Config.doblePulsacionActivar()])
             resolverConfirmacion(acepta: true, origen: "toggle")
+            return
+        }
+        // FN durante el saludo significa "ya quiero hablar": corta el TTS y
+        // abre el turno Agente con UNA pulsación, aun si la activación normal usa doble fn.
+        if activacionAcuseEnCurso, despertarPendiente != nil {
+            activacionAcuseEnCurso = false
+            Voz.cancelar()
+            panel.finRespuestaIA()
+            startDictation()
             return
         }
         if recorder.isRecording {
@@ -2930,6 +2986,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startDictationAhora() {
         guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
         let despertarActual = despertarPendiente
+        activacionAcuseEnCurso = false
         // Fuente de verdad al INICIAR: aunque una entrega anterior terminara por
         // un camino excepcional, el notch nunca hereda su rótulo/color.
         panel.setModo(despertarActual == nil
@@ -3037,7 +3094,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             media.dictationStarted()
             playSound("Tink")
             setIcono(.grabando)
-            panel.show("Escuchando… (\(tecla) para terminar)")
+            let mensajeEscucha: String
+            if despertarActual?.soloFrase == true {
+                mensajeEscucha = Config.agenteActivacionAcuseMuestraTexto()
+                    ? "\(Config.agenteActivacionAcuseTexto())  ·  Habla ahora…"
+                    : "Escuchando… (\(tecla) para terminar)"
+            } else if despertarActual != nil {
+                mensajeEscucha = "✓ \(Config.agenteNombre()) te escuchó  ·  \(tecla) para terminar"
+            } else {
+                mensajeEscucha = "Escuchando… (\(tecla) para terminar)"
+            }
+            panel.show(mensajeEscucha)
             ModosLog.registrar("dictado_inicio", [
                 "sesion": sesion.uuidString,
                 "modo_activo": Config.modoActivo(),
@@ -3045,6 +3112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "modo_visual": panel.modoMostradoID,
                 "pendiente_voz": modoPendienteVoz?.id ?? "",
                 "activacion_reposo": despertarActual?.frase ?? "",
+                "activacion_forma": despertarActual?.forma.rawValue ?? "",
                 "prebuffer_ms": Int(Double(despertarActual?.audioPrevio.count ?? 0) / 32.0),
                 "un_solo_uso": Config.modoRevertir(),
                 "doble_fn": Config.doblePulsacionActivar(),

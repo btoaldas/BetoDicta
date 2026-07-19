@@ -6,7 +6,7 @@ import Foundation
 import Speech
 #endif
 
-// MARK: - Activación manos libres ("Oye Bto")
+// MARK: - Activación manos libres (frases configuradas por el usuario)
 //
 // Siri usa un detector privilegiado de muy bajo consumo que macOS no expone a
 // aplicaciones de terceros. BetoDicta usa únicamente APIs públicas: un
@@ -28,11 +28,22 @@ final class ActivacionVoz: @unchecked Sendable {
     static let shared = ActivacionVoz()
 
     struct Despertar {
+        enum Forma: String {
+            /// El usuario continuó en la misma oración: "Oye Gloria, abre…".
+            case ordenCorrida = "orden_corrida"
+            /// Dijo únicamente la frase y pausó: acusar recibo y abrir otro turno.
+            case turnoNuevo = "turno_nuevo"
+        }
+
+        let id: UUID
         let frase: String
         /// PCM16 mono 16 kHz. Incluye la frase y, si el usuario habló seguido,
         /// el comienzo de su orden; el Recorder lo antepone al dictado real.
         let audioPrevio: Data
         let fecha: Date
+        let forma: Forma
+
+        var soloFrase: Bool { forma == .turnoNuevo }
     }
 
     enum Estado: Equatable {
@@ -112,9 +123,17 @@ final class ActivacionVoz: @unchecked Sendable {
     private var anillo = Data()
     private var maxAnilloBytes = 128_000
     private var bytesAudioTotales = 0
+    /// Voz real observada en PCM. La pausa de acuse se mide desde aquí, no desde
+    /// la latencia variable con que Apple publique un parcial de texto.
+    private var ultimaVozAudio = Date.distantPast
     private var generacion = UUID()
     private var preparando = false
     private var detectado = false
+    /// Una coincidencia sin contenido todavía no despierta de inmediato: Apple
+    /// suele emitir primero "Oye Gloria" y después la orden corrida. Esta marca
+    /// deja una ventana corta para distinguir ambos gestos sin cortar palabras.
+    private var candidatoAcuse: (token: UUID, inv: PerfilAgente.Invocacion,
+                                 inicioSegmento: Double)?
     private var habilitadoAnterior = false
     private var solicitandoPermiso = false
     private var proximoIntento = Date.distantPast
@@ -272,6 +291,7 @@ final class ActivacionVoz: @unchecked Sendable {
         detectado = false
         anillo.removeAll(keepingCapacity: true)
         bytesAudioTotales = 0
+        ultimaVozAudio = .distantPast
         generacion = UUID()
         let gen = generacion
         let frases = activadores
@@ -460,6 +480,7 @@ final class ActivacionVoz: @unchecked Sendable {
 
     private func recibirPCMEnCola(_ chunk: Data, generacion gen: UUID) {
         guard generacion == gen, !detectado, !chunk.isEmpty else { return }
+        if Self.contieneVoz(chunk) { ultimaVozAudio = Date() }
         bytesAudioTotales += chunk.count
         anillo.append(chunk)
         if anillo.count > maxAnilloBytes {
@@ -507,17 +528,94 @@ final class ActivacionVoz: @unchecked Sendable {
 
     private func evaluarEnCola(_ texto: String, frases: [String],
                                generacion gen: UUID, inicioSegmento: Double) {
-        guard generacion == gen, !detectado,
-              let inv = PerfilAgente.invocacionTolerante(en: texto,
-                                                         activadores: frases) else { return }
+        guard generacion == gen, !detectado else { return }
+        switch Self.decisionParcial(texto, frases: frases) {
+        case .ignorar:
+            return
+        case .entregar(let inv):
+            candidatoAcuse = nil
+            entregarDespertarEnCola(inv, forma: .ordenCorrida,
+                                    generacion: gen, inicioSegmento: inicioSegmento)
+        case .esperar(let inv):
+            // No reiniciar el reloj por parciales idénticos: un stream que repite
+            // "Oye Gloria" no debe mantener al usuario esperando indefinidamente.
+            guard candidatoAcuse == nil else { return }
+            let token = UUID()
+            candidatoAcuse = (token, inv, inicioSegmento)
+            programarAcuseTrasSilencio(token: token, generacion: gen)
+        }
+    }
+
+    private func programarAcuseTrasSilencio(token: UUID, generacion gen: UUID) {
+        let espera = Config.agenteActivacionEsperaAcuse()
+        cola.asyncAfter(deadline: .now() + espera) { [weak self] in
+            guard let self, self.generacion == gen, !self.detectado,
+                  self.candidatoAcuse?.token == token,
+                  let candidato = self.candidatoAcuse else { return }
+            // Si la persona sigue hablando, esperar otra ventana. El parcial con
+            // contenido suele llegar antes; esta rama solo evita cortar habla lenta.
+            if Date().timeIntervalSince(self.ultimaVozAudio) < espera {
+                self.programarAcuseTrasSilencio(token: token, generacion: gen)
+                return
+            }
+            self.entregarDespertarEnCola(candidato.inv, forma: .turnoNuevo,
+                                         generacion: gen,
+                                         inicioSegmento: candidato.inicioSegmento)
+        }
+    }
+
+    /// Misma escala que `Recorder.onLevel`: evita depender de una segunda API o
+    /// modelo para saber que el usuario aún está hablando.
+    private static func contieneVoz(_ pcm16: Data) -> Bool {
+        guard pcm16.count >= 2 else { return false }
+        var suma = 0.0
+        var n = 0
+        pcm16.withUnsafeBytes { raw in
+            let muestras = raw.bindMemory(to: Int16.self)
+            // Muestrear 1 de cada 4 reduce CPU en escucha continua sin perder voz.
+            for i in stride(from: 0, to: muestras.count, by: 4) {
+                let v = Double(muestras[i]) / 32768.0
+                suma += v * v; n += 1
+            }
+        }
+        let rms = sqrt(suma / Double(max(1, n)))
+        let nivel = sqrt(min(rms * 12.0, 1.0))
+        return nivel > 0.15
+    }
+
+    private enum DecisionParcial {
+        case ignorar
+        case esperar(PerfilAgente.Invocacion)
+        case entregar(PerfilAgente.Invocacion)
+    }
+
+    /// Función pura y testeable: el reconocimiento de la frase no implica aún
+    /// que sepamos si el usuario continuará en el mismo aliento.
+    private static func decisionParcial(_ texto: String, frases: [String]) -> DecisionParcial {
+        guard let inv = PerfilAgente.invocacionTolerante(en: texto,
+                                                         activadores: frases) else {
+            return .ignorar
+        }
+        return inv.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? .esperar(inv) : .entregar(inv)
+    }
+
+    private func entregarDespertarEnCola(_ inv: PerfilAgente.Invocacion,
+                                          forma: Despertar.Forma,
+                                          generacion gen: UUID,
+                                          inicioSegmento: Double) {
+        guard generacion == gen, !detectado else { return }
         detectado = true
         // `r.range.start` marca dónde empezó este segmento de Apple Speech. Como
         // la frase solo se acepta al inicio del segmento, podemos eliminar con
         // precisión conversación anterior del anillo. Se conserva 0,35 s de
         // margen y al menos el último segundo ante cualquier reloj anómalo.
-        let previo = Self.recortarPrebuffer(anillo, bytesTotales: bytesAudioTotales,
-                                             inicioSegmento: inicioSegmento)
-        let despertar = Despertar(frase: inv.frase, audioPrevio: previo, fecha: Date())
+        let previo = forma == .ordenCorrida
+            ? Self.recortarPrebuffer(anillo, bytesTotales: bytesAudioTotales,
+                                     inicioSegmento: inicioSegmento)
+            : Data()
+        let despertar = Despertar(id: UUID(), frase: inv.frase, audioPrevio: previo,
+                                  fecha: Date(), forma: forma)
         let callback = alDespertar
         // No escribir `texto`: podría contener conversación ambiental. Solo la
         // frase deliberada y el tamaño técnico del búfer pasan al diagnóstico.
@@ -525,6 +623,7 @@ final class ActivacionVoz: @unchecked Sendable {
             "frase": inv.frase,
             "audio_ms": Int(Double(previo.count) / 32.0),
             "motor": "apple_local",
+            "forma": forma.rawValue,
         ])
         cerrarEnCola()
         publicar(.pausado)
@@ -552,6 +651,7 @@ final class ActivacionVoz: @unchecked Sendable {
         generacion = UUID()
         preparando = false
         detectado = false
+        candidatoAcuse = nil
         if let engine {
             inputNode?.removeTap(onBus: 0)
             engine.stop()
@@ -563,6 +663,7 @@ final class ActivacionVoz: @unchecked Sendable {
         formatoSpeech = nil
         anillo.removeAll(keepingCapacity: true)
         bytesAudioTotales = 0
+        ultimaVozAudio = .distantPast
         #if canImport(Speech)
         if #available(macOS 26, *) {
             (_continuation as? AsyncStream<AnalyzerInput>.Continuation)?.finish()
@@ -612,6 +713,41 @@ final class ActivacionVoz: @unchecked Sendable {
         let invalida = recortarPrebuffer(muestra, bytesTotales: 320_000,
                                          inicioSegmento: .nan)
         let k = caso("rango temporal inválido no destruye audio", invalida == muestra)
-        return ([a, b, c, d, e, f, g, h, i, j, k].allSatisfy { $0 }, lineas)
+        let l = caso("Gloria configurable espera tras frase sola", {
+            if case .esperar(let inv) = decisionParcial("Oye, Gloria",
+                                                        frases: ["Oye Gloria"]) {
+                return inv.frase == "Oye Gloria" && inv.contenido.isEmpty
+            }
+            return false
+        }())
+        let m = caso("Gloria + orden corrida no espera el acuse", {
+            if case .entregar(let inv) = decisionParcial(
+                "Oye, Gloria, abre el calendario", frases: ["Oye Gloria"]) {
+                return inv.contenido == "abre el calendario"
+            }
+            return false
+        }())
+        let n = caso("un activador distinto no despierta Gloria", {
+            if case .ignorar = decisionParcial("Oye Bto abre el calendario",
+                                               frases: ["Oye Gloria"]) { return true }
+            return false
+        }())
+        var voz = [Int16](repeating: 0, count: 800)
+        for i in voz.indices { voz[i] = i.isMultiple(of: 2) ? 7_000 : -7_000 }
+        let datosVoz = voz.withUnsafeBytes { Data($0) }
+        let o = caso("compuerta acústica distingue voz de silencio",
+                     contieneVoz(datosVoz) && !contieneVoz(Data(repeating: 0, count: 1_600)))
+        let canales = [
+            Config.canalesAcuse(formato: "texto", ttsDisponible: true),
+            Config.canalesAcuse(formato: "texto_voz", ttsDisponible: true),
+            Config.canalesAcuse(formato: "voz", ttsDisponible: true),
+            Config.canalesAcuse(formato: "voz", ttsDisponible: false),
+        ]
+        let p = caso("acuse cubre texto, ambos, voz y respaldo sin TTS",
+                     canales[0] == (true, false)
+                        && canales[1] == (true, true)
+                        && canales[2] == (false, true)
+                        && canales[3] == (true, false))
+        return ([a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p].allSatisfy { $0 }, lineas)
     }
 }
