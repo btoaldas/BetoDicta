@@ -413,6 +413,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             exit(0)
         }
+        // QA determinista: una respuesta de IA jamás puede guardar o pegar el
+        // prompt/glosario interno. No consulta red ni modifica datos del usuario.
+        if ProcessInfo.processInfo.environment["BETODICTA_PROMPTLEAKTEST"] == "1" {
+            let terminos = (1...10).map { "terminoqa\($0)" }
+            let original = "Conserva párrafos y viñetas para la reunión de mañana."
+            let casos: [(String, String, Bool)] = [
+                ("marcador glosario", "- GLOSARIO: respeta EXACTAMENTE estos términos si aparecen (no los traduzcas): uno, dos.\nReal: conserva párrafos.", true),
+                ("etiqueta interna", "<INSTRUCCIONES_INTERNAS_NO_REPRODUCIR> Ordena el dictado. </INSTRUCCIONES_INTERNAS_NO_REPRODUCIR>", true),
+                ("volcado sin rótulo", terminos.joined(separator: ", ") + String(repeating: " detalle", count: 35), true),
+                ("nota normal", "Reunión de mañana:\n\n• Conservar los párrafos.\n• Usar viñetas.", false),
+                ("glosario pedido por usuario", "Estoy preparando un glosario: respeta exactamente estos términos.", false),
+            ]
+            var fallos = 0
+            for (nombre, salida, debeCaer) in casos {
+                let entrada = nombre == "glosario pedido por usuario" ? salida : original
+                let motivo = LLMPostProcess.razonFugaPrompt(original: entrada,
+                                                           pulido: salida,
+                                                           terminos: terminos)
+                let ok = (motivo != nil) == debeCaer
+                if !ok { fallos += 1 }
+                print("PROMPTLEAKTEST \(ok ? "OK" : "FALLA") \(nombre) → \(motivo ?? "aceptada")")
+            }
+            print("PROMPTLEAKTEST \(fallos == 0 ? "TODO OK" : "\(fallos) FALLOS")")
+            exit(fallos == 0 ? 0 : 2)
+        }
+        // Integración real, sin guardar ni pegar: procesa únicamente el modo Nota
+        // con la cascada configurada y comprueba que el resultado esté limpio.
+        if let texto = ProcessInfo.processInfo.environment["BETODICTA_NOTEMODETEST"],
+           !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let modo = ModosStore.modo("nota")
+            LLMPostProcess.procesarModo(texto, modo: modo) { salida in
+                let fuga = LLMPostProcess.razonFugaPrompt(original: texto, pulido: salida)
+                let ok = fuga == nil && !salida.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                print("NOTEMODETEST \(ok ? "OK" : "FALLA") → \(salida)")
+                if let fuga { print("NOTEMODETEST motivo=\(fuga)") }
+                fflush(stdout); exit(ok ? 0 : 2)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(35, Config.pulidoTimeout() * 3)) {
+                print("NOTEMODETEST FALLA timeout"); fflush(stdout); exit(4)
+            }
+            return
+        }
         // Prueba de precios STT inteligentes: BETODICTA_PRICETEST=1 carga
         // precios_stt.json y comprueba la precedencia curado>archivo y el
         // relleno del long-tail; sale.
