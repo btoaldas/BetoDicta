@@ -5,8 +5,8 @@ import Foundation
 //
 // No promete controlar catálogos privados. Primero intenta la app elegida; si no
 // existe o el enlace falla, salta al siguiente proveedor y termina en web. Apple
-// Music puede reproducir un resultado de la biblioteca local mediante su interfaz
-// de automatización; para el catálogo abre la búsqueda para que el usuario elija.
+// Music y Spotify pueden reproducir un primer resultado verificable mediante sus
+// interfaces de automatización/Accesibilidad; nunca basta con abrir y asumir éxito.
 
 struct ProveedorMusica: Identifiable, Hashable {
     let id: String
@@ -155,6 +155,7 @@ enum Musica {
         }
         if s.lowercased().hasPrefix("de ") { s.removeFirst(3) }
         return quitarNombreProveedor(s, id: proveedor)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;!?¡¿—-\n\t"))
     }
 
     private static func codificar(_ texto: String) -> String {
@@ -351,6 +352,31 @@ enum Musica {
 
         let trabajo = {
             let puedeUsarApple = ["", "auto", "apple_music"].contains(solicitado)
+            let primero = orden(solicitado: solicitado).first
+
+            // `spotify:search:` solo abre resultados. Cuando Spotify es el
+            // proveedor elegido y la orden dice pon/reproduce, la capa AX pulsa
+            // el primer botón visible y comprueba el player state antes de
+            // responder. Una orden buscar sigue abriendo resultados sin play.
+            if intencion == .reproducir, !simular, !consulta.isEmpty,
+               primero?.id == "spotify" {
+                SpotifyControl.reproducirPrimera(consulta) { r in
+                    if r.ok {
+                        AgenteLog.registrar("musica", ["proveedor": "spotify",
+                                                        "consulta": consulta, "ok": true,
+                                                        "intencion": intencion.rawValue,
+                                                        "estado": EstadoMusica.reproduciendo.rawValue])
+                        completion(.init(ok: true, proveedor: "spotify",
+                                         mensaje: r.detalle, estado: .reproduciendo))
+                    } else {
+                        AgenteLog.registrar("musica_failover", ["de": "spotify_auto",
+                                                                "motivo": r.detalle])
+                        completion(.init(ok: true, proveedor: "spotify",
+                                         mensaje: r.detalle, estado: .busqueda))
+                    }
+                }
+                return
+            }
             let catalogoOCascada: () -> Void = {
                 guard intencion == .reproducir, !simular, !consulta.isEmpty, puedeUsarApple else {
                     cascada(); return

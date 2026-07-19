@@ -61,6 +61,19 @@ enum AgenteCoreQA {
         comprobar("consulta musical limpia",
                   Musica.extraerConsulta("reproduce en Spotify música de Jessy Uribe", proveedor: "spotify") == "Jessy Uribe",
                   Musica.extraerConsulta("reproduce en Spotify música de Jessy Uribe", proveedor: "spotify"))
+        comprobar("Spotify conserva reproducir y limpia puntuación final",
+                  Musica.intencion("Reproduce en Spotify música andina.") == .reproducir
+                    && Musica.extraerConsulta("Reproduce en Spotify música andina.",
+                                              proveedor: "spotify") == "andina")
+        comprobar("Spotify solo acepta un botón de reproducción verificable",
+                  SpotifyControl.esBotonReproducir(rol: "AXButton",
+                                                    descripcion: "Reproducir", titulo: "")
+                    && SpotifyControl.esBotonReproducir(rol: "AXButton",
+                                                        descripcion: "Play", titulo: "")
+                    && !SpotifyControl.esBotonReproducir(rol: "AXButton",
+                                                         descripcion: "Pausar", titulo: "")
+                    && !SpotifyControl.esBotonReproducir(rol: "AXGroup",
+                                                         descripcion: "Reproducir", titulo: ""))
         comprobar("música distingue reproducir de buscar",
                   Musica.intencion("modo música, pon una canción de Julio Jaramillo") == .reproducir
                     && Musica.intencion("modo música, busca Julio Jaramillo") == .buscar
