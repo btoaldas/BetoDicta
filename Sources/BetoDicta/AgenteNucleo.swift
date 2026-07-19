@@ -59,7 +59,10 @@ enum PoliticaAgente {
                 case "recordatorios", "calendario", "notas", "nota_local", "tarea_local", "archivo_nuevo",
                      "captura_pantalla", "grabar_pantalla":
                     r = .cambioLocal
-                case "gmail", "correo", "outlook", "whatsapp", "mensajes", "atajo_apple", "url",
+                case "atajo_apple":
+                    r = AppleAtajosCatalogo.riesgo(nombre: etapa.modo.prompt.isEmpty
+                        ? Config.agenteAtajoApple() : etapa.modo.prompt)
+                case "gmail", "correo", "outlook", "whatsapp", "mensajes", "url",
                      "captura_compartir":
                     r = .externo
                 case "rutina":
@@ -127,6 +130,11 @@ enum MensajesAgente {
     /// el texto final. Así evitamos dos voces seguidas y nunca fingimos éxito.
     static func esperaResultado(_ cadena: ModoCadena) -> Bool {
         if cadena.acciones.isEmpty, !cadena.transforms.isEmpty { return true }
+        if cadena.transforms.isEmpty, cadena.acciones.count == 1,
+           cadena.acciones[0].modo.accion == "rutina",
+           RutinasAgenteStore.devuelveResultado(id: cadena.acciones[0].modo.prompt) {
+            return true
+        }
         // Las capturas responden únicamente DESPUÉS del resultado. Antes se
         // decía «voy a abrir captura…» mientras `screencapture` arrancaba; una
         // voz local lenta podía quedar viva y dejar ese acuse pegado en el
@@ -434,6 +442,18 @@ enum AgenteNucleo {
                            referencia: String? = nil,
                            ignorarInterruptor: Bool = false) -> ModoPreguntaPlan? {
         guard ignorarInterruptor || Config.agenteNucleoActivo() else { return nil }
+
+        // Selección/Finder deben resolverse antes del parser de texto general.
+        // “Resume la selección” actúa sobre lo seleccionado; no resume las dos
+        // palabras literales “la selección”.
+        if let r = RutinasAgenteStore.detectarSeleccionBreve(texto)
+            ?? RutinasAgenteStore.detectarPrioritaria(texto) {
+            let m = accion("rutina", nombre: "Rutina · \(r.rutina.nombre)", prompt: r.rutina.id)
+            return ModoPlanificador.pregunta(
+                para: ModoCadena(transforms: [],
+                    acciones: [ModoAccionPlan(modo: m, destinatario: nil)],
+                    contenido: r.contenido), fuente: .natural, confianza: 0.99)
+        }
 
         // Reutiliza primero el planificador maduro de Modos (correo, WhatsApp,
         // traducción, apps, búsquedas…). Evita un Agente dentro de otro Agente.

@@ -4788,6 +4788,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Puente del motor de recetas hacia la misma captura privada del Agente.
+    /// Evita que el notch aparezca dentro de la imagen y devuelve el archivo real
+    /// como evidencia. La receta inteligente solo prepara: nunca autoenvía.
+    func ejecutarCapturaDesdeReceta(_ solicitud: SolicitudCapturaMac,
+                                    completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.ejecutarCapturaDesdeReceta(solicitud, completion: completion)
+            }
+            return
+        }
+        if solicitud.tipo == .video {
+            prepararSilencioGrabacion(origen: "receta_captura")
+            setIcono(.grabando)
+        }
+        panel.comenzarCapturaPrivada()
+        AgenteLog.registrar("captura_interfaz", ["estado": "oculta", "origen": "receta",
+                                                   "tipo": solicitud.tipo.rawValue])
+        DispatchQueue.main.asyncAfter(deadline: .now() + (solicitud.tipo == .video ? 0.30 : 0.18)) {
+            CapturaMac.ejecutar(solicitud) { [weak self] r in
+                guard let self else {
+                    completion(.init(ok: r.ok, mensaje: r.mensaje)); return
+                }
+                self.setIcono(.reposo); self.panel.terminarCapturaPrivada()
+                AgenteLog.registrar("captura_interfaz", ["estado": "restaurada", "origen": "receta",
+                    "tipo": r.solicitud.tipo.rawValue, "ok": r.ok])
+                completion(.init(ok: r.ok, mensaje: r.mensaje,
+                    evidencia: ["archivo": r.archivo?.path ?? "",
+                                "copiada": "\(r.solicitud.copiar)",
+                                "abierta": "\(r.solicitud.abrir)"]))
+            }
+        }
+    }
+
     private func ejecutarAccion(_ texto: String, modo: Modo, destinatario: String? = nil,
                                 asunto: String? = nil,
                                 nombreArchivo: String? = nil,
@@ -4827,6 +4861,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             if contextoAgente, !r.ok, id != "grabar_pantalla" {
                 responderBreveAgente(r.mensaje, evento: "fallo_herramienta")
+            } else if contextoAgente, r.ok, id == "rutina",
+                      RutinasAgenteStore.devuelveResultado(id: modo.prompt) {
+                responderBreveAgente(r.mensaje, evento: "resultado_rutina")
             }
         }
         switch id {
@@ -5009,9 +5046,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 mostrarResultado(r); completar()
             }
         case "atajo_apple":
-            muestraGenerica = false
+            esperaAsincrona = true; muestraGenerica = false
             let nombre = modo.prompt.isEmpty ? Config.agenteAtajoApple() : modo.prompt
-            mostrarResultado(AppleAtajos.ejecutar(nombre: nombre, texto: t))
+            AppleAtajos.ejecutarVerificado(nombre: nombre, texto: t) { r in
+                mostrarResultado(r); completar()
+            }
         case "rutina":
             esperaAsincrona = true; muestraGenerica = false
             RutinasAgenteRunner.ejecutar(id: modo.prompt, texto: t) { r in

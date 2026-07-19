@@ -753,6 +753,16 @@ enum ModoResolver {
     static func detectarPedidoNatural(_ texto: String, catalogo: ModoCatalogo,
                                       permitirCapturas: Bool = Config.agenteHerramientaCapturas())
         -> ModoPreguntaPlan? {
+        if Config.agenteNucleoActivo(),
+           let r = RutinasAgenteStore.detectarSeleccionBreve(texto)
+                ?? RutinasAgenteStore.detectar(texto) {
+            let m = Modo(id: "plan-rutina", nombre: "Rutina · \(r.rutina.nombre)",
+                         icono: "list.bullet.rectangle", base: "accion",
+                         prompt: r.rutina.id, accion: "rutina")
+            return ModoPlanificador.pregunta(para: ModoCadena(transforms: [],
+                acciones: [ModoAccionPlan(modo: m, destinatario: nil)],
+                contenido: r.contenido), fuente: .natural, confianza: 0.99)
+        }
         if let plan = ModoPlanificador.detectarNatural(texto, catalogo: catalogo) { return plan }
         if permitirCapturas, let plan = AgenteNucleo.planificarCaptura(texto) { return plan }
         return nil

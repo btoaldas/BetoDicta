@@ -368,7 +368,7 @@ Los envíos de correo/WhatsApp, publicaciones, compras, borrados y cualquier acc
 - **Interfaz fuera de la toma**: justo antes del primer fotograma BetoDicta oculta el notch y bloquea parciales, flashes y respuestas tardías para que no vuelva a aparecer durante la captura o grabación. Solo lo restaura cuando macOS termina o cancela la operación.
 - **Captura/grabación → WhatsApp**: *“toma una captura y envíala por WhatsApp a Alberto”* o *“graba la pantalla, guarda en mis Documentos y envíala por WhatsApp a Alberto”* conserva todas las acciones. En **Ajustes → Asistente → Capturas y grabaciones** eliges la política: **solo abrir y dejar en el portapapeles**, **pegar en el chat sin enviar** (recomendado) o **pegar y autoenviar**. El autoenvío nunca se activa por una frase: debe quedar habilitado expresamente. Antes de pulsar el único botón accesible llamado **Enviar**, BetoDicta compara la interfaz anterior y posterior al pegado y exige evidencia de que apareció una vista previa nueva del adjunto; si no puede demostrarlo, lo deja preparado. Así no envía por accidente un texto que ya estaba escrito en el chat. Además, cualquier Enter automático pendiente de otro dictado queda bloqueado durante la preparación. Para grupos o chats sin identificador público, abre WhatsApp y conserva el archivo en el portapapeles.
 - **Recordatorios y Calendario**: crean el elemento mediante **EventKit**, la API nativa de macOS, después de tu permiso y según el nivel de autonomía. Ya no dependen de simular ⌘N/⌘V.
-- **Atajos Apple / Siri**: Siri no ofrece una API pública para recibir una orden de texto arbitraria. BetoDicta usa la pasarela oficial de **Atajos**: eliges un atajo existente y le entrega el texto. Está apagado por defecto y siempre se trata como acción externa que requiere confirmación.
+- **Atajos Apple / Siri**: Siri no ofrece una API pública para recibir una orden de texto arbitraria. BetoDicta usa la pasarela oficial de **Atajos** y descubre los que ya están instalados. Cada uno aparece **apagado por defecto**; tú lo habilitas individualmente y marcas su riesgo (lectura, reversible, cambio local, externo o destructivo). La ejecución tiene timeout y devuelve evidencia. HomeKit y Concentración solo pasan por Atajos que hayas autorizado.
 
 **Modo Música con failover**
 
@@ -383,9 +383,35 @@ Los envíos de correo/WhatsApp, publicaciones, compras, borrados y cualquier acc
 - En **YouTube Music**, BetoDicta busca primero una app o PWA instalada con ese nombre; no inyecta el identificador de Brave, por lo que también admite una PWA creada desde Chrome/Edge u otra app equivalente. Escribe la consulta en el control accesible de la propia app, activa el primer resultado etiquetado **Reproducir** y confirma dentro de esa misma ventana que la barra cambió a **Pausar** y que la pista/álbum corresponde. Si no hay app o no responde, abre la búsqueda HTTPS en el navegador y repite el control. *“Busca en YouTube Music…”* solo deja los resultados visibles y no cambia la pista que ya sonaba. Sin permiso de Accesibilidad, degrada a búsqueda visible y nunca anuncia una reproducción que no pudo comprobar.
 - Un proveedor propio lleva nombre + URL HTTPS con `{q}` (por ejemplo `https://servicio.example/buscar?q={q}`). HTTP solo se admite para localhost.
 
-**Rutinas**
+**Recetas y rutinas portables**
 
-Cada rutina tiene frases propias y una lista ordenada de pasos: música, aplicación, URL, Atajo, tarea/nota local, recordatorio, evento, archivo, captura o grabación de pantalla. Usa `{texto}` para insertar lo que digas después del nombre. Ejemplo: una rutina *“empezar oficina”* puede abrir Outlook, buscar un archivo y poner una playlist. El riesgo de toda la rutina es el del paso más sensible; por eso una rutina con Atajo nunca se autoejecuta sin confirmación. Las URLs deben ser HTTPS (HTTP solo para un servicio local).
+BetoDicta trae estas recetas listas, editables y desactivables:
+
+- **Resumen del día**: lee calendario, recordatorios y tareas locales; muestra el resultado y, si el Asistente está en texto+voz, lo habla con la voz y el failover TTS elegidos.
+- **Empezar jornada**: intenta abrir Outlook, Quipux, Word y Calendario, pone música de trabajo y ejecuta tu Atajo de Concentración si lo habilitaste. Los pasos que no existan se omiten sin detener los demás.
+- **Cerrar jornada**: resume lo pendiente, guarda una nota local fechada y prepara el día siguiente. No cierra aplicaciones por defecto. Si agregas un paso **Cerrar aplicaciones**, toda la receta pasa a riesgo destructivo y exige confirmación.
+- **Modo reunión**: usa tu Atajo autorizado de reunión/Concentración, abre la primera app disponible entre Teams y Zoom y crea una nota con fecha.
+- **Actuar sobre la selección**: selecciona texto y di *“Oye Bto, resume”*, *“traduce”*, *“responde”*, *“convierte en tarea”* o *“lee”*. Las frases largas *“resume la selección”* y equivalentes también funcionan. La forma breve solo coincide cuando ese es todo el pedido: *“resume el informe de mañana”* sigue siendo un resumen normal.
+- **Leer selección**: usa Apple TTS, ElevenLabs o el clon local según la cascada de voz configurada.
+- **Estado del Mac**: *“Oye Bto, ¿cómo está la computadora?”* informa batería, disco, memoria, CPU aproximada, interfaces de red y VPN confirmada. No confunde los túneles `utun` que macOS usa para iCloud/Continuity con una VPN real.
+- **Captura inteligente**: oculta el notch, crea un nombre con fecha, guarda y copia la captura. La deja preparada; nunca la autoenvía.
+- **Audio seleccionado en Finder**: transcribir, resumir, traducir o convertir en correo/oficio con la cascada STT y los Modos actuales. Selecciona un audio y di *“transcribe el audio seleccionado”* o la transformación deseada.
+- **Escenas HomeKit**: modo oficina, modo noche y apagar luces son recetas de ejemplo. Solo ejecutan el Atajo concreto que exista y hayas habilitado; BetoDicta no adivina accesorios ni entra directamente a tu casa.
+
+Cada receta tiene frases propias y pasos ordenados. `{texto}` inserta lo dicho después de la frase, `{resultado}` enlaza la salida del paso anterior y `{fecha}` añade la fecha/hora. Un paso puede ser **Opcional** para que su ausencia no detenga la cadena. El riesgo total siempre es el del paso más sensible. Las URLs importadas deben ser HTTPS; HTTP se admite únicamente para localhost.
+
+Con **Importar/Exportar JSON** puedes llevar toda la biblioteca o paquetes **Trabajo, Universidad, Casa y Personal**. La importación limita tamaño, tipos y URLs; nunca incluye claves. Si un identificador ya existe, crea una copia nueva en vez de sobrescribirlo.
+
+**Atajo universal BetoDicta**
+
+En vez de mantener decenas de Atajos de Apple, puedes crear uno llamado **BetoDicta Universal**. En *Ajustes → Asistente → Atajo universal*:
+
+1. Pulsa **Crear en Atajos…**: BetoDicta abre Atajos y copia la guía.
+2. Crea un Atajo con la acción **Ejecutar script de shell**, pasando la entrada **a stdin**. Si macOS la tiene bloqueada, tú debes habilitar una vez *Atajos → Ajustes → Avanzado → Permitir ejecutar scripts*; BetoDicta no cambia ese permiso de seguridad por su cuenta.
+3. Usa `/Applications/BetoDicta.app/Contents/Resources/betodicta-universal.sh`.
+4. La entrada es JSON (el botón **Copiar JSON de ejemplo** da una plantilla); la salida siempre es JSON con `ok`, `mensaje` y `evidencia`.
+
+El contrato admite `musica`, `calendario`, `recordatorio`, `aplicacion`, `atajo`, `homekit`, `foco`, `captura`, `estado_mac` y `resumen_dia`. El script usa archivos temporales privados, no recibe claves y conserva el mismo control de autonomía. Un Atajo Apple invocado por el contrato sigue necesitando habilitación individual. Para una acción externa, el JSON devuelve `requiere_confirmacion`; solo un Atajo que haya mostrado su propia pregunta visible debe reenviar la orden con `"confirmado": true`. **Validar sin ejecutar** comprueba el recorrido sin abrir apps ni controlar dispositivos.
 
 El diagnóstico detallado queda en `~/.betodicta/logs/agente.jsonl`; los Modos mantienen además `~/.betodicta/logs/modos.jsonl`. Para una orden estructurada registra ruta, etapas, destino, destinatario, asunto/nombre de archivo, confirmación y resultado; el evento de correo marca expresamente `enviado: false`. No se guardan API keys en esos registros.
 

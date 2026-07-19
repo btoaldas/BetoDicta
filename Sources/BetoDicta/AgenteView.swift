@@ -1,6 +1,7 @@
 import AppKit
 import EventKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class AgenteSettingsModel: ObservableObject {
@@ -42,6 +43,9 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var toolCapturas: Bool { didSet { Config.set("agente_tool_capturas", to: toolCapturas) } }
     @Published var atajoApple: String { didSet { Config.set("agente_atajo_apple", to: atajoApple) } }
     @Published var atajos: [String] = []
+    @Published var atajosDetalle: [AtajoAppleDescubierto] {
+        didSet { AppleAtajosCatalogo.guardar(atajosDetalle) }
+    }
 
     @Published var capturaDestino: String { didSet { Config.set("captura_destino", to: capturaDestino) } }
     @Published var capturaGuardar: Bool { didSet { Config.set("captura_guardar", to: capturaGuardar) } }
@@ -95,7 +99,7 @@ final class AgenteSettingsModel: ObservableObject {
         musicaSinConsulta = Config.musicaSinConsulta()
         musicaCatalogo = Config.musicaCatalogoAutomatico()
         musicaAtajo = Config.musicaAtajoApple(); musicaAtajoPrimero = Config.musicaAtajoPrimero()
-        rutinas = RutinasAgenteStore.todas()
+        rutinas = RutinasAgenteStore.todas(); atajosDetalle = AppleAtajosCatalogo.todos()
     }
 
     func moverMusica(_ i: Int, _ delta: Int) {
@@ -129,7 +133,12 @@ final class AgenteSettingsModel: ObservableObject {
         Config.set("musica_proveedores_personales", to: restantes); quitarMusica(id)
     }
 
-    func cargarAtajos() { AppleAtajos.listar { [weak self] in self?.atajos = $0 } }
+    func cargarAtajos() {
+        AppleAtajosCatalogo.refrescar { [weak self] items in
+            self?.atajosDetalle = items
+            self?.atajos = items.filter(\.disponible).map(\.nombre)
+        }
+    }
     func instalarAtajoMusica() {
         let r = AppleAtajos.instalarMusicaIncluido()
         aviso = r.mensaje
@@ -156,6 +165,60 @@ final class AgenteSettingsModel: ObservableObject {
     func guardarRutinas() { RutinasAgenteStore.guardar(rutinas); aviso = "Rutinas guardadas." }
     func nuevaRutina() { var r = RutinaAgente(nombre: "Nueva rutina"); r.pasos = [PasoRutinaAgente()]; rutinas.append(r) }
     func borrarRutina(_ i: Int) { guard rutinas.indices.contains(i) else { return }; rutinas.remove(at: i) }
+    func exportarRutinas(categoria: String? = nil) {
+        let seleccion = categoria.map { c in rutinas.filter { $0.categoria == c } } ?? rutinas
+        let p = NSSavePanel(); p.title = "Exportar biblioteca de recetas"
+        p.nameFieldStringValue = categoria.map { "Recetas-BetoDicta-\($0).json" }
+            ?? "Recetas-BetoDicta.json"
+        guard p.runModal() == .OK, let u = p.url else { return }
+        aviso = RecetasPortables.exportar(seleccion, a: u).mensaje
+    }
+    func importarRutinas() {
+        let p = NSOpenPanel(); p.title = "Importar recetas de BetoDicta"
+        p.allowedContentTypes = [.json]; p.allowsMultipleSelection = false
+        guard p.runModal() == .OK, let u = p.url else { return }
+        switch RecetasPortables.importar(desde: u, actuales: rutinas) {
+        case .success(let nuevas):
+            rutinas = nuevas; RutinasAgenteStore.guardar(nuevas)
+            aviso = "Importé las recetas compatibles de «\(u.lastPathComponent)»."
+        case .failure(let e): aviso = "No pude importar: \(e.localizedDescription)"
+        }
+    }
+    func copiarEjemploUniversal() {
+        let orden = OrdenUniversalBeto(accion: "musica",
+            parametros: ["texto": "música andina"])
+        let e = JSONEncoder(); e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let d = try? e.encode(orden), let s = String(data: d, encoding: .utf8) else { return }
+        copyText(s); aviso = "Copié una acción estructurada de ejemplo."
+    }
+    func probarUniversal() {
+        let orden = OrdenUniversalBeto(accion: "estado_mac")
+        AtajoUniversalBetoDicta.ejecutar(orden, simular: true) { [weak self] r in
+            self?.aviso = r.ok ? "Contrato universal validado: \(r.mensaje)" : r.mensaje
+        }
+    }
+    func copiarGuiaUniversal() {
+        let guia = """
+        Crea un Atajo llamado “BetoDicta Universal”:
+        1. Si hace falta, activa manualmente Atajos → Ajustes → Avanzado →
+           “Permitir ejecutar scripts”. BetoDicta no cambia ese permiso.
+        2. Añade la acción “Ejecutar script de shell”.
+        3. En “Pasar entrada”, elige “a stdin”.
+        4. Usa este comando:
+        /Applications/BetoDicta.app/Contents/Resources/betodicta-universal.sh
+        5. La entrada debe ser el JSON estructurado que copia BetoDicta.
+        6. El resultado es JSON con ok, mensaje y evidencia.
+
+        Los Atajos que este contrato invoque se habilitan individualmente en
+        Ajustes → Asistente y conservan su nivel de riesgo. Para acciones
+        externas, pregunta primero y solo entonces agrega "confirmado": true.
+        """
+        copyText(guia)
+        aviso = "Copié la guía del Atajo universal."
+        if let u = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.shortcuts") {
+            NSWorkspace.shared.openApplication(at: u, configuration: .init(), completionHandler: nil)
+        }
+    }
 }
 
 struct AgenteView: View {
@@ -378,17 +441,60 @@ struct AgenteView: View {
                         }
                     }
                     Button("Actualizar lista de Atajos") { m.cargarAtajos() }.controlSize(.small)
-                    Text("Siri no permite recibir texto arbitrario mediante una API pública. BetoDicta usa el puente oficial de Atajos: tú creas el atajo y decides qué puede hacer.")
+                    if !m.atajosDetalle.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Atajos habilitados como herramientas").font(.subheadline).bold()
+                            ForEach($m.atajosDetalle) { $atajo in
+                                HStack(spacing: 8) {
+                                    Toggle("", isOn: $atajo.habilitado)
+                                        .labelsHidden().disabled(!atajo.disponible)
+                                    Text(atajo.nombre).font(.caption).lineLimit(1)
+                                        .foregroundStyle(atajo.disponible ? Color.primary : Color.secondary)
+                                    Spacer()
+                                    Picker("", selection: $atajo.riesgo) {
+                                        ForEach(RiesgoAtajoApple.allCases) { r in Text(r.nombre).tag(r) }
+                                    }.labelsHidden().frame(width: 135).disabled(!atajo.disponible)
+                                }
+                            }
+                        }
+                        .padding(8).background(Color(nsColor: .windowBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    Text("Cada Atajo descubierto empieza apagado y con un nivel de riesgo propio. BetoDicta lo ejecuta por la pasarela oficial, con timeout y evidencia; HomeKit y Concentración nunca se activan sin tu autorización.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
+            universal
             musica
             rutinas
 
             if !m.aviso.isEmpty { Text(m.aviso).font(.caption).foregroundStyle(violeta) }
         }
         .onAppear { m.cargarAtajos(); m.actualizarCodex() }
+    }
+
+    private var universal: some View {
+        card("Atajo universal BetoDicta", "point.3.connected.trianglepath.dotted") {
+            Text("Un solo contrato JSON despacha música, calendario, recordatorios, aplicaciones, HomeKit, Concentración, capturas, estado del Mac y resumen del día. Devuelve ok, mensaje y evidencia; las acciones fuera del nivel de autonomía exigen confirmación.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button { m.copiarEjemploUniversal() } label: {
+                    Label("Copiar JSON de ejemplo", systemImage: "doc.on.doc")
+                }
+                    .accessibilityLabel("Copiar JSON de ejemplo")
+                Button { m.probarUniversal() } label: {
+                    Label("Validar sin ejecutar", systemImage: "checkmark.shield")
+                }
+                    .accessibilityLabel("Validar el Atajo universal sin ejecutar acciones")
+                Button { m.copiarGuiaUniversal() } label: {
+                    Label("Crear en Atajos…", systemImage: "apple.logo")
+                }
+                    .accessibilityLabel("Crear el Atajo universal en Atajos de Apple")
+            }.controlSize(.small)
+            Text("Los Atajos Apple siguen siendo herramientas externas: debes habilitar cada uno arriba. El contrato nunca contiene ni exporta claves.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
     }
 
     private var musica: some View {
@@ -466,8 +572,8 @@ struct AgenteView: View {
     }
 
     private var rutinas: some View {
-        card("Rutinas creadas por ti", "list.bullet.rectangle.portrait") {
-            Text("Cada rutina tiene frases de activación y pasos ordenados. {texto} representa lo que dices después del nombre.")
+        card("Recetas y rutinas portables", "list.bullet.rectangle.portrait") {
+            Text("BetoDicta incluye Resumen del día, jornadas, reunión, selección, estado del Mac, captura, HomeKit y audio de Finder. {texto}, {resultado} y {fecha} enlazan los pasos. Los fallos opcionales no detienen el resto.")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach($m.rutinas) { $rutina in
                 VStack(alignment: .leading, spacing: 6) {
@@ -475,10 +581,22 @@ struct AgenteView: View {
                         Toggle("", isOn: $rutina.activa).labelsHidden()
                         TextField("Nombre", text: $rutina.nombre)
                             .textFieldStyle(.roundedBorder)
-                        Button(role: .destructive) {
-                            m.rutinas.removeAll { $0.id == rutina.id }
-                        } label: { Image(systemName: "trash") }
-                            .buttonStyle(.plain)
+                        Text(rutina.categoria).font(.caption2).foregroundStyle(.secondary)
+                        let riesgo = RutinasAgenteStore.riesgo(rutina)
+                        Text(riesgo == .lectura ? "lectura" : (riesgo == .reversible ? "reversible" :
+                            (riesgo == .cambioLocal ? "cambio local" : (riesgo == .externo ? "externo" : "confirmar siempre"))))
+                            .font(.caption2).padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(riesgo >= .externo ? Color.orange.opacity(0.18) : Color.green.opacity(0.14))
+                            .clipShape(Capsule())
+                        if !rutina.incluida {
+                            Button(role: .destructive) {
+                                m.rutinas.removeAll { $0.id == rutina.id }
+                            } label: { Image(systemName: "trash") }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                    if !rutina.descripcion.isEmpty {
+                        Text(rutina.descripcion).font(.caption).foregroundStyle(.secondary)
                     }
                     TextField("Frases separadas por coma", text: Binding(
                         get: { rutina.frases.joined(separator: ", ") },
@@ -488,15 +606,33 @@ struct AgenteView: View {
                         HStack {
                             Picker("", selection: $paso.tipo) {
                                 Text("Música").tag("musica"); Text("Aplicación").tag("app")
+                                Text("Primera app disponible").tag("app_primera")
                                 Text("URL").tag("url"); Text("Atajo Apple").tag("atajo")
                                 Text("Tarea local").tag("tarea"); Text("Nota local").tag("nota")
                                 Text("Recordatorio").tag("recordatorio"); Text("Calendario").tag("calendario")
                                 Text("Archivo").tag("archivo")
                                 Text("Captura de pantalla").tag("captura")
                                 Text("Grabación de pantalla").tag("grabacion")
-                            }.labelsHidden().frame(width: 150)
+                                Divider()
+                                Text("Resumen del día").tag("resumen_dia")
+                                Text("Preparación de mañana").tag("resumen_manana")
+                                Text("Estado del Mac").tag("estado_mac")
+                                Text("Captura inteligente").tag("captura_inteligente")
+                                Text("Leer selección").tag("seleccion_leer")
+                                Text("Resumir selección").tag("seleccion_resumir")
+                                Text("Traducir selección").tag("seleccion_traducir")
+                                Text("Responder selección").tag("seleccion_responder")
+                                Text("Selección a tarea").tag("seleccion_tarea")
+                                Text("Transcribir audio seleccionado").tag("audio_transcribir")
+                                Text("Resumir audio seleccionado").tag("audio_resumir")
+                                Text("Traducir audio seleccionado").tag("audio_traducir")
+                                Text("Audio a correo").tag("audio_correo")
+                                Text("Audio a oficio").tag("audio_oficio")
+                                Text("Cerrar aplicaciones (confirmar)").tag("cerrar_apps")
+                            }.labelsHidden().frame(width: 190)
                             TextField("Valor o {texto}", text: $paso.valor)
                                 .textFieldStyle(.roundedBorder)
+                            Toggle("Opcional", isOn: $paso.opcional).font(.caption)
                             Button { rutina.pasos.removeAll { $0.id == paso.id } } label: { Image(systemName: "minus.circle") }
                                 .buttonStyle(.plain)
                         }
@@ -509,7 +645,18 @@ struct AgenteView: View {
             HStack {
                 Button("Nueva rutina") { m.nuevaRutina() }
                 Button("Guardar rutinas") { m.guardarRutinas() }.buttonStyle(.borderedProminent).tint(violeta)
+                Spacer()
+                Button("Importar JSON…") { m.importarRutinas() }
+                Menu("Exportar JSON…") {
+                    Button("Toda la biblioteca") { m.exportarRutinas() }
+                    Button("Paquete Trabajo") { m.exportarRutinas(categoria: "Trabajo") }
+                    Button("Paquete Universidad") { m.exportarRutinas(categoria: "Universidad") }
+                    Button("Paquete Casa") { m.exportarRutinas(categoria: "Casa") }
+                    Button("Mis recetas") { m.exportarRutinas(categoria: "Personal") }
+                }
             }.controlSize(.small)
+            Text("Los paquetes JSON no contienen claves. Al importar se validan tipos, tamaño y URLs; los Atajos siguen necesitando habilitación individual.")
+                .font(.caption2).foregroundStyle(.secondary)
         }
     }
 

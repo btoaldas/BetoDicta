@@ -11,6 +11,42 @@
 
 import AppKit
 
+// Puente para UN Atajo universal de macOS:
+//   BetoDicta --universal-input orden.json --universal-output respuesta.json
+// Corre antes de crear NSApplication, devuelve evidencia JSON y termina. El
+// Atajo puede usar el archivo de entrada/salida sin acceder a claves de la app.
+let argumentos = CommandLine.arguments
+if let i = argumentos.firstIndex(of: "--universal-input"), i + 1 < argumentos.count,
+   let o = argumentos.firstIndex(of: "--universal-output"), o + 1 < argumentos.count {
+    let entrada = URL(fileURLWithPath: argumentos[i + 1])
+    let salida = URL(fileURLWithPath: argumentos[o + 1])
+    let respuesta: RespuestaUniversalBeto
+    do {
+        let orden = try AtajoUniversalBetoDicta.decodificar(desde: entrada)
+        var recibida: RespuestaUniversalBeto?
+        AtajoUniversalBetoDicta.ejecutar(orden) { recibida = $0 }
+        let limite = Date().addingTimeInterval(120)
+        while recibida == nil, Date() < limite {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        respuesta = recibida ?? .init(ok: false,
+            mensaje: "La acción universal excedió 120 segundos.",
+            evidencia: ["timeout": "true"])
+    } catch {
+        respuesta = .init(ok: false, mensaje: error.localizedDescription,
+                          evidencia: ["entrada_valida": "false"])
+    }
+    do {
+        try AtajoUniversalBetoDicta.respuestaJSON(respuesta).write(to: salida, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                               ofItemAtPath: salida.path)
+    } catch {
+        FileHandle.standardError.write(Data("No pude escribir la evidencia: \(error.localizedDescription)\n".utf8))
+        exit(3)
+    }
+    print(respuesta.mensaje); exit(respuesta.ok ? 0 : 2)
+}
+
 // Hooks puros del pipeline de release. Corren antes de crear NSApplication para
 // que también funcionen con la app instalada cerrada y en una sesión sin GUI.
 if let dmg = ProcessInfo.processInfo.environment["BETODICTA_DMGVERIFYTEST"],
@@ -34,6 +70,7 @@ ModoAudioQA.ejecutarSiSePidio()
 ModoIAQA.ejecutarSiSePidio()
 AplicacionesMacQA.ejecutarSiSePidio()
 AgenteCoreQA.ejecutarSiSePidio()
+RecetasQA.ejecutarSiSePidio()
 AgenteCodex.ejecutarPruebaSiSePidio()
 DocumentosMac.ejecutarPruebaSiSePidio()
 NotasApple.ejecutarPruebaSiSePidio()

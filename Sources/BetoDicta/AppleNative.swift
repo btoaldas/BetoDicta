@@ -5,6 +5,13 @@ import Foundation
 struct ResultadoHerramientaApple {
     let ok: Bool
     let mensaje: String
+    /// Evidencia estructurada y breve para logs/Atajo universal. Nunca contiene
+    /// credenciales; los valores se limitan antes de persistirlos.
+    let evidencia: [String: String]
+
+    init(ok: Bool, mensaje: String, evidencia: [String: String] = [:]) {
+        self.ok = ok; self.mensaje = mensaje; self.evidencia = evidencia
+    }
 }
 
 // MARK: - Recordatorios y Calendario mediante EventKit
