@@ -412,7 +412,7 @@ enum Acciones {
         ("outlook",       "Outlook: nuevo correo",           "", "com.microsoft.Outlook"),
         ("whatsapp",      "WhatsApp (con el texto)",         "whatsapp://send?text={q}", "net.whatsapp.WhatsApp"),
         ("mensajes",      "Mensajes (copia el texto)",       "", "com.apple.MobileSMS"),
-        ("notas",         "Notas de Mac (copia el texto)",   "", "com.apple.Notes"),
+        ("notas",         "Nota de Apple (crear y verificar)", "", "com.apple.Notes"),
         ("recordatorios", "Recordatorio nativo de Mac",      "", "com.apple.reminders"),
         ("calendario",    "Evento nativo de Calendario",     "", "com.apple.iCal"),
         ("finder",        "Finder",                          "", "com.apple.finder"),

@@ -56,7 +56,7 @@ enum PoliticaAgente {
                 switch id {
                 case "musica", "archivo", "finder", "safari", "mapas", "spotlight", "aplicacion":
                     r = .reversible
-                case "recordatorios", "calendario", "nota_local", "tarea_local", "archivo_nuevo",
+                case "recordatorios", "calendario", "notas", "nota_local", "tarea_local", "archivo_nuevo",
                      "captura_pantalla", "grabar_pantalla":
                     r = .cambioLocal
                 case "gmail", "correo", "outlook", "whatsapp", "mensajes", "atajo_apple", "url",

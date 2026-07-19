@@ -21,7 +21,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>BetoDicta usa Automatización únicamente para las acciones que tú solicitas, como crear un documento en Word, ejecutar Atajos, leer la URL activa o controlar la reproducción.</string>
+	<string>BetoDicta usa Automatización únicamente para las acciones que tú solicitas, como crear una nota en Notas de Apple, crear un documento en Word, ejecutar Atajos, leer la URL activa o controlar la reproducción.</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>BetoDicta puede reproducir la música que tú solicites cuando habilitas esa herramienta.</string>
 	<key>NSContactsUsageDescription</key>

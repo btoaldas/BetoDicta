@@ -41,6 +41,7 @@ enum ModoPlanificador {
     private static let marcadoresContenido: [[String]] = [
         ["lo", "siguiente"], ["el", "siguiente", "texto"], ["este", "texto"],
         ["esta", "frase"], ["esto"], ["texto"], ["que", "dice"], ["diciendo"],
+        ["que", "diga"], ["con", "el", "texto"],
         ["y", "escribe"], ["y", "pega"], ["y", "pon"], ["y", "coloca"],
         ["escribe"], ["pega"], ["pon"], ["coloca"]
     ]
@@ -263,6 +264,35 @@ enum ModoPlanificador {
         return nil
     }
 
+    /// “Crea una nota” conserva el modo Nota local de BetoDicta. Solo se vuelve
+    /// una acción externa si el usuario nombra de forma inequívoca Apple/Mac o la
+    /// aplicación Notes; así no reintroducimos la antigua colisión de nombres.
+    private static func notaAppleCercana(desde i: Int, en ts: [Token]) -> Int? {
+        let limite = min(ts.count, i + 10)
+        guard i + 1 < limite else { return nil }
+        var vioNota = false
+        var vioNombreNotes = false
+        var vioDestinoApple = false
+        var vioAplicacion = false
+        var ultimo = i
+        var completo = false
+        let relleno: Set<String> = [
+            "en", "de", "del", "la", "el", "una", "un", "aplicacion", "app",
+            "nota", "notas", "notes", "apple", "mac", "macos"
+        ]
+        for j in (i + 1)..<limite {
+            let t = ts[j].normal
+            if ["nota", "notas", "notes"].contains(t) { vioNota = true; ultimo = j }
+            if ["notas", "notes"].contains(t) { vioNombreNotes = true; ultimo = j }
+            if ["apple", "mac", "macos"].contains(t) { vioDestinoApple = true; ultimo = j }
+            if ["aplicacion", "app"].contains(t) { vioAplicacion = true; ultimo = j }
+            completo = vioNota && (vioDestinoApple || (vioAplicacion && vioNombreNotes))
+            if completo, !relleno.contains(t) { break }
+            if j > i + 1, ["que", "diga", "diciendo", "texto"].contains(t) { break }
+        }
+        return completo ? ultimo : nil
+    }
+
     private static func objetoGeneracion(desde i: Int, en ts: [Token]) -> Int? {
         let limite = min(ts.count, i + 9)
         guard i + 1 < limite else { return nil }
@@ -397,6 +427,11 @@ enum ModoPlanificador {
             if verbosFormalizar.contains(t), puedeAgregar(en: i), var m = modo("oficio", catalogo: catalogo) {
                 m.nombre = "Formalizar"
                 agregarTransform(m, a: &p); marcar(i, i, confianza: 0.92); i += 1; continue
+            }
+            if (verbosRedactar.contains(t) || verbosGuardar.contains(t)), puedeAgregar(en: i),
+               let j = notaAppleCercana(desde: i, en: ts) {
+                agregarAccion(ModoAccionPlan(modo: accion("notas"), destinatario: nil), a: &p)
+                marcar(i, j, confianza: 0.98); i = j + 1; continue
             }
             if verbosRedactar.contains(t), puedeAgregar(en: i),
                let (id, j) = destinoRedaccion(desde: i, en: ts), let m = modo(id, catalogo: catalogo) {
@@ -655,6 +690,7 @@ enum ModoPlanificador {
                 return "Preparar un borrador en Outlook" + ((destinatario?.isEmpty == false) ? " para \(destinatario!)" : "")
             case "recordatorios": return "Crear un recordatorio"
             case "calendario": return "Crear un evento en Calendario"
+            case "notas": return "Crear una nota en Notas de Apple"
             case "archivo": return modo.prompt == "finder"
                 ? "Mostrar resultados de archivos en Finder"
                 : "Buscar un archivo en la Mac"

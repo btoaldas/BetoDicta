@@ -237,6 +237,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if ProcessInfo.processInfo.environment["BETODICTA_NOTASAPPLEFLOWTEST"] == "1" {
+            NotasApple.probarFlujoReal { r in
+                print("NOTASAPPLEFLOWTEST \(r.ok ? "OK" : "FALLA") | \(r.mensaje)")
+                fflush(stdout); exit(r.ok ? 0 : 3)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 25) {
+                print("NOTASAPPLEFLOWTEST FALLA timeout"); fflush(stdout); exit(4)
+            }
+            return
+        }
         if let orden = ProcessInfo.processInfo.environment["BETODICTA_MUSICFLOWTEST"],
            !orden.isEmpty {
             let solicitado = Musica.reconocerProveedor(en: orden) ?? "auto"
@@ -4834,7 +4844,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     panel.flash("💡 Instala WhatsApp de escritorio para abrirlo directo", segundos: 3)
                 }
             }
-        case "notas" where !t.isEmpty:       crearEnApp(bundle: "com.apple.Notes", texto: t)
+        case "notas" where !t.isEmpty:
+            esperaAsincrona = true; muestraGenerica = false
+            NotasApple.crear(t) { r in mostrarResultado(r); completar() }
         case "recordatorios" where !t.isEmpty:
             esperaAsincrona = true; muestraGenerica = false
             AppleAgenda.crearRecordatorio(t) { r in mostrarResultado(r); completar() }

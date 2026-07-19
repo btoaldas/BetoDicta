@@ -364,7 +364,7 @@ struct ModosView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Apps como Notas/Finder: copia el texto y abre la app para que pegues (⌘V). Quipux/tu web: pon la URL. Sin IA.")
+            Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Nota de Apple crea y verifica una nota real; Finder y otras apps sin API dejan el texto respaldado en el portapapeles. Quipux/tu web: pon la URL. Sin IA.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         // Aplicación: inventario automático + comportamiento seguro al colocar texto.

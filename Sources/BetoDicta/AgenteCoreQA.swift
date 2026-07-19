@@ -715,6 +715,39 @@ enum AgenteCoreQA {
             comprobar("plan \(c.accion)", ok, "\(id ?? "nil") · \(p?.cadena.contenido ?? "nil")")
         }
 
+        let notaApple = ModoPlanificador.detectarNatural(
+            "Crea una nota en Notas de Apple: comprar filtros mañana.", catalogo: catalogo)
+        comprobar("Nota de Apple se distingue de Nota local",
+                  notaApple?.cadena.acciones.first?.modo.accion == "notas"
+                    && notaApple?.cadena.transforms.isEmpty == true
+                    && notaApple?.cadena.contenido == "comprar filtros mañana.",
+                  "\(notaApple?.descripcion ?? "nil") · \(notaApple?.cadena.contenido ?? "nil")")
+        let notaMacSTT = ModoPlanificador.detectarNatural(
+            "Guarda en la aplicación Notas que diga llamar a mamá.", catalogo: catalogo)
+        comprobar("Nota de Apple tolera aplicación Notas y que diga",
+                  notaMacSTT?.cadena.acciones.first?.modo.accion == "notas"
+                    && notaMacSTT?.cadena.contenido == "llamar a mamá.",
+                  "\(notaMacSTT?.descripcion ?? "nil") · \(notaMacSTT?.cadena.contenido ?? "nil")")
+        let notaAplicacion = ModoPlanificador.detectarNatural(
+            "Crea una nota en la aplicación Notas: revisar el presupuesto.", catalogo: catalogo)
+        comprobar("Nota de Apple consume el nombre completo de la aplicación",
+                  notaAplicacion?.cadena.acciones.first?.modo.accion == "notas"
+                    && notaAplicacion?.cadena.contenido == "revisar el presupuesto.",
+                  notaAplicacion?.cadena.contenido ?? "nil")
+        let notaLocal = ModoPlanificador.detectarNatural(
+            "Crea una nota clara sobre la reunión de mañana.", catalogo: catalogo)
+        comprobar("nota sin Apple conserva el modo local",
+                  notaLocal?.cadena.transforms.first?.id == "nota"
+                    && notaLocal?.cadena.acciones.isEmpty == true)
+        comprobar("mención narrativa de Notas no ejecuta",
+                  ModoPlanificador.detectarNatural(
+                    "Las notas de Apple se sincronizan con el teléfono.",
+                    catalogo: catalogo) == nil)
+        let notaOtraApp = ModoPlanificador.detectarNatural(
+            "Crea una nota en la aplicación de contabilidad sobre el cierre.", catalogo: catalogo)
+        comprobar("aplicación genérica no se confunde con Notas de Apple",
+                  notaOtraApp?.cadena.acciones.first?.modo.accion != "notas")
+
         let finderPlan = ModoPlanificador.detectarNatural(
             "Busca el archivo informe final y muéstralo en Finder", catalogo: catalogo)
         let finderSolicitud = finderPlan.map {
