@@ -10,6 +10,7 @@ incluye en el instalador ni en el repositorio por peso). Ver "Descargas bajo dem
 ## Texto → voz (TTS)
 
 - **Coqui TTS / XTTS v2** — clonación de voz de alta calidad. Código: [coqui-tts](https://github.com/idiap/coqui-ai-TTS) (fork mantenido por Idiap), licencia **MPL-2.0**. Modelo XTTS v2: **Coqui Public Model License (CPML), uso NO comercial**. Gracias a Coqui y a la comunidad.
+- **Resemble Enhance** — restauración local de detalle para la variante ✨ Máxima. Código y modelo: [ResembleAI/resemble-enhance](https://github.com/resemble-ai/resemble-enhance), licencia **MIT**. BetoDicta verifica el peso oficial por SHA‑256 antes de usarlo.
 - **Piper** — TTS rápido (VITS/ONNX), voz fija. [OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl) y el original [rhasspy/piper](https://github.com/rhasspy/piper), licencia **GPL-3.0**. Autor: Michael Hansen (rhasspy). Gracias.
 - **Qwen3‑TTS** — TTS multilingüe y clonación por referencia para el carril local equilibrado. [QwenLM/Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), licencia **Apache-2.0**; modelos según su ficha en Hugging Face.
 - **MLX-Audio / Apple MLX** — inferencia y streaming optimizados para Apple Silicon. [Blaizzy/mlx-audio](https://github.com/Blaizzy/mlx-audio) y [ml-explore/mlx](https://github.com/ml-explore/mlx), licencias open source indicadas por cada proyecto.
