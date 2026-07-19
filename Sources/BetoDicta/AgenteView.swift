@@ -110,6 +110,21 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var memoriaContexto: Bool { didSet { Config.set("agente_memoria_contexto_ia", to: memoriaContexto) } }
     @Published var turnos: Double { didSet { Config.set("agente_memoria_turnos", to: Int(turnos)) } }
     @Published var pegar: Bool { didSet { Config.set("agente_pega", to: pegar) } }
+    @Published var dictadoAsistido: Bool {
+        didSet { Config.set("agente_dictado_asistido", to: dictadoAsistido) }
+    }
+    @Published var dictadoPulir: Bool {
+        didSet { Config.set("agente_dictado_pulir", to: dictadoPulir) }
+    }
+    @Published var dictadoPegar: Bool {
+        didSet { Config.set("agente_dictado_pegar", to: dictadoPegar) }
+    }
+    @Published var dictadoCopiar: Bool {
+        didSet { Config.set("agente_dictado_copiar", to: dictadoCopiar) }
+    }
+    @Published var dictadoAcuse: String {
+        didSet { Config.set("agente_dictado_acuse", to: String(dictadoAcuse.prefix(80))) }
+    }
     @Published var respuestaActiva: Bool { didSet { Config.set("agente_respuesta_activa", to: respuestaActiva) } }
     @Published var respuestaFormato: String { didSet { Config.set("agente_respuesta_formato", to: respuestaFormato) } }
     @Published var codexEstado = "Sin comprobar"
@@ -180,6 +195,11 @@ final class AgenteSettingsModel: ObservableObject {
         modeloIA = Config.agenteIAModelo(); memoria = Config.agenteMemoriaActiva()
         memoriaContexto = Config.agenteMemoriaContextoIA()
         turnos = Double(Config.agenteMemoriaTurnos()); pegar = Config.agentePega()
+        dictadoAsistido = Config.agenteDictadoAsistido()
+        dictadoPulir = Config.agenteDictadoPulir()
+        dictadoPegar = Config.agenteDictadoPegar()
+        dictadoCopiar = Config.agenteDictadoCopiar()
+        dictadoAcuse = Config.agenteDictadoAcuse()
         respuestaActiva = Config.agenteRespuestaActiva()
         respuestaFormato = Config.agenteRespuestaFormato()
         codexBin = Config.agenteCodexBin(); codexTimeout = Config.agenteCodexTimeout()
@@ -476,6 +496,25 @@ struct AgenteView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     if m.respuestaFormato == "texto_voz", !Config.ttsActivo() {
                         Text("Activa “Que BetoDicta pueda hablarte (TTS)” en Avanzado para oírla; mientras tanto seguirá respondiendo por texto.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
+            }
+
+            card("Dictado asistido sin manos", "text.cursor") {
+                Toggle("Entender órdenes como “dicta esto” o “mejora lo siguiente”",
+                       isOn: $m.dictadoAsistido)
+                if m.dictadoAsistido {
+                    Toggle("Pulir el texto con la cascada de IA", isOn: $m.dictadoPulir)
+                    Toggle("Pegar el resultado en la aplicación activa", isOn: $m.dictadoPegar)
+                    Toggle("Conservar también el resultado en el portapapeles",
+                           isOn: $m.dictadoCopiar)
+                    field("Respuesta antes de la segunda toma", text: $m.dictadoAcuse,
+                          placeholder: "Dímelo.")
+                    Text("Después de la frase de presencia puedes decir “dicta esto: …”, “transcribe esto: …”, “escribe esto: …”, “corrige esto: …”, “actualiza esto: …” o “mejora esto: …”. Si dices solamente “dictado”, usa la respuesta configurada y abre otro turno automáticamente. Esta ruta no llama al cerebro ni ejecuta una aplicación.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !m.dictadoPegar && !m.dictadoCopiar {
+                        Text("Activa Pegar o Portapapeles para poder recuperar el resultado.")
                             .font(.caption).foregroundStyle(.orange)
                     }
                 }

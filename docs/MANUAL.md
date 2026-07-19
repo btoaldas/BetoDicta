@@ -343,6 +343,13 @@ Esta pestaña convierte a BetoDicta en un asistente por voz sin reemplazar su fu
 - Para una acción automática responde con una frase breve, por ejemplo *“De acuerdo, voy a abrir Safari”*. Para resultados verificables espera la evidencia: Música distingue *“estoy reproduciendo…”* de *“no pude reproducirlo automáticamente; abrí la búsqueda”*. Nunca afirma que envió, guardó o reprodujo algo si la herramienta no lo confirmó.
 - Los resultados de un modo transformador dentro del Asistente —por ejemplo traducir o resumir— también pueden leerse con la voz elegida. Una respuesta vacía de IA/Hermes degrada a una explicación breve para que el asistente no quede mudo.
 
+**Dictado asistido sin manos**
+
+- Después de activar al asistente puedes ordenar *“dicta esto: …”*, *“transcribe lo siguiente: …”*, *“escribe esto: …”*, *“corrige esto: …”*, *“actualiza esto: …”*, *“mejora esto: …”* o *“crea un dictado: …”*. BetoDicta quita únicamente esa orden inicial, pule el contenido y lo entrega en el campo que ya estaba activo. Es una ruta local y determinista: **no llama al cerebro ni abre otra aplicación**.
+- Si dices solamente *“dictado”*, responde *“Dímelo”* —por texto o con la voz configurada— y abre automáticamente **una sola grabación adicional**. Lo que digas allí se convierte en el contenido; *“cancela”* u *“olvídalo”* descartan ese turno. Esc y cualquier fallo de micrófono también limpian la espera, de modo que nunca se reutiliza sobre un dictado posterior.
+- En *Ajustes → Asistente → Dictado asistido sin manos* puedes apagar toda la función, editar la respuesta breve de la segunda toma y decidir por separado si quieres **pulir**, **pegar en la aplicación activa** y **conservar una copia en el portapapeles**. El pulido usa la cascada configurada; sin IA o sin red entrega el original. El pegado requiere Accesibilidad, pero el portapapeles sigue siendo un respaldo independiente.
+- La detección es conservadora: *“escribe un correo para Alberto”* continúa en la herramienta Correo, *“actualiza el sistema”* sigue en el planificador y una narración como *“ayer dije dicta esto”* continúa como dictado normal. Los verbos ambiguos solo entran en esta ruta cuando llevan **esto / lo siguiente / este texto** al inicio.
+
 **Tres niveles de autonomía**
 
 1. **Consultivo**: propone el plan y pregunta antes de usar cualquier herramienta.
@@ -656,6 +663,12 @@ Prueba estas frases **en orden**, dejando terminar cada una. Cuando aparezca una
 | 32 | Ejecuta una rutina que contenga un Atajo Apple. | Siempre pregunta antes, incluso en autonomía 3. |
 | 33 | Después de una respuesta del Agente: “Mándaselo a Alberto por WhatsApp.” | Recupera esa última respuesta, propone WhatsApp a Alberto y exige confirmar. |
 | 34 | Selecciona dos párrafos y di “Oye Bto, guarda la selección en Notas de Apple.” | Crea una nota real, conserva los párrafos y responde únicamente después de volver a verificarla. |
+| 35 | Activa al asistente y di “Dicta esto: mañana entregaré el informe en Rectorado.” | Pule y pega solo el contenido; además queda en el portapapeles si esa opción está activa. |
+| 36 | Activa al asistente y di solamente “Dictado”; cuando responda “Dímelo”, di “mañana entregaré el informe”. | Abre un único segundo turno y entrega esa frase sin volver a pedir fn. |
+| 37 | Durante el segundo turno del caso anterior di “Olvídalo”. | Cancela la espera; no pega ni conserva estado para el próximo dictado. |
+| 38 | Activa al asistente y di “Escribe un correo para Alberto”. | No entra en Dictado asistido; conserva el plan normal de Correo. |
+| 39 | Activa al asistente y di “Actualiza el sistema esta noche”. | No roba la frase como texto: continúa por el planificador normal. |
+| 40 | En Dictado normal di “Ayer dije dicta esto durante la reunión”. | No activa al asistente ni recorta ninguna palabra. |
 
 **Cómo depurar:** abre `~/.betodicta/logs/modos.jsonl` desde la lupa de *Ajustes → Modos*. Para cada prueba verás la ruta `dictado_inicio → dictado_cierre → resolucion`; si hubo pregunta aparecen `confirmacion_presentada → confirmacion_hotkey/confirmacion_respuesta`; luego `despacho`, `accion`, `whatsapp`, `aplicacion` o `musica`, y finalmente `modo_visual`. Las decisiones y resultados del asistente quedan además en `~/.betodicta/logs/agente.jsonl` (`activacion`, `plan`, `resultado_herramienta`, `respuesta`, `failover_cerebro`). Así se distingue una ejecución incorrecta de un simple rótulo desincronizado.
 

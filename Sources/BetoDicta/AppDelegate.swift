@@ -136,6 +136,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// "Modo agente" dicho solo prepara el próximo dictado sin cambiar el modo
     /// persistente ni romper la opción de un solo uso.
     private var modoPendienteVoz: Modo?
+    /// "Dictado" sin contenido abre exactamente UNA grabación adicional. La
+    /// sesión queda congelada como el modo/history para que una entrega tardía
+    /// jamás consuma un dictado normal posterior.
+    private var prepararContinuacionDictadoAsistido = false
+    private var dictadoAsistidoSesion: UUID?
     // Activación manos libres: el listener nativo vive solo cuando la app está
     // en reposo. El audio previo viaja con UNA sesión y jamás cambia el modo
     // persistente/default del usuario.
@@ -163,11 +168,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSSound(named: NSSound.Name(name))?.play()
     }
 
+    private func limpiarContinuacionDictadoAsistido() {
+        let eraPropia = prepararContinuacionDictadoAsistido || dictadoAsistidoSesion != nil
+        prepararContinuacionDictadoAsistido = false
+        dictadoAsistidoSesion = nil
+        if eraPropia, modoPendienteVoz?.id == "agente" { modoPendienteVoz = nil }
+    }
+
     /// Esc durante un dictado: cancela todo — no transcribe, no pega.
     /// `silencioso`: sin sonido ni panel "✕ Cancelado" (para descartar un
     /// arranque espurio de push-to-talk cuando fn se usó como atajo).
     private func cancelDictation(silencioso: Bool = false) {
         guard recorder.isRecording else { return }
+        limpiarContinuacionDictadoAsistido()
         disarmEsc()
         media.dictationEnded()
         PreviewVivo.detener()
@@ -232,6 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// invalida respuestas en vuelo, corta el audio, cierra el notch. Idempotente.
     func cancelarTodo() {
         if hayConfirmacion { resolverConfirmacion(acepta: false, origen: "cancelar"); return }
+        limpiarContinuacionDictadoAsistido()
         if recorder.isRecording { cancelDictation(); return }
         if iniciandoDictado {
             cierreAlArrancar = true
@@ -3148,6 +3162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startDictationAhora() {
         guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
+        let esContinuacionDictadoAsistido = prepararContinuacionDictadoAsistido
+        prepararContinuacionDictadoAsistido = false
         let despertarActual = despertarPendiente
         let acuseActual = activacionAcuseTextoPendiente
         activacionAcuseEnCurso = false
@@ -3158,6 +3174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             : ModosStore.modo("agente"))
         let sesion = UUID()
         modoVivoSesion = sesion
+        dictadoAsistidoSesion = esContinuacionDictadoAsistido ? sesion : nil
         modoVivoPausaTimer?.invalidate(); modoVivoPausaTimer = nil
         modoVivoPausaDisparada = false
         huboVozEnSesion = false
@@ -3293,6 +3310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } catch {
             ModoVivo.cancelar(sesion: sesion)
             modoVivoSesion = nil; ctxDictado = nil
+            if esContinuacionDictadoAsistido { limpiarContinuacionDictadoAsistido() }
             despertarPendiente = nil
             activacionAcuseTextoPendiente = nil
             cierreAlArrancar = nil
@@ -3584,6 +3602,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modoVivoPausaTimer?.invalidate(); modoVivoPausaTimer = nil
         modoVivoPausaDisparada = false
         let sesionDictado = modoVivoSesion
+        let continuacionDictadoAsistido = sesionDictado != nil
+            && dictadoAsistidoSesion == sesionDictado
+        dictadoAsistidoSesion = nil
         let vivoDictado = sesionDictado.flatMap { ModoVivo.terminar(sesion: $0) }
         let activacionDictado = despertarPendiente
         despertarPendiente = nil
@@ -3628,6 +3649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "modo_visual": panel.modoMostradoID,
             "vivo": vivoDictado?.modo.id ?? "",
             "activacion_reposo": activacionDictado?.frase ?? "",
+            "dictado_asistido_continuacion": continuacionDictadoAsistido,
             "un_solo_uso": Config.modoRevertir(),
         ])
 
@@ -3638,7 +3660,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo,
                                   history: historyActual, modo: modoDictado,
                                   contexto: contextoDictado, vivo: vivoDictado,
-                                  activacion: activacionDictado)
+                                  activacion: activacionDictado,
+                                  continuacionDictadoAsistido: continuacionDictadoAsistido)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     if !ultimoParcial.isEmpty {
@@ -3646,7 +3669,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self?.deliver(raw: ultimoParcial, wav: wav,
                                       via: "\(etiquetaFallo) (parcial)", history: historyActual,
                                       modo: modoDictado, contexto: contextoDictado, vivo: vivoDictado,
-                                      activacion: activacionDictado)
+                                      activacion: activacionDictado,
+                                      continuacionDictadoAsistido: continuacionDictadoAsistido)
                     } else {
                         historyActual?.finish(wav: wav, finalText: "")
                         self?.avisarSiLibre("⚠️ \(etiquetaFallo) — audio guardado")
@@ -3678,7 +3702,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.deliver(raw: final, wav: wav, via: "\(motor) (en vivo)", modelo: mod,
                                   history: historyActual, modo: modoDictado,
                                   contexto: contextoDictado, vivo: vivoDictado,
-                                  activacion: activacionDictado)
+                                  activacion: activacionDictado,
+                                  continuacionDictadoAsistido: continuacionDictadoAsistido)
                 }
             }
             tcpp.finish()
@@ -3720,7 +3745,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.deliver(raw: mejor, wav: wav, via: "\(nombreVivo) (en vivo)", modelo: mod,
                                   history: historyActual, modo: modoDictado,
                                   contexto: contextoDictado, vivo: vivoDictado,
-                                  activacion: activacionDictado)
+                                  activacion: activacionDictado,
+                                  continuacionDictadoAsistido: continuacionDictadoAsistido)
                 }
             }
             return
@@ -3752,7 +3778,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.deliver(raw: full, wav: wav, via: "ElevenLabs (en vivo)", modelo: "scribe_v2_realtime",
                                   history: historyActual, modo: modoDictado,
                                   contexto: contextoDictado, vivo: vivoDictado,
-                                  activacion: activacionDictado)
+                                  activacion: activacionDictado,
+                                  continuacionDictadoAsistido: continuacionDictadoAsistido)
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
@@ -3785,7 +3812,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self?.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo,
                                   history: historyActual, modo: modoDictado,
                                   contexto: contextoDictado, vivo: vivoDictado,
-                                  activacion: activacionDictado)
+                                  activacion: activacionDictado,
+                                  continuacionDictadoAsistido: continuacionDictadoAsistido)
                 case .failure(let error):
                     Log.log(.ia, "failover agotado: \(error.localizedDescription)")
                     historyActual?.finish(wav: wav, finalText: "")
@@ -3807,14 +3835,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func deliver(raw: String, wav: Data, via proveedor: String, modelo: String = "",
                          history: HistoryWriter?, modo modoSnapshot: Modo? = nil,
                          contexto: ModoContexto? = nil, vivo: ModoMatch? = nil,
-                         activacion: ActivacionVoz.Despertar? = nil) {
+                         activacion: ActivacionVoz.Despertar? = nil,
+                         continuacionDictadoAsistido: Bool = false) {
         // El completion del failover llega en el hilo del proveedor ganador (apple_speech
         // llega desde un Task). Todo deliver toca AppKit (panel, ícono) → SIEMPRE en main.
         guard Thread.isMainThread else {
             DispatchQueue.main.async {
                 self.deliver(raw: raw, wav: wav, via: proveedor, modelo: modelo,
                              history: history, modo: modoSnapshot, contexto: contexto, vivo: vivo,
-                             activacion: activacion)
+                             activacion: activacion,
+                             continuacionDictadoAsistido: continuacionDictadoAsistido)
             }
             return
         }
@@ -3904,6 +3934,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return
             }
         }
+
+        // Ruta determinista y reversible ANTES de Modos/semántica/cerebro. Una
+        // orden explícita de escribir tiene como destino el campo que ya estaba
+        // activo; no debe convertirse en correo, app ni conversación de IA.
+        if contextoAgente, Config.agenteDictadoAsistido() {
+            if continuacionDictadoAsistido, DictadoAsistido.esCancelacion(textoResolver) {
+                AgenteLog.registrar("dictado_asistido_cancelado", ["texto": textoResolver])
+                history?.finish(wav: wav, finalText: "")
+                playSound("Basso")
+                setIcono(.reposo)
+                panel.flash("✕ Dictado asistido cancelado", segundos: 1.4)
+                panel.hide(after: 1.6)
+                restaurarModoVisualSiLibre(origen: "dictado_asistido_cancelado")
+                solicitarRearmeActivacionVoz(origen: "dictado_asistido_cancelado")
+                return
+            }
+
+            let solicitud: SolicitudDictadoAsistido? = {
+                if let explicita = DictadoAsistido.detectar(textoResolver) {
+                    return explicita
+                }
+                guard continuacionDictadoAsistido else { return nil }
+                return SolicitudDictadoAsistido(operacion: .dictar,
+                                                frase: "continuación manos libres",
+                                                contenido: textoResolver)
+            }()
+            if let solicitud {
+                if solicitud.contenido.isEmpty {
+                    prepararSiguienteDictadoAsistido(crudo: crudo, wav: wav,
+                                                     history: history,
+                                                     operacion: solicitud.operacion)
+                } else {
+                    ejecutarDictadoAsistido(solicitud, crudo: crudo, wav: wav,
+                                             history: history,
+                                             fueContinuacion: continuacionDictadoAsistido)
+                }
+                return
+            }
+        }
         ModoResolver.resolver(texto: textoResolver, modoBase: modoBase,
                               contexto: contexto, vivo: vivo) { [weak self] resultado in
             DispatchQueue.main.async {
@@ -3913,6 +3982,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                            modoNormal: modoNormal, contextoAgente: contextoAgente,
                                            wav: wav, history: history)
             }
+        }
+    }
+
+    /// "Dictado" sin cuerpo funciona como una conversación corta: acusa recibo
+    /// y abre una sola toma adicional. La bandera se consume al CREAR la sesión;
+    /// Esc, error de micrófono o cualquier cancelación la limpian.
+    private func prepararSiguienteDictadoAsistido(crudo: String, wav: Data,
+                                                  history: HistoryWriter?,
+                                                  operacion: SolicitudDictadoAsistido.Operacion) {
+        let agente = ModosStore.modo("agente")
+        prepararContinuacionDictadoAsistido = true
+        modoPendienteVoz = agente
+        history?.finish(wav: wav, finalText: "")
+        AgenteLog.registrar("dictado_asistido_esperando", [
+            "operacion": operacion.rawValue,
+            "crudo": crudo,
+        ])
+        ModosLog.registrar("dictado_asistido_esperando", [
+            "operacion": operacion.rawValue,
+        ])
+        setIcono(.reposo)
+        panel.setModoVivo(agente)
+        responderBreveAgente(Config.agenteDictadoAcuse(), evento: "dictado_asistido_acuse",
+                             esperarVoz: true) { [weak self] in
+            guard let self, self.prepararContinuacionDictadoAsistido else { return }
+            self.startDictation()
+        }
+    }
+
+    private func ejecutarDictadoAsistido(_ solicitud: SolicitudDictadoAsistido,
+                                         crudo: String, wav: Data,
+                                         history: HistoryWriter?, fueContinuacion: Bool) {
+        let original = solicitud.contenido
+        let pegar = Config.agenteDictadoPegar()
+        let copiar = Config.agenteDictadoCopiar()
+        let pulir = Config.agenteDictadoPulir()
+        AgenteLog.registrar("dictado_asistido", [
+            "operacion": solicitud.operacion.rawValue,
+            "frase": solicitud.frase,
+            "contenido": original,
+            "continuacion": fueContinuacion,
+            "pulir": pulir,
+            "pegar": pegar,
+            "copiar": copiar,
+        ])
+        ModosLog.registrar("dictado_asistido", [
+            "operacion": solicitud.operacion.rawValue,
+            "continuacion": fueContinuacion,
+            "pulir": pulir,
+            "pegar": pegar,
+            "copiar": copiar,
+        ])
+
+        let entregar: (String) -> Void = { [weak self] resultado in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let final = resultado.trimmingCharacters(in: .whitespacesAndNewlines)
+                let seguro = final.isEmpty ? original : final
+                if seguro != original { Log.write("  3·dictado asistido IA: \(seguro)") }
+                Log.write("  ✓ dictado asistido: \(seguro)")
+                self.finishDelivery(seguro, rawText: crudo, wav: wav, history: history,
+                                    pegar: pegar, copiar: copiar)
+                if !pegar && !copiar, !self.recorder.isRecording {
+                    self.panel.flash("✓ Dictado listo (salida desactivada)", segundos: 2.2)
+                    self.panel.hide(after: 2.4)
+                }
+            }
+        }
+
+        if pulir {
+            if !recorder.isRecording { panel.update("🤖 Puliendo dictado asistido…") }
+            LLMPostProcess.enhance(original, completion: entregar)
+        } else {
+            entregar(original)
         }
     }
 
@@ -5626,14 +5769,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func finishDelivery(_ text: String, rawText: String, wav: Data, history: HistoryWriter?, pegar: Bool = true) {
+    private func finishDelivery(_ text: String, rawText: String, wav: Data,
+                                history: HistoryWriter?, pegar: Bool = true,
+                                copiar: Bool = false) {
         // El .txt guarda SOLO lo entregado, limpio. El crudo queda en el log.
         history?.finish(wav: wav, finalText: text)
         if pegar {
             // Flags "al terminar": espacio al final (pegado con el texto) + Enter /
             // Shift+Enter (teclas tras pegar). Todos opt-in.
             let textoAPegar = Config.espacioAlTerminar() ? text + " " : text
-            pasteText(textoAPegar)
+            // El dictado asistido puede conservar el resultado. En ese caso no
+            // restauramos el portapapeles anterior después de ⌘V.
+            pasteText(textoAPegar, restaurar: !copiar)
+            if copiar, textoAPegar != text {
+                // ⌘V ya leyó el valor; deja después la versión limpia, sin el
+                // espacio opcional de entrega, para reutilizarla con seguridad.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { copyText(text) }
+            }
             if Config.enterAlTerminar() {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { presionarRetorno(shift: false) }
             } else if Config.shiftEnterAlTerminar() {
@@ -5642,6 +5794,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Vigilar el campo: si corriges el texto ahí (antes de enviarlo), la
             // app aprende de esa corrección. No aplica con traducción activa.
             Aprendizaje.recordarContexto(pegado: text, traducido: Config.translate())
+        } else if copiar {
+            copyText(text)
         }
         playSound("Glass")
         if !recorder.isRecording { setIcono(.reposo) }
@@ -5649,8 +5803,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         //  no se revierte aquí para no pisar el modo de un dictado solapado.)
         // Si ya hay otro dictado grabando, no pisar su panel (ni el notch de IA).
         restaurarModoVisualSiLibre(origen: "entrega_completa")
-        if pegar, !recorder.isRecording {
-            panel.updateForzado("✓ " + text)
+        if (pegar || copiar), !recorder.isRecording {
+            panel.updateForzado(pegar ? "✓ " + text : "✓ Copiado: " + text)
             panel.hide(after: 1.8)
         }
     }

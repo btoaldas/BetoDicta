@@ -40,6 +40,57 @@ enum AgenteCoreQA {
                   PerfilAgente.invocacion(en: "Oye, \(nombreQA), abre Gmail",
                                            activadores: activadoresPeligrosos)?.contenido == "abre Gmail")
 
+        let dicta = DictadoAsistido.detectar(
+            "Dicta esto: mañana llego a las ocho y llevo el informe.")
+        comprobar("dictado asistido separa orden y contenido",
+                  dicta?.operacion == .dictar
+                    && dicta?.contenido == "mañana llego a las ocho y llevo el informe.",
+                  dicta?.contenido ?? "nil")
+        let transcribe = DictadoAsistido.detectar(
+            "Por favor, transcribe lo siguiente: ¿Qué día es hoy?")
+        comprobar("dictado asistido conserva pregunta y cortesía",
+                  transcribe?.operacion == .transcribir
+                    && transcribe?.contenido == "¿Qué día es hoy?",
+                  transcribe?.contenido ?? "nil")
+        comprobar("dictado asistido reconoce escribir con marcador",
+                  DictadoAsistido.detectar("Escribe esto, nos vemos mañana.")
+                    == SolicitudDictadoAsistido(operacion: .escribir,
+                                                frase: "Escribe esto",
+                                                contenido: "nos vemos mañana."))
+        comprobar("dictado asistido reconoce corregir acentuado",
+                  DictadoAsistido.detectar("Corrígeme este texto: ahi nos vemos.")?.operacion
+                    == .corregir)
+        comprobar("dictado asistido reconoce actualizar",
+                  DictadoAsistido.detectar("Actualiza esto: la reunión cambió al viernes.")?.contenido
+                    == "la reunión cambió al viernes.")
+        comprobar("dictado asistido reconoce mejorar",
+                  DictadoAsistido.detectar("Mejora lo siguiente — necesitamos apoyo.")?.operacion
+                    == .mejorar)
+        comprobar("dictado asistido reconoce crear un dictado",
+                  DictadoAsistido.detectar("Crea un dictado de esto: informe para rectorado.")?.contenido
+                    == "informe para rectorado.")
+        comprobar("dictado solo abre continuación",
+                  DictadoAsistido.detectar("Dictado")?.contenido.isEmpty == true)
+        comprobar("dictado con dos puntos conserva el cuerpo",
+                  DictadoAsistido.detectar("Dictado: este es el contenido.")?.contenido
+                    == "este es el contenido.")
+        comprobar("continuación entiende cancelación local",
+                  DictadoAsistido.esCancelacion("Olvídalo")
+                    && !DictadoAsistido.esCancelacion("olvidé adjuntar el informe"))
+
+        // Falsos positivos deliberados: estas órdenes pertenecen al planificador
+        // de herramientas o a un dictado normal, nunca a la salida local.
+        comprobar("escribir correo no se roba",
+                  DictadoAsistido.detectar("Escribe un correo para Alberto") == nil)
+        comprobar("actualizar sistema no se roba",
+                  DictadoAsistido.detectar("Actualiza el sistema esta noche") == nil)
+        comprobar("mejora continua no se roba",
+                  DictadoAsistido.detectar("La mejora continua del equipo funciona") == nil)
+        comprobar("orden intermedia no se roba",
+                  DictadoAsistido.detectar("Ayer dije dicta esto durante la reunión") == nil)
+        comprobar("dictado como sustantivo no se roba",
+                  DictadoAsistido.detectar("El dictado médico quedó archivado") == nil)
+
         let seguimiento = AgenteNucleo.completarSeguimiento(
             "Mándaselo a Alberto por WhatsApp", referencia: "La reunión será mañana a las ocho.")
         let planSeguimiento = seguimiento.flatMap { ModoPlanificador.detectarNatural($0,

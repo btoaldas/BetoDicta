@@ -260,6 +260,27 @@ struct Config {
     /// A futuro será inteligente según la intención (pedir texto → pega; preguntar → no).
     static func agentePega() -> Bool { (json()["agente_pega"] as? Bool) ?? false }
 
+    /// Ruta explícita "dicta/escribe/corrige esto" dentro del Asistente. Es
+    /// independiente de `agentePega`: una respuesta conversacional no se pega
+    /// por defecto, pero una orden de dictado sí tiene como destino el campo activo.
+    static func agenteDictadoAsistido() -> Bool {
+        (json()["agente_dictado_asistido"] as? Bool) ?? true
+    }
+    static func agenteDictadoPulir() -> Bool {
+        (json()["agente_dictado_pulir"] as? Bool) ?? true
+    }
+    static func agenteDictadoPegar() -> Bool {
+        (json()["agente_dictado_pegar"] as? Bool) ?? true
+    }
+    static func agenteDictadoCopiar() -> Bool {
+        (json()["agente_dictado_copiar"] as? Bool) ?? true
+    }
+    static func agenteDictadoAcuse() -> String {
+        let s = (json()["agente_dictado_acuse"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return s.isEmpty ? "Dímelo." : String(s.prefix(80))
+    }
+
     // MARK: Núcleo del asistente por voz
 
     /// El núcleo orquestador es aditivo: apagado, Agente conserva el camino de chat
