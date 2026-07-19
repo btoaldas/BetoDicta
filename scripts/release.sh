@@ -137,9 +137,23 @@ fi
 VOL=$(hdiutil attach -nobrowse -readonly -plist "$DMG" \
       | plutil -convert json -o - - | python3 -c "import sys,json;print(next(e['mount-point'] for e in json.load(sys.stdin)['system-entities'] if 'mount-point' in e))")
 trap 'hdiutil detach "$VOL" >/dev/null 2>&1 || true' EXIT
-if BETODICTA_VERIFYTEST="$VOL/BetoDicta.app" build/BetoDicta.app/Contents/MacOS/BetoDicta >/dev/null 2>&1; then
+VERIFY_OK=0
+VERIFY_OUT=""
+# El volumen puede estar montado pero sus recursos tardar una fracción en quedar
+# visibles para Bundle/Security. Reintentamos de forma breve y acotada: una
+# identidad realmente incorrecta seguirá fallando en todos los intentos.
+for intento in 1 2 3 4 5 6; do
+  if VERIFY_OUT=$(BETODICTA_VERIFYTEST="$VOL/BetoDicta.app" \
+      build/BetoDicta.app/Contents/MacOS/BetoDicta 2>&1); then
+    VERIFY_OK=1
+    break
+  fi
+  [ "$intento" -lt 6 ] && sleep 2
+done
+if [ "$VERIFY_OK" -eq 1 ]; then
   ok "El bundle del DMG conserva bundle id y certificado de BetoDicta"
 else
+  echo "$VERIFY_OUT" >&2
   fail "El .app del DMG NO conserva la identidad esperada"
 fi
 hdiutil detach "$VOL" >/dev/null 2>&1 || true; trap - EXIT
