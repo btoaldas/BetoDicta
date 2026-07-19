@@ -24,6 +24,10 @@ struct AtajoIncluidoInfo: Identifiable {
 enum AtajosIncluidos {
     static let recursoAsistente = "BetoDicta · Escuchar asistente"
     static let nombreUniversal = "BetoDicta Universal"
+    // El nombre físico debe ser ASCII: los volúmenes HFS de los DMG normalizan
+    // los acentos y eso invalida el sello de recursos de codesign. El nombre
+    // visible del Atajo sigue siendo «BetoDicta · Reproducir música».
+    static let recursoMusica = "BetoDicta-Reproducir-musica"
 
     static func info(_ id: AtajoIncluidoID, nombreAgente: String) -> AtajoIncluidoInfo {
         switch id {
@@ -59,7 +63,7 @@ enum AtajosIncluidos {
         switch id {
         case .asistente: return recursoAsistente
         case .universal: return nombreUniversal
-        case .musica: return AppleAtajos.nombreMusicaIncluido
+        case .musica: return recursoMusica
         }
     }
 

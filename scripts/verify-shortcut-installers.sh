@@ -63,7 +63,7 @@ verificar "Resources/BetoDicta · Escuchar asistente.shortcut" \
   "/Applications/BetoDicta.app/Contents/Resources/betodicta-siri.sh"
 verificar "Resources/BetoDicta Universal.shortcut" \
   "/Applications/BetoDicta.app/Contents/Resources/betodicta-universal.sh" 1
-verificar "Resources/BetoDicta · Reproducir música.shortcut" \
+verificar "Resources/BetoDicta-Reproducir-musica.shortcut" \
   "is.workflow.actions.playmusic"
 
 print "SHORTCUTTEST TODO OK"
