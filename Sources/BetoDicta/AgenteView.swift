@@ -73,6 +73,10 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var toolComunicaciones: Bool { didSet { Config.set("agente_tool_comunicaciones", to: toolComunicaciones) } }
     @Published var toolAtajos: Bool { didSet { Config.set("agente_tool_atajos", to: toolAtajos) } }
     @Published var toolCapturas: Bool { didSet { Config.set("agente_tool_capturas", to: toolCapturas) } }
+    @Published var toolNotasApple: Bool { didSet { Config.set("agente_tool_notas_apple", to: toolNotasApple) } }
+    @Published var notasAppleCarpeta: String { didSet { Config.set("notas_apple_carpeta", to: notasAppleCarpeta) } }
+    @Published var notasAppleCrearCarpeta: Bool { didSet { Config.set("notas_apple_crear_carpeta", to: notasAppleCrearCarpeta) } }
+    @Published var notasAppleMostrar: Bool { didSet { Config.set("notas_apple_mostrar", to: notasAppleMostrar) } }
     @Published var atajoApple: String { didSet { Config.set("agente_atajo_apple", to: atajoApple) } }
     @Published var atajos: [String] = []
     @Published var atajosDetalle: [AtajoAppleDescubierto] {
@@ -119,6 +123,10 @@ final class AgenteSettingsModel: ObservableObject {
         toolAplicaciones = Config.agenteHerramientaAplicaciones()
         toolComunicaciones = Config.agenteHerramientaComunicaciones()
         toolAtajos = Config.agenteHerramientaAtajos(); toolCapturas = Config.agenteHerramientaCapturas()
+        toolNotasApple = Config.agenteHerramientaNotasApple()
+        notasAppleCarpeta = Config.notasAppleCarpeta()
+        notasAppleCrearCarpeta = Config.notasAppleCrearCarpeta()
+        notasAppleMostrar = Config.notasAppleMostrarCreada()
         atajoApple = Config.agenteAtajoApple()
         capturaDestino = Config.capturaDestino(); capturaGuardar = Config.capturaGuardarArchivo()
         capturaCopiar = Config.capturaCopiarPortapapeles()
@@ -463,6 +471,34 @@ struct AgenteView: View {
                 }.font(.caption)
                 let _ = m.permisosTick
                 Divider()
+                Toggle("Notas de Apple (crear y verificar)", isOn: $m.toolNotasApple)
+                if m.toolNotasApple {
+                    field("Carpeta de Notas", text: $m.notasAppleCarpeta,
+                          placeholder: "Vacío = carpeta predeterminada")
+                    Toggle("Crear la carpeta si todavía no existe",
+                           isOn: $m.notasAppleCrearCarpeta)
+                    Toggle("Mostrar la nota después de crearla",
+                           isOn: $m.notasAppleMostrar)
+                    HStack {
+                        Text("Automatización de Notas: \(NotasApple.nombreEstadoPermiso(NotasApple.estadoPermiso()))")
+                        Spacer()
+                        Button("Solicitar permiso") {
+                            let estado = NotasApple.solicitarPermiso()
+                            m.permisosTick += 1
+                            m.aviso = estado == noErr
+                                ? "Automatización de Notas permitida."
+                                : "Autoriza BetoDicta en Privacidad y seguridad → Automatización → Notas."
+                        }.controlSize(.small)
+                        Button("Probar sin dejar nota") {
+                            NotasApple.probarFlujoReal { r in
+                                m.permisosTick += 1; m.aviso = r.mensaje
+                            }
+                        }.controlSize(.small)
+                    }.font(.caption)
+                    Text("Crea una nota real mediante la automatización oficial, vuelve a leerla y solo entonces confirma el éxito. Entiende títulos, párrafos, encabezados, listas, casillas y citas. “Nota local” sigue siendo la biblioteca interna de BetoDicta.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Divider()
                 Toggle("Pasarela Apple mediante Atajos", isOn: $m.toolAtajos)
                 if m.toolAtajos {
                     field("Atajo que recibe el texto", text: $m.atajoApple, placeholder: "Mi atajo de BetoDicta")
@@ -641,6 +677,7 @@ struct AgenteView: View {
                                 Text("Primera app disponible").tag("app_primera")
                                 Text("URL").tag("url"); Text("Atajo Apple").tag("atajo")
                                 Text("Tarea local").tag("tarea"); Text("Nota local").tag("nota")
+                                Text("Nota de Apple").tag("nota_apple")
                                 Text("Recordatorio").tag("recordatorio"); Text("Calendario").tag("calendario")
                                 Text("Archivo").tag("archivo")
                                 Text("Captura de pantalla").tag("captura")
@@ -655,6 +692,7 @@ struct AgenteView: View {
                                 Text("Traducir selección").tag("seleccion_traducir")
                                 Text("Responder selección").tag("seleccion_responder")
                                 Text("Selección a tarea").tag("seleccion_tarea")
+                                Text("Selección a Nota de Apple").tag("seleccion_nota_apple")
                                 Text("Transcribir audio seleccionado").tag("audio_transcribir")
                                 Text("Resumir audio seleccionado").tag("audio_resumir")
                                 Text("Traducir audio seleccionado").tag("audio_traducir")

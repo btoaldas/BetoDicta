@@ -328,6 +328,23 @@ struct Config {
     static func agenteHerramientaComunicaciones() -> Bool { (json()["agente_tool_comunicaciones"] as? Bool) ?? true }
     static func agenteHerramientaAtajos() -> Bool { (json()["agente_tool_atajos"] as? Bool) ?? false }
     static func agenteHerramientaCapturas() -> Bool { (json()["agente_tool_capturas"] as? Bool) ?? true }
+    static func agenteHerramientaNotasApple() -> Bool {
+        (json()["agente_tool_notas_apple"] as? Bool) ?? true
+    }
+    /// Vacío conserva la carpeta predeterminada de la cuenta predeterminada.
+    /// Se limita porque termina como un literal escapado del diccionario oficial
+    /// de automatización de Notes, nunca como código AppleScript.
+    static func notasAppleCarpeta() -> String {
+        String(((json()["notas_apple_carpeta"] as? String) ?? "")
+            .replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+    }
+    static func notasAppleCrearCarpeta() -> Bool {
+        (json()["notas_apple_crear_carpeta"] as? Bool) ?? true
+    }
+    static func notasAppleMostrarCreada() -> Bool {
+        (json()["notas_apple_mostrar"] as? Bool) ?? true
+    }
     /// Siri no ofrece una API pública para inyectarle órdenes arbitrarias. BetoDicta
     /// usa el puente oficial de Atajos y le pasa el texto a este atajo del usuario.
     static func agenteAtajoApple() -> String { (json()["agente_atajo_apple"] as? String) ?? "" }

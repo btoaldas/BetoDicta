@@ -27,7 +27,7 @@ enum RecetasRuntime {
         case "app_primera":
             ejecutarPrimeraApp(valor, simular: simular, completion: completion)
         case "seleccion_resumir", "seleccion_traducir", "seleccion_responder",
-             "seleccion_tarea", "seleccion_leer":
+             "seleccion_tarea", "seleccion_leer", "seleccion_nota_apple":
             if simular {
                 completion(.init(ok: true, mensaje: "Procesaría la selección con «\(tipo)».",
                                  evidencia: ["tipo": tipo, "simulado": "true"]))
@@ -108,6 +108,10 @@ enum RecetasRuntime {
 
     private static func procesarTextoSeleccionado(_ texto: String, tipo: String, argumento: String,
                                                    completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        if tipo == "seleccion_nota_apple" {
+            NotasApple.crear(texto, completion: completion)
+            return
+        }
         if tipo == "seleccion_leer" {
             guard Config.ttsActivo() else {
                 completion(.init(ok: false, mensaje: "Activa TTS para leer la selección.")); return

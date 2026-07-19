@@ -12,11 +12,12 @@ struct PaqueteRecetasBeto: Codable {
 
 enum RecetasPortables {
     static let tiposPermitidos: Set<String> = [
-        "musica", "app", "app_primera", "url", "atajo", "tarea", "nota",
+        "musica", "app", "app_primera", "url", "atajo", "tarea", "nota", "nota_apple",
         "recordatorio", "calendario", "archivo", "captura", "grabacion",
         "resumen_dia", "resumen_manana", "estado_mac", "captura_inteligente", "cerrar_apps",
         "seleccion_resumir", "seleccion_traducir", "seleccion_responder",
-        "seleccion_tarea", "seleccion_leer", "audio_transcribir", "audio_resumir",
+        "seleccion_tarea", "seleccion_leer", "seleccion_nota_apple",
+        "audio_transcribir", "audio_resumir",
         "audio_traducir", "audio_correo", "audio_oficio"
     ]
 

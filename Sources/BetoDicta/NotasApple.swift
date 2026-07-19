@@ -12,6 +12,8 @@ import Foundation
 enum NotasApple {
     private static let cola = DispatchQueue(label: "ec.bto.betodicta.notas-apple",
                                             qos: .userInitiated)
+    private static let separador = "\u{001e}"
+
     struct Plan: Equatable {
         let original: String
         let titulo: String
@@ -19,11 +21,43 @@ enum NotasApple {
         let cuerpoHTML: String
     }
 
+    struct Preferencias: Equatable {
+        var carpeta: String
+        var crearCarpeta: Bool
+        var mostrar: Bool
+
+        static var actuales: Preferencias {
+            .init(carpeta: Config.notasAppleCarpeta(),
+                  crearCarpeta: Config.notasAppleCrearCarpeta(),
+                  mostrar: Config.notasAppleMostrarCreada())
+        }
+    }
+
     private static func normalizarSaltos(_ texto: String) -> String {
         texto.replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\0", with: "")
+            .replacingOccurrences(of: separador, with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// En macOS 26, `tell application id "com.apple.Notes"` puede devolver
+    /// -1728 aunque la app exista. Resolver la URL con LaunchServices y usar su
+    /// ruta evita depender del nombre localizado y de ese fallo de AppleScript.
+    static func rutaAplicacion() -> String? {
+        if let ruta = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: "com.apple.Notes")?.path {
+            return ruta
+        }
+        // Los hooks de QA se ejecutan antes de que NSApplication termine de
+        // registrarse y LaunchServices puede devolver nil en ese instante.
+        // Notes es parte del sistema; estas son sus dos ubicaciones oficiales
+        // en macOS moderno y en versiones antiguas.
+        for ruta in ["/System/Applications/Notes.app", "/Applications/Notes.app"]
+        where FileManager.default.fileExists(atPath: ruta) {
+            return ruta
+        }
+        return nil
     }
 
     private static func tituloCorto(_ texto: String, maximo: Int = 72) -> String {
@@ -47,46 +81,110 @@ enum NotasApple {
             .replacingOccurrences(of: "'", with: "&#39;")
     }
 
-    /// Mantiene párrafos y listas simples en vez de convertir todo el dictado en
-    /// una sola línea. Todo se escapa antes de entrar al HTML de Notes.
+    private static func lineaSemantica(_ linea: String) -> String {
+        var t = linea.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hashes = t.prefix { $0 == "#" }.count
+        if (1...3).contains(hashes), t.dropFirst(hashes).hasPrefix(" ") {
+            t = String(t.dropFirst(hashes + 1))
+        }
+        if t.hasPrefix("> ") { t = String(t.dropFirst(2)) }
+        if t.hasPrefix("- [ ] ") || t.hasPrefix("- [x] ") || t.hasPrefix("- [X] ") {
+            t = String(t.dropFirst(6))
+        } else if t.hasPrefix("- ") || t.hasPrefix("• ") || t.hasPrefix("* ") {
+            t = String(t.dropFirst(2))
+        } else if let rango = t.range(of: #"^\d+[.)]\s+"#, options: .regularExpression) {
+            t.removeSubrange(rango)
+        }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Mantiene párrafos, títulos, citas, listas y casillas simples en vez de
+    /// convertir todo el dictado en una sola línea. Todo se escapa antes de
+    /// entrar al HTML de Notes; el usuario nunca puede inyectar AppleScript/HTML.
     static func htmlSeguro(_ texto: String) -> String {
         let lineas = normalizarSaltos(texto).components(separatedBy: "\n")
         var salida: [String] = []
-        var enLista = false
+        var lista: String?
         func cerrarLista() {
-            if enLista { salida.append("</ul>"); enLista = false }
+            if let lista { salida.append("</\(lista)>") }
+            lista = nil
+        }
+        func abrirLista(_ tipo: String) {
+            if lista != tipo { cerrarLista(); salida.append("<\(tipo)>"); lista = tipo }
         }
         for linea in lineas {
             let t = linea.trimmingCharacters(in: .whitespaces)
-            let esVineta = t.hasPrefix("- ") || t.hasPrefix("• ") || t.hasPrefix("* ")
-            if esVineta {
-                if !enLista { salida.append("<ul>"); enLista = true }
+            if t.hasPrefix("- [ ] ") || t.hasPrefix("- [x] ") || t.hasPrefix("- [X] ") {
+                abrirLista("ul")
+                let marcada = t.hasPrefix("- [x] ") || t.hasPrefix("- [X] ")
+                let contenido = String(t.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                salida.append("<li>\(marcada ? "☑︎" : "☐") \(escaparHTML(contenido))</li>")
+            } else if t.hasPrefix("- ") || t.hasPrefix("• ") || t.hasPrefix("* ") {
+                abrirLista("ul")
                 let contenido = String(t.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                salida.append("<li>\(escaparHTML(contenido))</li>")
+            } else if let rango = t.range(of: #"^\d+[.)]\s+"#, options: .regularExpression) {
+                abrirLista("ol")
+                var contenido = t; contenido.removeSubrange(rango)
                 salida.append("<li>\(escaparHTML(contenido))</li>")
             } else {
                 cerrarLista()
-                salida.append(t.isEmpty ? "<div><br></div>" : "<div>\(escaparHTML(t))</div>")
+                let hashes = t.prefix { $0 == "#" }.count
+                if (1...3).contains(hashes), t.dropFirst(hashes).hasPrefix(" ") {
+                    let contenido = String(t.dropFirst(hashes + 1))
+                    salida.append("<h\(hashes)>\(escaparHTML(contenido))</h\(hashes)>")
+                } else if t.hasPrefix("> ") {
+                    salida.append("<blockquote>\(escaparHTML(String(t.dropFirst(2))))</blockquote>")
+                } else {
+                    salida.append(t.isEmpty ? "<div><br></div>" : "<div>\(escaparHTML(t))</div>")
+                }
             }
         }
         cerrarLista()
         return salida.isEmpty ? "<div><br></div>" : salida.joined()
     }
 
-    /// La primera línea breve se vuelve el título. Si el texto es una sola frase
-    /// corta, esa frase completa es la nota; si es largo, se conserva íntegro en
-    /// el cuerpo y solo se usa un resumen truncado como título.
+    /// La primera línea breve se vuelve el título. También entiende las formas
+    /// explícitas «Título: Compras» y «Titulada Compras: ...» sin guardar esas
+    /// palabras de control dentro de la nota.
     static func preparar(_ texto: String) -> Plan? {
         let limpio = normalizarSaltos(texto)
         guard !limpio.isEmpty else { return nil }
-        let lineas = limpio.components(separatedBy: "\n")
+        var lineas = limpio.components(separatedBy: "\n")
         let indicesNoVacios = lineas.indices.filter {
             !lineas[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard let primero = indicesNoVacios.first else { return nil }
-        let primera = lineas[primero].trimmingCharacters(in: .whitespacesAndNewlines)
-        let titulo = tituloCorto(primera)
+        var primera = lineas[primero].trimmingCharacters(in: .whitespacesAndNewlines)
+        var tituloExplicito: String?
+        let plegada = primera.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                                      locale: Locale(identifier: "es_EC")).lowercased()
+        if plegada.hasPrefix("titulo:"), let dosPuntos = primera.firstIndex(of: ":") {
+            tituloExplicito = String(primera[primera.index(after: dosPuntos)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            lineas.remove(at: primero)
+            primera = tituloExplicito ?? primera
+        } else if plegada.hasPrefix("titulada ") || plegada.hasPrefix("titulado "),
+                  let dosPuntos = primera.firstIndex(of: ":") {
+            let inicio = primera.index(primera.startIndex, offsetBy: 9)
+            tituloExplicito = String(primera[inicio..<dosPuntos])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let resto = String(primera[primera.index(after: dosPuntos)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            lineas[primero] = resto
+            primera = tituloExplicito ?? primera
+        }
+        guard let tituloBase = tituloExplicito?.isEmpty == false ? tituloExplicito : primera,
+              !tituloBase.isEmpty else { return nil }
+        let titulo = tituloCorto(tituloBase)
         let cuerpo: String
-        if indicesNoVacios.count == 1, primera.count <= 72 {
+        let lineasConContenido = lineas.filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if tituloExplicito != nil {
+            cuerpo = lineas.joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if lineasConContenido.count == 1, primera.count <= 72 {
             cuerpo = ""
         } else if titulo == primera {
             cuerpo = lineas.dropFirst(primero + 1).joined(separator: "\n")
@@ -94,7 +192,11 @@ enum NotasApple {
         } else {
             cuerpo = limpio
         }
-        return Plan(original: limpio, titulo: titulo, cuerpo: cuerpo,
+        // Sin título explícito, el respaldo conserva byte por byte el dictado
+        // normalizado: el título sintético nunca debe duplicarse al copiar.
+        let original = tituloExplicito == nil ? limpio
+            : ([titulo] + (cuerpo.isEmpty ? [] : [cuerpo])).joined(separator: "\n")
+        return Plan(original: original, titulo: titulo, cuerpo: cuerpo,
                     cuerpoHTML: htmlSeguro(cuerpo))
     }
 
@@ -123,11 +225,7 @@ enum NotasApple {
         let recibido = compacto(plaintext)
         let esperadas = normalizarSaltos(plan.original).components(separatedBy: "\n")
             .map { linea -> String in
-                var t = linea.trimmingCharacters(in: .whitespacesAndNewlines)
-                if t.hasPrefix("- ") || t.hasPrefix("• ") || t.hasPrefix("* ") {
-                    t = String(t.dropFirst(2))
-                }
-                return compacto(t)
+                compacto(lineaSemantica(linea))
             }
             .filter { !$0.isEmpty }
         guard !recibido.isEmpty, !esperadas.isEmpty else { return false }
@@ -143,37 +241,76 @@ enum NotasApple {
         return true
     }
 
-    private static func fuente(_ plan: Plan, eliminarDespues: Bool,
-                               mostrar: Bool) -> String {
-        let mostrarLinea = mostrar ? "show notaBetoDicta" : ""
-        let activarLinea = mostrar ? "activate" : ""
+    private static func fuente(_ plan: Plan, rutaNotas: String,
+                               preferencias: Preferencias,
+                               eliminarDespues: Bool,
+                               mostrar: Bool? = nil) -> String {
+        let debeMostrar = mostrar ?? preferencias.mostrar
+        let mostrarLinea = debeMostrar ? "show notaBetoDicta" : ""
+        let activarLinea = debeMostrar ? "activate" : ""
         let eliminarLinea = eliminarDespues ? "delete notaBetoDicta" : ""
+        let configurarCarpeta: String
+        if preferencias.carpeta.isEmpty {
+            configurarCarpeta = ""
+        } else {
+            let crear = preferencias.crearCarpeta ? "true" : "false"
+            configurarCarpeta = """
+            set nombreCarpetaBetoDicta to \(literalAppleScript(preferencias.carpeta))
+            set encontroCarpetaBetoDicta to false
+            repeat with candidataBetoDicta in every folder of cuentaBetoDicta
+                try
+                    if (name of candidataBetoDicta as text) is nombreCarpetaBetoDicta then
+                        set carpetaBetoDicta to candidataBetoDicta
+                        set encontroCarpetaBetoDicta to true
+                        exit repeat
+                    end if
+                end try
+            end repeat
+            if encontroCarpetaBetoDicta is false then
+                if \(crear) then
+                    set carpetaBetoDicta to make new folder at cuentaBetoDicta with properties {name:nombreCarpetaBetoDicta}
+                else
+                    error "BETODICTA_FOLDER_NOT_FOUND" number -2700
+                end if
+            end if
+            """
+        }
         return """
-        tell application id "com.apple.Notes"
+        set separadorBetoDicta to character id 30
+        tell application \(literalAppleScript(rutaNotas))
+            launch
             \(activarLinea)
             set cuentaBetoDicta to default account
             set carpetaBetoDicta to default folder of cuentaBetoDicta
+            \(configurarCarpeta)
             set notaBetoDicta to make new note at carpetaBetoDicta with properties {name:\(literalAppleScript(plan.titulo)), body:\(literalAppleScript(plan.cuerpoHTML))}
             set idBetoDicta to id of notaBetoDicta
             set textoBetoDicta to plaintext of notaBetoDicta
+            set nombreCarpetaRealBetoDicta to name of carpetaBetoDicta
             \(mostrarLinea)
             \(eliminarLinea)
-            return idBetoDicta & linefeed & textoBetoDicta
+            return (idBetoDicta as text) & separadorBetoDicta & (nombreCarpetaRealBetoDicta as text) & separadorBetoDicta & textoBetoDicta
         end tell
         """
     }
 
-    private static func crearSincrono(_ plan: Plan, eliminarDespues: Bool = false,
-                                      mostrar: Bool = true) -> ResultadoHerramientaApple {
+    private static func crearSincrono(_ plan: Plan, rutaNotas: String,
+                                      preferencias: Preferencias,
+                                      eliminarDespues: Bool = false,
+                                      mostrar: Bool? = nil) -> ResultadoHerramientaApple {
         var error: NSDictionary?
-        let salida = NSAppleScript(source: fuente(plan, eliminarDespues: eliminarDespues,
+        let salida = NSAppleScript(source: fuente(plan, rutaNotas: rutaNotas,
+                                                  preferencias: preferencias,
+                                                  eliminarDespues: eliminarDespues,
                                                   mostrar: mostrar))?
             .executeAndReturnError(&error).stringValue
         guard error == nil, let salida else {
             let numero = error?[NSAppleScript.errorNumber] as? Int ?? 0
             let detalle = (error?[NSAppleScript.errorMessage] as? String)
                 ?? "Notas rechazó la automatización."
-            Log.write("⚠️ Notas de Apple: error \(numero): \(detalle)")
+            let detalleLog = detalle.replacingOccurrences(of: #"\s+"#, with: " ",
+                                                           options: .regularExpression)
+            Log.write("⚠️ Notas de Apple: error \(numero): \(String(detalleLog.prefix(240)))")
             AgenteLog.registrar("nota_apple", [
                 "ok": false, "verificada": false, "error": numero,
                 "titulo": plan.titulo, "caracteres": plan.original.count,
@@ -181,23 +318,44 @@ enum NotasApple {
             let permiso = numero == -1743
                 ? " Autoriza BetoDicta en Ajustes del Sistema → Privacidad y seguridad → Automatización → Notas."
                 : ""
+            let carpeta = numero == -2700 && detalle.contains("BETODICTA_FOLDER_NOT_FOUND")
+                ? " La carpeta configurada no existe y elegiste no crearla."
+                : ""
             return .init(ok: false,
-                mensaje: "No pude crear la nota automáticamente.\(permiso) Abrí Notas y dejé el texto completo en el portapapeles.")
+                mensaje: "No pude crear la nota automáticamente.\(permiso)\(carpeta) Dejé el texto completo en el portapapeles.",
+                evidencia: ["verificada": "false", "error": "\(numero)"])
         }
-        let plaintext = salida.components(separatedBy: .newlines).dropFirst()
-            .joined(separator: "\n")
+        let partes = salida.components(separatedBy: separador)
+        guard partes.count >= 3 else {
+            Log.write("⚠️ Notas de Apple: respuesta sin evidencia estructurada")
+            return .init(ok: false,
+                mensaje: "Notas respondió, pero no pude verificar el resultado. El original sigue completo en el portapapeles.",
+                evidencia: ["verificada": "false", "error": "respuesta_incompleta"])
+        }
+        let idNota = partes[0]
+        let carpetaReal = partes[1]
+        let plaintext = partes.dropFirst(2).joined(separator: separador)
         let verificada = contenidoVerificado(plan: plan, plaintext: plaintext)
         AgenteLog.registrar("nota_apple", [
             "ok": verificada, "verificada": verificada,
-            "titulo": plan.titulo, "caracteres": plan.original.count,
+            "titulo": plan.titulo, "carpeta": carpetaReal,
+            "id": String(idNota.prefix(160)), "caracteres": plan.original.count,
         ])
+        let evidencia = [
+            "verificada": "\(verificada)", "titulo": plan.titulo,
+            "carpeta": carpetaReal, "nota_id": String(idNota.prefix(160)),
+            "caracteres": "\(plan.original.count)",
+        ]
         guard verificada else {
             Log.write("⚠️ Notas de Apple: la verificación del contenido no coincidió")
             return .init(ok: false,
-                mensaje: "Notas creó un elemento, pero no pude comprobar que contenga todo el texto. El original sigue completo en el portapapeles.")
+                mensaje: "Notas creó un elemento, pero no pude comprobar que contenga todo el texto. El original sigue completo en el portapapeles.",
+                evidencia: evidencia)
         }
+        let destino = carpetaReal.isEmpty ? "" : " en «\(carpetaReal)»"
         return .init(ok: true,
-            mensaje: "Creé y verifiqué la nota «\(plan.titulo)» en Notas de Apple.")
+            mensaje: "Creé y verifiqué la nota «\(plan.titulo)»\(destino) de Notas de Apple.",
+            evidencia: evidencia)
     }
 
     /// Solicita el consentimiento TCC desde el hilo principal, antes de mandar
@@ -210,6 +368,19 @@ enum NotasApple {
             destino, typeWildCard, typeWildCard, preguntar)
     }
 
+    static func estadoPermiso() -> OSStatus { permisoAutomatizacion(preguntar: false) }
+
+    static func nombreEstadoPermiso(_ estado: OSStatus) -> String {
+        if estado == noErr { return "Permitido" }
+        if estado == errAEEventNotPermitted { return "Pendiente o bloqueado" }
+        return "No disponible (\(estado))"
+    }
+
+    @discardableResult
+    static func solicitarPermiso() -> OSStatus {
+        permisoAutomatizacion(preguntar: true)
+    }
+
     static func crear(_ texto: String,
                       completion: @escaping (ResultadoHerramientaApple) -> Void) {
         guard Thread.isMainThread else {
@@ -220,36 +391,40 @@ enum NotasApple {
             completion(.init(ok: false, mensaje: "Dime qué quieres guardar en la nota."))
             return
         }
+        guard Config.agenteHerramientaNotasApple() else {
+            completion(.init(ok: false,
+                mensaje: "La herramienta Notas de Apple está apagada en Ajustes → Asistente."))
+            return
+        }
         // Respaldo antes de cualquier Apple Event. Si falta permiso o Notes falla,
         // el usuario conserva exactamente su dictado y puede pegarlo manualmente.
         copyText(plan.original)
-        guard NSWorkspace.shared.urlForApplication(
-            withBundleIdentifier: "com.apple.Notes") != nil else {
+        guard let rutaNotas = rutaAplicacion() else {
             completion(.init(ok: false,
                 mensaje: "No encontré Notas de Apple. Dejé el texto en el portapapeles."))
             return
         }
+        let preferencias = Preferencias.actuales
         let permiso = permisoAutomatizacion(preguntar: true)
         guard permiso == noErr else {
             AgenteLog.registrar("nota_apple", [
                 "ok": false, "verificada": false, "error": Int(permiso),
                 "titulo": plan.titulo, "caracteres": plan.original.count,
             ])
-            if let app = NSWorkspace.shared.urlForApplication(
-                withBundleIdentifier: "com.apple.Notes") {
-                NSWorkspace.shared.openApplication(at: app, configuration: .init(),
-                                                   completionHandler: nil)
-            }
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: rutaNotas),
+                                               configuration: .init(),
+                                               completionHandler: nil)
             completion(.init(ok: false,
                 mensaje: "No tengo permiso para crear la nota. Activa BetoDicta en Ajustes del Sistema → Privacidad y seguridad → Automatización → Notas. Abrí Notas y dejé el texto completo en el portapapeles."))
             return
         }
         cola.async {
-            let resultado = crearSincrono(plan)
+            let resultado = crearSincrono(plan, rutaNotas: rutaNotas,
+                                          preferencias: preferencias)
             DispatchQueue.main.async {
-                if !resultado.ok, let app = NSWorkspace.shared.urlForApplication(
-                    withBundleIdentifier: "com.apple.Notes") {
-                    NSWorkspace.shared.openApplication(at: app, configuration: .init(),
+                if !resultado.ok {
+                    NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: rutaNotas),
+                                                       configuration: .init(),
                                                        completionHandler: nil)
                 }
                 completion(resultado)
@@ -260,9 +435,19 @@ enum NotasApple {
     /// Misma ruta de permiso + cola usada por producción, pero elimina el ítem
     /// temporal después de volver a leerlo. Requiere un run loop de AppKit.
     static func probarFlujoReal(completion: @escaping (ResultadoHerramientaApple) -> Void) {
-        let muestra = "Nota temporal BetoDicta\n\n- Ruta asíncrona verificada\n- Sin truncar el contenido"
+        let muestra = """
+        Título: Nota temporal BetoDicta
+
+        # Ruta asíncrona
+        1. Contenido verificado
+        - [ ] Sin truncar el texto
+        > Esta nota se elimina al terminar
+        """
         guard let plan = preparar(muestra) else {
             completion(.init(ok: false, mensaje: "No se pudo preparar la nota QA.")); return
+        }
+        guard let rutaNotas = rutaAplicacion() else {
+            completion(.init(ok: false, mensaje: "No se encontró Notas de Apple.")); return
         }
         let permiso = permisoAutomatizacion(preguntar: true)
         guard permiso == noErr else {
@@ -270,7 +455,28 @@ enum NotasApple {
                 mensaje: "Automatización de Notas no autorizada (\(permiso)).")); return
         }
         cola.async {
-            let resultado = crearSincrono(plan, eliminarDespues: true, mostrar: false)
+            let predeterminada = Preferencias(carpeta: "", crearCarpeta: false,
+                                               mostrar: false)
+            let base = crearSincrono(plan, rutaNotas: rutaNotas,
+                                     preferencias: predeterminada,
+                                     eliminarDespues: true, mostrar: false)
+            guard base.ok, let carpeta = base.evidencia["carpeta"], !carpeta.isEmpty else {
+                DispatchQueue.main.async { completion(base) }; return
+            }
+            // Segundo ángulo: vuelve a crear/eliminar el mismo contenido
+            // seleccionando por nombre la carpeta que acabamos de verificar.
+            // Así el botón prueba también la preferencia de carpeta sin dejar
+            // una carpeta artificial ni modificar la configuración del usuario.
+            let nombrada = Preferencias(carpeta: carpeta, crearCarpeta: false,
+                                        mostrar: false)
+            let porCarpeta = crearSincrono(plan, rutaNotas: rutaNotas,
+                                           preferencias: nombrada,
+                                           eliminarDespues: true, mostrar: false)
+            let resultado = porCarpeta.ok
+                ? ResultadoHerramientaApple(ok: true,
+                    mensaje: "Notas funciona: creé, verifiqué y borré la nota temporal en la carpeta «\(carpeta)».",
+                    evidencia: porCarpeta.evidencia)
+                : porCarpeta
             DispatchQueue.main.async { completion(resultado) }
         }
     }
@@ -295,6 +501,8 @@ enum NotasApple {
             && plan.cuerpoHTML.contains("&amp;")
             && plan.cuerpoHTML.contains("&lt;fecha&gt;")
             && plan.cuerpoHTML.contains("<ul>")
+            && htmlSeguro("# Encabezado\n1. Uno\n2. Dos\n> Cita").contains("<ol>")
+            && htmlSeguro("# Encabezado\n1. Uno\n2. Dos\n> Cita").contains("<blockquote>")
             && contenidoVerificado(plan: plan, plaintext: muestra)
             && contenidoVerificado(plan: plan, plaintext: """
                 Minuta segura de BetoDicta
@@ -302,12 +510,28 @@ enum NotasApple {
                 Revisar el informe & anexos
                 Confirmar <fecha> con “Alberto”
                 """)
+            && preparar("Título: Compras\n\n- Pan\n- Café")?.titulo == "Compras"
+            && preparar("Titulada Compras: pan y café")?.cuerpo == "pan y café"
+            && preparar("Titulada Compras: pan y café")?.original == "Compras\npan y café"
+            && preparar(String(repeating: "texto largo ", count: 12))?.original
+                == String(repeating: "texto largo ", count: 12)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            && !fuente(plan, rutaNotas: "/System/Applications/Notes.app",
+                       preferencias: .init(carpeta: "BetoDicta QA", crearCarpeta: true,
+                                           mostrar: false),
+                       eliminarDespues: true).contains("tell application id")
         guard modo.lowercased() == "real" else {
             print("NOTASAPPLETEST \(puro ? "OK" : "FALLA") puro")
             exit(puro ? 0 : 3)
         }
         guard puro else { print("NOTASAPPLETEST FALLA prevalidación"); exit(3) }
-        let resultado = crearSincrono(plan, eliminarDespues: true, mostrar: false)
+        guard let rutaNotas = rutaAplicacion() else {
+            print("NOTASAPPLETEST FALLA no se encontró Notas"); exit(3)
+        }
+        let p = Preferencias(carpeta: "", crearCarpeta: false, mostrar: false)
+        let resultado = crearSincrono(plan, rutaNotas: rutaNotas,
+                                      preferencias: p,
+                                      eliminarDespues: true, mostrar: false)
         print("NOTASAPPLETEST \(resultado.ok ? "OK" : "FALLA") real | \(resultado.mensaje)")
         exit(resultado.ok ? 0 : 3)
     }

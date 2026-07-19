@@ -31,7 +31,7 @@ enum RecetasQA {
             return resultado
         }
         let incluidas = RutinasAgenteStore.incluidas()
-        check("biblioteca completa", incluidas.count >= 19)
+        check("biblioteca completa", incluidas.count >= 20)
         check("categorías portables", Set(incluidas.map(\.categoria)).isSuperset(of: ["Trabajo", "Universidad", "Casa"]))
         check("resumen del día", RutinasAgenteStore.detectar(
             "Resumen del día", en: incluidas)?.rutina.id == "beto-resumen-dia")
@@ -53,6 +53,12 @@ enum RecetasQA {
             "resume")?.rutina.id == "beto-seleccion-resumir")
         check("selección breve no roba contenido", RutinasAgenteStore.detectarSeleccionBreve(
             "resume el informe de mañana") == nil)
+        check("selección a Notas de Apple", RutinasAgenteStore.detectar(
+            "Guarda la selección en Notas de Apple", en: incluidas)?.rutina.id
+                == "beto-seleccion-nota-apple")
+        check("Nota de Apple es cambio local", incluidas.first(where: {
+            $0.id == "beto-seleccion-nota-apple"
+        }).map(RutinasAgenteStore.riesgo) == .cambioLocal)
         check("audio Finder", RutinasAgenteStore.detectar(
             "Convierte el audio seleccionado en oficio", en: incluidas)?.rutina.id == "beto-audio-oficio")
         check("no invade narración", RutinasAgenteStore.detectar(

@@ -145,6 +145,13 @@ enum RutinasAgenteStore {
                    frases: ["lee la seleccion", "leer seleccion", "leeme el texto seleccionado"],
                    pasos: [.init(tipo: "seleccion_leer", valor: "")],
                    prioritaria: true, devuelve: false),
+            receta("beto-seleccion-nota-apple", "Selección a Nota de Apple", "Trabajo",
+                   "Crea y verifica una nota real con el texto seleccionado.",
+                   frases: ["guarda la seleccion en notas de apple",
+                            "crea una nota de apple con la seleccion",
+                            "seleccion a notas de apple"],
+                   pasos: [.init(tipo: "seleccion_nota_apple", valor: "")],
+                   prioritaria: true, devuelve: false),
             receta("beto-estado-mac", "Estado del Mac", "Casa",
                    "Batería, disco, CPU, memoria, red y VPN, todo en local.",
                    frases: ["como esta la computadora", "estado del mac", "diagnostico del mac"],
@@ -276,8 +283,8 @@ enum RutinasAgenteStore {
                  "seleccion_resumir", "seleccion_traducir", "seleccion_responder",
                  "audio_transcribir", "audio_resumir", "audio_traducir",
                  "audio_correo", "audio_oficio": x = .reversible
-            case "tarea", "nota", "recordatorio", "calendario", "captura", "grabacion",
-                 "captura_inteligente", "seleccion_tarea": x = .cambioLocal
+            case "tarea", "nota", "nota_apple", "recordatorio", "calendario", "captura", "grabacion",
+                 "captura_inteligente", "seleccion_tarea", "seleccion_nota_apple": x = .cambioLocal
             case "atajo": x = AppleAtajosCatalogo.riesgo(nombre: p.valor)
             case "cerrar_apps": x = .destructivo
             default: x = .externo
@@ -414,6 +421,15 @@ enum RutinasAgenteRunner {
             case "nota":
                 if !simular { NotasStore.agregar(tipo: "nota", texto: valor) }
                 listo(.init(ok: true, mensaje: "Agregué una nota local."))
+            case "nota_apple":
+                guard Config.agenteHerramientaNotasApple() else {
+                    listo(.init(ok: false, mensaje: "La herramienta Notas de Apple está apagada.")); break
+                }
+                if simular {
+                    listo(.init(ok: true, mensaje: "Crearía y verificaría una nota en Notas de Apple."))
+                } else {
+                    NotasApple.crear(valor, completion: listo)
+                }
             case "recordatorio":
                 guard Config.agenteHerramientaRecordatorios() else {
                     listo(.init(ok: false, mensaje: "La herramienta Recordatorios está apagada.")); break
