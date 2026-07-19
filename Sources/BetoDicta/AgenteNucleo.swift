@@ -446,9 +446,22 @@ enum AgenteNucleo {
         ].contains(primera)
     }
 
-    /// Intérprete puro de pantalla, separado para QA. Exige una forma verbal en
-    /// la zona inicial: una narración como “la captura de ayer” no se ejecuta.
-    static func planificarCaptura(_ texto: String) -> ModoPreguntaPlan? {
+    enum AreaAclaracionCaptura: String {
+        case pantalla
+        case ventana
+    }
+
+    private struct PedidoCapturaNatural {
+        let esGrabacion: Bool
+        let esCaptura: Bool
+        let requiereArea: Bool
+        let comparte: Bool
+    }
+
+    /// Analiza únicamente órdenes en la zona inicial. Mantener esta gramática
+    /// cerrada evita que una narración como “cuando comience una grabación…”
+    /// se convierta accidentalmente en una herramienta.
+    private static func analizarPedidoCaptura(_ texto: String) -> PedidoCapturaNatural? {
         let normal = n(texto)
         let tokens = normal.split(separator: " ").map(String.init)
         let cortesia: Set<String> = ["por", "favor", "porfavor", "porfa", "oye", "bto",
@@ -459,20 +472,16 @@ enum AgenteNucleo {
         let verbo = tokens[inicio]
         let directos: Set<String> = ["haz", "haga", "hagas", "hacer", "toma", "tomar",
                                      "saca", "sacar", "captura", "capturar", "graba", "grabar",
-                                     "grabemos", "realiza", "realizar"]
+                                     "grabemos", "realiza", "realizar", "inicia", "iniciar",
+                                     "inicie", "comienza", "comenzar", "comience", "hagamos"]
         let peticion = ["puedes", "podrias"].contains(verbo)
             && inicio + 1 < tokens.count
-            && ["hacer", "tomar", "sacar", "capturar", "grabar"].contains(tokens[inicio + 1])
+            && ["hacer", "tomar", "sacar", "capturar", "grabar", "iniciar", "comenzar"]
+                .contains(tokens[inicio + 1])
         let deseo = ["quiero", "necesito"].contains(verbo)
             && tokens.dropFirst(inicio + 1).prefix(3).contains(where: {
                 ["captura", "capturar", "grabacion", "grabar"].contains($0)
             })
-        // Formas coloquiales reales del usuario. «Hagamos una grabación» se
-        // interpreta como pantalla solo si no nombra audio/voz; «grabemos la
-        // pantalla» conserva la exigencia explícita del objeto visible.
-        let hagamosGrabacion = verbo == "hagamos"
-            && tokens.dropFirst(inicio + 1).prefix(3).contains("grabacion")
-            && !normal.contains("audio") && !normal.contains("voz")
         // ElevenLabs/Apple pueden oír el imperativo «toma» como «tomo». Esa
         // forma solo se acepta cuando la MISMA frase también pide compartir la
         // captura por WhatsApp; así no convertimos narraciones como «tomo
@@ -480,14 +489,22 @@ enum AgenteNucleo {
         let tomoCompartir = verbo == "tomo" && normal.contains("whatsapp")
             && normal.range(of: #"\b(?:envio|envia|enviala|mando|mandala|comparto|compartela)\b"#,
                             options: .regularExpression) != nil
-        guard directos.contains(verbo) || peticion || deseo || hagamosGrabacion
-                || tomoCompartir else { return nil }
+        guard directos.contains(verbo) || peticion || deseo || tomoCompartir else { return nil }
         let pideGrabar = normal.contains("graba") || normal.contains("grabar")
             || normal.contains("grabemos") || normal.contains("grabacion")
-            || normal.contains("video")
+            || normal.contains("video") || normal.contains("inicia")
+            || normal.contains("iniciar") || normal.contains("comienza")
+            || normal.contains("comenzar")
         let objetoVisible = normal.contains("pantalla") || normal.contains("ventana")
             || normal.contains("seccion") || normal.contains("seleccion") || normal.contains("area")
-        let esGrabacion = (pideGrabar && objetoVisible) || hagamosGrabacion
+        let esAudio = normal.contains("audio") || normal.contains("voz")
+            || normal.contains("podcast") || normal.contains("nota de voz")
+        let restoGrabemos = tokens.dropFirst(inicio + 1).filter {
+            !["un", "una", "la", "el", "por", "favor", "porfavor", "porfa"].contains($0)
+        }
+        let grabemosSolo = verbo == "grabemos" && restoGrabemos.isEmpty
+        let grabacionGenerica = !esAudio && (normal.contains("grabacion") || grabemosSolo)
+        let esGrabacion = pideGrabar && !esAudio && (objetoVisible || grabacionGenerica)
         let esCaptura = normal.contains("captura de pantalla")
             || normal.contains("pantallazo") || normal.contains("screenshot")
             || (normal.contains("captura") && (normal.contains("seccion")
@@ -496,7 +513,48 @@ enum AgenteNucleo {
             || (tomoCompartir && normal.contains("captura"))
             || normal.contains("foto de la pantalla")
         guard esGrabacion || esCaptura else { return nil }
-        let comparte = normal.contains("whatsapp")
+        return PedidoCapturaNatural(esGrabacion: esGrabacion, esCaptura: esCaptura,
+                                    requiereArea: esGrabacion && !objetoVisible,
+                                    comparte: normal.contains("whatsapp"))
+    }
+
+    /// Las grabaciones genéricas no adivinan qué parte de la pantalla quiere el
+    /// usuario. AppDelegate guarda el pedido y pregunta “¿pantalla o ventana?”.
+    static func necesitaAclararAreaCaptura(_ texto: String) -> Bool {
+        analizarPedidoCaptura(texto)?.requiereArea == true
+    }
+
+    /// Interpreta la respuesta breve del siguiente turno sin perder el pedido
+    /// original. Solo acepta las dos áreas ofrecidas; cualquier otra frase queda
+    /// libre para continuar por el flujo normal de dictado.
+    static func areaAclaracionCaptura(_ respuesta: String) -> AreaAclaracionCaptura? {
+        let normal = n(respuesta)
+        let tokens = normal.split(separator: " ").map(String.init)
+        guard !tokens.isEmpty, tokens.count <= 8 else { return nil }
+        if tokens.contains("ventana") || normal.contains("una ventana") {
+            return .ventana
+        }
+        if tokens.contains("pantalla") || tokens.contains("monitor")
+            || normal.contains("pantalla completa") || normal.contains("toda la pantalla") {
+            return .pantalla
+        }
+        return nil
+    }
+
+    static func completarAclaracionCaptura(pedido: String, respuesta: String) -> String? {
+        guard let area = areaAclaracionCaptura(respuesta) else { return nil }
+        switch area {
+        case .pantalla: return pedido + " de toda la pantalla"
+        case .ventana: return pedido + " de una ventana"
+        }
+    }
+
+    /// Intérprete puro de pantalla, separado para QA. Exige una forma verbal en
+    /// la zona inicial: una narración como “la captura de ayer” no se ejecuta.
+    static func planificarCaptura(_ texto: String) -> ModoPreguntaPlan? {
+        guard let pedido = analizarPedidoCaptura(texto), !pedido.requiereArea else { return nil }
+        let esGrabacion = pedido.esGrabacion
+        let comparte = pedido.comparte
         let id = comparte ? "captura_compartir" : (esGrabacion ? "grabar_pantalla" : "captura_pantalla")
         let m = accion(id)
         return ModoPlanificador.pregunta(para: ModoCadena(transforms: [],

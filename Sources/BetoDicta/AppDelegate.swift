@@ -141,6 +141,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// jamás consuma un dictado normal posterior.
     private var prepararContinuacionDictadoAsistido = false
     private var dictadoAsistidoSesion: UUID?
+    /// Pedido de grabación genérico que espera exactamente una respuesta de área.
+    /// Vive solo hasta el siguiente dictado, conserva el contexto Agente y nunca
+    /// se entrega a una IA para adivinar “pantalla” o “ventana”.
+    private struct AclaracionCapturaPendiente {
+        let id: UUID
+        let pedido: String
+        let modoNormal: Modo
+        let contextoAgente: Bool
+        let vence: Date
+    }
+    private var aclaracionCapturaPendiente: AclaracionCapturaPendiente?
     // Activación manos libres: el listener nativo vive solo cuando la app está
     // en reposo. El audio previo viaja con UNA sesión y jamás cambia el modo
     // persistente/default del usuario.
@@ -175,12 +186,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if eraPropia, modoPendienteVoz?.id == "agente" { modoPendienteVoz = nil }
     }
 
+    private func limpiarAclaracionCaptura(origen: String, cerrarPanel: Bool = true) {
+        guard aclaracionCapturaPendiente != nil else { return }
+        aclaracionCapturaPendiente = nil
+        AgenteLog.registrar("grabacion_aclaracion_cancelada", ["origen": origen])
+        ModosLog.registrar("grabacion_aclaracion_cancelada", ["origen": origen])
+        if cerrarPanel { panel.closeConfirmation() }
+    }
+
     /// Esc durante un dictado: cancela todo — no transcribe, no pega.
     /// `silencioso`: sin sonido ni panel "✕ Cancelado" (para descartar un
     /// arranque espurio de push-to-talk cuando fn se usó como atajo).
     private func cancelDictation(silencioso: Bool = false) {
         guard recorder.isRecording else { return }
         limpiarContinuacionDictadoAsistido()
+        limpiarAclaracionCaptura(origen: "dictado_cancelado")
         disarmEsc()
         media.dictationEnded()
         PreviewVivo.detener()
@@ -247,6 +267,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if hayConfirmacion { resolverConfirmacion(acepta: false, origen: "cancelar"); return }
         limpiarContinuacionDictadoAsistido()
         if recorder.isRecording { cancelDictation(); return }
+        if aclaracionCapturaPendiente != nil {
+            limpiarAclaracionCaptura(origen: "cancelar")
+            Voz.cancelar()
+            panel.flash("✕ Grabación cancelada", segundos: 1.2)
+            panel.hide(after: 1.4)
+            solicitarRearmeActivacionVoz(origen: "aclaracion_captura_cancelada")
+            return
+        }
         if iniciandoDictado {
             cierreAlArrancar = true
             despertarPendiente = nil
@@ -457,8 +485,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel.show("RESULTADO DESPUÉS DE CAPTURA")
             let restaurado = !panel.capturaPrivadaActiva && panel.esVisible
             panel.hide(after: 0)
-            let ok = oculto && restaurado
-            print("CAPTUREPANELTEST \(ok ? "OK" : "FALLA") oculto=\(oculto) restaurado=\(restaurado)")
+            var revelado = false
+            let archivo = URL(fileURLWithPath: "/private/tmp/grabacion-regresion.mov")
+            panel.showCaptureResult(message: "Grabación terminada correctamente.",
+                                    file: archivo, onReveal: { revelado = true })
+            let persistente = panel.resultadoCapturaPersistenteActivo
+                && panel.esVisible
+                && panel.resultadoCapturaRuta == archivo.path
+                && panel.resultadoCapturaSinSolapes
+            panel.show("NO DEBE PISAR EL RESULTADO")
+            panel.hide(after: 0)
+            let noSeOculta = panel.resultadoCapturaPersistenteActivo && panel.esVisible
+            let snapshot = panel.guardarSnapshotQA(
+                URL(fileURLWithPath: "/private/tmp/betodicta-grabacion-resultado.png"))
+            panel.activarVerEnFinderParaQA()
+            panel.closeCaptureResult()
+            let cerrado = !panel.resultadoCapturaPersistenteActivo && !panel.esVisible
+            let ok = oculto && restaurado && persistente && noSeOculta
+                && revelado && cerrado && snapshot
+            print("CAPTUREPANELTEST \(ok ? "OK" : "FALLA") oculto=\(oculto) restaurado=\(restaurado) persistente=\(persistente) no_se_oculta=\(noSeOculta) finder=\(revelado) cerrado=\(cerrado) snapshot=\(snapshot)")
             exit(ok ? 0 : 3)
         }
         // QA real y acotado de grabación continua segmentada. Solo acepta una
@@ -3162,6 +3207,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startDictationAhora() {
         guard !recorder.isRecording else { return }   // no re-arrancar (carreras push-to-talk)
+        // Una confirmación de archivo terminado permanece hasta que el usuario
+        // actúa o inicia un nuevo dictado; el nuevo turno tiene prioridad.
+        panel.closeCaptureResult()
         let esContinuacionDictadoAsistido = prepararContinuacionDictadoAsistido
         prepararContinuacionDictadoAsistido = false
         let despertarActual = despertarPendiente
@@ -3311,6 +3359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ModoVivo.cancelar(sesion: sesion)
             modoVivoSesion = nil; ctxDictado = nil
             if esContinuacionDictadoAsistido { limpiarContinuacionDictadoAsistido() }
+            limpiarAclaracionCaptura(origen: "microfono_no_inicio")
             despertarPendiente = nil
             activacionAcuseTextoPendiente = nil
             cierreAlArrancar = nil
@@ -3886,7 +3935,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         var textoResolver = textoFinal
-        let modoNormal = modoSnapshot ?? ModosStore.activo()
+        var crudoFlujo = crudo
+        var modoNormal = modoSnapshot ?? ModosStore.activo()
         var modoBase = modoNormal
         var contextoAgente = modoNormal.base == "agente"
         // Presencia parametrizable. En un dictado fn continúa obligada al inicio.
@@ -3935,6 +3985,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        // Segundo turno de una pregunta “¿pantalla o ventana?”. La respuesta
+        // breve completa el pedido ORIGINAL; no se interpreta como un dictado
+        // aislado ni pierde que el primer turno venía del Agente.
+        if let pendiente = aclaracionCapturaPendiente {
+            aclaracionCapturaPendiente = nil
+            panel.closeConfirmation()
+            if Date() <= pendiente.vence,
+               let combinado = AgenteNucleo.completarAclaracionCaptura(
+                    pedido: pendiente.pedido, respuesta: textoResolver) {
+                let area = AgenteNucleo.areaAclaracionCaptura(textoResolver)?.rawValue ?? ""
+                textoResolver = combinado
+                crudoFlujo = pendiente.pedido + " [área: " + crudo + "]"
+                modoNormal = pendiente.modoNormal
+                contextoAgente = pendiente.contextoAgente
+                modoBase = pendiente.contextoAgente
+                    ? ModosStore.modo("agente") : pendiente.modoNormal
+                let evento: [String: Any] = [
+                    "pedido": pendiente.pedido, "respuesta": crudo,
+                    "area": area, "combinado": combinado,
+                    "contexto_agente": pendiente.contextoAgente,
+                ]
+                AgenteLog.registrar("grabacion_aclaracion_resuelta", evento)
+                ModosLog.registrar("grabacion_aclaracion_resuelta", evento)
+            } else {
+                let motivo = Date() > pendiente.vence ? "vencida" : "respuesta_no_reconocida"
+                AgenteLog.registrar("grabacion_aclaracion_descartada", [
+                    "motivo": motivo, "pedido": pendiente.pedido,
+                    "respuesta": crudo,
+                ])
+                ModosLog.registrar("grabacion_aclaracion_descartada", [
+                    "motivo": motivo, "pedido": pendiente.pedido,
+                    "respuesta": crudo,
+                ])
+            }
+        }
+
+        // “Grabemos / hagamos / inicia / comienza una grabación” expresa la
+        // acción, pero no el área. Pregunta una sola cosa antes del resolver y
+        // guarda todo el contexto para el siguiente dictado.
+        if Config.modoPorVoz(), Config.agenteHerramientaCapturas(),
+           AgenteNucleo.necesitaAclararAreaCaptura(textoResolver) {
+            pedirAreaParaGrabacion(pedido: textoResolver, crudo: crudoFlujo,
+                                   wav: wav, history: history,
+                                   modoNormal: modoNormal,
+                                   contextoAgente: contextoAgente)
+            return
+        }
+
         // Ruta determinista y reversible ANTES de Modos/semántica/cerebro. Una
         // orden explícita de escribir tiene como destino el campo que ya estaba
         // activo; no debe convertirse en correo, app ni conversación de IA.
@@ -3976,12 +4074,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ModoResolver.resolver(texto: textoResolver, modoBase: modoBase,
                               contexto: contexto, vivo: vivo) { [weak self] resultado in
             DispatchQueue.main.async {
-                self?.registrarResolucionModo(resultado, crudo: crudo,
+                self?.registrarResolucionModo(resultado, crudo: crudoFlujo,
                                               modoBase: modoBase)
-                self?.aplicarResultadoModo(resultado, crudo: crudo, textoNormal: textoResolver,
+                self?.aplicarResultadoModo(resultado, crudo: crudoFlujo, textoNormal: textoResolver,
                                            modoNormal: modoNormal, contextoAgente: contextoAgente,
                                            wav: wav, history: history)
             }
+        }
+    }
+
+    /// Una grabación sin área no adivina. Conserva el pedido completo, muestra
+    /// una pregunta estable y abre una sola escucha adicional. El TTS, si está
+    /// configurado, termina ANTES de abrir el micrófono para no grabarse a sí mismo.
+    private func pedirAreaParaGrabacion(pedido: String, crudo: String, wav: Data,
+                                        history: HistoryWriter?, modoNormal: Modo,
+                                        contextoAgente: Bool) {
+        let id = UUID()
+        aclaracionCapturaPendiente = AclaracionCapturaPendiente(
+            id: id, pedido: pedido, modoNormal: modoNormal,
+            contextoAgente: contextoAgente,
+            vence: Date().addingTimeInterval(90))
+        history?.finish(wav: wav, finalText: "↪︎ Falta elegir: pantalla o ventana")
+        setIcono(.reposo)
+        let pregunta = "¿Quieres grabar toda la pantalla o elegir una ventana?"
+        panel.showConfirmation(
+            title: "¿Pantalla o ventana?",
+            details: ["Pantalla · graba toda la pantalla",
+                      "Ventana · permite elegir una ventana"],
+            content: pedido,
+            alternatives: [],
+            modoNormal: modoNormal.nombre,
+            footer: "DI PANTALLA O VENTANA   ·   \(Config.hotkey()) PARA TERMINAR")
+        playSound("Tink")
+        let evento: [String: Any] = [
+            "pedido": pedido, "crudo": crudo,
+            "contexto_agente": contextoAgente,
+            "vence_en_segundos": 90,
+        ]
+        AgenteLog.registrar("grabacion_aclaracion_presentada", evento)
+        ModosLog.registrar("grabacion_aclaracion_presentada", evento)
+
+        let escuchar: () -> Void = { [weak self] in
+            guard let self, self.aclaracionCapturaPendiente?.id == id,
+                  !self.recorder.isRecording else { return }
+            self.startDictation()
+        }
+        if Config.agenteRespuestaActiva(), Config.agenteRespuestaConVoz() {
+            Voz.decir(pregunta, completion: {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: escuchar)
+            })
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: escuchar)
         }
     }
 
@@ -5391,6 +5534,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.setIcono(.reposo); self.panel.terminarCapturaPrivada()
                 AgenteLog.registrar("captura_interfaz", ["estado": "restaurada", "origen": "receta",
                     "tipo": r.solicitud.tipo.rawValue, "ok": r.ok])
+                if r.ok, r.solicitud.tipo == .video, let archivo = r.archivo {
+                    self.panel.showCaptureResult(message: r.mensaje, file: archivo)
+                    AgenteLog.registrar("grabacion_resultado_persistente", [
+                        "origen": "receta", "archivo": archivo.path,
+                        "ver_en_finder": true,
+                    ])
+                }
                 completion(.init(ok: r.ok, mensaje: r.mensaje,
                     evidencia: ["archivo": r.archivo?.path ?? "",
                                 "copiada": "\(r.solicitud.copiar)",
@@ -5428,15 +5578,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let completion else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: completion)
         }
-        func mostrarResultado(_ r: ResultadoHerramientaApple) {
+        func mostrarResultado(_ r: ResultadoHerramientaApple,
+                              archivoCaptura: URL? = nil,
+                              tipoCaptura: TipoCapturaMac? = nil) {
             var evidencia: [String: Any] = ["accion": id, "ok": r.ok,
                                             "mensaje": r.mensaje]
             r.evidencia.forEach { evidencia[$0.key] = $0.value }
+            if let archivoCaptura { evidencia["archivo"] = archivoCaptura.path }
             AgenteLog.registrar("resultado_herramienta", evidencia)
             if !recorder.isRecording {
                 setIcono(.reposo)
-                panel.show((r.ok ? "✓ " : "⚠️ ") + r.mensaje)
-                panel.hide(after: id == "clima" ? 6 : (r.ok ? 2.6 : 3.6))
+                if r.ok, tipoCaptura == .video, let archivoCaptura {
+                    panel.showCaptureResult(message: r.mensaje, file: archivoCaptura)
+                    AgenteLog.registrar("grabacion_resultado_persistente", [
+                        "origen": "accion", "archivo": archivoCaptura.path,
+                        "ver_en_finder": true,
+                    ])
+                } else {
+                    panel.show((r.ok ? "✓ " : "⚠️ ") + r.mensaje)
+                    panel.hide(after: id == "clima" ? 6 : (r.ok ? 2.6 : 3.6))
+                }
             }
             if contextoAgente, !r.ok, id != "grabar_pantalla" {
                 responderBreveAgente(r.mensaje, evento: "fallo_herramienta")
@@ -5568,10 +5729,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     ])
                     if resultado.ok, resultado.solicitud.compartirWhatsApp {
                         self.prepararCapturaParaWhatsApp(resultado, contextoAgente: contextoAgente) { final in
-                            mostrarResultado(final); completar()
+                            mostrarResultado(final, archivoCaptura: resultado.archivo,
+                                             tipoCaptura: resultado.solicitud.tipo)
+                            completar()
                         }
                     } else {
-                        mostrarResultado(.init(ok: resultado.ok, mensaje: resultado.mensaje)); completar()
+                        mostrarResultado(.init(ok: resultado.ok, mensaje: resultado.mensaje),
+                                         archivoCaptura: resultado.archivo,
+                                         tipoCaptura: resultado.solicitud.tipo)
+                        completar()
                     }
                 }
             }

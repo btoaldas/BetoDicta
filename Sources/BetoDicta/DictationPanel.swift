@@ -17,6 +17,26 @@ final class ClickableBackground: NSView {
     override func mouseDown(with event: NSEvent) { onClick?() }
 }
 
+/// Botón AppKit con cierre, útil dentro del NSPanel no activante sin añadir un
+/// controlador de ventana solo para una acción breve.
+final class PanelActionButton: NSButton {
+    var onPress: (() -> Void)?
+
+    init(_ title: String) {
+        super.init(frame: .zero)
+        self.title = title
+        bezelStyle = .rounded
+        setButtonType(.momentaryPushIn)
+        font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        target = self
+        action = #selector(pulsar)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func pulsar() { onPress?() }
+}
+
 /// Geometría pura y testeable del modal del notch. Todos los bloques se apilan desde
 /// abajo con separación explícita; así un texto corto nunca recibe un alto mínimo que
 /// invada el título (el bug visible de las letras montadas).
@@ -50,6 +70,8 @@ final class DictationPanel {
     private let confirmBody = NSTextField(wrappingLabelWithString: "")
     private let confirmAlternatives = NSTextField(wrappingLabelWithString: "")
     private let confirmFooter = NSTextField(labelWithString: "")
+    private let resultadoFinder = PanelActionButton("Ver en Finder")
+    private let resultadoCerrar = PanelActionButton("Cerrar")
     private var fondo: NSView?                                 // forma negra (para el latido "pensando")
 
     /// Clic sobre el letrero del motor (o el fn): abrir el selector rápido.
@@ -68,6 +90,9 @@ final class DictationPanel {
     private var confirmStrip: CGFloat = 126 // pregunta expandida HACIA ABAJO
     private var confirmLayout: ConfirmationLayout?
     private var confirmando = false
+    private(set) var resultadoCapturaPersistenteActivo = false
+    private(set) var resultadoCapturaRuta = ""
+    private var resultadoFinderAccion: (() -> Void)?
     private var stripActual: CGFloat { confirmando ? confirmStrip : strip }
     private var width: CGFloat = 400
     private var height: CGFloat = 60
@@ -192,6 +217,12 @@ final class DictationPanel {
         confirmFooter.alignment = .center
         confirmFooter.isHidden = true
         background.addSubview(confirmFooter)
+        resultadoFinder.isHidden = true
+        resultadoFinder.onPress = { [weak self] in self?.resultadoFinderAccion?() }
+        background.addSubview(resultadoFinder)
+        resultadoCerrar.isHidden = true
+        resultadoCerrar.onPress = { [weak self] in self?.closeCaptureResult() }
+        background.addSubview(resultadoCerrar)
 
         // Ala IZQUIERDA, arriba (sobre el audio): el MODO activo. Clic para
         // cambiarlo — igual que el letrero del motor a la derecha.
@@ -241,7 +272,8 @@ final class DictationPanel {
     private var flashHasta = Date.distantPast
 
     func show(_ text: String) {
-        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva,
+              !resultadoCapturaPersistenteActivo else { return }
         presentacionID &+= 1
         if !enRespuestaIA { fondo?.layer?.opacity = 1 }
         reposicionar()
@@ -252,15 +284,18 @@ final class DictationPanel {
     /// Pregunta contextual. El panel conserva el borde superior pegado al notch y
     /// expande el cuerpo hacia abajo; `fn` confirma y `X` descarta SOLO el plan.
     func showConfirmation(title: String, details: [String], content: String,
-                          alternatives: [String], modoNormal: String) {
+                          alternatives: [String], modoNormal: String,
+                          footer: String? = nil) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
                 self?.showConfirmation(title: title, details: details, content: content,
-                                       alternatives: alternatives, modoNormal: modoNormal)
+                                       alternatives: alternatives, modoNormal: modoNormal,
+                                       footer: footer)
             }
             return
         }
-        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva,
+              !resultadoCapturaPersistenteActivo else { return }
         let visibles = Array(details.prefix(8))
         let sobrantes = max(0, details.count - visibles.count)
         confirmando = true
@@ -282,7 +317,8 @@ final class DictationPanel {
             + (alternatives.isEmpty ? "" : "\nOtras lecturas: " + alternatives.joined(separator: " · "))
         confirmAlternatives.isHidden = confirmAlternatives.stringValue
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        confirmFooter.stringValue = "\(Config.hotkey()) (una vez)  CONFIRMAR   ·   X  SEGUIR EN \(modoNormal.uppercased())"
+        confirmFooter.stringValue = footer
+            ?? "\(Config.hotkey()) (una vez)  CONFIRMAR   ·   X  SEGUIR EN \(modoNormal.uppercased())"
         recalcularConfirmacion()
         relayout()
         reposicionar()
@@ -301,10 +337,74 @@ final class DictationPanel {
         confirmBody.isHidden = true
         confirmAlternatives.isHidden = true
         confirmFooter.isHidden = true
+        resultadoFinder.isHidden = true
+        resultadoCerrar.isHidden = true
+        resultadoCapturaPersistenteActivo = false
+        resultadoCapturaRuta = ""
+        resultadoFinderAccion = nil
         confirmLayout = nil
         relayout()
         reposicionar()
     }
+
+    /// Resultado de una grabación que NO desaparece por temporizador. Durante la
+    /// captura el notch está oculto y en silencio; esta tarjeta confirma de forma
+    /// inequívoca dónde quedó el archivo y ofrece una acción real para encontrarlo.
+    func showCaptureResult(title: String = "✓ Grabación guardada", message: String,
+                           file: URL, onReveal: (() -> Void)? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showCaptureResult(title: title, message: message,
+                                        file: file, onReveal: onReveal)
+            }
+            return
+        }
+        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
+        if confirmando { closeConfirmation() }
+        resultadoCapturaPersistenteActivo = true
+        resultadoCapturaRuta = file.path
+        resultadoFinderAccion = onReveal ?? {
+            if FileManager.default.fileExists(atPath: file.path) {
+                NSWorkspace.shared.activateFileViewerSelecting([file])
+            } else {
+                NSWorkspace.shared.open(file.deletingLastPathComponent())
+            }
+        }
+        confirmando = true
+        presentacionID &+= 1
+        flashHasta = .distantPast
+        fondo?.layer?.removeAllAnimations()
+        fondo?.layer?.opacity = 1
+        label.isHidden = true
+        confirmTitle.isHidden = false
+        confirmBody.isHidden = false
+        confirmAlternatives.isHidden = false
+        confirmFooter.isHidden = true
+        resultadoFinder.isHidden = false
+        resultadoCerrar.isHidden = false
+        confirmTitle.stringValue = title
+        confirmBody.stringValue = message
+        confirmAlternatives.stringValue = "Ruta:\n\(file.path)"
+        recalcularConfirmacion()
+        relayout()
+        reposicionar()
+        panel.orderFrontRegardless()
+    }
+
+    func closeCaptureResult() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.closeCaptureResult() }
+            return
+        }
+        guard resultadoCapturaPersistenteActivo else { return }
+        closeConfirmation()
+        presentacionID &+= 1
+        panel.orderOut(nil)
+    }
+
+    /// Hook interno: verifica el botón real sin abrir Finder durante QA.
+    func activarVerEnFinderParaQA() { resultadoFinder.performClick(nil) }
+    var resultadoCapturaSinSolapes: Bool { confirmLayout?.sinSolapes == true }
 
     /// Captura interna para QA visual sin depender del permiso de grabación de pantalla.
     /// Solo rasteriza el contenido del propio panel; no ve ninguna otra app ni pantalla.
@@ -319,7 +419,8 @@ final class DictationPanel {
 
     /// Muestra un aviso breve por N segundos, por encima del texto del dictado.
     func flash(_ text: String, segundos: TimeInterval = 2.5) {
-        guard Config.panelVisible(), !capturaPrivadaActiva, !enRespuestaIA else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva, !enRespuestaIA,
+              !resultadoCapturaPersistenteActivo else { return }
         presentacionID &+= 1
         reposicionar()
         flashHasta = Date().addingTimeInterval(segundos)
@@ -392,24 +493,40 @@ final class DictationPanel {
             if let g = confirmLayout {
                 confirmTitle.frame = g.title; confirmBody.frame = g.body
                 confirmAlternatives.frame = g.context; confirmFooter.frame = g.footer
+                if resultadoCapturaPersistenteActivo {
+                    let separacion: CGFloat = 8
+                    let finderW: CGFloat = 118
+                    let cerrarW: CGFloat = 72
+                    let total = finderW + separacion + cerrarW
+                    let x = g.footer.midX - total / 2
+                    resultadoFinder.frame = NSRect(x: x, y: g.footer.minY,
+                                                    width: finderW, height: g.footer.height)
+                    resultadoCerrar.frame = NSRect(x: x + finderW + separacion,
+                                                    y: g.footer.minY,
+                                                    width: cerrarW, height: g.footer.height)
+                } else {
+                    resultadoFinder.frame = .zero; resultadoCerrar.frame = .zero
+                }
             }
         } else {
             confirmTitle.frame = .zero; confirmBody.frame = .zero
             confirmAlternatives.frame = .zero; confirmFooter.frame = .zero
+            resultadoFinder.frame = .zero; resultadoCerrar.frame = .zero
         }
     }
 
     private func recalcularConfirmacion() {
         let g = Self.geometriaConfirmacion(ancho: width,
                                            detalles: confirmBody.stringValue,
-                                           contexto: confirmAlternatives.isHidden ? "" : confirmAlternatives.stringValue)
+                                           contexto: confirmAlternatives.isHidden ? "" : confirmAlternatives.stringValue,
+                                           footerHeight: resultadoCapturaPersistenteActivo ? 26 : 15)
         confirmLayout = g; confirmStrip = g.strip
     }
 
     /// Pública dentro del módulo para el hook QA; no depende de una ventana ni de una
     /// pantalla real y permite probar textos de 1 a 8 etapas reproduciblemente.
     static func geometriaConfirmacion(ancho: CGFloat, detalles: String,
-                                      contexto: String) -> ConfirmationLayout {
+                                      contexto: String, footerHeight: CGFloat = 15) -> ConfirmationLayout {
         let margenX: CGFloat = 12
         let anchoTexto = max(120, ancho - margenX * 2)
         func alto(_ texto: String, fuente: NSFont, linea: CGFloat, maxLineas: Int) -> CGFloat {
@@ -421,7 +538,8 @@ final class DictationPanel {
             return min(CGFloat(maxLineas) * linea, max(linea, ceil(r.height)))
         }
 
-        let footer = NSRect(x: 8, y: 7, width: max(120, ancho - 16), height: 15)
+        let footer = NSRect(x: 8, y: 7, width: max(120, ancho - 16),
+                            height: max(15, footerHeight))
         var y = footer.maxY + 7
         let contextoH = alto(contexto, fuente: NSFont.systemFont(ofSize: 9), linea: 13, maxLineas: 4)
         let contextoRect = NSRect(x: margenX, y: y, width: anchoTexto, height: contextoH)
@@ -469,7 +587,8 @@ final class DictationPanel {
             DispatchQueue.main.async { [weak self] in self?.pensando(ia: ia) }
             return
         }
-        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva,
+              !resultadoCapturaPersistenteActivo else { return }
         presentacionID &+= 1
         enRespuestaIA = true
         reposicionar()
@@ -494,7 +613,8 @@ final class DictationPanel {
             DispatchQueue.main.async { [weak self] in self?.respuestaIA(texto) }
             return
         }
-        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva,
+              !resultadoCapturaPersistenteActivo else { return }
         if !enRespuestaIA { pensando(ia: "local") }   // por si no pasó por "pensando"
         label.textColor = colorIA
         let limpio = texto.replacingOccurrences(of: "\n", with: " ")
@@ -612,6 +732,7 @@ final class DictationPanel {
     }
 
     func hide(after seconds: TimeInterval = 0) {
+        guard !resultadoCapturaPersistenteActivo else { return }
         meter.reset()
         if seconds == 0 {
             presentacionID &+= 1

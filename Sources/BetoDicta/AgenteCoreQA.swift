@@ -349,16 +349,49 @@ enum AgenteCoreQA {
             "Oye, Bto, grabemos la pantalla, por favor.")
         comprobar("grabemos la pantalla entra al ejecutor local",
                   planGrabemos?.cadena.acciones.first?.modo.accion == "grabar_pantalla")
-        let planHagamos = AgenteNucleo.planificarCaptura(
-            "Oye, Bto, hagamos una grabación, por favor.")
-        comprobar("hagamos una grabación usa pantalla por defecto",
-                  planHagamos?.cadena.acciones.first?.modo.accion == "grabar_pantalla")
+        let frasesRealesAclaracion = [
+            "Grabemos.",
+            "Hagamos una grabación.",
+            "Inicia una grabación.",
+            "Comienza una grabación.",
+        ]
+        for frase in frasesRealesAclaracion {
+            comprobar("grabación ambigua pregunta área · \(frase)",
+                      AgenteNucleo.necesitaAclararAreaCaptura(frase)
+                        && AgenteNucleo.planificarCaptura(frase) == nil)
+        }
+        let pedidoAmbiguo = "Hagamos una grabación y guárdala en Documentos"
+        let pedidoPantalla = AgenteNucleo.completarAclaracionCaptura(
+            pedido: pedidoAmbiguo, respuesta: "Toda la pantalla, por favor")
+        let pedidoVentana = AgenteNucleo.completarAclaracionCaptura(
+            pedido: pedidoAmbiguo, respuesta: "Una ventana")
+        comprobar("aclaración conserva pedido y completa pantalla",
+                  pedidoPantalla.map {
+                    AgenteNucleo.planificarCaptura($0)?.cadena.acciones.first?.modo.accion
+                        == "grabar_pantalla"
+                        && SolicitudCapturaMac.interpretar($0, tipoForzado: .video).area == .completa
+                        && $0.contains("guárdala en Documentos")
+                  } == true,
+                  pedidoPantalla ?? "nil")
+        comprobar("aclaración conserva pedido y completa ventana",
+                  pedidoVentana.map {
+                    AgenteNucleo.planificarCaptura($0)?.cadena.acciones.first?.modo.accion
+                        == "grabar_pantalla"
+                        && SolicitudCapturaMac.interpretar($0, tipoForzado: .video).area == .ventana
+                        && $0.contains("guárdala en Documentos")
+                  } == true,
+                  pedidoVentana ?? "nil")
+        comprobar("aclaración no consume una respuesta ajena",
+                  AgenteNucleo.completarAclaracionCaptura(
+                    pedido: pedidoAmbiguo, respuesta: "Este es un dictado normal") == nil)
         comprobar("grabación de audio no se convierte en pantalla",
                   AgenteNucleo.planificarCaptura(
                     "Hagamos una grabación de audio para el podcast") == nil)
         comprobar("narración futura no ejecuta una grabación",
                   AgenteNucleo.planificarCaptura(
-                    "Cuando grabemos la pantalla mañana, avísame") == nil)
+                    "Cuando grabemos la pantalla mañana, avísame") == nil
+                    && !AgenteNucleo.necesitaAclararAreaCaptura(
+                        "Cuando comience una grabación, guarda silencio"))
         let modoGrabacion = planGrabacion?.cadena.acciones.first?.modo
             ?? Modo(id: "qa-grabacion", nombre: "Grabación", icono: "record.circle",
                     base: "accion", accion: "grabar_pantalla")
