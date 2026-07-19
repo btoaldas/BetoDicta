@@ -16,7 +16,7 @@ struct NotasView: View {
     @State private var textoCalendario = ""
     @State private var tipoCalendario = "tarea"
     @State private var horaCalendario = Self.hoy(minutos: 9 * 60)
-    @State private var permiso = "Consultando…"
+    @State private var permisoNotificaciones: TareasRecordatorios.EstadoNotificaciones = .desconocido
     @State private var avisosExpandidos = true
     @State private var calendarioExpandido = true
 
@@ -46,7 +46,7 @@ struct NotasView: View {
 
     private func recargar() {
         items = NotasStore.todos()
-        TareasRecordatorios.estadoPermiso { permiso = $0 }
+        TareasRecordatorios.consultarPermiso { permisoNotificaciones = $0 }
     }
 
     private func agregar(tipo: String, texto: String, fecha: Date?) {
@@ -128,7 +128,7 @@ struct NotasView: View {
                             .disabled(!Config.ttsActivo())
                         Toggle("También notas con fecha", isOn: $avisarNotas)
                     }.toggleStyle(.checkbox)
-                    Text("Notificaciones de macOS: \(permiso). La voz usa el motor TTS elegido en Ajustes y nunca habla durante una grabación de pantalla.")
+                    Text("Notificaciones de macOS: \(permisoNotificaciones.texto). La voz usa el motor TTS elegido en Ajustes y nunca habla durante una grabación de pantalla.")
                         .font(.caption).foregroundStyle(.secondary)
                     Divider()
                     HStack {
@@ -153,9 +153,26 @@ struct NotasView: View {
                         Button("Probar aviso ahora") {
                             TareasRecordatorios.shared.probarAviso { recargar() }
                         }
-                        Button("Ajustes de notificaciones…") {
-                            TareasRecordatorios.abrirAjustesNotificaciones()
+                        if !permisoNotificaciones.concedidas {
+                            Button(permisoNotificaciones == .denegadas
+                                   ? "Activar en Ajustes…" : "Activar notificaciones") {
+                                TareasRecordatorios.solicitarPermiso { estado in
+                                    permisoNotificaciones = estado
+                                    if estado == .denegadas {
+                                        _ = TareasRecordatorios.abrirAjustesNotificaciones()
+                                    }
+                                }
+                            }
+                            .buttonStyle(.borderedProminent).tint(acentoNo)
+                            .help("Solicita a macOS permiso para mostrar avisos de tareas y resúmenes.")
                         }
+                        Button {
+                            _ = TareasRecordatorios.abrirAjustesNotificaciones()
+                        } label: {
+                            Label("Permisos de BetoDicta…", systemImage: "gear")
+                        }
+                        .buttonStyle(.link)
+                        .help("Abre directamente Notificaciones en Ajustes del Sistema para revisar el permiso de BetoDicta.")
                     }.controlSize(.small)
                     Text("Si la Mac estaba apagada o dormida, el resumen vigente y los avisos vencidos se recuperan al volver a abrir o activar BetoDicta.")
                         .font(.caption).foregroundStyle(.secondary)

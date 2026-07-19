@@ -171,8 +171,13 @@ struct OnboardingView: View {
     @StateObject private var m = SettingsModel()
     @StateObject private var pm = ProvidersModel()          // cascada + descargas locales
     @StateObject private var glosario = KeytermsStore()
+    @StateObject private var permisosSistema = PermisosSistemaModel()
     @ObservedObject private var descargas = Descargas.shared
-    @State private var paso: Int = Config.wizardPaso()
+    @State private var paso: Int = {
+        if let valor = ProcessInfo.processInfo.environment["BETODICTA_WIZARD_STEP"],
+           let pasoQA = Int(valor) { return min(8, max(0, pasoQA)) }
+        return Config.wizardPaso()
+    }()
 
     // Permisos (refresco cada segundo).
     @State private var mic: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -207,6 +212,7 @@ struct OnboardingView: View {
         .onReceive(reloj) { _ in
             mic = AVCaptureDevice.authorizationStatus(for: .audio)
             ax = AXIsProcessTrusted()
+            if paso == 1 { permisosSistema.refrescar() }
         }
         .onChange(of: paso) { _, nuevo in
             if nuevo == 7 { refrescarAtajosIncluidos() }
@@ -250,7 +256,7 @@ struct OnboardingView: View {
                 .font(.title3)
             Text("Este asistente te toma un par de minutos. Vamos a:")
                 .font(.headline).padding(.top, 4)
-            vinieta("1", "Dar permisos", "Micrófono para escucharte y Accesibilidad para escribir donde tú quieras.")
+            vinieta("1", "Dar permisos", "Micrófono y Accesibilidad para dictar; notificaciones y herramientas adicionales bajo tu control.")
             vinieta("2", "Conectar IA", "Motores de nube (opcional) y motores locales gratis que corren sin internet.")
             vinieta("3", "Ordenar el failover", "Cuál motor va primero, cuál de respaldo — para que nunca pierdas un dictado.")
             vinieta("4", "Que aprenda y tus preferencias", "Vocabulario, corrección automática, sonidos, tecla, Dock… a tu gusto.")
@@ -262,35 +268,51 @@ struct OnboardingView: View {
 
     // MARK: Paso 1 — Permisos
     private var permisos: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            encabezado("Permisos", "sin estos dos, la app no puede escucharte ni escribir por ti.")
-            permisoFila(icono: "mic.fill", titulo: "Micrófono",
-                        para: "Para convertir tu voz en texto.",
-                        listo: mic == .authorized, estado: micEstadoTexto,
-                        accion: micAccion, etiquetaBoton: micBotonTexto)
-            permisoFila(icono: "accessibility", titulo: "Accesibilidad",
-                        para: "Para escribir el texto donde está tu cursor y detectar la tecla de dictado.",
-                        listo: ax && axAlArrancar, estado: axEstadoTexto,
-                        accion: axAccion, etiquetaBoton: "Abrir Ajustes de Accesibilidad")
-            if ax && !axAlArrancar {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Accesibilidad activada — reinicia BetoDicta para que tome efecto.",
-                          systemImage: "arrow.clockwise.circle.fill")
-                        .font(.subheadline).foregroundStyle(acento)
-                    Text("Tranquilo: el asistente vuelve exactamente a este paso y verás los dos permisos en verde.")
+        VStack(alignment: .leading, spacing: 12) {
+            encabezado("Permisos", "activa primero lo esencial y, si quieres, deja listas las herramientas adicionales.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Esenciales para dictar", systemImage: "checkmark.shield.fill")
+                        .font(.subheadline).bold().foregroundStyle(acento)
+                    permisoFila(icono: "mic.fill", titulo: "Micrófono",
+                                para: "Para convertir tu voz en texto.",
+                                listo: mic == .authorized, estado: micEstadoTexto,
+                                accion: micAccion, etiquetaBoton: micBotonTexto)
+                    permisoFila(icono: "accessibility", titulo: "Accesibilidad",
+                                para: "Para escribir el texto donde está tu cursor y detectar la tecla de dictado.",
+                                listo: ax && axAlArrancar, estado: axEstadoTexto,
+                                accion: axAccion, etiquetaBoton: "Abrir Ajustes de Accesibilidad")
+                    if ax && !axAlArrancar {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Accesibilidad activada — reinicia BetoDicta para que tome efecto.",
+                                  systemImage: "arrow.clockwise.circle.fill")
+                                .font(.subheadline).foregroundStyle(acento)
+                            Text("El asistente vuelve exactamente a este paso y conserva lo que ya configuraste.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Button {
+                                Config.set("wizard_paso", to: 1)
+                                WizardWindowController.reiniciarApp()
+                            } label: { Label("Reiniciar BetoDicta ahora", systemImage: "arrow.clockwise") }
+                                .buttonStyle(.borderedProminent).tint(acento)
+                        }
+                        .padding(12).background(acento.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    Divider().padding(.vertical, 2)
+                    Label("Funciones adicionales", systemImage: "sparkles")
+                        .font(.subheadline).bold().foregroundStyle(acento)
+                    Text("Son opcionales y puedes concederlas una por una. Si eliges No permitir, BetoDicta continúa funcionando y podrás cambiarlo después.")
                         .font(.caption).foregroundStyle(.secondary)
-                    Button {
-                        Config.set("wizard_paso", to: 1)
-                        WizardWindowController.reiniciarApp()
-                    } label: { Label("Reiniciar BetoDicta ahora", systemImage: "arrow.clockwise") }
-                        .buttonStyle(.borderedProminent).tint(acento)
+                    ForEach(PermisosSistema.adicionales) { permiso in
+                        permisoAdicionalFila(permiso)
+                    }
                 }
-                .padding(12).background(acento.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-            Spacer()
+                .padding(.trailing, 6)
+            }.scrollIndicators(.visible)
             if permisosOK {
-                Label("Todo listo — pulsa Siguiente.", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green).font(.subheadline)
+                Label("Lo esencial está listo. Puedes activar más permisos o pulsar Siguiente.",
+                      systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green).font(.caption)
             }
         }
     }
@@ -834,6 +856,38 @@ struct OnboardingView: View {
             Spacer()
         }
         .padding(14).background(Color(nsColor: .controlBackgroundColor)).clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func permisoAdicionalFila(_ permiso: PermisoBetoID) -> some View {
+        let estado = permisosSistema.estados[permiso] ?? PermisosSistema.estado(permiso)
+        let color: Color = estado.concedido ? .green
+            : (estado.requiereAtencion ? .orange : acento)
+        let simbolo = estado.concedido ? "checkmark.circle.fill"
+            : (estado.requiereAtencion ? "exclamationmark.triangle.fill" : permiso.icono)
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: simbolo).font(.system(size: 22))
+                .foregroundStyle(color).frame(width: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text(permiso.titulo).font(.subheadline).bold()
+                    if permiso == .notificaciones {
+                        Text("RECOMENDADO").font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(acento).clipShape(Capsule())
+                    }
+                    Text(estado.texto).font(.caption2).foregroundStyle(color)
+                }
+                Text(permiso.detalle).font(.caption2).foregroundStyle(.secondary)
+                if let etiqueta = PermisosSistema.etiquetaBoton(permiso, estado: estado) {
+                    Button(etiqueta) { permisosSistema.actuar(permiso) }
+                        .controlSize(.small).padding(.top, 2)
+                        .help("Solicita este permiso o abre su panel correspondiente en Ajustes del Sistema.")
+                }
+            }
+            Spacer()
+        }
+        .padding(10).background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
     private func wizToggle(_ titulo: String, isOn: Binding<Bool>, nota: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {

@@ -5,6 +5,30 @@ import UserNotifications
 /// Reloj local de Tareas y notas. No usa IA ni nube: detecta vencimientos,
 /// recupera avisos al despertar/reabrir la Mac y ofrece dos resúmenes diarios.
 final class TareasRecordatorios: NSObject, UNUserNotificationCenterDelegate {
+    enum EstadoNotificaciones: Equatable {
+        case permitidas
+        case provisionales
+        case denegadas
+        case sinSolicitar
+        case noDisponibles
+        case desconocido
+
+        var texto: String {
+            switch self {
+            case .permitidas: return "Permitidas"
+            case .provisionales: return "Provisionales"
+            case .denegadas: return "Denegadas en macOS"
+            case .sinSolicitar: return "Sin solicitar todavía"
+            case .noDisponibles: return "Disponibles en la app instalada"
+            case .desconocido: return "Estado desconocido"
+            }
+        }
+
+        var concedidas: Bool {
+            self == .permitidas || self == .provisionales
+        }
+    }
+
     struct Aviso {
         let titulo: String
         let cuerpo: String
@@ -98,27 +122,60 @@ final class TareasRecordatorios: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    static func estadoPermiso(completion: @escaping (String) -> Void) {
+    static func consultarPermiso(completion: @escaping (EstadoNotificaciones) -> Void) {
         guard Bundle.main.bundleURL.pathExtension.lowercased() == "app",
               Bundle.main.bundleIdentifier != nil else {
-            completion("Disponibles en la app instalada"); return
+            completion(.noDisponibles); return
         }
         UNUserNotificationCenter.current().getNotificationSettings { ajustes in
-            let texto: String
+            let estado: EstadoNotificaciones
             switch ajustes.authorizationStatus {
-            case .authorized: texto = "Permitidas"
-            case .provisional: texto = "Provisionales"
-            case .denied: texto = "Denegadas en macOS"
-            case .notDetermined: texto = "Se pedirán al primer aviso"
-            @unknown default: texto = "Estado desconocido"
+            case .authorized: estado = .permitidas
+            case .provisional, .ephemeral: estado = .provisionales
+            case .denied: estado = .denegadas
+            case .notDetermined: estado = .sinSolicitar
+            @unknown default: estado = .desconocido
             }
-            DispatchQueue.main.async { completion(texto) }
+            DispatchQueue.main.async { completion(estado) }
         }
     }
 
-    static func abrirAjustesNotificaciones() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
-        NSWorkspace.shared.open(url)
+    static func estadoPermiso(completion: @escaping (String) -> Void) {
+        consultarPermiso { completion($0.texto) }
+    }
+
+    /// Solicitud explícita para el asistente inicial y la pantalla de Tareas.
+    /// No exige que ya exista una tarea: el clic del usuario aporta el contexto.
+    static func solicitarPermiso(completion: @escaping (EstadoNotificaciones) -> Void) {
+        guard Bundle.main.bundleURL.pathExtension.lowercased() == "app",
+              Bundle.main.bundleIdentifier != nil else {
+            completion(.noDisponibles); return
+        }
+        let centro = UNUserNotificationCenter.current()
+        centro.getNotificationSettings { ajustes in
+            guard ajustes.authorizationStatus == .notDetermined else {
+                consultarPermiso(completion: completion); return
+            }
+            centro.requestAuthorization(options: [.alert, .sound]) { _, error in
+                if let error {
+                    Log.write("⚠️ permiso de notificaciones: \(error.localizedDescription)")
+                }
+                consultarPermiso(completion: completion)
+            }
+        }
+    }
+
+    @discardableResult
+    static func abrirAjustesNotificaciones() -> Bool {
+        let id = Bundle.main.bundleIdentifier ?? "ec.bto.betodicta"
+        let rutas = [
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)",
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+        ]
+        for ruta in rutas {
+            if let url = URL(string: ruta), NSWorkspace.shared.open(url) { return true }
+        }
+        return false
     }
 
     func probarAviso(completion: (() -> Void)? = nil) {

@@ -82,6 +82,7 @@ brew install --cask --no-quarantine btoaldas/tap/betodicta
 4. **Permisos** — la app pedirá:
    - **Micrófono**: para escucharte (obvio).
    - **Accesibilidad**: para pegar el texto donde está tu cursor, detectar la tecla de dictado y (si lo activas) aprender de tus correcciones. Ve a Ajustes del Sistema → Privacidad y seguridad → Accesibilidad y activa BetoDicta.
+   - El asistente también muestra, sin obligarte, los permisos de **Notificaciones, reconocimiento de voz de Apple, pantalla, Contactos, Calendario, Recordatorios, Ubicación, Apple Music, Automatización y archivos**. Cada fila explica para qué sirve, muestra su estado y abre el panel correcto de macOS.
 5. Verás el **micrófono en la barra de menú** (arriba a la derecha). Listo.
 
 ### 3.1 El asistente de primer arranque
@@ -93,7 +94,7 @@ La primera vez que abres BetoDicta aparece un **asistente** que te lleva de la m
 Son 9 pasos:
 
 0. **Bienvenida** — qué hace la app y qué vas a configurar.
-1. **Permisos** — micrófono y accesibilidad, con **check en vivo**: apenas concedes cada uno, su fila se pone en **verde "Activado"**.
+1. **Permisos** — separa **Micrófono y Accesibilidad**, necesarios para dictar, de las funciones opcionales. La fila **Notificaciones** aparece como recomendada para avisos y resúmenes; el botón **Activar** muestra la autorización nativa de macOS y, si antes la negaste, te lleva a la ficha de BetoDicta en Ajustes del Sistema. También puedes dejar listas voz de Apple, pantalla, Contactos, Calendario, Recordatorios, Ubicación y Automatización. Los estados se actualizan en vivo y negar un permiso opcional nunca impide continuar.
 
    ![Permisos con check en vivo](img/wizard-permisos.png)
 
@@ -586,7 +587,7 @@ Cada modo de texto usa **su propia IA y su propio prompt** — o la IA global de
 
 **Tareas y notas** (pestaña propia): lo que dictas con Tarea/Nota se acumula ahí. Marca tareas como **hechas**, bórralas, **"Limpiar hechas"**, o agrega a mano. BetoDicta reconoce fechas dentro del texto (*"modo tarea llamar a Rafael mañana a las 8:00 p. m."*) o permite escogerlas manualmente. El tablero separa **vencidas, hoy, mañana y sin fecha**, y muestra el siguiente aviso. Cada ítem puede avisar una sola vez mediante una **notificación de macOS**, el notch y, de forma opcional, la voz TTS elegida; nunca habla durante una grabación de pantalla. Al despertar la Mac, volver a BetoDicta o abrirlo después de la hora, recupera lo vencido.
 
-En **Avisos y resúmenes** puedes apagar todo, elegir sonido/voz, incluir **Notas locales con fecha** y configurar una hora por la mañana y otra por la tarde. **Probar aviso ahora** comprueba notificación, notch y voz sin crear una tarea. Los resúmenes incluyen tareas vencidas por hora, de hoy, mañana, próximas y —si quieres— sin fecha. Por defecto se calculan completamente en local. **Dar forma al resumen con IA** es opt-in: puede enviar como máximo tres títulos al proveedor de chat elegido; la IA solo redacta, nunca decide fechas. Si tarda más de seis segundos o altera una cifra, fecha u hora, se descarta y se usa el resultado local. El **Calendario local** permite escoger un día, ver sus ítems con hora y abrir un modal para crear una Tarea o Nota. Los datos siguen en `~/.betodicta/pendientes.json` con permisos privados.
+En **Avisos y resúmenes** puedes apagar todo, elegir sonido/voz, incluir **Notas locales con fecha** y configurar una hora por la mañana y otra por la tarde. Ahí mismo ves el estado de macOS: **Activar notificaciones** solicita el permiso y **Permisos de BetoDicta…** abre directamente su configuración para corregirlo después. **Probar aviso ahora** comprueba notificación, notch y voz sin crear una tarea. Los resúmenes incluyen tareas vencidas por hora, de hoy, mañana, próximas y —si quieres— sin fecha. Por defecto se calculan completamente en local. **Dar forma al resumen con IA** es opt-in: puede enviar como máximo tres títulos al proveedor de chat elegido; la IA solo redacta, nunca decide fechas. Si tarda más de seis segundos o altera una cifra, fecha u hora, se descarta y se usa el resultado local. El **Calendario local** permite escoger un día, ver sus ítems con hora y abrir un modal para crear una Tarea o Nota. Los datos siguen en `~/.betodicta/pendientes.json` con permisos privados.
 
 **Acciones a apps de Mac:** vienen creados modos de acción para Outlook, Correo, WhatsApp, **Nota de Apple**, Recordatorios, Calendario, Finder, Safari, Música, Terminal, Mapas, Spotlight y tu web. **Recordatorios y Calendario usan EventKit nativo**. **Nota de Apple** usa el diccionario oficial de automatización de Notas: crea el elemento, conserva formato y vuelve a leerlo antes de anunciar éxito. La primera vez macOS puede pedir permiso en **Privacidad y seguridad → Automatización → BetoDicta → Notas**. La carpeta, su creación automática y la apertura final se configuran en **Ajustes → Asistente → Herramientas nativas**. Si el permiso falta o Notas falla, no finge éxito: abre Notas y deja todo el texto en el portapapeles. Esto es distinto de **Nota local de BetoDicta**, que se guarda únicamente en la pestaña Tareas y notas.
 
