@@ -245,7 +245,7 @@ enum VozEngine {
     /// para hallar modelo/config/vocab/refs y emite PCM float32 (24000Hz mono) por
     /// stdout conforme genera. Se escribe una vez; sirve para CUALQUIER paquete.
     private static let runnerPy = """
-    import os, sys, json, warnings
+    import os, sys, json, warnings, re
     warnings.filterwarnings("ignore")
     os.environ["COQUI_TOS_AGREED"] = "1"; os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
     import torch
@@ -264,11 +264,32 @@ enum VozEngine {
     model.cpu(); model.train(False)
     refs = [os.path.join(PKG, l.strip()) for l in open(rel("ref_list", "ref_list.txt")) if l.strip()]
     gpt_lat, spk = model.get_conditioning_latents(audio_path=refs)
+    def segmentos(txt, limite):
+        txt = re.sub(r"\\s+", " ", txt).strip()
+        if not txt: return []
+        partes = re.split(r"(?<=[.!?…])\\s+", txt)
+        salida = []
+        for parte in partes:
+            palabras = parte.split()
+            actual = ""
+            for palabra in palabras:
+                nuevo = palabra if not actual else actual + " " + palabra
+                if actual and len(nuevo) > limite:
+                    salida.append(actual); actual = palabra
+                else: actual = nuevo
+            if actual: salida.append(actual)
+        return salida
+    limite = max(80, int(getattr(model.tokenizer, "char_limits", {}).get("es", 239)) - 10)
     out = sys.stdout.buffer
-    for chunk in model.inference_stream(TXT, "es", gpt_lat, spk, temperature=0.55,
-                                        length_penalty=1.0, repetition_penalty=5.0,
-                                        top_k=30, top_p=0.80, enable_text_splitting=True):
-        out.write(chunk.cpu().numpy().astype("<f4").tobytes()); out.flush()
+    partes = segmentos(TXT, limite)
+    for i, parte in enumerate(partes):
+        for chunk in model.inference_stream(parte, "es", gpt_lat, spk, temperature=0.55,
+                                            length_penalty=1.0, repetition_penalty=5.0,
+                                            top_k=30, top_p=0.80, enable_text_splitting=False):
+            out.write(chunk.cpu().numpy().astype("<f4").tobytes()); out.flush()
+        if i + 1 < len(partes):
+            out.write(torch.zeros(int(0.08 * 24000), dtype=torch.float32).numpy().astype("<f4").tobytes())
+            out.flush()
     """
 
     static func asegurarStreamRunner() {
@@ -284,7 +305,7 @@ enum VozEngine {
     /// recarga el modelo por respuesta). Lo levanta BetoDicta cuando el clon local es
     /// el motor activo (preactivar).
     private static let serverPy = """
-    import os, sys, json, warnings, threading, traceback
+    import os, sys, json, warnings, threading, traceback, re
     warnings.filterwarnings("ignore")
     os.environ["COQUI_TOS_AGREED"]="1"; os.environ.setdefault("CUDA_VISIBLE_DEVICES","")
     import torch
@@ -306,8 +327,25 @@ enum VozEngine {
     model.cpu(); model.train(False)   # XTTS no acelera bien en MPS; CPU estable
     refs=[os.path.join(PKG,l.strip()) for l in open(rel("ref_list","ref_list.txt")) if l.strip()]
     GPT,SPK=model.get_conditioning_latents(audio_path=refs)   # una sola vez
+    LIMITE=max(80,int(getattr(model.tokenizer,"char_limits",{}).get("es",239))-10)
+    def segmentos(txt):
+        txt=re.sub(r"\\s+"," ",txt).strip()
+        if not txt: return []
+        salida=[]
+        for parte in re.split(r"(?<=[.!?…])\\s+",txt):
+            actual=""
+            for palabra in parte.split():
+                nuevo=palabra if not actual else actual+" "+palabra
+                if actual and len(nuevo)>LIMITE:
+                    salida.append(actual); actual=palabra
+                else: actual=nuevo
+            if actual: salida.append(actual)
+        return salida
     class H(BaseHTTPRequestHandler):
+        protocol_version="HTTP/1.1"
         def log_message(self,*a): pass
+        def chunk(self,body):
+            self.wfile.write(("%X\\r\\n"%len(body)).encode()+body+b"\\r\\n"); self.wfile.flush()
         def do_GET(self):
             if self.path.startswith("/health"):
                 body=json.dumps({"motor":"betodicta-xtts","paquete":os.path.realpath(PKG),"pid":os.getpid()}).encode()
@@ -323,22 +361,40 @@ enum VozEngine {
                 self.send_response(404); self.end_headers()
         def do_POST(self):
             n=int(self.headers.get("Content-Length",0)); txt=self.rfile.read(n).decode("utf-8")
+            partes=segmentos(txt)
+            if not partes:
+                self.send_response(400); self.send_header("Content-Length","0"); self.end_headers(); return
             try:
                 kw=dict(temperature=0.55,length_penalty=1.0,repetition_penalty=5.0,
-                        top_k=30,top_p=0.80,enable_text_splitting=True)
+                        top_k=30,top_p=0.80,enable_text_splitting=False)
                 if self.path.startswith("/generate"):
-                    wav=model.inference(txt,"es",GPT,SPK,**kw)["wav"]
-                    body=torch.as_tensor(wav).cpu().numpy().astype("<f4").tobytes()
+                    audios=[]
+                    for i,parte in enumerate(partes):
+                        audios.append(torch.as_tensor(model.inference(parte,"es",GPT,SPK,**kw)["wav"]))
+                        if i+1<len(partes): audios.append(torch.zeros(int(0.08*24000)))
+                    body=torch.cat([a.flatten() for a in audios]).cpu().numpy().astype("<f4").tobytes()
                     self.send_response(200); self.send_header("Content-Type","application/octet-stream")
                     self.send_header("Content-Length",str(len(body))); self.end_headers()
                     self.wfile.write(body)
                     self.wfile.flush()
                 else:
-                    self.send_response(200); self.send_header("Content-Type","application/octet-stream"); self.end_headers()
-                    for ch in model.inference_stream(txt,"es",GPT,SPK,**kw):
-                        self.wfile.write(ch.cpu().numpy().astype("<f4").tobytes()); self.wfile.flush()
+                    # HTTP chunked distingue un final correcto de un proceso que murió a
+                    # mitad. URLSession quita el framing y entrega únicamente PCM al player.
+                    self.send_response(200); self.send_header("Content-Type","application/octet-stream")
+                    self.send_header("Transfer-Encoding","chunked"); self.end_headers()
+                    for i,parte in enumerate(partes):
+                        for ch in model.inference_stream(parte,"es",GPT,SPK,**kw):
+                            self.chunk(ch.cpu().numpy().astype("<f4").tobytes())
+                        if i+1<len(partes):
+                            self.chunk(torch.zeros(int(0.08*24000)).numpy().astype("<f4").tobytes())
+                    self.wfile.write(b"0\\r\\n\\r\\n"); self.wfile.flush()
+            except (BrokenPipeError,ConnectionResetError):
+                self.close_connection=True
             except Exception:
                 traceback.print_exc(file=sys.stderr); sys.stderr.flush()
+                # Sin el terminador chunked, URLSession reporta error en vez de aceptar
+                # como completa una frase truncada y dejar que la voz "se muera" al final.
+                self.close_connection=True
     print("READY", flush=True); sys.stdout.flush()
     HTTPServer(("127.0.0.1",PORT), H).serve_forever()
     """

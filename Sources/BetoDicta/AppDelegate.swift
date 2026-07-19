@@ -1353,21 +1353,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             RunLoop.main.run(); return
         }
         // Prueba del SERVIDOR XTTS residente: BETODICTA_XTTSSERVER=<paquete>
+        // BETODICTA_XTTSTEXT permite validar textos largos sin depender de spaCy.
         // Levanta el servidor (mide carga) y hace 2 respuestas (mide latencia con modelo cargado).
         if let pkg = ProcessInfo.processInfo.environment["BETODICTA_XTTSSERVER"], !pkg.isEmpty {
+            let textoQA = ProcessInfo.processInfo.environment["BETODICTA_XTTSTEXT"]
+                ?? "Hola mi hijo, esta es una prueba rápida. Chao chao."
             let t0 = Date()
             XttsServer.asegurar(paquete: URL(fileURLWithPath: pkg)) { listo in
                 print("XTTSSERVER carga=\(String(format: "%.1f", Date().timeIntervalSince(t0)))s listo=\(listo)")
                 guard listo, let u = URL(string: "http://127.0.0.1:\(XttsServer.puerto)/say") else { exit(1) }
+                var correctos = 0
                 func pedir(_ n: Int, _ then: @escaping () -> Void) {
                     let t = Date(); var req = URLRequest(url: u); req.httpMethod = "POST"
-                    req.httpBody = "Hola mi hijo, esta es una prueba rápida. Chao chao.".data(using: .utf8)
-                    URLSession.shared.dataTask(with: req) { d, _, _ in
-                        print("XTTSSERVER pedido\(n): \(String(format: "%.1f", Date().timeIntervalSince(t)))s, \(d?.count ?? 0) bytes PCM")
+                    req.httpBody = textoQA.data(using: .utf8)
+                    URLSession.shared.dataTask(with: req) { d, resp, err in
+                        let bytes = d?.count ?? 0
+                        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+                        let audio = Double(bytes) / (4 * 24_000)
+                        let tiempo = Date().timeIntervalSince(t)
+                        let ok = err == nil && code == 200 && audio > 0.5
+                        if ok { correctos += 1 }
+                        print("XTTSSERVER pedido\(n): \(String(format: "%.2f", tiempo))s, audio=\(String(format: "%.2f", audio))s, rtf=\(String(format: "%.3f", audio > 0 ? tiempo / audio : 0)), HTTP=\(code), error=\(err?.localizedDescription ?? "ninguno"), ok=\(ok)")
                         then()
                     }.resume()
                 }
-                pedir(1) { pedir(2) { XttsServer.detener(); exit(0) } }
+                pedir(1) { pedir(2) { XttsServer.detener(); exit(correctos == 2 ? 0 : 2) } }
             }
             RunLoop.main.run(); return
         }
@@ -1399,7 +1409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                       salida: salida) { ok in
                 if ok, let d = try? Data(contentsOf: salida) { print("XTTSSTREAM OK → \(d.count) bytes WAV") }
                 else { print("XTTSSTREAM FALLÓ") }
-                exit(0)
+                exit(ok ? 0 : 2)
             }
             RunLoop.main.run()
             return
