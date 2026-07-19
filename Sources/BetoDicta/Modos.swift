@@ -418,6 +418,7 @@ enum Acciones {
         ("finder",        "Finder",                          "", "com.apple.finder"),
         ("safari",        "Safari",                          "", "com.apple.Safari"),
         ("musica",        "Música",                          "", "com.apple.Music"),
+        ("volumen",       "Controlar volumen del Mac",       "", ""),
         ("terminal",      "Terminal (copia el texto)",       "", "com.apple.Terminal"),
         ("mapas",         "Mapas (busca lo dictado)",        "https://maps.apple.com/?q={q}", "com.apple.Maps"),
         ("fotos",         "Fotos",                           "", "com.apple.Photos"),

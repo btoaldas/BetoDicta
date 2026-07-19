@@ -144,6 +144,10 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var toolAtajos: Bool { didSet { Config.set("agente_tool_atajos", to: toolAtajos) } }
     @Published var toolCapturas: Bool { didSet { Config.set("agente_tool_capturas", to: toolCapturas) } }
     @Published var toolClima: Bool { didSet { Config.set("agente_tool_clima", to: toolClima) } }
+    @Published var toolVolumen: Bool { didSet { Config.set("agente_tool_volumen", to: toolVolumen) } }
+    @Published var volumenPaso: Double {
+        didSet { Config.set("agente_volumen_paso", to: Int(volumenPaso)) }
+    }
     @Published var toolNotasApple: Bool { didSet { Config.set("agente_tool_notas_apple", to: toolNotasApple) } }
     @Published var climaUbicacionActual: Bool { didSet { Config.set("clima_ubicacion_actual", to: climaUbicacionActual) } }
     @Published var climaUbicacionPredeterminada: String {
@@ -212,6 +216,8 @@ final class AgenteSettingsModel: ObservableObject {
         toolComunicaciones = Config.agenteHerramientaComunicaciones()
         toolAtajos = Config.agenteHerramientaAtajos(); toolCapturas = Config.agenteHerramientaCapturas()
         toolClima = Config.agenteHerramientaClima()
+        toolVolumen = Config.agenteHerramientaVolumen()
+        volumenPaso = Double(Config.agenteVolumenPaso())
         toolNotasApple = Config.agenteHerramientaNotasApple()
         climaUbicacionActual = Config.climaUsarUbicacionActual()
         climaUbicacionPredeterminada = Config.climaUbicacionPredeterminada()
@@ -624,6 +630,17 @@ struct AgenteView: View {
                 }
                 Divider()
                 Toggle("Música", isOn: $m.toolMusica)
+                Toggle("Controlar el volumen del Mac", isOn: $m.toolVolumen)
+                if m.toolVolumen {
+                    HStack {
+                        Text("Subir/bajar sin cifra: \(Int(m.volumenPaso)) puntos")
+                            .font(.caption)
+                        Slider(value: $m.volumenPaso, in: 5...30, step: 5)
+                            .frame(maxWidth: 230)
+                    }
+                    Text("Entiende porcentajes, máximo, silencio y reactivar. Se ejecuta localmente y comprueba el nivel final; no usa IA.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Toggle("Aplicaciones instaladas", isOn: $m.toolAplicaciones)
                 Toggle("Borradores en Gmail, Mail, Outlook, WhatsApp y Mensajes", isOn: $m.toolComunicaciones)
                 Text("Prepara y abre el borrador con destinatario/asunto/cuerpo. Nunca pulsa Enviar por ti.")

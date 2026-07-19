@@ -56,7 +56,7 @@ enum PoliticaAgente {
                 switch id {
                 case "clima":
                     r = .lectura
-                case "musica", "archivo", "finder", "safari", "mapas", "spotlight", "aplicacion":
+                case "musica", "volumen", "archivo", "finder", "safari", "mapas", "spotlight", "aplicacion":
                     r = .reversible
                 case "recordatorios", "calendario", "notas", "nota_local", "tarea_local", "archivo_nuevo",
                      "captura_pantalla", "grabar_pantalla":
@@ -146,6 +146,8 @@ enum MensajesAgente {
             .contains(cadena.acciones[0].modo.accion) { return true }
         if cadena.transforms.isEmpty, cadena.acciones.count == 1,
            cadena.acciones[0].modo.accion == "clima" { return true }
+        if cadena.transforms.isEmpty, cadena.acciones.count == 1,
+           cadena.acciones[0].modo.accion == "volumen" { return true }
         return cadena.transforms.isEmpty && cadena.acciones.count == 1
             && cadena.acciones[0].modo.base == "musica"
     }
@@ -429,6 +431,7 @@ enum AgenteNucleo {
             case "captura_pantalla", "grabar_pantalla", "captura_compartir":
                 return Config.agenteHerramientaCapturas()
             case "clima": return Config.agenteHerramientaClima()
+            case "volumen": return Config.agenteHerramientaVolumen()
             case "atajo_apple": return Config.agenteHerramientaAtajos()
             case "gmail", "correo", "outlook", "whatsapp", "mensajes":
                 return Config.agenteHerramientaComunicaciones()
@@ -574,6 +577,20 @@ enum AgenteNucleo {
             fuente: .natural, confianza: 0.99)
     }
 
+    /// Control local, reversible y sin IA. La operación queda congelada dentro
+    /// de `prompt`; el ejecutor no vuelve a reinterpretar una frase distinta.
+    static func planificarVolumen(_ texto: String,
+                                  permitir: Bool = Config.agenteHerramientaVolumen(),
+                                  paso: Int = Config.agenteVolumenPaso()) -> ModoPreguntaPlan? {
+        guard permitir,
+              let solicitud = SolicitudVolumenMac.interpretar(texto,
+                                                               pasoPredeterminado: paso) else { return nil }
+        let m = accion("volumen", nombre: "Volumen del Mac", prompt: solicitud.codigo)
+        return ModoPlanificador.pregunta(para: ModoCadena(transforms: [],
+            acciones: [ModoAccionPlan(modo: m, destinatario: nil)], contenido: texto),
+            fuente: .natural, confianza: 0.995)
+    }
+
     /// Reutiliza la última RESPUESTA solo ante un pronombre imperativo inequívoco.
     /// Una frase corriente nunca hereda contenido en silencio.
     static func completarSeguimiento(_ texto: String, referencia: String?) -> String? {
@@ -606,6 +623,10 @@ enum AgenteNucleo {
         // El clima es tiempo real: debe resolverse antes de cualquier IA para
         // que Codex/Hermes no contesten con datos inventados o desactualizados.
         if let clima = planificarClima(texto) { return clima }
+
+        // Porcentaje/mute son órdenes locales inequívocas. Se resuelven antes
+        // del planificador general y de cualquier cerebro de IA.
+        if let volumen = planificarVolumen(texto) { return volumen }
 
         // Reutiliza primero el planificador maduro de Modos (correo, WhatsApp,
         // traducción, apps, búsquedas…). Evita un Agente dentro de otro Agente.

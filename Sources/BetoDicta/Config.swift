@@ -461,6 +461,12 @@ struct Config {
     static func agenteHerramientaAtajos() -> Bool { (json()["agente_tool_atajos"] as? Bool) ?? false }
     static func agenteHerramientaCapturas() -> Bool { (json()["agente_tool_capturas"] as? Bool) ?? true }
     static func agenteHerramientaClima() -> Bool { (json()["agente_tool_clima"] as? Bool) ?? true }
+    static func agenteHerramientaVolumen() -> Bool { (json()["agente_tool_volumen"] as? Bool) ?? true }
+    /// Cantidad de puntos que cambia una orden relativa sin cifra, por ejemplo
+    /// «sube el volumen». Un porcentaje explícito siempre tiene prioridad.
+    static func agenteVolumenPaso() -> Int {
+        min(50, max(1, (json()["agente_volumen_paso"] as? Int) ?? 10))
+    }
     static func agenteHerramientaNotasApple() -> Bool {
         (json()["agente_tool_notas_apple"] as? Bool) ?? true
     }

@@ -5603,6 +5603,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 responderBreveAgente(r.mensaje, evento: "fallo_herramienta")
             } else if contextoAgente, r.ok, id == "clima" {
                 responderBreveAgente(r.mensaje, evento: "resultado_clima")
+            } else if contextoAgente, r.ok, id == "volumen" {
+                responderBreveAgente(r.mensaje, evento: "resultado_volumen")
             } else if contextoAgente, r.ok, id == "rutina",
                       RutinasAgenteStore.devuelveResultado(id: modo.prompt) {
                 responderBreveAgente(r.mensaje, evento: "resultado_rutina")
@@ -5709,6 +5711,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             esperaAsincrona = true; muestraGenerica = false
             if !recorder.isRecording { setIcono(.procesando); panel.update("🌦️ Consultando clima…") }
             ClimaServicio.consultar(t) { r in mostrarResultado(r); completar() }
+        case "volumen":
+            esperaAsincrona = true; muestraGenerica = false; silenciarSonido = true
+            guard Config.agenteHerramientaVolumen(),
+                  let solicitud = SolicitudVolumenMac(codigo: modo.prompt)
+                    ?? SolicitudVolumenMac.interpretar(t,
+                        pasoPredeterminado: Config.agenteVolumenPaso()) else {
+                mostrarResultado(.init(ok: false,
+                    mensaje: "No entendí qué cambio de volumen deseas."))
+                completar(); break
+            }
+            VolumenMac.ejecutar(solicitud) { r in mostrarResultado(r); completar() }
         case "captura_pantalla", "grabar_pantalla", "captura_compartir":
             esperaAsincrona = true; muestraGenerica = false
             let tipoForzado: TipoCapturaMac? = id == "grabar_pantalla" ? .video
