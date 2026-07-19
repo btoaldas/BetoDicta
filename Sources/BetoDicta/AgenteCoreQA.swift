@@ -345,6 +345,20 @@ enum AgenteCoreQA {
         } else { usaConfirmacion = false }
         comprobar("resolver principal propone grabación en vez de dictarla",
                   usaConfirmacion)
+        let planGrabemos = AgenteNucleo.planificarCaptura(
+            "Oye, Bto, grabemos la pantalla, por favor.")
+        comprobar("grabemos la pantalla entra al ejecutor local",
+                  planGrabemos?.cadena.acciones.first?.modo.accion == "grabar_pantalla")
+        let planHagamos = AgenteNucleo.planificarCaptura(
+            "Oye, Bto, hagamos una grabación, por favor.")
+        comprobar("hagamos una grabación usa pantalla por defecto",
+                  planHagamos?.cadena.acciones.first?.modo.accion == "grabar_pantalla")
+        comprobar("grabación de audio no se convierte en pantalla",
+                  AgenteNucleo.planificarCaptura(
+                    "Hagamos una grabación de audio para el podcast") == nil)
+        comprobar("narración futura no ejecuta una grabación",
+                  AgenteNucleo.planificarCaptura(
+                    "Cuando grabemos la pantalla mañana, avísame") == nil)
         let modoGrabacion = planGrabacion?.cadena.acciones.first?.modo
             ?? Modo(id: "qa-grabacion", nombre: "Grabación", icono: "record.circle",
                     base: "accion", accion: "grabar_pantalla")

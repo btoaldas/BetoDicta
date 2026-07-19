@@ -459,7 +459,7 @@ enum AgenteNucleo {
         let verbo = tokens[inicio]
         let directos: Set<String> = ["haz", "haga", "hagas", "hacer", "toma", "tomar",
                                      "saca", "sacar", "captura", "capturar", "graba", "grabar",
-                                     "realiza", "realizar"]
+                                     "grabemos", "realiza", "realizar"]
         let peticion = ["puedes", "podrias"].contains(verbo)
             && inicio + 1 < tokens.count
             && ["hacer", "tomar", "sacar", "capturar", "grabar"].contains(tokens[inicio + 1])
@@ -467,6 +467,12 @@ enum AgenteNucleo {
             && tokens.dropFirst(inicio + 1).prefix(3).contains(where: {
                 ["captura", "capturar", "grabacion", "grabar"].contains($0)
             })
+        // Formas coloquiales reales del usuario. «Hagamos una grabación» se
+        // interpreta como pantalla solo si no nombra audio/voz; «grabemos la
+        // pantalla» conserva la exigencia explícita del objeto visible.
+        let hagamosGrabacion = verbo == "hagamos"
+            && tokens.dropFirst(inicio + 1).prefix(3).contains("grabacion")
+            && !normal.contains("audio") && !normal.contains("voz")
         // ElevenLabs/Apple pueden oír el imperativo «toma» como «tomo». Esa
         // forma solo se acepta cuando la MISMA frase también pide compartir la
         // captura por WhatsApp; así no convertimos narraciones como «tomo
@@ -474,12 +480,14 @@ enum AgenteNucleo {
         let tomoCompartir = verbo == "tomo" && normal.contains("whatsapp")
             && normal.range(of: #"\b(?:envio|envia|enviala|mando|mandala|comparto|compartela)\b"#,
                             options: .regularExpression) != nil
-        guard directos.contains(verbo) || peticion || deseo || tomoCompartir else { return nil }
+        guard directos.contains(verbo) || peticion || deseo || hagamosGrabacion
+                || tomoCompartir else { return nil }
         let pideGrabar = normal.contains("graba") || normal.contains("grabar")
-            || normal.contains("grabacion") || normal.contains("video")
+            || normal.contains("grabemos") || normal.contains("grabacion")
+            || normal.contains("video")
         let objetoVisible = normal.contains("pantalla") || normal.contains("ventana")
             || normal.contains("seccion") || normal.contains("seleccion") || normal.contains("area")
-        let esGrabacion = pideGrabar && objetoVisible
+        let esGrabacion = (pideGrabar && objetoVisible) || hagamosGrabacion
         let esCaptura = normal.contains("captura de pantalla")
             || normal.contains("pantallazo") || normal.contains("screenshot")
             || (normal.contains("captura") && (normal.contains("seccion")
