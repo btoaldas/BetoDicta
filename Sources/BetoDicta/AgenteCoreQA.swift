@@ -74,6 +74,11 @@ enum AgenteCoreQA {
                                                          descripcion: "Pausar", titulo: "")
                     && !SpotifyControl.esBotonReproducir(rol: "AXGroup",
                                                          descripcion: "Reproducir", titulo: ""))
+        comprobar("Apple Music tiene espera acotada de arranque en frío",
+                  Musica.esperasArranqueApple(yaAbierto: true).first == 0
+                    && Musica.esperasArranqueApple(yaAbierto: true).count
+                        < Musica.esperasArranqueApple(yaAbierto: false).count
+                    && Musica.esperasArranqueApple(yaAbierto: false).reduce(0, +) < 5)
         comprobar("música distingue reproducir de buscar",
                   Musica.intencion("modo música, pon una canción de Julio Jaramillo") == .reproducir
                     && Musica.intencion("modo música, busca Julio Jaramillo") == .buscar

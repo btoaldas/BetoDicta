@@ -227,6 +227,54 @@ enum Musica {
         return r?.stringValue == "OK"
     }
 
+    /// Music puede tardar en publicar la biblioteca después de un arranque en
+    /// frío. Abrimos la app una sola vez y reintentamos la operación real con
+    /// una espera acotada; cada intento vuelve a verificar `player state`.
+    /// Nunca se anuncia reproducción por el mero hecho de que la app se abrió.
+    static func esperasArranqueApple(yaAbierto: Bool) -> [TimeInterval] {
+        yaAbierto ? [0, 0.30, 0.55] : [0.45, 0.65, 0.85, 1.10, 1.40]
+    }
+
+    private static func reproducirApplePreparado(
+        _ consulta: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard Config.musicaIntentarReproducir(),
+              let appURL = NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: "com.apple.Music") else {
+            completion(false); return
+        }
+        let yaAbierto = !NSRunningApplication.runningApplications(
+            withBundleIdentifier: "com.apple.Music").isEmpty
+        let esperas = esperasArranqueApple(yaAbierto: yaAbierto)
+
+        func intentar(_ indice: Int) {
+            let ejecutar = {
+                if reproducirApple(consulta) {
+                    completion(true)
+                } else if indice + 1 < esperas.count {
+                    intentar(indice + 1)
+                } else {
+                    completion(false)
+                }
+            }
+            let demora = esperas[indice]
+            if demora == 0 { ejecutar() }
+            else { DispatchQueue.main.asyncAfter(deadline: .now() + demora, execute: ejecutar) }
+        }
+
+        if yaAbierto {
+            intentar(0)
+        } else {
+            NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { _, error in
+                DispatchQueue.main.async {
+                    if error == nil { intentar(0) }
+                    else { completion(false) }
+                }
+            }
+        }
+    }
+
     private static func reproducirSpotifySinConsulta() -> Bool {
         guard Config.musicaIntentarReproducir() else { return false }
         let accion = Config.musicaSinConsulta() == "reanudar"
@@ -308,7 +356,7 @@ enum Musica {
                          intencion: IntencionMusica = .reproducir,
                          simular: Bool = false,
                          completion: @escaping (ResultadoMusica) -> Void) {
-        let cascada: () -> Void = {
+        let cascada: (Set<String>) -> Void = { omitidos in
             // Reanudar el reproductor global sigue disponible, pero es una
             // preferencia explícita. El valor predeterminado recorre la cascada
             // y pide una pista aleatoria al primer motor que pueda demostrarlo.
@@ -323,16 +371,25 @@ enum Musica {
                 completion(ResultadoMusica(ok: true, proveedor: "sistema",
                                            mensaje: mensaje, estado: .reproduciendo)); return
             }
-            let candidatos = orden(solicitado: solicitado)
+            let candidatos = orden(solicitado: solicitado).filter { !omitidos.contains($0.id) }
             guard !candidatos.isEmpty else {
                 completion(ResultadoMusica(ok: false, proveedor: "",
                     mensaje: "No hay un servicio de música disponible.", estado: .fallo)); return
             }
+            var respaldoAbierto: (ProveedorMusica, EstadoMusica)?
             for p in candidatos {
                 let estado: EstadoMusica? = simular
                     ? (intencion == .buscar ? (consulta.isEmpty ? .abierto : .busqueda) : .reproduciendo)
                     : abrir(p, consulta: consulta, intencion: intencion)
                 if let estado {
+                    // Para una orden de reproducir, abrir una app o una página
+                    // es solo un respaldo: seguimos buscando un proveedor que
+                    // confirme audio real. Conservamos la primera apertura por
+                    // si ningún motor de la cascada puede reproducir.
+                    if intencion == .reproducir, estado != .reproduciendo {
+                        if respaldoAbierto == nil { respaldoAbierto = (p, estado) }
+                        continue
+                    }
                     let accion = mensaje(estado: estado, proveedor: p,
                                          consulta: consulta, intencion: intencion)
                     AgenteLog.registrar("musica", ["proveedor": p.id, "consulta": consulta,
@@ -342,6 +399,16 @@ enum Musica {
                     completion(ResultadoMusica(ok: true, proveedor: p.id,
                                                mensaje: accion, estado: estado)); return
                 }
+            }
+            if let (p, estado) = respaldoAbierto {
+                let accion = mensaje(estado: estado, proveedor: p,
+                                     consulta: consulta, intencion: intencion)
+                AgenteLog.registrar("musica", ["proveedor": p.id, "consulta": consulta,
+                                                "simular": simular, "ok": true,
+                                                "intencion": intencion.rawValue,
+                                                "estado": estado.rawValue])
+                completion(ResultadoMusica(ok: true, proveedor: p.id,
+                                           mensaje: accion, estado: estado)); return
             }
             AgenteLog.registrar("musica", ["consulta": consulta, "ok": false,
                                             "intencion": intencion.rawValue])
@@ -353,6 +420,31 @@ enum Musica {
         let trabajo = {
             let puedeUsarApple = ["", "auto", "apple_music"].contains(solicitado)
             let primero = orden(solicitado: solicitado).first
+
+            // Con la preferencia aleatoria, Apple Music debe estar listo antes
+            // de consultar la biblioteca. Este camino cubre tanto la app ya
+            // abierta como el arranque en frío y solo termina al confirmar play.
+            if intencion == .reproducir, !simular, consulta.isEmpty,
+               Config.musicaSinConsulta() != "reanudar",
+               primero?.id == "apple_music" {
+                reproducirApplePreparado(consulta) { ok in
+                    if ok, let apple = proveedor("apple_music") {
+                        let m = mensaje(estado: .reproduciendo, proveedor: apple,
+                                        consulta: consulta, intencion: intencion)
+                        AgenteLog.registrar("musica", ["proveedor": "apple_music",
+                                                        "consulta": "", "ok": true,
+                                                        "intencion": intencion.rawValue,
+                                                        "estado": EstadoMusica.reproduciendo.rawValue])
+                        completion(.init(ok: true, proveedor: "apple_music",
+                                         mensaje: m, estado: .reproduciendo))
+                    } else {
+                        AgenteLog.registrar("musica_failover", ["de": "apple_music_arranque",
+                                                                "motivo": "no confirmó reproducción"])
+                        cascada(["apple_music"])
+                    }
+                }
+                return
+            }
 
             // `spotify:search:` solo abre resultados. Cuando Spotify es el
             // proveedor elegido y la orden dice pon/reproduce, la capa AX pulsa
@@ -379,7 +471,7 @@ enum Musica {
             }
             let catalogoOCascada: () -> Void = {
                 guard intencion == .reproducir, !simular, !consulta.isEmpty, puedeUsarApple else {
-                    cascada(); return
+                    cascada([]); return
                 }
                 // La biblioteca local es instantánea y no necesita red.
                 if reproducirApple(consulta) {
@@ -401,7 +493,7 @@ enum Musica {
                     }
                     AgenteLog.registrar("musica_failover", ["de": "apple_music_catalogo",
                                                             "motivo": r.motivo])
-                    cascada()
+                    cascada([])
                 }
             }
             // Apple no expone una API pública para inyectar órdenes en Siri. El
