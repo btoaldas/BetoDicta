@@ -2,11 +2,10 @@ import Foundation
 
 // MARK: - Motor de agente HERMES (BetoDicta = pasarela)
 //
-// El cerebro del agente vive en HERMES: BetoDicta captura la voz, la manda a Hermes
-// (CLI one-shot `hermes chat -q "<texto>" --quiet`), Hermes procesa con SU LLM y SUS
-// herramientas (crear carpetas, abrir web, lo que sea = dominio de Hermes), y devuelve
-// SOLO el texto de la respuesta. BetoDicta lo muestra en el notch y lo HABLA con la voz
-// elegida. Continuidad de conversación con --resume <session_id> (canal de voz propio).
+// Hermes es un cerebro conversacional opcional: BetoDicta captura la voz, la manda
+// al CLI one-shot y recibe SOLO texto. Sus herramientas quedan vacías de forma
+// deliberada; toda acción real vuelve al planificador y a la política de BetoDicta.
+// La respuesta se muestra en el notch y se habla con la voz elegida.
 //
 // Sin infra extra (no MCP/plugin que instalar): Hermes ya sabe hacer lo suyo. A futuro,
 // vías más ricas: ACP (`hermes acp`, streaming) o el MCP de Hermes. Igual para OpenClaw
@@ -17,11 +16,8 @@ enum AgenteHermes {
     private static var proc: Process?        // proceso hermes en curso (para cancelar)
     private static var cancelado = false
 
-    /// CANCELAR DE RAÍZ: Hermes corre el agente EN su proceso y lanza las herramientas
-    /// (shell, browser, etc.) como procesos HIJOS. Matar solo el principal las deja
-    /// HUÉRFANAS (siguen corriendo → el trabajo NO se cancela). Así que matamos el ÁRBOL
-    /// completo: congelamos el padre (que no lance más), matamos todos sus descendientes y
-    /// luego el padre. Confirmado por auditoría (2026-07-14).
+    /// CANCELAR DE RAÍZ. Aunque este perfil no recibe herramientas, matamos el árbol
+    /// completo por compatibilidad con procesos auxiliares de Hermes y versiones viejas.
     static func cancelar() {
         cancelado = true
         if let p = proc, p.isRunning { matarArbol(p.processIdentifier) }
@@ -80,7 +76,12 @@ enum AgenteHermes {
             let p = Process()
             proc = p
             p.executableURL = URL(fileURLWithPath: binario())
-            var args = ["chat", "-q", texto, "--quiet"]
+            // Hermes actúa aquí como CEREBRO de respaldo, no como ejecutor fuera
+            // de la política de BetoDicta. Un toolset deliberadamente inexistente
+            // produce una lista vacía de herramientas; las acciones reales pasan
+            // por Modos, donde sí se clasifican y confirman por riesgo.
+            var args = ["chat", "-q", texto, "--quiet", "--toolsets", "betodicta-brain",
+                        "--max-turns", "1", "--source", "tool"]
             if !sesion.isEmpty { args += ["--resume", sesion] }   // continuidad de conversación
             p.arguments = args
             var env = ProcessInfo.processInfo.environment

@@ -19,7 +19,12 @@ struct ChatIA {
     var paraPulido: Bool = true
     var formato: FormatoIA = .openai
 
+    var esCuentaCodex: Bool { id == "codex_account" }
+
     var key: String? {
+        if esCuentaCodex {
+            return AgenteCodex.cuentaChatGPTConectada ? "cuenta-chatgpt" : nil
+        }
         if let d = keyDirecta { return d.isEmpty ? nil : d }
         if local { return "local" }                               // servidores locales: sin auth
         if id == "groq", let g = Config.groqKey() { return g }    // groq también por env
@@ -48,6 +53,14 @@ struct ChatIA {
     /// un gateway trae su modelo activo en `modelo`; un proveedor fijo usa el
     /// que el usuario eligió (Config.pulidoModelo) o su default.
     var modeloEfectivo: String {
+        if esCuentaCodex {
+            // La cuenta tiene un selector global porque el mismo modelo atiende
+            // Asistente, Modos, traducción y pulido. Un modelo fijado por un
+            // Modo concreto sigue teniendo prioridad mediante conModelo().
+            let propio = modelo.trimmingCharacters(in: .whitespacesAndNewlines)
+            let n = propio.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return propio.isEmpty || n == "automatico" ? Config.codexCuentaModelo() : propio
+        }
         if local { return Config.pulidoModelo(id) ?? Self.modelosLocales[id] ?? modelo }
         if id.hasPrefix("custom:") { return modelo }
         return Config.pulidoModelo(id) ?? modelo
@@ -67,12 +80,25 @@ struct ChatIA {
     /// Construye la request de chat según el formato del proveedor (OpenAI o
     /// Anthropic). Así pulido y traducción sirven con cualquiera.
     func requestChat(prompt: String, temperatura: Double, textLen: Int) -> URLRequest? {
+        // La cuenta ChatGPT NO es un endpoint HTTP ni comparte credenciales con
+        // la API. Se ejecuta por separado mediante AgenteCodex.transformar().
+        if esCuentaCodex { return nil }
         let urlStr: String
         var body: [String: Any]
         switch formato {
         case .openai:
             urlStr = "\(base)/chat/completions"
-            body = ["model": modeloEfectivo, "messages": [["role": "user", "content": prompt]], "temperature": temperatura]
+            body = ["model": modeloEfectivo,
+                    "messages": [["role": "user", "content": prompt]]]
+            // Kimi K2.6 fija sus propios parámetros de muestreo y rechaza una
+            // temperatura arbitraria. Para el pulido interesa respuesta rápida,
+            // por eso desactivamos el razonamiento largo de forma oficial.
+            // Kimi Code también gestiona el razonamiento según el modelo/plan.
+            if id == "moonshot" {
+                body["thinking"] = ["type": "disabled"]
+            } else if id != "kimi_code" {
+                body["temperature"] = temperatura
+            }
         case .anthropic:
             urlStr = "\(base)/v1/messages"
             // Anthropic EXIGE max_tokens. Escala con la entrada (la salida del
@@ -87,6 +113,11 @@ struct ChatIA {
         req.httpMethod = "POST"
         req.timeoutInterval = min(120, Config.pulidoTimeout() + Double(textLen) / 40)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Kimi Code exige conservar la identidad real del cliente. No fingimos
+        // ser Claude Code/Kimi CLI ni reutilizamos cookies de la cuenta.
+        if id == "kimi_code" {
+            req.setValue("BetoDicta/\(Version.numero) (macOS)", forHTTPHeaderField: "User-Agent")
+        }
         aplicarAuth(&req)
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return req
@@ -128,6 +159,14 @@ struct ChatIA {
     static let fijos: [ChatIA] = [
         ChatIA(id: "groq",       nombre: "Groq · Llama 3.3 70B", base: "https://api.groq.com/openai/v1", modelo: "llama-3.3-70b-versatile", keyEnv: "GROQ_API_KEY",       local: false),
         ChatIA(id: "openai",     nombre: "OpenAI · gpt-4o-mini", base: "https://api.openai.com/v1",      modelo: "gpt-4o-mini",             keyEnv: "OPENAI_API_KEY",     local: false),
+        // Cuenta ChatGPT delegada al cliente OFICIAL Codex. Capacidad: texto
+        // (asistente, Modos, traducción y pulido). No STT/TTS/embeddings.
+        ChatIA(id: "codex_account", nombre: "ChatGPT por cuenta (Codex)",
+               base: "codex://account", modelo: "automático", keyEnv: "", local: false),
+        // Kimi tiene dos sistemas oficiales y las claves NO son intercambiables:
+        // Open Platform (pago por uso) y Kimi Code (cuota de la membresía).
+        ChatIA(id: "moonshot",   nombre: "Moonshot AI · Kimi K2.6", base: "https://api.moonshot.ai/v1", modelo: "kimi-k2.6", keyEnv: "MOONSHOT_API_KEY", local: false),
+        ChatIA(id: "kimi_code",  nombre: "Kimi cuenta · K3/K2.7", base: "https://api.kimi.com/coding/v1", modelo: "kimi-for-coding", keyEnv: "KIMI_CODE_API_KEY", local: false),
         ChatIA(id: "mistral",    nombre: "Mistral · small",      base: "https://api.mistral.ai/v1",      modelo: "mistral-small-latest",    keyEnv: "MISTRAL_API_KEY",    local: false),
         ChatIA(id: "openrouter", nombre: "OpenRouter",           base: "https://openrouter.ai/api/v1",   modelo: "openai/gpt-4o-mini",      keyEnv: "OPENROUTER_API_KEY", local: false),
         ChatIA(id: "deepseek",   nombre: "DeepSeek · chat",      base: "https://api.deepseek.com",       modelo: "deepseek-chat",           keyEnv: "DEEPSEEK_API_KEY",   local: false),
@@ -195,6 +234,9 @@ struct ChatIA {
         "openai/gpt-oss-safeguard-20b": (0.075, 0.3), "openai/gpt-oss-120b": (0.15, 0.6),
         "qwen/qwen3-32b": (0.29, 0.59), "qwen/qwen3.6-27b": (0.6, 3),
         "moonshotai/kimi-k2-instruct-0905": (1, 3),
+        // Moonshot AI Open Platform. Se usa entrada sin caché como estimación
+        // conservadora; un cache hit cuesta menos ($0.16/1M).
+        "kimi-k2.6": (0.95, 4),
         // Mistral
         "mistral-large-latest": (0.5, 1.5), "mistral-medium-latest": (1.5, 7.5),
         "mistral-small-latest": (0.15, 0.6), "magistral-medium-latest": (2, 5),
@@ -230,6 +272,7 @@ struct ChatIA {
     static let preciosProveedorFallback: [String: (Double, Double)] = [
         "openai": (1, 4), "anthropic": (3, 15), "gemini": (0.3, 2.5), "groq": (0.3, 0.6),
         "mistral": (0.5, 1.5), "deepseek": (0.14, 0.28), "xai": (2, 10), "openrouter": (0.5, 1.5),
+        "moonshot": (0.95, 4),
     ]
 
     static func etiquetaPrecioDe(_ inp: Double, _ out: Double, aprox: Bool = false) -> String {
@@ -240,6 +283,8 @@ struct ChatIA {
     /// publicado por el proveedor (OpenRouter) > curado (aprox.). nil si nada.
     static func precioDe(_ proveedorId: String, _ modelo: String) -> String? {
         if let m = Config.precioManual("\(proveedorId)::\(modelo)") { return etiquetaPrecioDe(m.0, m.1) }
+        if proveedorId == "codex_account" { return "incluido en plan ChatGPT · usa cuota Codex" }
+        if proveedorId == "kimi_code" { return "incluido en cuenta · usa cuota" }
         if let pub = precios[proveedorId]?[modelo] { return pub }                          // OpenRouter en vivo
         if let f = preciosArchivo[modelo] { return etiquetaPrecioDe(f.0, f.1) }            // archivo LiteLLM (real)
         if let cur = preciosConocidos[modelo] { return etiquetaPrecioDe(cur.0, cur.1, aprox: true) }
@@ -249,6 +294,9 @@ struct ChatIA {
     /// manual > publicado > archivo > curado > fallback por proveedor.
     static func precioNum(_ proveedorId: String, _ modelo: String) -> (Double, Double)? {
         if let m = Config.precioManual("\(proveedorId)::\(modelo)") { return m }
+        // La membresía no cobra por token a través de BetoDicta, pero sí consume
+        // su cuota/rate limit. Se muestra así en UI y no se inventa un costo.
+        if proveedorId == "kimi_code" || proveedorId == "codex_account" { return (0, 0) }
         if let pub = precios[proveedorId]?[modelo] {
             if pub.lowercased().contains("gratis") { return (0, 0) }
             let ns = numerosDe(pub); if ns.count >= 2 { return (ns[0], ns[1]) }
@@ -270,6 +318,11 @@ struct ChatIA {
     /// Descubre los modelos de un proveedor conectado (fijo o local) usando su
     /// base + key, y los cachea en modelosPorProveedor[id].
     static func descubrirProveedor(_ ia: ChatIA, _ done: @escaping ([String], String) -> Void) {
+        if ia.esCuentaCodex {
+            let modelos = AgenteCodex.modelosDisponibles().map(\.id)
+            done(modelos, "Modelos reportados por el cliente Codex de esta cuenta; su disponibilidad final depende del plan.")
+            return
+        }
         PersonalizadaStore.descubrirEn(base: ia.base, apiKey: ia.key ?? "",
                                        authHeader: ia.authHeader, authPrefix: ia.authPrefix,
                                        headers: ia.headersExtra, proveedorId: ia.id) { ids, msg in
@@ -535,6 +588,9 @@ enum PersonalizadaStore {
             // URL candidata inválida (ej: ruta manual con espacio): salta a la siguiente.
             guard let url = URL(string: rutas[i]) else { intentar(i + 1, mejor); return }
             var req = URLRequest(url: url); req.timeoutInterval = 10
+            if proveedorId == "kimi_code" {
+                req.setValue("BetoDicta/\(Version.numero) (macOS)", forHTTPHeaderField: "User-Agent")
+            }
             // Fail-closed: no adjuntes secretos si la ruta candidata no cifra.
             let h0 = url.host?.lowercased() ?? ""
             let segura = url.scheme?.lowercased() == "https" || h0 == "localhost" || h0 == "127.0.0.1" || h0 == "::1"
@@ -648,11 +704,9 @@ enum LLMPostProcess {
 
             \(text)
             """
-            guard let request = ia.requestChat(prompt: prompt, temperatura: 0, textLen: text.count) else {
-                Log.write("pulido: no pude armar la request — texto original"); completion(text); return
-            }
-            hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1,
-                  prompt: prompt, temp: 0, resto: Array(cadena.dropFirst()), completion: completion)
+            hacerProveedor(ia, textoOriginal: text, inicio: inicio, intento: 1,
+                           prompt: prompt, temp: 0, resto: Array(cadena.dropFirst()),
+                           completion: completion)
         }
 
         // Glosario INTELIGENTE (opt-in): si hay muchos términos y sus vectores ya
@@ -714,7 +768,8 @@ enum LLMPostProcess {
                 base = voz.persona + "\n" + base
             }
             let contexto = Contexto.paraPedido(text)   // solo lo relevante al tema
-            instruccion = contexto.isEmpty ? base : base + "\n" + contexto
+            let memoria = Config.agenteMemoriaContextoIA() ? MemoriaAgente.contexto() : ""
+            instruccion = [base, contexto, memoria].filter { !$0.isEmpty }.joined(separator: "\n")
         default:  // "pulir" con la instrucción del modo (Dictado vacío no llega aquí)
             instruccion = modo.prompt.isEmpty ? "Limpia la transcripción: corrige puntuación, mayúsculas y ortografía; quita muletillas; conserva el significado y el orden; no agregues nada." : modo.prompt
         }
@@ -729,12 +784,76 @@ enum LLMPostProcess {
         """
         let inicio = Date()
         let temp = (modo.base == "responder" || modo.base == "agente") ? 0.4 : 0
-        guard let request = ia.requestChat(prompt: prompt, temperatura: temp, textLen: text.count) else {
+        Log.log(.ia, "modo \(modo.nombre) con \(ia.etiqueta)")
+        hacerProveedor(ia, textoOriginal: text, inicio: inicio, intento: 1,
+                       salvaguarda: false, prompt: prompt, temp: temp,
+                       resto: Array(cadena.dropFirst()), completion: completion)
+    }
+
+    /// Despacho común de un proveedor: HTTP normal o cuenta ChatGPT mediante
+    /// el cliente oficial Codex. La cuenta nunca se convierte en una falsa API.
+    private static func hacerProveedor(_ ia: ChatIA, textoOriginal text: String,
+                                       inicio: Date, intento: Int,
+                                       salvaguarda: Bool = true,
+                                       prompt: String, temp: Double,
+                                       resto: [ChatIA],
+                                       completion: @escaping (String) -> Void) {
+        if ia.esCuentaCodex {
+            AgenteCodex.transformar(prompt, modelo: ia.modeloEfectivo,
+                                    timeout: Config.pulidoTimeout()) { respuesta in
+                let pulido = respuesta?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let pulido, !pulido.isEmpty {
+                    let ms = Int(Date().timeIntervalSince(inicio) * 1000)
+                    Log.write("pulido: OK con cuenta Codex en \(ms)ms — \(text.count)→\(pulido.count) chars")
+                    if salvaguarda, let motivo = razonSospecha(original: text, pulido: pulido) {
+                        Log.write("pulido: salvaguarda anti-inyección (\(motivo)) → texto original")
+                        completion(text); return
+                    }
+                    completion(pulido); return
+                }
+                if intento < 2 {
+                    Log.write("pulido: cuenta Codex no respondió — reintento fresco…")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        hacerProveedor(ia, textoOriginal: text, inicio: Date(),
+                                       intento: intento + 1, salvaguarda: salvaguarda,
+                                       prompt: prompt, temp: temp, resto: resto,
+                                       completion: completion)
+                    }
+                    return
+                }
+                continuarFailover(desde: ia, motivo: "sin respuesta de Codex",
+                                  textoOriginal: text, salvaguarda: salvaguarda,
+                                  prompt: prompt, temp: temp, resto: resto,
+                                  completion: completion)
+            }
+            return
+        }
+        guard let request = ia.requestChat(prompt: prompt, temperatura: temp,
+                                           textLen: text.count) else {
+            continuarFailover(desde: ia, motivo: "no pude armar la consulta",
+                              textoOriginal: text, salvaguarda: salvaguarda,
+                              prompt: prompt, temp: temp, resto: resto,
+                              completion: completion)
+            return
+        }
+        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento,
+              salvaguarda: salvaguarda, prompt: prompt, temp: temp, resto: resto,
+              completion: completion)
+    }
+
+    private static func continuarFailover(desde ia: ChatIA, motivo: String,
+                                          textoOriginal text: String,
+                                          salvaguarda: Bool, prompt: String,
+                                          temp: Double, resto: [ChatIA],
+                                          completion: @escaping (String) -> Void) {
+        guard let siguiente = resto.first, !prompt.isEmpty else {
+            Log.write("pulido: FALLÓ (\(motivo)) → texto original.")
             completion(text); return
         }
-        Log.log(.ia, "modo \(modo.nombre) con \(ia.etiqueta)")
-        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: 1, salvaguarda: false,
-              prompt: prompt, temp: temp, resto: Array(cadena.dropFirst()), completion: completion)
+        Log.write("pulido: \(ia.id) falló (\(motivo)) → failover a \(siguiente.id)")
+        hacerProveedor(siguiente, textoOriginal: text, inicio: Date(), intento: 1,
+                       salvaguarda: salvaguarda, prompt: prompt, temp: temp,
+                       resto: Array(resto.dropFirst()), completion: completion)
     }
 
     /// Ejecuta la llamada con hasta 1 REINTENTO ante fallos de red/timeout
@@ -787,23 +906,18 @@ enum LLMPostProcess {
                 if esRed, intento < 2 {
                     Log.write("pulido: fallo de red (\(motivo)) — reintento con conexión fresca…")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        hacer(request, ia: ia, textoOriginal: text, inicio: inicio, intento: intento + 1,
-                              salvaguarda: salvaguarda, prompt: prompt, temp: temp, resto: resto, completion: completion)
+                        hacerProveedor(ia, textoOriginal: text, inicio: inicio,
+                                       intento: intento + 1, salvaguarda: salvaguarda,
+                                       prompt: prompt, temp: temp, resto: resto,
+                                       completion: completion)
                     }
                     return
                 }
                 // Ya reintentó (o fue error de SERVIDOR HTTP) → FAILOVER al siguiente
                 // proveedor de la cascada. Cascada finita = sin bucle.
-                if let siguiente = resto.first, !prompt.isEmpty,
-                   let req2 = siguiente.requestChat(prompt: prompt, temperatura: temp, textLen: text.count) {
-                    Log.write("pulido: \(ia.id) falló (\(motivo)) → failover a \(siguiente.id)")
-                    hacer(req2, ia: siguiente, textoOriginal: text, inicio: Date(), intento: 1,
-                          salvaguarda: salvaguarda, prompt: prompt, temp: temp,
-                          resto: Array(resto.dropFirst()), completion: completion)
-                    return
-                }
-                Log.write("pulido: FALLÓ (\(motivo)) → texto original.")
-                completion(text)
+                continuarFailover(desde: ia, motivo: motivo, textoOriginal: text,
+                                  salvaguarda: salvaguarda, prompt: prompt, temp: temp,
+                                  resto: resto, completion: completion)
             }
         }.resume()
     }

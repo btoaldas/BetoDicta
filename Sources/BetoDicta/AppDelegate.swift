@@ -22,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         menu.items.first(where: { $0.tag == 84 })?.isHidden = Updater.disponibleAlArrancar == nil
+        if let detener = menu.items.first(where: { $0.tag == 86 }) {
+            detener.isHidden = !CapturaMac.grabacionContinuaEnCurso
+            let s = CapturaMac.segundosGrabacionContinua
+            detener.title = String(format: "■ Detener y guardar grabación (%02d:%02d)", s / 60, s % 60)
+        }
         menu.items.first(where: { $0.tag == 77 })?.state =
             SMAppService.mainApp.status == .enabled ? .on : .off
         menu.items.first(where: { $0.tag == 78 })?.state = Config.postProcess() ? .on : .off
@@ -87,15 +92,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         titulo.tag = 99
         menu.insertItem(titulo, at: idx)
         idx += 1
-        for line in UsageLog.resumen() {
+        let resumenUso = UsageLog.resumen()
+        for line in resumenUso.prefix(3) {
             let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
             item.tag = 99
             menu.insertItem(item, at: idx)
             idx += 1
         }
+        if resumenUso.count > 3 {
+            let todos = NSMenuItem(title: "Ver todos los consumos…",
+                                   action: #selector(openUsageDetail), keyEquivalent: "")
+            todos.target = self
+            todos.tag = 99
+            menu.insertItem(todos, at: idx)
+        }
     }
 
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
     private let recorder = Recorder()
     private let panel = DictationPanel()
     private var stream: StreamClient?
@@ -183,10 +196,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func cancelarTodo() {
         if hayConfirmacion { resolverConfirmacion(acepta: false, origen: "cancelar"); return }
         if recorder.isRecording { cancelDictation(); return }
-        let habia = agenteActivo || AgenteHermes.enCurso || Voz.hablando
+        if CapturaMac.grabacionContinuaEnCurso {
+            detenerGrabacionPantalla(); return
+        }
+        let habia = agenteActivo || AgenteHermes.enCurso || AgenteCodex.enCurso
+            || CapturaMac.enCurso || Voz.hablando
         agenteToken += 1          // invalida CUALQUIER respuesta en vuelo (Hermes o IA local)
         agenteActivo = false
         AgenteHermes.cancelar()   // mata el proceso de Hermes
+        AgenteCodex.cancelar()    // cancela la generación oficial de Codex
+        CapturaMac.cancelar()     // cancela selector/grabación nativa si sigue activa
         Voz.cancelar()            // corta Apple + lotes + streaming (WS/local); no mata el server
         disarmEsc()
         if habia {
@@ -208,12 +227,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        iconoTimer?.invalidate(); iconoVigilante?.invalidate()
         WhisperServer.apagar(motivo: "salida de la app")
         VoxtralServer.apagar(motivo: "salida de la app")
         XttsServer.detener()   // no dejar 2 GB huérfanos ni duplicar el servidor al reabrir
+        AgenteCodex.cancelar()
+        CapturaMac.cancelar()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let orden = ProcessInfo.processInfo.environment["BETODICTA_MUSICFLOWTEST"],
+           !orden.isEmpty {
+            let solicitado = Musica.reconocerProveedor(en: orden) ?? "auto"
+            let intencion = Musica.intencion(orden)
+            let consulta = Musica.extraerConsulta(orden, proveedor: solicitado)
+            Musica.ejecutar(consulta, solicitado: solicitado, intencion: intencion) { r in
+                let estadoCorrecto = intencion == .buscar
+                    ? [.busqueda, .abierto].contains(r.estado)
+                    : r.estado == .reproduciendo
+                let ok = r.ok && estadoCorrecto
+                let terminar: () -> Void = {
+                    print("MUSICFLOWTEST \(ok ? "OK" : "FALLA") intención=\(intencion.rawValue) consulta=\(consulta) proveedor=\(r.proveedor) estado=\(r.estado.rawValue) | \(r.mensaje)")
+                    fflush(stdout); exit(ok ? 0 : 3)
+                }
+                // La búsqueda usa ⌘F + pegado con retrasos; mantener vivo el
+                // hook permite probar el mismo camino que la app normal.
+                if intencion == .buscar {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: terminar)
+                } else { terminar() }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) {
+                print("MUSICFLOWTEST FALLA timeout"); fflush(stdout); exit(4)
+            }
+            return
+        }
+        if let q = ProcessInfo.processInfo.environment["BETODICTA_MUSICTEST"], !q.isEmpty {
+            AppleMusicCatalogo.reproducirPrimera(q) { r in
+                print("MUSICTEST \(r.ok ? "OK" : "FALLA") \(r.titulo) — \(r.artista) | \(r.motivo)")
+                fflush(stdout); exit(r.ok ? 0 : 3)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 18) {
+                print("MUSICTEST FALLA timeout"); fflush(stdout); exit(4)
+            }
+            return
+        }
+        if ProcessInfo.processInfo.environment["BETODICTA_CAPTUREPANELTEST"] == "1" {
+            panel.comenzarCapturaPrivada()
+            panel.show("ESTO NO DEBE APARECER")
+            let oculto = panel.capturaPrivadaActiva && !panel.esVisible
+            panel.terminarCapturaPrivada()
+            panel.show("RESULTADO DESPUÉS DE CAPTURA")
+            let restaurado = !panel.capturaPrivadaActiva && panel.esVisible
+            panel.hide(after: 0)
+            let ok = oculto && restaurado
+            print("CAPTUREPANELTEST \(ok ? "OK" : "FALLA") oculto=\(oculto) restaurado=\(restaurado)")
+            exit(ok ? 0 : 3)
+        }
+        // QA real y acotado de grabación continua segmentada. Solo acepta una
+        // salida temporal; graba, cruza al menos un límite de parte, detiene con
+        // el mismo API del hotkey y valida el .mov consolidado.
+        if let ruta = ProcessInfo.processInfo.environment["BETODICTA_CAPTUREFLOWTEST"],
+           !ruta.isEmpty {
+            let probarDocumentos = ruta == "DOCUMENTS"
+            let url = probarDocumentos ? nil : URL(fileURLWithPath: ruta).standardizedFileURL
+            guard probarDocumentos || url!.path.hasPrefix("/private/tmp/") || url!.path.hasPrefix("/tmp/") else {
+                print("CAPTUREFLOWTEST FALLA: la ruta debe estar en /private/tmp"); exit(5)
+            }
+            if let url { try? FileManager.default.removeItem(at: url) }
+            var solicitud = SolicitudCapturaMac.interpretar(
+                "Graba la pantalla hasta que yo la detenga y guarda mis documentos",
+                duracionPredeterminada: 0, tipoForzado: .video)
+            solicitud.microfono = false; solicitud.copiar = false
+            solicitud.abrir = false; solicitud.compartirWhatsApp = false
+            let detenerEn = Double(ProcessInfo.processInfo.environment[
+                "BETODICTA_CAPTURE_STOP_SECONDS"] ?? "5.5") ?? 5.5
+            CapturaMac.ejecutar(solicitud, archivoForzado: url) { r in
+                let valido = r.archivo.map(CapturaMac.videoValido) ?? false
+                let destinoOK = !probarDocumentos
+                    || r.archivo?.deletingLastPathComponent().standardizedFileURL
+                        == FileManager.default.urls(for: .documentDirectory,
+                                                    in: .userDomainMask).first?.standardizedFileURL
+                print("CAPTUREFLOWTEST \(r.ok && valido && destinoOK ? "OK" : "FALLA") válido=\(valido) destino=\(destinoOK) archivo=\(r.archivo?.path ?? "nil") | \(r.mensaje)")
+                fflush(stdout); exit(r.ok && valido && destinoOK ? 0 : 3)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + detenerEn) {
+                let ok = CapturaMac.detenerGrabacion()
+                print("CAPTUREFLOWTEST detener=\(ok)"); fflush(stdout)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                print("CAPTUREFLOWTEST FALLA timeout"); fflush(stdout); exit(4)
+            }
+            return
+        }
+        if ProcessInfo.processInfo.environment["BETODICTA_CAPTURERECOVERYTEST"] == "1" {
+            CapturaMac.recuperarInterrumpidas { archivos in
+                let ok = !archivos.isEmpty && archivos.allSatisfy(CapturaMac.videoValido)
+                print("CAPTURERECOVERYTEST \(ok ? "OK" : "FALLA") archivos=\(archivos.map(\.path).joined(separator: " | "))")
+                fflush(stdout); exit(ok ? 0 : 3)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
+                print("CAPTURERECOVERYTEST FALLA timeout"); fflush(stdout); exit(4)
+            }
+            return
+        }
         // Prueba real del actualizador contra GitHub (estable/beta + SemVer).
         if ProcessInfo.processInfo.environment["BETODICTA_UPDATETEST"] == "1" {
             let semver = Updater.esMasNueva("0.39.0", que: "0.39.0-beta")
@@ -474,7 +590,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // background y verifica además el contrato MAIN de los callbacks públicos TTS.
         if ProcessInfo.processInfo.environment["BETODICTA_TTSMAINTEST"] == "1" {
             DispatchQueue.global(qos: .userInitiated).async {
-                self.panel.respuestaIA("Prueba de respuesta del agente")
                 Voz.decir("", empezar: {
                     guard Thread.isMainThread else { print("TTSMAINTEST ✗ empezar fuera de main"); exit(2) }
                 }, completion: {
@@ -482,8 +597,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     print("TTSMAINTEST \(ok ? "OK" : "✗") callbacks + AppKit en main")
                     exit(ok ? 0 : 3)
                 })
+                // Debe retornar sin tocar AppKit en este hilo. Se encola detrás
+                // de los callbacks anteriores; el hook sale al comprobarlos y no
+                // depende de registrar una ventana fuera de un bundle instalado.
+                self.panel.respuestaIA("Prueba de respuesta del agente")
             }
-            RunLoop.main.run(); return
+            // Estamos dentro de applicationDidFinishLaunching: regresar deja que
+            // NSApplication arranque su run loop normal. Ejecutar aquí otro
+            // RunLoop.main.run() puede impedir que drene DispatchQueue.main.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                print("TTSMAINTEST ✗ timeout esperando callbacks"); exit(4)
+            }
+            return
         }
         // Regresión de continuación: un checkpoint rodante más nuevo que el hito debe
         // ganar, y el plan previo al dataset debe sobrevivir con permiso 0600.
@@ -1202,11 +1327,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let grupo = DispatchGroup(); var lineas: [String] = []; var ok = true
                 for (texto, esp, contDebe) in casos {
                     grupo.enter()
-                    ModosStore.detectarSemantico(texto) { m, cont in
+                    ModosStore.detectarSemanticoDetallado(texto) { deteccion in
+                        let m = deteccion.modo
+                        let cont = deteccion.textoLimpio
                         let modoOk = (m?.accion == esp) || (m?.id == esp)
                         let contOk = contDebe == nil || cont.lowercased().hasPrefix(contDebe!.lowercased())
                         if !modoOk || !contOk { ok = false }
-                        lineas.append("  \(modoOk && contOk ? "OK" : "✗") \"\(texto.prefix(30))…\" → \(m?.nombre ?? "nil") | cont=\"\(cont.prefix(20))\"")
+                        let estado = deteccion.inequívoco ? "directo" : "ambiguo→confirmar"
+                        let score = String(format: "%.3f", deteccion.score)
+                        let margen = String(format: "%.3f", deteccion.margen)
+                        lineas.append("  \(modoOk && contOk ? "OK" : "✗") \"\(texto.prefix(30))…\" → \(m?.nombre ?? "nil") [\(estado), \(score)/Δ\(margen)] | cont=\"\(cont.prefix(20))\"")
                         grupo.leave()
                     }
                 }
@@ -1286,7 +1416,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ProcessInfo.processInfo.environment["BETODICTA_ACCTEST"] == "1" {
             let casos: [(String, String, String, String?)] = [
                 ("correo", "hola mundo", "", "mailto:?body=hola%20mundo"),
-                ("outlook", "buenos días", "", "ms-outlook://compose?body=buenos%20d%C3%ADas"),
+                // Outlook usa la ruta especial mailto dirigida a la app; no un
+                // esquema que pueda limitarse a abrirla sin crear el borrador.
+                ("outlook", "buenos días", "", nil),
                 ("url", "acta 5", "https://quipux.gob.ec/buscar?q={q}", "https://quipux.gob.ec/buscar?q=acta%205"),
                 ("finder", "algo", "", nil),      // solo abrir app → sin URL
                 ("notas", "x", "", nil),          // solo abrir app → sin URL
@@ -1357,11 +1489,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         principal.addItem(edicionItem)
         NSApp.mainMenu = principal
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let icon = Self.menuBarIcon() {
-            statusItem.button?.image = icon      // monocromo, se adapta a claro/oscuro
+        // Este nombre estable conserva la posición visible elegida por AppKit.
+        // Versiones previas usaban nombres automáticos/rotativos que podían
+        // terminar aparcados debajo del reloj y parecer completamente ausentes.
+        // Ejecutar el binario suelto de SwiftPM para hooks de QA hacía que
+        // macOS 26 lo registrara como OTRO proveedor ad-hoc de barra. Esas
+        // identidades de desarrollo terminaron cruzadas con ChatGPT en
+        // Control Center. Solo el bundle real debe publicar un status item.
+        if Bundle.main.bundleURL.pathExtension.lowercased() == "app" {
+            crearStatusItem(autosaveName: "BetoDictaStatusProbe")
         } else {
-            statusItem.button?.title = "🎙"      // respaldo
+            Log.write("icono barra: omitido en ejecutable de desarrollo sin bundle")
         }
         let menu = NSMenu()
         menu.addItem(withTitle: "BetoDicta v\(Version.numero) — \(tecla) para dictar", action: nil, keyEquivalent: "")
@@ -1371,6 +1509,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         update.tag = 84
         update.isHidden = Updater.disponibleAlArrancar == nil
         menu.addItem(update)
+        let detenerPantalla = NSMenuItem(title: "■ Detener y guardar grabación",
+            action: #selector(detenerGrabacionPantalla), keyEquivalent: "")
+        detenerPantalla.tag = 86
+        detenerPantalla.isHidden = true
+        menu.addItem(detenerPantalla)
         menu.addItem(withTitle: "Configuración…", action: #selector(openSettings), keyEquivalent: ",")
         let prov = NSMenuItem(title: "Proveedor principal", action: nil, keyEquivalent: "")
         prov.tag = 83
@@ -1419,8 +1562,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.delegate = self
-        statusItem.menu = menu
+        statusItem?.menu = menu
         self.appMenu = menu   // el mismo menú se ofrece en el Dock
+        if statusItem != nil { iniciarVigilanciaIcono() }
+
+        probarIconosBarraSiSePidio()
 
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
         registerHotKey()
@@ -1474,6 +1620,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // vuelve al modo por defecto; si es sticky, respeta el último).
         ModosStore.revertirADefecto()
         panel.setModo(ModosStore.activo())
+        let recuperarGrabaciones: () -> Void = { [weak self] in
+            CapturaMac.recuperarInterrumpidas { archivos in
+                guard !archivos.isEmpty, let self else { return }
+                let n = archivos.count
+                self.panel.flash("♻︎ Recuperé \(n) grabación\(n == 1 ? "" : "es") interrumpida\(n == 1 ? "" : "s")",
+                                 segundos: 4)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: recuperarGrabaciones)
+        // Un `screencapture` huérfano puede tardar unos segundos en cerrar tras
+        // reabrir BetoDicta. El segundo pase es idempotente.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: recuperarGrabaciones)
         // Compila en segundo plano el inventario de apps una sola vez; así "modo
         // abrir aplicación Word" no paga un recorrido de disco en el primer parcial.
         if Config.modoAplicaciones() { AplicacionesMac.precalentar() }
@@ -1498,6 +1656,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UsageLog.cargarTarifasArchivo()  // precios reales de STT/audio desde precios_stt.json (LiteLLM)
         ChatIA.detectarLocales()   // ¿LM Studio / Ollama corriendo? (pulido local)
         ChatIA.detectarSTTLocales()  // ¿algún local puede TRANSCRIBIR? (whisper/asr)
+        if AgenteCodex.disponible { AgenteCodex.estado { _ in } }
         Updater.estaGrabando = { [weak self] in self?.recorder.isRecording ?? false }
         Updater.buscarAlArrancar() // ¿versión nueva? avisa abajo-izq (o instala si Autoactualizar)
         Updater.iniciarMonitoreo() // cron liviano mientras la app permanezca abierta
@@ -1523,6 +1682,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ProcessInfo.processInfo.environment["BETODICTA_SETTINGS"] == "1" {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 SettingsWindowController.shared.show()
+                if let ruta = ProcessInfo.processInfo.environment["BETODICTA_SETTINGSSNAPSHOT"] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        let ok = SettingsWindowController.shared.guardarSnapshotQA(
+                            URL(fileURLWithPath: ruta))
+                        print("SETTINGSSNAPSHOT \(ok ? "OK" : "FALLA") \(ruta)")
+                        fflush(stdout)
+                    }
+                }
             }
         }
         // Abrir un editor directo (capturas del manual / pruebas de UI)
@@ -1609,36 +1776,170 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return image
     }
 
+    /// Identidad histórica de BetoDicta: micrófono propio con latido. No usar
+    /// aquí un SF Symbol genérico: además de cambiar la marca, macOS puede
+    /// resolver su apariencia de forma distinta a la template dibujada.
+    private static func iconoReposo() -> NSImage? {
+        menuBarIcon()
+    }
+
     // MARK: - Estado del ícono de la barra (reposo / grabando / procesando)
-    enum EstadoIcono { case reposo, grabando, procesando }
+    enum EstadoIcono: Equatable { case reposo, grabando, procesando }
     private var iconoTimer: Timer?
+    private var iconoVigilante: Timer?
+    private var estadoIconoActual: EstadoIcono = .reposo
+
+    /// Crea y configura el único status item de la app. Un `autosaveName`
+    /// estable evita que AppKit herede la posición oculta de status items
+    /// automáticos creados por versiones anteriores.
+    private func crearStatusItem(autosaveName: String) {
+        // 18 pt: mismo ancho que otros extras compactos; en equipos con notch
+        // evita que el micrófono sea el primero en desaparecer por 6 pt.
+        let item = NSStatusBar.system.statusItem(withLength: 18)
+        item.autosaveName = autosaveName
+        item.behavior = [.removalAllowed]
+        // `true` sobre un item que AppKit ya considera visible es un no-op,
+        // incluso si su ventana quedó aparcada fuera de pantalla. El ciclo
+        // false→true lo vuelve a insertar sin crear un segundo status item.
+        item.isVisible = false
+        if let button = item.button {
+            button.isHidden = false
+            button.alphaValue = 1
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+            button.toolTip = "BetoDicta — listo para dictar"
+            button.setAccessibilityLabel("BetoDicta")
+            if let icon = Self.iconoReposo() {
+                button.title = ""
+                button.image = icon
+            } else {
+                button.image = nil
+                button.title = "🎙"              // respaldo que nunca queda vacío
+            }
+            aplicarTinteIcono(button)
+        }
+        if let appMenu { item.menu = appMenu }
+        statusItem = item
+        DispatchQueue.main.async { [weak self, weak item] in
+            guard let self, let item, self.statusItem === item else { return }
+            item.isVisible = true
+            self.setIcono(self.estadoIconoActual)
+        }
+    }
+
+    /// Las imágenes `template` del status item deben quedar en manos de AppKit.
+    /// Forzar blanco/negro a partir de `effectiveAppearance` falla con una barra
+    /// transparente: la app puede estar en modo claro mientras el fondo real es
+    /// oscuro. Con `nil`, macOS aplica el color dinámico correcto de la barra.
+    private func aplicarTinteIcono(_ btn: NSStatusBarButton) {
+        btn.contentTintColor = nil
+    }
+
+    /// macOS puede reconstruir la barra al cambiar pantalla, fondo o apariencia.
+    /// Este vigilante no crea otro NSStatusItem: solo vuelve visible el existente
+    /// y repara tinte/imagen si el sistema los dejó vacíos.
+    private func iniciarVigilanciaIcono() {
+        iconoVigilante?.invalidate()
+        iconoVigilante = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self, let item = self.statusItem, let btn = item.button else { return }
+            var reparado = false
+            if !item.isVisible { item.isVisible = true; reparado = true }
+            if btn.isHidden { btn.isHidden = false; reparado = true }
+            if btn.image == nil {
+                btn.image = self.estadoIconoActual == .reposo
+                    ? Self.iconoReposo()
+                    : Self.simbolo(self.estadoIconoActual == .grabando ? "waveform" : "brain")
+                reparado = true
+            }
+            if self.estadoIconoActual == .reposo, btn.alphaValue != 1 {
+                btn.alphaValue = 1; reparado = true
+            }
+            self.aplicarTinteIcono(btn)
+            btn.needsDisplay = true
+            if reparado {
+                Log.write("icono barra: visibilidad reparada (estado=\(self.estadoIconoActual))")
+            }
+        }
+    }
 
     /// Cambia el ícono de la barra según el estado y lo hace "latir".
     func setIcono(_ e: EstadoIcono) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.setIcono(e) }
+            return
+        }
         iconoTimer?.invalidate(); iconoTimer = nil
         guard let btn = statusItem?.button else { return }
+        estadoIconoActual = e
+        statusItem?.isVisible = true
+        btn.isHidden = false
         btn.alphaValue = 1
+        btn.imagePosition = .imageOnly
+        btn.imageScaling = .scaleProportionallyDown
+        btn.title = ""
+        aplicarTinteIcono(btn)
         switch e {
         case .reposo:
-            btn.contentTintColor = nil
-            btn.image = Self.menuBarIcon()
+            btn.image = Self.iconoReposo()
+            btn.toolTip = "BetoDicta — listo para dictar"
         case .grabando:
-            btn.contentTintColor = .systemRed
-            btn.image = Self.simbolo("waveform") ?? Self.menuBarIcon()
+            btn.image = Self.simbolo("waveform") ?? Self.iconoReposo()
+            btn.toolTip = "BetoDicta — grabando"
             latir(btn)
         case .procesando:
-            btn.contentTintColor = NSColor(red: 0.55, green: 0.45, blue: 0.85, alpha: 1)
-            btn.image = Self.simbolo("sparkles") ?? Self.menuBarIcon()
+            // El cerebro es el estado visual histórico de BetoDicta mientras
+            // interpreta/pule el dictado. Conserva el micrófono propio solo
+            // como respaldo si el SF Symbol no existe en ese macOS.
+            btn.image = Self.simbolo("brain") ?? Self.iconoReposo()
+            btn.toolTip = "BetoDicta — procesando"
             latir(btn)
         }
+        // Defensa adicional ante futuras imágenes: una imagen no-template
+        // conserva sus píxeles negros y no puede adaptarse a la barra.
+        btn.image?.isTemplate = true
+        btn.needsDisplay = true
+        if btn.image == nil { btn.imagePosition = .noImage; btn.title = "🎙" }
+    }
+
+    /// Regresión reproducible del icono sin grabar audio. Recorre los tres
+    /// estados y comprueba tinte visible, template y retorno limpio a reposo.
+    private func probarIconosBarraSiSePidio() {
+        guard ProcessInfo.processInfo.environment["BETODICTA_ICONTEST"] == "1" else { return }
+        guard let statusItem else {
+            print("ICONTEST FALLA: ejecutar desde BetoDicta.app, no como binario suelto")
+            fflush(stdout)
+            exit(3)
+        }
+        let casos: [(EstadoIcono, String)] = [
+            (.reposo, "reposo"), (.grabando, "grabando"),
+            (.procesando, "procesando"), (.reposo, "reposo-final"),
+        ]
+        var todoOK = true
+        for (estado, nombre) in casos {
+            setIcono(estado)
+            let ok = statusItem.button?.image?.isTemplate == true
+                && statusItem.button?.contentTintColor == nil
+                && statusItem.button?.alphaValue == 1
+                && statusItem.isVisible && statusItem.button?.isHidden == false
+            todoOK = todoOK && ok
+            print("ICONTEST \(ok ? "OK" : "FALLA") \(nombre) template+tinte-sistema+visible")
+        }
+        let reposoOK = statusItem.button?.toolTip == "BetoDicta — listo para dictar"
+        todoOK = todoOK && reposoOK
+        print("ICONTEST \(reposoOK ? "OK" : "FALLA") retorno al micrófono")
+        fflush(stdout)
+        exit(todoOK ? 0 : 3)
     }
     private func latir(_ btn: NSStatusBarButton) {
-        iconoTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            btn.animator().alphaValue = btn.alphaValue > 0.6 ? 0.35 : 1.0
+        // Cambio directo: animator() dejaba animaciones encoladas capaces de
+        // terminar DESPUÉS de volver a reposo y dejar el ícono casi invisible.
+        iconoTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak btn] _ in
+            guard let btn else { return }
+            btn.alphaValue = btn.alphaValue > 0.6 ? 0.35 : 1.0
         }
     }
     private static func simbolo(_ nombre: String) -> NSImage? {
-        let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         let img = NSImage(systemSymbolName: nombre, accessibilityDescription: nil)?
             .withSymbolConfiguration(cfg)
         img?.isTemplate = true
@@ -1652,6 +1953,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func openLogPublic() { openLog() }
 
     @objc private func openSettings() { Log.log(.ui, "abrir configuración"); SettingsWindowController.shared.show() }
+    @objc private func detenerGrabacionPantalla() {
+        doblePulsacion.reiniciar()
+        if CapturaMac.detenerGrabacion() {
+            setIcono(.procesando)
+            AgenteLog.registrar("grabacion_detener_ui", ["origen": "hotkey_o_menu"])
+        }
+    }
+    @objc private func openUsageDetail() { UsageWindowController.shared.show() }
     @objc private func openConfig() { NSWorkspace.shared.open(Config.dir.appendingPathComponent("config.json")) }
     /// Selector rápido: el proveedor elegido pasa a #1 de la cascada.
     /// Con un dictado en curso, CONMUTA EN CALIENTE: el motor nuevo recibe
@@ -2039,6 +2348,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Carbon solo informa key-down (F1–F12 o tecla+modificadores). En modo
     /// toque basta para aplicar la misma regla: doble para arrancar, una para parar.
     private func pulsarAtajoCarbon() {
+        if CapturaMac.grabacionContinuaEnCurso {
+            doblePulsacion.reiniciar()
+            detenerGrabacionPantalla()
+            return
+        }
         if ConfirmacionFnPolicy.aceptarAlBajar(hayConfirmacion: hayConfirmacion) {
             doblePulsacion.reiniciar()
             Log.write("hotkey: confirmación aceptada con UNA pulsación (Carbon)")
@@ -2093,6 +2407,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.comboActivadoPorDoble = false
                 self.comboConfirmacionConsumida = false
                 self.comboInicioGrabando = self.recorder.isRecording
+
+                // Detener una grabación de pantalla siempre requiere una sola
+                // pulsación, aunque el dictado normal arranque con doble-fn.
+                if CapturaMac.grabacionContinuaEnCurso {
+                    self.comboConfirmacionConsumida = true // consume también la soltada
+                    self.doblePulsacion.reiniciar()
+                    DispatchQueue.main.async { self.detenerGrabacionPantalla() }
+                    return
+                }
 
                 // La confirmación tiene su propia semántica: UNA pulsación acepta,
                 // aunque el arranque normal del dictado esté configurado a doble Fn.
@@ -2227,6 +2550,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Flujo de dictado
 
     func toggle() {
+        if CapturaMac.grabacionContinuaEnCurso {
+            detenerGrabacionPantalla()
+            return
+        }
         // Mini-modal (modo o cadena) pendiente: esta pulsación de fn es el "sí".
         if hayConfirmacion {
             Log.write("hotkey: confirmación aceptada con UNA pulsación (toggle)")
@@ -2241,7 +2568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // arranca a grabar lo nuevo. Ese nuevo dictado va como el SIGUIENTE turno —
             // Hermes mantiene la sesión (--resume), así que conserva el contexto y retoma
             // la conversación con lo que acabas de decir. Natural, como interrumpir a alguien.
-            if agenteActivo || AgenteHermes.enCurso || Voz.hablando { cancelarTodo() }
+            if agenteActivo || AgenteHermes.enCurso || AgenteCodex.enCurso || Voz.hablando { cancelarTodo() }
             startDictation()
         }
     }
@@ -2934,15 +3261,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             avisarSiLibre("(silencio)")
             return
         }
-        let textoResolver = textoFinal
-        let modoBase = modoSnapshot ?? ModosStore.activo()
+        var textoResolver = textoFinal
+        let modoNormal = modoSnapshot ?? ModosStore.activo()
+        var modoBase = modoNormal
+        var contextoAgente = modoNormal.base == "agente"
+        // Presencia parametrizable: "Oye Bto/Jarvis/Mamá…" dentro del dictado
+        // activa el núcleo Agente y se recorta sin alterar el resto. No mantiene
+        // el micrófono abierto en reposo; el dictado tradicional sigue intacto.
+        if let inv = PerfilAgente.invocacion(en: textoFinal) {
+            let agente = ModosStore.modo("agente")
+            textoResolver = inv.contenido
+            modoBase = agente
+            contextoAgente = true
+            panel.setModoVivo(agente)
+            AgenteLog.registrar("activacion", ["frase": inv.frase, "contenido": inv.contenido])
+            ModosLog.registrar("activacion_agente", ["frase": inv.frase, "contenido": inv.contenido])
+            if inv.contenido.isEmpty {
+                modoPendienteVoz = agente
+                if Config.agenteRespuestaActiva() {
+                    responderBreveAgente(MensajesAgente.escuchando,
+                                         evento: "activacion_sin_pedido")
+                } else {
+                    panel.flash("✓ \(Config.agenteNombre()) listo — continúa en el próximo dictado", segundos: 2.4)
+                    panel.hide(after: 2.6)
+                }
+                history?.finish(wav: wav, finalText: "")
+                return
+            }
+        }
         ModoResolver.resolver(texto: textoResolver, modoBase: modoBase,
                               contexto: contexto, vivo: vivo) { [weak self] resultado in
             DispatchQueue.main.async {
                 self?.registrarResolucionModo(resultado, crudo: crudo,
                                               modoBase: modoBase)
                 self?.aplicarResultadoModo(resultado, crudo: crudo, textoNormal: textoResolver,
-                                           modoNormal: modoBase, wav: wav, history: history)
+                                           modoNormal: modoNormal, contextoAgente: contextoAgente,
+                                           wav: wav, history: history)
             }
         }
     }
@@ -2955,6 +3309,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let modoNormal: Modo    // congelado al iniciar: otra sesión no lo puede pisar
         let wav: Data
         let history: HistoryWriter?
+
+        /// La intención puede venir de “Oye Bto” aunque el modo normal congelado
+        /// sea Dictado. X usa modoNormal; SI usa esta bandera para la autonomía.
+        let contextoAgente: Bool
+
+        init(crudo: String, normal: String, modoNormal: Modo, wav: Data,
+             history: HistoryWriter?, contextoAgente: Bool = false) {
+            self.crudo = crudo; self.normal = normal; self.modoNormal = modoNormal
+            self.wav = wav; self.history = history; self.contextoAgente = contextoAgente
+        }
     }
     private enum ConfirmacionPendiente {
         case modo(ModoMatch, EntregaConfirmacion)
@@ -2962,7 +3326,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private var confirmacion: ConfirmacionPendiente?
     private var confirmacionTimer: Timer?
+    private var vozConfirmacionActiva = false
     private var hayConfirmacion: Bool { confirmacion != nil }
+
+    /// Texto visible siempre; voz únicamente si el usuario eligió “Texto y voz”
+    /// y activó TTS. El callback permite decir un acuse corto ANTES de actuar.
+    private func responderBreveAgente(_ texto: String, evento: String,
+                                      esperarVoz: Bool = false,
+                                      completion: (() -> Void)? = nil) {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Config.agenteRespuestaActiva(), !t.isEmpty else {
+            completion?(); return
+        }
+        AgenteLog.registrar(evento, ["texto": t,
+                                      "formato": Config.agenteRespuestaFormato()])
+        if Config.agenteRespuestaConVoz() {
+            Voz.decir(t, empezar: { [weak self] in
+                guard let self, !self.recorder.isRecording else { return }
+                self.panel.respuestaIA(t)
+            }, completion: { [weak self] in
+                self?.panel.finRespuestaIA()
+                if esperarVoz { completion?() }
+            })
+            // Una voz clonada puede necesitar varios segundos para generar su
+            // primer audio. El acuse nunca debe retrasar la herramienta; solo
+            // un resultado final encadenado pide esperar a que termine la voz.
+            if !esperarVoz, let completion {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: completion)
+            }
+        } else if let completion {
+            if !recorder.isRecording {
+                panel.show("🤖 " + t)
+                panel.hide(after: max(2.2, min(6, Double(t.count) * 0.045)))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: completion)
+        } else if !recorder.isRecording {
+            panel.show("🤖 " + t)
+            panel.hide(after: max(2.2, min(6, Double(t.count) * 0.045)))
+        }
+    }
+
+    /// La confirmación ya está escrita en el notch; aquí solo añadimos la voz.
+    /// Al pulsar fn/X se cancela inmediatamente para no hablar sobre la acción.
+    private func hablarConfirmacionAgente(_ texto: String, activo: Bool) {
+        guard activo, Config.agenteRespuestaConVoz() else { return }
+        vozConfirmacionActiva = true
+        AgenteLog.registrar("pregunta_hablada", ["texto": texto])
+        Voz.decir(texto, completion: { [weak self] in self?.vozConfirmacionActiva = false })
+    }
+
+    /// Los selectores nativos (contacto, app, archivo) también forman parte de
+    /// la conversación. Detiene la pregunta apenas el usuario elige para que la
+    /// voz no siga hablando encima del resultado.
+    private func detenerPreguntaHablada() {
+        guard vozConfirmacionActiva else { return }
+        vozConfirmacionActiva = false
+        Voz.cancelar()
+    }
+
+    /// Defensa en profundidad para no grabar a la propia voz de BetoDicta.
+    /// Se aplica al resolver la intención, al confirmar y justo antes de lanzar
+    /// `screencapture`, porque cualquiera de esas rutas puede llegar por separado.
+    private func prepararSilencioGrabacion(origen: String) {
+        let estabaHablando = Voz.hablando
+        vozConfirmacionActiva = false
+        Voz.cancelar()
+        AgenteLog.registrar("grabacion_silenciosa", [
+            "origen": origen,
+            "voz_previa": estabaHablando,
+            "respuesta": "solo_visual",
+        ])
+    }
+
+    private func ejecutarCadenaDelAgente(_ cadena: ModoCadena, wav: Data,
+                                         history: HistoryWriter?) {
+        let ejecutar: () -> Void = { [weak self] in
+            self?.correrCadena(cadena.transforms, indice: 0, texto: cadena.contenido,
+                               acciones: cadena.acciones, wav: wav, history: history,
+                               contextoAgente: true)
+        }
+        if MensajesAgente.requiereSilencioTotal(cadena) {
+            prepararSilencioGrabacion(origen: "cadena_agente")
+            ejecutar()
+            return
+        }
+        if MensajesAgente.esperaResultado(cadena) {
+            ejecutar()
+        } else {
+            responderBreveAgente(MensajesAgente.acuse(cadena), evento: "acuse_accion",
+                                 completion: ejecutar)
+        }
+    }
 
     /// Un evento consolidado por dictado. Complementa los eventos de cada capa y
     /// permite responder después: qué ruta ganó, qué iba a ejecutar realmente y
@@ -2984,6 +3438,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             d["transforms"] = c.transforms.map(\.id)
             d["acciones"] = c.acciones.map { $0.modo.accion }
             d["destinatarios"] = c.acciones.compactMap(\.destinatario)
+            d["asuntos"] = c.acciones.compactMap(\.asunto)
+            d["archivos"] = c.acciones.compactMap(\.nombreArchivo)
         case .modo(let r):
             d["resultado"] = "modo"
             d["fuente"] = r.fuente.rawValue
@@ -3006,6 +3462,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             d["transforms"] = p.cadena.transforms.map(\.id)
             d["acciones"] = p.cadena.acciones.map { $0.modo.accion }
             d["destinatarios"] = p.cadena.acciones.compactMap(\.destinatario)
+            d["asuntos"] = p.cadena.acciones.compactMap(\.asunto)
+            d["archivos"] = p.cadena.acciones.compactMap(\.nombreArchivo)
         }
         ModosLog.registrar("resolucion", d)
     }
@@ -3035,20 +3493,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "transforms": pregunta.cadena.transforms.map(\.id),
             "acciones": pregunta.cadena.acciones.map { $0.modo.accion },
             "destinatarios": pregunta.cadena.acciones.compactMap(\.destinatario),
+            "asuntos": pregunta.cadena.acciones.compactMap(\.asunto),
+            "archivos": pregunta.cadena.acciones.compactMap(\.nombreArchivo),
             "modo_normal": entrega.modoNormal.id,
             "doble_fn": Config.doblePulsacionActivar(),
             "confirmar_con": "una_pulsacion",
         ])
         if let primero = pregunta.cadena.etapas.first { panel.setModoVivo(primero) }
-        let titulo = pregunta.detalles.count == 1
-            ? "¿Deseas \(pregunta.descripcion.lowercased())?"
-            : "¿Deseas hacer estas \(pregunta.detalles.count) acciones?"
-        panel.showConfirmation(title: titulo, details: pregunta.detalles,
+        var detallesPanel = pregunta.detalles
+        if let indiceAccion = pregunta.cadena.acciones.firstIndex(where: {
+            ["captura_pantalla", "grabar_pantalla", "captura_compartir"]
+                .contains($0.modo.accion)
+        }) {
+            let indiceDetalle = pregunta.cadena.transforms.count + indiceAccion
+            if detallesPanel.indices.contains(indiceDetalle) {
+                let accion = pregunta.cadena.acciones[indiceAccion].modo.accion
+                let tipoForzado: TipoCapturaMac? = accion == "grabar_pantalla" ? .video
+                    : (accion == "captura_pantalla" ? .imagen : nil)
+                detallesPanel[indiceDetalle] = SolicitudCapturaMac
+                    .interpretar(pregunta.cadena.contenido,
+                                 tipoForzado: tipoForzado).detallePlan
+            }
+        }
+        let titulo = detallesPanel.count == 1
+            ? "¿Deseas \((detallesPanel.first ?? pregunta.descripcion).lowercased())?"
+            : "¿Deseas hacer estas \(detallesPanel.count) acciones?"
+        panel.showConfirmation(title: titulo, details: detallesPanel,
                                content: pregunta.cadena.contenido,
                                alternatives: pregunta.alternativas,
                                modoNormal: entrega.modoNormal.nombre)
-        playSound("Tink")
+        let grabacionSilenciosa = MensajesAgente.requiereSilencioTotal(pregunta.cadena)
+        if grabacionSilenciosa {
+            prepararSilencioGrabacion(origen: "confirmacion")
+        } else {
+            playSound("Tink")
+        }
         armConfirmX()
+        hablarConfirmacionAgente(MensajesAgente.confirmacion(pregunta,
+                                                              modoNormal: entrega.modoNormal),
+                                 activo: !grabacionSilenciosa
+                                    && (entrega.contextoAgente || entrega.modoNormal.base == "agente"))
         confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
                                                   repeats: false) { [weak self] _ in
             self?.resolverConfirmacion(acepta: false, origen: "timeout")
@@ -3058,7 +3542,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Modal para la CADENA coloquial: confirma todas las acciones de una.
     private func preguntarCadenaColoquial(_ cad: ModoCadena, descripcion: String,
                                           crudo: String, textoNormal: String, modoNormal: Modo,
-                                          wav: Data, history: HistoryWriter?) {
+                                          wav: Data, history: HistoryWriter?,
+                                          contextoAgente: Bool = false) {
         var p = ModoPlanificador.pregunta(para: cad, fuente: .natural, confianza: 0.88)
         p = ModoPreguntaPlan(cadena: p.cadena, descripcion: descripcion,
                              detalles: p.detalles, alternativas: p.alternativas,
@@ -3066,15 +3551,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         presentarConfirmacion(p, entrega: EntregaConfirmacion(crudo: crudo,
                                                                normal: textoNormal,
                                                                modoNormal: modoNormal,
-                                                               wav: wav, history: history))
+                                                               wav: wav, history: history,
+                                                               contextoAgente: contextoAgente))
     }
 
     /// Pregunta en el notch. fn = sí · X/clic/timeout = continuar sin el cambio.
     private func preguntarCambioModo(_ match: ModoMatch, crudo: String, textoNormal: String,
                                      modoNormal: Modo,
-                                     wav: Data, history: HistoryWriter?) {
+                                     wav: Data, history: HistoryWriter?,
+                                     contextoAgente: Bool = false) {
         let entrega = EntregaConfirmacion(crudo: crudo, normal: textoNormal,
-                                          modoNormal: modoNormal, wav: wav, history: history)
+                                          modoNormal: modoNormal, wav: wav, history: history,
+                                          contextoAgente: contextoAgente)
         guard !recorder.isRecording else {
             ModosLog.registrar("modo_omitido", ["motivo": "nuevo_dictado_activo",
                                                  "modo": match.modo.id])
@@ -3098,6 +3586,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                alternatives: [], modoNormal: modoNormal.nombre)
         playSound("Tink")
         armConfirmX()
+        hablarConfirmacionAgente(MensajesAgente.confirmacionModo(match.modo,
+                                                                  modoNormal: modoNormal),
+                                 activo: contextoAgente || modoNormal.base == "agente")
         confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
                                                   repeats: false) { [weak self] _ in
             self?.resolverConfirmacion(acepta: false, origen: "timeout")
@@ -3106,6 +3597,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func resolverConfirmacion(acepta: Bool, origen: String = "desconocido") {
         confirmacionTimer?.invalidate(); confirmacionTimer = nil
+        if vozConfirmacionActiva {
+            vozConfirmacionActiva = false
+            Voz.cancelar()
+        }
         disarmConfirmX()
         doblePulsacion.reiniciar()
         panel.closeConfirmation()
@@ -3136,7 +3631,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     "confianza": pregunta.confianza,
                     "transforms": pregunta.cadena.transforms.map(\.id),
                     "acciones": pregunta.cadena.acciones.map { $0.modo.accion },
-                    "destinatarios": pregunta.cadena.acciones.compactMap(\.destinatario)])
+                    "destinatarios": pregunta.cadena.acciones.compactMap(\.destinatario),
+                    "asuntos": pregunta.cadena.acciones.compactMap(\.asunto),
+                    "archivos": pregunta.cadena.acciones.compactMap(\.nombreArchivo)])
                 ModoAutoMejora.registrar(fuente: pregunta.fuente.rawValue,
                                          confianza: pregunta.confianza, aceptado: true)
                 // Agente único conserva su camino especializado (Hermes/OpenClaw,
@@ -3151,7 +3648,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                               match: nil)),
                                          crudo: entrega.crudo, textoNormal: entrega.normal,
                                          modoNormal: entrega.modoNormal,
+                                         contextoAgente: entrega.contextoAgente,
                                          wav: entrega.wav, history: entrega.history)
+                } else if entrega.contextoAgente || entrega.modoNormal.base == "agente" {
+                    ejecutarCadenaDelAgente(pregunta.cadena, wav: entrega.wav,
+                                            history: entrega.history)
                 } else {
                     correrCadena(pregunta.cadena.transforms, indice: 0,
                                  texto: pregunta.cadena.contenido,
@@ -3176,6 +3677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                           fuente: match.fuente, match: match)),
                                      crudo: entrega.crudo, textoNormal: entrega.normal,
                                      modoNormal: entrega.modoNormal,
+                                     contextoAgente: entrega.contextoAgente,
                                      wav: entrega.wav, history: entrega.history)
             } else {
                 ModosLog.registrar("modo_no", ["modo": match.modo.id, "crudo": entrega.crudo,
@@ -3202,15 +3704,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func aplicarResultadoModo(_ resultado: ResultadoModo, crudo: String,
                                       textoNormal: String? = nil,
                                       modoNormal: Modo? = nil,
+                                      contextoAgente: Bool = false,
                                       wav: Data, history: HistoryWriter?) {
         switch resultado {
         case .cadena(let cad):
+            if procesarPlanDelAgente(cad, crudo: crudo, textoNormal: textoNormal ?? crudo,
+                                     modoNormal: modoNormal, wav: wav, history: history,
+                                     confianza: 1, contextoAgente: contextoAgente) { return }
             let etapas = cad.transforms.map(\.nombre) + cad.acciones.map { $0.modo.nombre }
             Log.log(.ia, "cadena por voz: \(etapas.joined(separator: " → "))")
             ModosLog.registrar("cadena", ["crudo": crudo,
                 "transforms": cad.transforms.map(\.id),
                 "acciones": cad.acciones.map { $0.modo.base == "buscar" ? "buscar:\($0.modo.buscador)" : $0.modo.accion },
                 "destinatarios": cad.acciones.compactMap(\.destinatario),
+                "asuntos": cad.acciones.compactMap(\.asunto),
+                "archivos": cad.acciones.compactMap(\.nombreArchivo),
                 "contenido": cad.contenido])
             guard !cad.contenido.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 if !recorder.isRecording { panel.flash("🎤 Cadena sin contenido — dilo con el texto", segundos: 2) }
@@ -3227,7 +3735,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // (se procesa como dictado normal, sin recortar nada).
             preguntarCambioModo(match, crudo: crudo, textoNormal: textoNormal ?? crudo,
                                 modoNormal: modoNormal ?? ModosStore.activo(),
-                                wav: wav, history: history)
+                                wav: wav, history: history, contextoAgente: contextoAgente)
             return
 
         case .preguntarCadena(let cad, let desc):
@@ -3236,15 +3744,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             preguntarCadenaColoquial(cad, descripcion: desc, crudo: crudo,
                                      textoNormal: textoNormal ?? crudo,
                                      modoNormal: modoNormal ?? ModosStore.activo(),
-                                     wav: wav, history: history)
+                                     wav: wav, history: history,
+                                     contextoAgente: contextoAgente)
             return
 
         case .preguntarPlan(let pregunta):
-            presentarConfirmacion(pregunta,
-                                   entrega: EntregaConfirmacion(crudo: crudo,
-                                                                normal: textoNormal ?? crudo,
-                                                                modoNormal: modoNormal ?? ModosStore.activo(),
-                                                                wav: wav, history: history))
+            let normal = modoNormal ?? ModosStore.activo()
+            // Dentro del Agente, el nivel de autonomía decide si una herramienta
+            // segura se ejecuta sola. Fuera del Agente, el comportamiento anterior
+            // se conserva: toda intención natural se confirma.
+            if Config.agenteNucleoActivo(), (contextoAgente || normal.base == "agente"),
+               PoliticaAgente.autoEjecutar(pregunta.cadena) {
+                AgenteLog.registrar("plan_autonomo", [
+                    "nivel": PoliticaAgente.nivel.rawValue,
+                    "riesgo": PoliticaAgente.riesgo(de: pregunta.cadena).rawValue,
+                    "etapas": pregunta.detalles,
+                    "contenido": pregunta.cadena.contenido])
+                ejecutarCadenaDelAgente(pregunta.cadena, wav: wav, history: history)
+            } else {
+                presentarConfirmacion(pregunta,
+                                       entrega: EntregaConfirmacion(crudo: crudo,
+                                                                    normal: textoNormal ?? crudo,
+                                                                    modoNormal: normal,
+                                                                    wav: wav, history: history,
+                                                                    contextoAgente: contextoAgente))
+            }
             return
 
         case .modo(let r):
@@ -3268,6 +3792,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case .manual: break
             }
 
+            // Si el usuario invocó al asistente, incluso un comando explícito
+            // ("oye Bto, modo música…") pasa por SU política de autonomía. Fuera
+            // del asistente conserva la agilidad histórica de los Modos exactos.
+            if Config.agenteNucleoActivo(), (contextoAgente || modoNormal?.base == "agente"),
+               m.base != "agente", m.id != "dictado" {
+                var transforms: [Modo] = []
+                var acciones: [ModoAccionPlan] = []
+                if ["buscar", "accion", "aplicacion", "musica"].contains(m.base) {
+                    acciones = [ModoAccionPlan(modo: m, destinatario: nil)]
+                } else {
+                    transforms = [m]
+                    if !m.almacen.isEmpty {
+                        let id = m.almacen == "tarea" ? "tarea_local" : "nota_local"
+                        let guardar = Modo(id: "agente-\(id)", nombre: Acciones.nombre(id),
+                                          icono: "tray.and.arrow.down", base: "accion", accion: id)
+                        acciones = [ModoAccionPlan(modo: guardar, destinatario: nil)]
+                    }
+                }
+                let cad = ModoCadena(transforms: transforms, acciones: acciones, contenido: r.texto)
+                if procesarPlanDelAgente(cad, crudo: crudo, textoNormal: textoNormal ?? crudo,
+                                         modoNormal: modoNormal, wav: wav, history: history,
+                                         confianza: r.match?.confianza ?? 1,
+                                         contextoAgente: contextoAgente) { return }
+            }
+
             // Decir solamente "modo agente" durante una pausa prepara el modo
             // para el PRÓXIMO dictado; no dispara una IA/acción vacía.
             if r.match != nil, ["pulir", "traducir", "responder", "agente"].contains(m.base),
@@ -3285,13 +3834,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 history?.finish(wav: wav, finalText: "")
                 return
             }
-            despacharModo(m, textoFinal: r.texto, crudo: crudo, wav: wav, history: history)
+            despacharModo(m, textoFinal: r.texto, crudo: crudo, wav: wav, history: history,
+                          modoNormal: modoNormal, contextoAgente: contextoAgente)
         }
+    }
+
+    /// Aplica autonomía solo cuando la entrada pertenece al Agente. Devuelve true
+    /// si consumió el plan (ejecución o modal), false si debe seguir el flujo normal.
+    private func procesarPlanDelAgente(_ cadena: ModoCadena, crudo: String,
+                                       textoNormal: String, modoNormal: Modo?, wav: Data,
+                                       history: HistoryWriter?, confianza: Double,
+                                       contextoAgente: Bool) -> Bool {
+        guard Config.agenteNucleoActivo(), (contextoAgente || modoNormal?.base == "agente"),
+              !cadena.etapas.isEmpty else { return false }
+        let pregunta = ModoPlanificador.pregunta(para: cadena, fuente: .natural,
+                                                  confianza: confianza)
+        if PoliticaAgente.autoEjecutar(cadena) {
+            AgenteLog.registrar("plan_autonomo", ["nivel": PoliticaAgente.nivel.rawValue,
+                "riesgo": PoliticaAgente.riesgo(de: cadena).rawValue,
+                "etapas": pregunta.detalles, "contenido": cadena.contenido])
+            ejecutarCadenaDelAgente(cadena, wav: wav, history: history)
+        } else {
+            let normal = modoNormal ?? ModosStore.activo()
+            presentarConfirmacion(pregunta, entrega: EntregaConfirmacion(
+                crudo: crudo, normal: textoNormal, modoNormal: normal,
+                wav: wav, history: history, contextoAgente: true))
+        }
+        return true
     }
 
     /// Ejecuta el modo ya resuelto (buscar/acción/dictado/otro). Reusable por el
     /// camino síncrono (exacto) y el asíncrono (semántico).
-    private func despacharModo(_ modo: Modo, textoFinal: String, crudo: String, wav: Data, history: HistoryWriter?) {
+    private func despacharModo(_ modo: Modo, textoFinal: String, crudo: String, wav: Data,
+                               history: HistoryWriter?, modoNormal: Modo? = nil,
+                               contextoAgente: Bool = false) {
         ModosLog.registrar("despacho", ["modo": modo.id, "base": modo.base, "accion": modo.accion,
             "idioma": modo.idiomaDestino, "buscador": modo.buscador, "contenido": textoFinal])
         // Solo el COMANDO, sin contenido ("modo tarea" y nada): no guardes vacío.
@@ -3304,13 +3880,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             restaurarModoVisualSiLibre(origen: "modo_sin_contenido")
             return
         }
-        if modo.base == "buscar" { ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history); return }
-        if modo.base == "accion" { ejecutarAccion(textoFinal, modo: modo, wav: wav, history: history); return }
-        if modo.base == "aplicacion" { ejecutarAplicacion(textoFinal, modo: modo, wav: wav, history: history); return }
-        // Agente con cerebro HERMES (pasarela): BetoDicta manda el texto, Hermes procesa
-        // con SUS herramientas y devuelve; aquí solo mostramos y hablamos el resultado.
-        if modo.base == "agente", Config.agenteMotor() == "hermes", AgenteHermes.disponible {
-            responderConHermes(textoFinal, crudo: crudo, wav: wav, history: history)
+        if modo.base == "buscar" { ejecutarBusqueda(textoFinal, modo: modo, wav: wav, history: history,
+                                                      contextoAgente: contextoAgente); return }
+        if modo.base == "musica" { ejecutarMusica(textoFinal, modo: modo, wav: wav, history: history,
+                                                   contextoAgente: contextoAgente); return }
+        if modo.base == "accion" { ejecutarAccion(textoFinal, modo: modo, wav: wav, history: history,
+                                                   contextoAgente: contextoAgente); return }
+        if modo.base == "aplicacion" { ejecutarAplicacion(textoFinal, modo: modo, wav: wav, history: history,
+                                                           contextoAgente: contextoAgente); return }
+        if modo.base == "agente" {
+            responderAgente(textoFinal, modo: modo, crudo: crudo, wav: wav, history: history,
+                            modoNormal: modoNormal, contextoAgente: contextoAgente)
             return
         }
         let seguir: (String) -> Void = { [weak self] texto in
@@ -3325,15 +3905,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             } else { seguir(textoFinal) }
         } else {
-            // Agente: notch que LATE ("pensando") con la IA que trabaja. Los demás modos: normal.
-            if !recorder.isRecording {
-                if modo.base == "agente" {
-                    let ia = LLMPostProcess.iaDeModo(modo)?.proveedorCorto ?? "local"
-                    panel.pensando(ia: ia)
-                } else { panel.update("✨ \(modo.nombre)…") }
-            }
+            if !recorder.isRecording { panel.update("✨ \(modo.nombre)…") }
             let almacen = modo.almacen
-            let agTok = (modo.base == "agente") ? nuevoAgente() : 0   // cancelable si es agente
             LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
                 Log.write("  3·modo \(modo.nombre): \(resultado)")
                 if !almacen.isEmpty, !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -3343,54 +3916,197 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     }
                 }
                 Log.write("  ✓ entregado:  \(resultado)")
-                // Modo Agente (Fase 7.2): además de pegar el texto, LO DICE por voz
-                // (si la Voz del sistema está activa). Falla suave: si no hay TTS, solo pega.
-                if modo.base == "agente", !resultado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    guard self?.agenteVigente(agTok) == true else { return }   // cancelado → ignora
-                    // Notch de RESPUESTA DE IA (distinto al de dictado): muestra lo que
-                    // responde mientras habla; se cierra al terminar. El agente es
-                    // conversacional — NO pega salvo que actives "pegar" (a futuro, según
-                    // la intención). Así no hace las cosas del dictado.
-                    if Config.ttsActivo() {
-                        // El notch sigue "pensando" (latiendo) mientras se genera la voz;
-                        // el texto (karaoke) arranca EN SINCRONÍA cuando la voz empieza a sonar.
-                        Voz.decir(resultado,
-                                  empezar: { self?.panel.respuestaIA(resultado) },
-                                  completion: { self?.panel.finRespuestaIA(); self?.finAgente() })
-                    } else {
-                        self?.panel.respuestaIA(resultado)   // sin voz: muestra el texto
-                        self?.panel.finRespuestaIA(); self?.finAgente()
-                    }
-                    self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history, pegar: Config.agentePega())
-                } else {
-                    self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
-                }
+                self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
             }
         }
     }
 
-    /// Agente vía HERMES: notch "pensando" (IA: Hermes) → manda a Hermes → muestra y
-    /// habla su respuesta. BetoDicta = pasarela; las acciones las hace Hermes.
-    private func responderConHermes(_ texto: String, crudo: String, wav: Data, history: HistoryWriter?) {
-        let tok = nuevoAgente()
-        if !recorder.isRecording { panel.pensando(ia: "Hermes") }
-        AgenteHermes.preguntar(texto) { [weak self] respuesta in
-            guard let self, self.agenteVigente(tok) else { return }   // cancelado → ignora la respuesta
-            let r = respuesta ?? ""
-            if r.isEmpty {
-                self.finAgente(); self.panel.finRespuestaIA()
-                if !self.recorder.isRecording { self.panel.flash("🤖 Hermes no respondió", segundos: 2) }
-                history?.finish(wav: wav, finalText: ""); return
-            }
-            Log.write("  3·Hermes: \(r)")
-            if Config.ttsActivo() {
-                Voz.decir(r, empezar: { self.panel.respuestaIA(r) },
-                          completion: { self.panel.finRespuestaIA(); self.finAgente() })
+    /// Núcleo Agente: herramientas locales → respuesta local → cerebro elegido.
+    /// Nunca sustituye Dictado/Modos; solo se alcanza cuando el modo ya es Agente.
+    private func responderAgente(_ texto: String, modo: Modo, crudo: String,
+                                 wav: Data, history: HistoryWriter?,
+                                 modoNormal: Modo?, contextoAgente: Bool) {
+        if Config.agenteNucleoActivo(), let plan = AgenteNucleo.planificar(texto) {
+            AgenteLog.registrar("plan", ["descripcion": plan.descripcion,
+                "nivel": PoliticaAgente.nivel.rawValue,
+                "riesgo": PoliticaAgente.riesgo(de: plan.cadena).rawValue,
+                "contenido": plan.cadena.contenido])
+            if PoliticaAgente.autoEjecutar(plan.cadena) {
+                ejecutarCadenaDelAgente(plan.cadena, wav: wav, history: history)
             } else {
-                self.panel.respuestaIA(r); self.panel.finRespuestaIA(); self.finAgente()
+                let normal = modoNormal ?? modo
+                presentarConfirmacion(plan, entrega: EntregaConfirmacion(
+                    crudo: crudo, normal: texto, modoNormal: normal, wav: wav,
+                    history: history, contextoAgente: contextoAgente || modo.base == "agente"))
             }
-            self.finishDelivery(r, rawText: crudo, wav: wav, history: history, pegar: Config.agentePega())
+            return
         }
+        let tok = nuevoAgente()
+        if let local = AgenteNucleo.respuestaLocal(texto) {
+            entregarRespuestaAgente(local, pedido: texto, motor: "Local", token: tok,
+                                    crudo: crudo, wav: wav, history: history)
+            return
+        }
+        if Config.agenteMotor() == "codex" {
+            if AgenteCodex.disponible {
+                responderConCodex(texto, modo: modo, token: tok, crudo: crudo,
+                                  wav: wav, history: history,
+                                  puedeCaerAIA: Config.agenteFallbackCerebro())
+            } else if Config.agenteFallbackCerebro() {
+                AgenteLog.registrar("failover_cerebro", ["de": "codex", "a": "ia_betodicta",
+                                                          "motivo": "no_instalado"])
+                responderAgenteConIA(texto, modo: modo, token: tok, crudo: crudo,
+                                     wav: wav, history: history, puedeCaerAHermes: true)
+            } else {
+                entregarRespuestaAgente("Codex oficial no está instalado. Instálalo o activa el failover del cerebro.",
+                                        pedido: texto, motor: "Local", token: tok,
+                                        crudo: crudo, wav: wav, history: history)
+            }
+        } else if Config.agenteMotor() == "hermes" {
+            if AgenteHermes.disponible {
+                responderConHermes(texto, modo: modo, token: tok, crudo: crudo,
+                                   wav: wav, history: history,
+                                   puedeCaerAIA: Config.agenteFallbackCerebro())
+            } else if Config.agenteFallbackCerebro() {
+                AgenteLog.registrar("failover_cerebro", ["de": "hermes", "a": "ia_betodicta",
+                                                          "motivo": "no_instalado"])
+                responderAgenteConIA(texto, modo: modo, token: tok, crudo: crudo,
+                                     wav: wav, history: history, puedeCaerAHermes: false)
+            } else {
+                entregarRespuestaAgente("Hermes no está disponible. Activa el failover o elige la IA de BetoDicta como cerebro.",
+                                        pedido: texto, motor: "Local", token: tok,
+                                        crudo: crudo, wav: wav, history: history)
+            }
+        } else {
+            responderAgenteConIA(texto, modo: modo, token: tok, crudo: crudo,
+                                 wav: wav, history: history,
+                                 puedeCaerAHermes: Config.agenteFallbackCerebro())
+        }
+    }
+
+    private func modoAgenteConfigurado(_ original: Modo) -> Modo {
+        var m = original
+        m.prompt = PerfilAgente.prompt()
+        let proveedor = Config.agenteIAProveedor()
+        if !proveedor.isEmpty { m.proveedorId = proveedor; m.modelo = Config.agenteIAModelo() }
+        return m
+    }
+
+    private func responderAgenteConIA(_ texto: String, modo: Modo, token: Int,
+                                      crudo: String, wav: Data, history: HistoryWriter?,
+                                      puedeCaerAHermes: Bool) {
+        let m = modoAgenteConfigurado(modo)
+        guard let ia = LLMPostProcess.iaDeModo(m) ?? ChatIA.seleccionada() else {
+            if puedeCaerAHermes, AgenteHermes.disponible {
+                AgenteLog.registrar("failover_cerebro", ["de": "ia_betodicta", "a": "hermes",
+                                                          "motivo": "sin_ia"])
+                responderConHermes(texto, modo: modo, token: token, crudo: crudo,
+                                   wav: wav, history: history, puedeCaerAIA: false)
+                return
+            }
+            entregarRespuestaAgente("No tengo una IA de chat conectada. Puedo seguir usando mis herramientas locales; conecta una IA en Modelos para conversar.",
+                                    pedido: texto, motor: "Local", token: token,
+                                    crudo: crudo, wav: wav, history: history)
+            return
+        }
+        let etiqueta = ia.proveedorCorto
+        if !recorder.isRecording { panel.pensando(ia: etiqueta) }
+        LLMPostProcess.procesarModo(texto, modo: m) { [weak self] resultado in
+            guard let self, self.agenteVigente(token) else { return }
+            let r = resultado.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !r.isEmpty else {
+                self.entregarRespuestaAgente(MensajesAgente.sinEntender,
+                    pedido: texto, motor: "Local", token: token,
+                    crudo: crudo, wav: wav, history: history)
+                return
+            }
+            // procesarModo degrada al original cuando toda la cascada falla. En
+            // Agente eso es una señal segura para probar Hermes una sola vez.
+            if puedeCaerAHermes, AgenteHermes.disponible,
+               r == texto.trimmingCharacters(in: .whitespacesAndNewlines) {
+                AgenteLog.registrar("failover_cerebro", ["de": "ia_betodicta", "a": "hermes",
+                                                          "motivo": "sin_transformacion"])
+                self.responderConHermes(texto, modo: modo, token: token, crudo: crudo,
+                                        wav: wav, history: history, puedeCaerAIA: false)
+                return
+            }
+            self.entregarRespuestaAgente(r, pedido: texto, motor: etiqueta, token: token,
+                                         crudo: crudo, wav: wav, history: history)
+        }
+    }
+
+    /// Agente vía HERMES. Si el proceso no responde, cae a la IA local/global
+    /// únicamente cuando el usuario dejó activado el failover; nunca queda mudo.
+    private func responderConHermes(_ texto: String, modo: Modo, token: Int,
+                                    crudo: String, wav: Data, history: HistoryWriter?,
+                                    puedeCaerAIA: Bool) {
+        if !recorder.isRecording { panel.pensando(ia: "Hermes") }
+        AgenteHermes.preguntar(PerfilAgente.envolverParaHermes(texto)) { [weak self] respuesta in
+            guard let self, self.agenteVigente(token) else { return }
+            let r = respuesta?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if r.isEmpty, puedeCaerAIA {
+                AgenteLog.registrar("failover_cerebro", ["de": "hermes", "a": "local"])
+                self.responderAgenteConIA(texto, modo: modo, token: token,
+                                          crudo: crudo, wav: wav, history: history,
+                                          puedeCaerAHermes: false)
+                return
+            }
+            guard !r.isEmpty else {
+                self.entregarRespuestaAgente(MensajesAgente.sinEntender,
+                    pedido: texto, motor: "Local", token: token,
+                    crudo: crudo, wav: wav, history: history)
+                return
+            }
+            self.entregarRespuestaAgente(r, pedido: texto, motor: "Hermes", token: token,
+                                         crudo: crudo, wav: wav, history: history)
+        }
+    }
+
+    /// Cuenta ChatGPT mediante el cliente oficial Codex. BetoDicta no ve la
+    /// credencial y Codex se ejecuta sin herramientas ni escritura; las acciones
+    /// reales siguen pasando por el planificador y la política de autonomía.
+    private func responderConCodex(_ texto: String, modo: Modo, token: Int,
+                                   crudo: String, wav: Data, history: HistoryWriter?,
+                                   puedeCaerAIA: Bool) {
+        if !recorder.isRecording { panel.pensando(ia: "Codex") }
+        AgenteCodex.preguntar(PerfilAgente.envolverParaHermes(texto)) { [weak self] respuesta in
+            guard let self, self.agenteVigente(token) else { return }
+            let r = respuesta?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if r.isEmpty, puedeCaerAIA {
+                AgenteLog.registrar("failover_cerebro", ["de": "codex", "a": "ia_betodicta",
+                                                          "motivo": "sin_respuesta"])
+                self.responderAgenteConIA(texto, modo: modo, token: token,
+                                          crudo: crudo, wav: wav, history: history,
+                                          puedeCaerAHermes: true)
+                return
+            }
+            guard !r.isEmpty else {
+                self.entregarRespuestaAgente("No pude usar tu cuenta ChatGPT. Comprueba la autorización de Codex en Ajustes → Asistente.",
+                    pedido: texto, motor: "Local", token: token,
+                    crudo: crudo, wav: wav, history: history)
+                return
+            }
+            self.entregarRespuestaAgente(r, pedido: texto, motor: "ChatGPT/Codex", token: token,
+                                         crudo: crudo, wav: wav, history: history)
+        }
+    }
+
+    private func entregarRespuestaAgente(_ respuesta: String, pedido: String, motor: String,
+                                         token: Int, crudo: String, wav: Data,
+                                         history: HistoryWriter?) {
+        guard agenteVigente(token) else { return }
+        Log.write("  3·Agente/\(motor): \(respuesta)")
+        MemoriaAgente.registrar(usuario: pedido, asistente: respuesta)
+        AgenteLog.registrar("respuesta", ["motor": motor, "pedido": pedido,
+                                           "respuesta": respuesta])
+        if Config.agenteRespuestaConVoz() {
+            Voz.decir(respuesta, empezar: { [weak self] in self?.panel.respuestaIA(respuesta) },
+                      completion: { [weak self] in self?.panel.finRespuestaIA(); self?.finAgente() })
+        } else {
+            panel.respuestaIA(respuesta); panel.finRespuestaIA(); finAgente()
+        }
+        finishDelivery(respuesta, rawText: crudo, wav: wav, history: history,
+                       pegar: Config.agentePega())
     }
 
     /// Si "traducir" está activo, traduce antes de entregar; si no, entrega directo.
@@ -3414,13 +4130,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// (procesarModo), así que se encadena por recursión.
     private func correrCadena(_ transforms: [Modo], indice: Int, texto: String,
                               acciones: [ModoAccionPlan], wav: Data,
-                              history: HistoryWriter?) {
+                              history: HistoryWriter?, contextoAgente: Bool = false) {
         guard indice < transforms.count else {
             if !acciones.isEmpty {
-                ejecutarAcciones(acciones, indice: 0, texto: texto, wav: wav, history: history)
+                ejecutarAcciones(acciones, indice: 0, texto: texto, wav: wav,
+                                  history: history, contextoAgente: contextoAgente)
             } else {
                 Log.write("  ✓ entregado (cadena): \(texto)")
                 finishDelivery(texto, rawText: texto, wav: wav, history: history)
+                if contextoAgente {
+                    responderBreveAgente(texto, evento: "resultado_modo")
+                }
             }
             return
         }
@@ -3428,8 +4148,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !recorder.isRecording { panel.update("✨ \(m.nombre)…") }
         LLMPostProcess.procesarModo(texto, modo: m) { [weak self] out in
             Log.write("  ↳ \(m.nombre): \(out)")
+            if !m.almacen.isEmpty,
+               !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                NotasStore.agregar(tipo: m.almacen, texto: out)
+                AgenteLog.registrar("guardado_local", ["tipo": m.almacen,
+                                                        "modo": m.id, "texto": out])
+            }
             self?.correrCadena(transforms, indice: indice + 1, texto: out,
-                               acciones: acciones, wav: wav, history: history)
+                               acciones: acciones, wav: wav, history: history,
+                               contextoAgente: contextoAgente)
         }
     }
 
@@ -3437,7 +4164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// cierra una sola vez; cada acción se separa brevemente para evitar que dos
     /// aperturas de apps compitan en el mismo ciclo de eventos.
     private func ejecutarAcciones(_ acciones: [ModoAccionPlan], indice: Int,
-                                  texto: String, wav: Data, history: HistoryWriter?) {
+                                  texto: String, wav: Data, history: HistoryWriter?,
+                                  contextoAgente: Bool = false) {
         guard indice < acciones.count else { return }
         if indice == 0 {
             let resumen = acciones.map { ModoPlanificador.descripcionEtapa($0.modo, destinatario: $0.destinatario) }
@@ -3449,25 +4177,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             if indice + 1 < acciones.count {
                 self.ejecutarAcciones(acciones, indice: indice + 1, texto: texto,
-                                      wav: wav, history: nil)
+                                      wav: wav, history: nil,
+                                      contextoAgente: contextoAgente)
             } else {
                 self.restaurarModoVisualSiLibre(origen: "cadena_acciones_completa")
             }
         }
         if etapa.modo.base == "buscar" {
             ejecutarBusqueda(texto, modo: etapa.modo, wav: wav, history: nil,
-                              completion: continuar)
+                              completion: continuar, contextoAgente: contextoAgente)
+        } else if etapa.modo.base == "musica" {
+            ejecutarMusica(texto, modo: etapa.modo, wav: wav, history: nil,
+                           completion: continuar, contextoAgente: contextoAgente)
         } else if etapa.modo.base == "aplicacion" {
             ejecutarAplicacion(texto, modo: etapa.modo, wav: wav, history: nil,
-                               completion: continuar)
+                               completion: continuar, contextoAgente: contextoAgente)
         } else {
             ejecutarAccion(texto, modo: etapa.modo, destinatario: etapa.destinatario,
-                           wav: wav, history: nil, completion: continuar)
+                           asunto: etapa.asunto,
+                           nombreArchivo: etapa.nombreArchivo,
+                           wav: wav, history: nil, completion: continuar,
+                           contextoAgente: contextoAgente)
         }
     }
 
     /// Modo Acción (Fase 5): abre una app / correo / web con el texto dictado.
-    /// Con esquema (mailto/whatsapp/ms-outlook/URL) precarga el texto; sin esquema
+    /// Con enlace compatible (mailto/whatsapp/URL) precarga el texto; sin esquema
     /// (Notas/Finder/…) copia el texto al portapapeles y abre la app por bundle id.
     /// Abre WhatsApp (app→wa.me) a un número (o sin número para elegir) con el texto.
     private func abrirWA(numero: String?, texto: String, app: Bool) {
@@ -3475,9 +4210,177 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSWorkspace.shared.open(url)
         }
     }
+
+    /// Espera de forma finita a que WhatsApp sea la app frontal y pulsa solo
+    /// comando-V. La imagen/archivo ya está en el portapapeles. Solo la política
+    /// explícita Autoenviar puede pulsar un botón AX llamado Enviar; nunca usa
+    /// Return a ciegas. Si no hay foco, permiso o app, degrada a preparación
+    /// manual sin bloquear el resto del dictado.
+    private func pegarCapturaCuandoWhatsAppListo(contacto: String, appDisponible: Bool,
+                                                  pasteboardChangeCount: Int,
+                                                  intento: Int = 0, maxIntentos: Int = 25,
+                                                  completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        let bundle = Acciones.bundle("whatsapp")
+        let politica = Config.capturaWhatsAppPolitica()
+        let frente = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        // Si la persona copió otra cosa mientras elegía contacto, no pegamos
+        // contenido distinto dentro de WhatsApp por error.
+        guard NSPasteboard.general.changeCount == pasteboardChangeCount else {
+            AgenteLog.registrar("captura_whatsapp_pegar", [
+                "contacto": contacto, "ok": false,
+                "motivo": "portapapeles_cambio", "enviado": false,
+            ])
+            completion(.init(ok: false, mensaje:
+                "Abrí el chat de \(contacto), pero el portapapeles cambió antes de pegar. No pegué nada para evitar adjuntar otro contenido."))
+            return
+        }
+        switch PegadoWhatsApp.decidir(politica: politica,
+                                      appDisponible: appDisponible,
+                                      bundleFrente: frente,
+                                      bundleEsperado: bundle,
+                                      intento: intento,
+                                      maxIntentos: maxIntentos) {
+        case .pegar(let autoEnviar):
+            // Tomamos la foto AX antes del pegado. En autoenvío, la interfaz
+            // posterior debe demostrar que apareció un adjunto nuevo; un botón
+            // Enviar ya existente en el chat nunca es evidencia suficiente.
+            let estadoAntes = autoEnviar ? WhatsAppAccesibilidad.estadoVisible() : nil
+            SeguridadTeclado.bloquearRetorno(durante: 8)
+            let ok = presionarPegarPortapapeles()
+            AgenteLog.registrar("captura_whatsapp_pegar", [
+                "contacto": contacto, "ok": ok, "intento": intento,
+                "bundle_frente": frente ?? "", "enviado": false,
+                "verificado_en_ui": false,
+                "politica": politica.rawValue,
+            ])
+            guard ok else {
+                completion(.init(ok: false, mensaje:
+                    "Abrí el chat de \(contacto), pero macOS bloqueó el pegado. El archivo sigue en el portapapeles; pégalo con comando V."))
+                return
+            }
+            guard autoEnviar else {
+                completion(.init(ok: true, mensaje:
+                    "Abrí el chat de \(contacto) y pegué el archivo sin enviarlo. Revísalo y confirma Enviar."))
+                return
+            }
+            guard let estadoAntes else {
+                completion(.init(ok: true, mensaje:
+                    "Pegué el archivo en el chat de \(contacto), pero no pude verificar de forma segura la vista previa; lo dejé preparado sin enviarlo."))
+                return
+            }
+            // WhatsApp prepara la vista del adjunto de forma asíncrona. Solo el
+            // ajuste explícito Autoenviar permite pulsar su botón AX Enviar.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                let enviado = WhatsAppAccesibilidad.pulsarEnviarAdjuntoVisible(
+                    desde: estadoAntes)
+                AgenteLog.registrar("captura_whatsapp_autoenviar", [
+                    "contacto": contacto, "ok": enviado,
+                    "bundle_frente": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "",
+                    "enviado": enviado, "politica": politica.rawValue,
+                ])
+                completion(.init(ok: enviado, mensaje: enviado
+                    ? "Abrí el chat de \(contacto), adjunté el archivo y lo envié automáticamente porque así está configurado."
+                    : "Pegué el archivo en el chat de \(contacto), pero no encontré de forma segura el botón Enviar; lo dejé preparado para que lo revises."))
+            }
+        case .esperar:
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { [weak self] in
+                guard let self else {
+                    completion(.init(ok: false, mensaje:
+                        "BetoDicta se cerró antes de poder pegar el archivo."))
+                    return
+                }
+                self.pegarCapturaCuandoWhatsAppListo(contacto: contacto,
+                    appDisponible: appDisponible,
+                    pasteboardChangeCount: pasteboardChangeCount,
+                    intento: intento + 1, maxIntentos: maxIntentos,
+                    completion: completion)
+            }
+        case .manual:
+            let motivo = politica == .portapapeles ? "solo_portapapeles"
+                : (!appDisponible ? "sin_app" : "sin_foco")
+            AgenteLog.registrar("captura_whatsapp_pegar", [
+                "contacto": contacto, "ok": false, "motivo": motivo,
+                "intento": intento, "bundle_frente": frente ?? "",
+                "enviado": false, "politica": politica.rawValue,
+            ])
+            let configurado = politica == .portapapeles
+            completion(.init(ok: configurado, mensaje: configurado
+                ? "Abrí el chat de \(contacto). La política es solo portapapeles: no pegué ni envié nada; el archivo quedó listo para comando V."
+                : "Abrí el chat de \(contacto), pero no pude enfocarlo para pegar. El archivo sigue en el portapapeles; pégalo con comando V."))
+        }
+    }
+
+    /// La captura REAL ya está en el portapapeles. Si conocemos el contacto y la
+    /// app de escritorio está disponible, abrimos el chat y aplicamos la política
+    /// elegida. Los grupos se eligen dentro de WhatsApp porque su URL pública no
+    /// expone identificadores de grupo.
+    private func prepararCapturaParaWhatsApp(_ r: ResultadoCapturaMac,
+                                             contextoAgente: Bool,
+                                             completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        var finalizada = false
+        func finalizar(_ resultado: ResultadoHerramientaApple) {
+            guard !finalizada else {
+                AgenteLog.registrar("captura_whatsapp_final", ["resultado": "duplicado_ignorado"])
+                return
+            }
+            finalizada = true
+            AgenteLog.registrar("captura_whatsapp_final", [
+                "ok": resultado.ok, "mensaje": resultado.mensaje,
+            ])
+            completion(resultado)
+        }
+        let tieneApp = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: Acciones.bundle("whatsapp")) != nil
+        let abrirGeneral = {
+            if tieneApp, let u = NSWorkspace.shared.urlForApplication(
+                withBundleIdentifier: Acciones.bundle("whatsapp")) {
+                NSWorkspace.shared.openApplication(at: u, configuration: .init(), completionHandler: nil)
+            } else { self.abrirWA(numero: nil, texto: "", app: false) }
+        }
+        let nombre = r.solicitud.contactoWhatsApp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let pasteboardChangeCount = NSPasteboard.general.changeCount
+        let objeto = r.solicitud.tipo == .video ? "el video" : "la imagen"
+        let listo = r.solicitud.tipo == .video ? "listo" : "lista"
+        if nombre.isEmpty || PerfilAgente.normalizar(nombre).contains("grupo") {
+            abrirGeneral()
+            finalizar(.init(ok: true, mensaje: r.mensaje
+                + " Abrí WhatsApp; elige el chat o grupo, pega \(objeto) y confirma Enviar.")); return
+        }
+        ContactosWA.resolverDetallado(nombre) { [weak self] matches, aproximada in
+            guard let self else { finalizar(.init(ok: false, mensaje: r.mensaje)); return }
+            if matches.count == 1, !aproximada {
+                let contacto = matches[0]
+                self.abrirWA(numero: contacto.numero, texto: "", app: tieneApp)
+                self.pegarCapturaCuandoWhatsAppListo(contacto: contacto.nombre,
+                    appDisponible: tieneApp,
+                    pasteboardChangeCount: pasteboardChangeCount) { pegado in
+                    finalizar(.init(ok: pegado.ok, mensaje: r.mensaje + " " + pegado.mensaje))
+                }
+            } else if !matches.isEmpty {
+                let elegido = self.elegirContactoWA(matches, texto: "", app: tieneApp,
+                    aproximada: aproximada, contextoAgente: contextoAgente)
+                guard let elegido else {
+                    finalizar(.init(ok: false, mensaje: r.mensaje
+                        + " Cancelaste la selección de contacto; dejé \(objeto) \(listo) en el portapapeles."))
+                    return
+                }
+                self.pegarCapturaCuandoWhatsAppListo(contacto: elegido.nombre,
+                    appDisponible: tieneApp,
+                    pasteboardChangeCount: pasteboardChangeCount) { pegado in
+                    finalizar(.init(ok: pegado.ok, mensaje: r.mensaje + " " + pegado.mensaje))
+                }
+            } else {
+                abrirGeneral()
+                finalizar(.init(ok: true, mensaje: r.mensaje
+                    + " No encontré «\(nombre)»; abrí WhatsApp para que elijas el chat y pegues \(objeto)."))
+            }
+        }
+    }
     /// Modal para elegir cuando varios contactos coinciden (ej. 10 "Alberto").
+    @discardableResult
     private func elegirContactoWA(_ matches: [ContactoWA], texto: String, app: Bool,
-                                  aproximada: Bool = false) {
+                                  aproximada: Bool = false,
+                                  contextoAgente: Bool = false) -> ContactoWA? {
         let tope = 6
         let alert = NSAlert()
         alert.messageText = "¿A cuál contacto enviar?"
@@ -3492,8 +4395,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         alert.addButton(withTitle: "Cancelar")
         NSApp.activate(ignoringOtherApps: true)
+        hablarConfirmacionAgente("Encontré varios contactos. ¿A cuál quieres enviar?",
+                                 activo: contextoAgente)
         let idx = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-        if idx >= 0, idx < min(tope, matches.count) { abrirWA(numero: matches[idx].numero, texto: texto, app: app) }
+        detenerPreguntaHablada()
+        guard idx >= 0, idx < min(tope, matches.count) else { return nil }
+        let elegido = matches[idx]
+        abrirWA(numero: elegido.numero, texto: texto, app: app)
+        return elegido
     }
 
     /// Abre una app y CREA un ítem nuevo con el texto vía Accesibilidad (que ya
@@ -3512,19 +4421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Quita el nombre de la aplicación del inicio y conserva el contenido. También
     /// tolera "y escribe/pega/pon…" para hablar de corrido.
     private func contenidoTrasAplicacion(_ texto: String, consumidas: Int) -> String {
-        var toks = texto.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        if consumidas > 0 { toks = Array(toks.dropFirst(min(consumidas, toks.count))) }
-        func n(_ s: String) -> String { AplicacionesMac.normalizar(s) }
-        let patrones = [
-            ["y", "escribe"], ["y", "pega"], ["y", "pon"], ["y", "coloca"],
-            ["escribe"], ["pega"], ["pon"], ["coloca"], ["lo", "siguiente"], ["el", "texto"]
-        ]
-        for p in patrones where toks.count >= p.count
-            && Array(toks.prefix(p.count).map(n)) == p {
-            toks.removeFirst(p.count); break
-        }
-        return toks.joined(separator: " ")
-            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;\n\t"))
+        DocumentosMac.contenidoParaAplicacion(texto, consumidas: consumidas)
     }
 
     private func appEsFrontal(_ app: AplicacionMac, proceso: NSRunningApplication?) -> Bool {
@@ -3551,6 +4448,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                completion: (() -> Void)?) {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.isEmpty { copyText(t) } // respaldo persistente aunque el pegado no encuentre un campo
+        if app.bundleId.caseInsensitiveCompare("com.microsoft.Word") == .orderedSame,
+           !t.isEmpty, Config.aplicacionPegarAutomatico(),
+           Config.aplicacionNuevoDocumento() {
+            DocumentosMac.crearEnWord(t) { [weak self] resultado in
+                ModosLog.registrar("aplicacion", [
+                    "resultado": resultado.ok ? "documento_verificado" : "fallo_documento",
+                    "nombre": app.nombre, "bundle": app.bundleId,
+                    "texto_caracteres": t.count, "verificado": resultado.ok,
+                    "mensaje": resultado.mensaje,
+                ])
+                AgenteLog.registrar("resultado_herramienta", [
+                    "accion": "aplicacion_word", "ok": resultado.ok,
+                    "mensaje": resultado.mensaje,
+                ])
+                if let self, !self.recorder.isRecording {
+                    self.setIcono(.reposo)
+                    self.panel.updateForzado((resultado.ok ? "✓ " : "⚠️ ") + resultado.mensaje)
+                    self.panel.hide(after: resultado.ok ? 3 : 4)
+                }
+                completion?()
+            }
+            return
+        }
         let configuracion = NSWorkspace.OpenConfiguration()
         configuracion.activates = true
         NSWorkspace.shared.openApplication(at: app.url, configuration: configuracion) { [weak self] proceso, error in
@@ -3596,7 +4516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func elegirAplicacion(_ matches: [CoincidenciaAplicacionMac], texto: String,
                                   modo: Modo, wav: Data, history: HistoryWriter?,
-                                  completion: (() -> Void)?) {
+                                  completion: (() -> Void)?, contextoAgente: Bool = false) {
         let opciones = Array(matches.prefix(6))
         let alert = NSAlert()
         alert.messageText = "¿Qué aplicación quieres abrir?"
@@ -3604,7 +4524,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         opciones.forEach { alert.addButton(withTitle: $0.app.nombre) }
         alert.addButton(withTitle: "Cancelar")
         NSApp.activate(ignoringOtherApps: true)
+        hablarConfirmacionAgente("Encontré varias aplicaciones parecidas. ¿Cuál quieres abrir?",
+                                 activo: contextoAgente)
         let idx = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        detenerPreguntaHablada()
         guard idx >= 0, idx < opciones.count else {
             history?.finish(wav: wav, finalText: "")
             completion?(); return
@@ -3614,13 +4537,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var resuelto = AplicacionesMac.aplicar(elegido, a: modo)
         resuelto.nombre = "Aplicación · \(elegido.app.nombre)"
         ejecutarAplicacion(contenido, modo: resuelto, wav: wav, history: history,
-                           completion: completion)
+                           completion: completion, contextoAgente: contextoAgente)
     }
 
     /// Modo Aplicación: inventario local → nombre hablado → abre y coloca texto.
     /// No usa IA, no ejecuta shell y nunca pulsa Enter/envía el contenido.
     private func ejecutarAplicacion(_ texto: String, modo: Modo, wav: Data,
-                                    history: HistoryWriter?, completion: (() -> Void)? = nil) {
+                                    history: HistoryWriter?, completion: (() -> Void)? = nil,
+                                    contextoAgente: Bool = false) {
         defer {
             if completion == nil { restaurarModoVisualSiLibre(origen: "aplicacion_directa") }
         }
@@ -3641,7 +4565,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 contenido = contenidoTrasAplicacion(texto, consumidas: match.palabrasConsumidas)
             case .ambiguas(let matches):
                 elegirAplicacion(matches, texto: texto, modo: modo, wav: wav,
-                                  history: history, completion: completion)
+                                  history: history, completion: completion,
+                                  contextoAgente: contextoAgente)
                 return
             case .ninguna:
                 Log.write("⚠️ modo aplicación: no se reconoció una app instalada en «\(texto)»")
@@ -3655,7 +4580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         guard let app else { completion?(); return }
         Log.write("  ▶︎ aplicación (\(app.nombre)): \(contenido)")
-        ModosLog.registrar("aplicacion", ["resultado": "abrir", "nombre": app.nombre,
+        ModosLog.registrar("aplicacion", ["resultado": "solicitada", "nombre": app.nombre,
             "bundle": app.bundleId, "texto": contenido,
             "pegar": Config.aplicacionPegarAutomatico(),
             "nuevo": Config.aplicacionNuevoDocumento() && app.admiteDocumentoNuevo])
@@ -3670,19 +4595,98 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func ejecutarAccion(_ texto: String, modo: Modo, destinatario: String? = nil,
+                                asunto: String? = nil,
+                                nombreArchivo: String? = nil,
                                 wav: Data, history: HistoryWriter?,
-                                completion: (() -> Void)? = nil) {
+                                completion: (() -> Void)? = nil,
+                                contextoAgente: Bool = false) {
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = modo.accion.isEmpty ? "correo" : modo.accion
+        if id == "musica" {
+            var m = ModosStore.modo("musica")
+            if !modo.musicaProveedor.isEmpty { m.musicaProveedor = modo.musicaProveedor }
+            ejecutarMusica(t, modo: m, wav: wav, history: history,
+                           completion: completion, contextoAgente: contextoAgente)
+            return
+        }
         Log.write("  ▶︎ acción (\(Acciones.nombre(id))): \(t)")
-        ModosLog.registrar("accion", ["accion": id, "texto": t])
+        var logAccion: [String: Any] = ["accion": id, "texto": t]
+        if let destinatario { logAccion["destinatario"] = destinatario }
+        if let asunto { logAccion["asunto"] = asunto }
+        if let nombreArchivo { logAccion["nombre_archivo"] = nombreArchivo }
+        ModosLog.registrar("accion", logAccion)
         history?.finish(wav: wav, finalText: "▶︎ \(Acciones.nombre(id)): \(t)")
         var esperaAsincrona = false
+        var muestraGenerica = true
+        var silenciarSonido = false
         func completar() {
             guard let completion else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: completion)
         }
+        func mostrarResultado(_ r: ResultadoHerramientaApple) {
+            AgenteLog.registrar("resultado_herramienta", ["accion": id, "ok": r.ok,
+                                                           "mensaje": r.mensaje])
+            if !recorder.isRecording {
+                setIcono(.reposo)
+                panel.show((r.ok ? "✓ " : "⚠️ ") + r.mensaje)
+                panel.hide(after: r.ok ? 2.6 : 3.6)
+            }
+            if contextoAgente, !r.ok, id != "grabar_pantalla" {
+                responderBreveAgente(r.mensaje, evento: "fallo_herramienta")
+            }
+        }
         switch id {
+        case "gmail", "correo", "outlook":
+            muestraGenerica = false
+            let b = BorradoresCorreo.preparar(texto: t, destinatario: destinatario,
+                                               asuntoSugerido: asunto)
+            // Las URL de composición tienen límites distintos por cliente. Un
+            // cuerpo largo nunca se trunca: abre el borrador con sus campos y
+            // conserva TODO el cuerpo en el portapapeles para ⌘V.
+            let limiteURL = id == "correo" ? 12_000 : 4_500
+            let cuerpoPrecargado = b.cuerpo.utf8.count <= limiteURL
+            let bURL = cuerpoPrecargado ? b : BorradorCorreoPreparado(
+                destinatario: b.destinatario, asunto: b.asunto, cuerpo: "")
+            if !cuerpoPrecargado { copyText(b.cuerpo) }
+            if id == "outlook" {
+                esperaAsincrona = true
+                BorradoresCorreo.abrirOutlook(bURL) { r in
+                    var mensaje = r.mensaje
+                    if r.ok, !cuerpoPrecargado {
+                        mensaje += " El cuerpo completo quedó en el portapapeles para pegar con comando V."
+                    }
+                    AgenteLog.registrar("borrador_correo", [
+                        "proveedor": id, "destinatario": b.destinatario,
+                        "asunto": b.asunto, "ok": r.ok, "enviado": false,
+                        "cuerpo_precargado": cuerpoPrecargado,
+                        "destino_real": r.destino, "verificado": r.verificado,
+                    ])
+                    mostrarResultado(.init(ok: r.ok, mensaje: mensaje))
+                    completar()
+                }
+            } else {
+                let abierto: Bool
+                if id == "gmail" {
+                    abierto = BorradoresCorreo.urlGmail(bURL).map {
+                        NSWorkspace.shared.open($0)
+                    } ?? false
+                } else {
+                    abierto = BorradoresCorreo.urlMail(bURL).map {
+                        NSWorkspace.shared.open($0)
+                    } ?? false
+                }
+                AgenteLog.registrar("borrador_correo", [
+                    "proveedor": id, "destinatario": b.destinatario,
+                    "asunto": b.asunto, "ok": abierto, "enviado": false,
+                    "cuerpo_precargado": cuerpoPrecargado,
+                    "destino_real": id, "verificado": false,
+                ])
+                mostrarResultado(.init(ok: abierto, mensaje: abierto
+                    ? (cuerpoPrecargado
+                        ? "Abrí el borrador en \(id == "correo" ? "Mail" : "Gmail"); revísalo antes de enviarlo."
+                        : "Abrí el borrador; como el cuerpo es largo, quedó completo en el portapapeles para pegar con comando V.")
+                    : "No pude abrir el borrador de correo."))
+            }
         case "spotlight":
             abrirSpotlight()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { pasteText(t) }
@@ -3703,7 +4707,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self?.abrirWA(numero: matches[0].numero, texto: msg, app: tieneApp)
                     } else if !matches.isEmpty {
                         self?.elegirContactoWA(matches, texto: msg, app: tieneApp,
-                                               aproximada: aproximada)
+                                               aproximada: aproximada,
+                                               contextoAgente: contextoAgente)
                     } else {
                         self?.abrirWA(numero: nil, texto: msg.isEmpty ? t : msg, app: tieneApp)
                         if self?.recorder.isRecording == false {
@@ -3719,12 +4724,122 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
         case "notas" where !t.isEmpty:       crearEnApp(bundle: "com.apple.Notes", texto: t)
-        case "recordatorios" where !t.isEmpty: crearEnApp(bundle: "com.apple.reminders", texto: t)
+        case "recordatorios" where !t.isEmpty:
+            esperaAsincrona = true; muestraGenerica = false
+            AppleAgenda.crearRecordatorio(t) { r in mostrarResultado(r); completar() }
+        case "calendario" where !t.isEmpty:
+            esperaAsincrona = true; muestraGenerica = false
+            AppleAgenda.crearEvento(t) { r in mostrarResultado(r); completar() }
+        case "captura_pantalla", "grabar_pantalla", "captura_compartir":
+            esperaAsincrona = true; muestraGenerica = false
+            let tipoForzado: TipoCapturaMac? = id == "grabar_pantalla" ? .video
+                : (id == "captura_pantalla" ? .imagen : nil)
+            var solicitud = SolicitudCapturaMac.interpretar(t, tipoForzado: tipoForzado)
+            if id == "captura_compartir" {
+                solicitud.compartirWhatsApp = true; solicitud.copiar = true
+            }
+            silenciarSonido = solicitud.tipo == .video
+            let iniciarCaptura = { [weak self] in
+                CapturaMac.ejecutar(solicitud) { [weak self] resultado in
+                    guard let self else { completar(); return }
+                    self.setIcono(.reposo)
+                    self.panel.terminarCapturaPrivada()
+                    AgenteLog.registrar("captura_interfaz", [
+                        "estado": "restaurada", "tipo": resultado.solicitud.tipo.rawValue,
+                        "ok": resultado.ok,
+                    ])
+                    if resultado.ok, resultado.solicitud.compartirWhatsApp {
+                        self.prepararCapturaParaWhatsApp(resultado, contextoAgente: contextoAgente) { final in
+                            mostrarResultado(final); completar()
+                        }
+                    } else {
+                        mostrarResultado(.init(ok: resultado.ok, mensaje: resultado.mensaje)); completar()
+                    }
+                }
+            }
+            if solicitud.tipo == .video {
+                prepararSilencioGrabacion(origen: "antes_de_screencapture")
+                setIcono(.grabando)
+            }
+            // Desde este punto ningún flash, parcial o respuesta tardía puede
+            // volver a mostrar el notch. El pequeño margen permite que Window
+            // Server procese `orderOut` antes del primer fotograma.
+            panel.comenzarCapturaPrivada()
+            AgenteLog.registrar("captura_interfaz", [
+                "estado": "oculta", "tipo": solicitud.tipo.rawValue,
+                "detencion": solicitud.detencion,
+            ])
+            DispatchQueue.main.asyncAfter(deadline: .now() + (solicitud.tipo == .video ? 0.30 : 0.18),
+                                           execute: iniciarCaptura)
+        case "archivo" where !t.isEmpty:
+            esperaAsincrona = true; muestraGenerica = false
+            let solicitud = ArchivosMac.interpretarSolicitud(
+                t, forzarFinder: modo.prompt == "finder")
+            let consulta = solicitud.consulta
+            if consulta.isEmpty {
+                mostrarResultado(.init(ok: false,
+                    mensaje: "Dime qué archivo o documento quieres buscar."))
+                completar()
+            } else if solicitud.mostrarEnFinder,
+                      ArchivosMac.mostrarBusquedaEnFinder(consulta) {
+                mostrarResultado(.init(ok: true,
+                    mensaje: "Abrí Finder con todos los resultados para «\(consulta)»."))
+                completar()
+            } else {
+                ArchivosMac.buscar(consulta) { [weak self] urls in
+                    guard let self else { completar(); return }
+                    if urls.count == 1 { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+                    else if urls.count > 1 {
+                        self.elegirArchivo(urls, consulta: consulta,
+                                           contextoAgente: contextoAgente)
+                    }
+                    // Si Spotlight no encuentra un NOMBRE convincente, no muestra
+                    // seis archivos aleatorios cuyo contenido menciona las palabras.
+                    // Abre Finder para que el usuario vea la búsqueda general.
+                    let abrioFinder = urls.isEmpty
+                        && ArchivosMac.mostrarBusquedaEnFinder(consulta)
+                    let r = ResultadoHerramientaApple(ok: !urls.isEmpty || abrioFinder,
+                        mensaje: urls.isEmpty
+                            ? (abrioFinder
+                                ? "No vi una coincidencia clara por nombre; abrí Finder con la búsqueda completa de «\(consulta)»."
+                                : "No encontré «\(consulta)» en esta Mac.")
+                            : "Encontré \(urls.count) resultado(s) por nombre para «\(consulta)».")
+                    mostrarResultado(r); completar()
+                }
+            }
+        case "archivo_nuevo" where !t.isEmpty:
+            esperaAsincrona = true; muestraGenerica = false
+            ArchivosMac.crearBorrador(t, nombreSugerido: nombreArchivo) { r in
+                mostrarResultado(r); completar()
+            }
+        case "atajo_apple":
+            muestraGenerica = false
+            let nombre = modo.prompt.isEmpty ? Config.agenteAtajoApple() : modo.prompt
+            mostrarResultado(AppleAtajos.ejecutar(nombre: nombre, texto: t))
+        case "rutina":
+            esperaAsincrona = true; muestraGenerica = false
+            RutinasAgenteRunner.ejecutar(id: modo.prompt, texto: t) { r in
+                mostrarResultado(r); completar()
+            }
+        case "nota_local" where !t.isEmpty:
+            muestraGenerica = false; NotasStore.agregar(tipo: "nota", texto: t)
+            mostrarResultado(.init(ok: true, mensaje: "Guardé una nota local en BetoDicta."))
+        case "tarea_local" where !t.isEmpty:
+            muestraGenerica = false; NotasStore.agregar(tipo: "tarea", texto: t)
+            mostrarResultado(.init(ok: true, mensaje: "Guardé una tarea local en BetoDicta."))
         case "textedit" where !t.isEmpty:    crearEnApp(bundle: "com.apple.TextEdit", texto: t)
-        case "outlook" where !t.isEmpty:
-            // Abre un correo NUEVO en Outlook y copia el texto (pega el cuerpo con ⌘V).
-            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string)
-            if let u = URL(string: "ms-outlook://compose") { NSWorkspace.shared.open(u) }
+        case "url":
+            muestraGenerica = false
+            // Una web propia sin API recibe el contenido en el portapapeles;
+            // jamás intentamos pulsar botones o enviar formularios a ciegas.
+            if !t.isEmpty { copyText(t) }
+            let abierta: Bool
+            if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
+                abierta = NSWorkspace.shared.open(url)
+            } else { abierta = false }
+            mostrarResultado(.init(ok: abierta, mensaje: abierta
+                ? "Abrí la web configurada y dejé el texto en el portapapeles."
+                : "La URL no es segura. Usa HTTPS, o HTTP únicamente para localhost."))
         default:
             if let s = Acciones.url(id, texto: t, custom: modo.prompt), let url = URL(string: s) {
                 NSWorkspace.shared.open(url)   // correo mailto, mapas, url propia
@@ -3737,8 +4852,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
         }
-        playSound("Glass")
-        if !recorder.isRecording {
+        if !silenciarSonido { playSound("Glass") }
+        if muestraGenerica, !recorder.isRecording {
             setIcono(.reposo)
             panel.updateForzado("▶︎ " + t)
             panel.hide(after: 1.6)
@@ -3747,9 +4862,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !esperaAsincrona { completar() }
     }
 
+    private func elegirArchivo(_ urls: [URL], consulta: String,
+                               contextoAgente: Bool = false) {
+        let opciones = Array(urls.prefix(6))
+        let alert = NSAlert()
+        alert.messageText = "¿Qué archivo quieres abrir?"
+        alert.informativeText = "Encontré varios resultados para «\(consulta)»."
+        opciones.forEach { alert.addButton(withTitle: $0.lastPathComponent) }
+        alert.addButton(withTitle: "Ver todos los resultados en Finder")
+        NSApp.activate(ignoringOtherApps: true)
+        hablarConfirmacionAgente("Encontré varios archivos para \(consulta). ¿Cuál quieres abrir?",
+                                 activo: contextoAgente)
+        let idx = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        detenerPreguntaHablada()
+        if idx >= 0, idx < opciones.count { NSWorkspace.shared.open(opciones[idx]) }
+        else if !ArchivosMac.mostrarBusquedaEnFinder(consulta) {
+            // Failover local si Finder no acepta la búsqueda Spotlight.
+            NSWorkspace.shared.activateFileViewerSelecting(opciones)
+        }
+    }
+
+    /// Modo Música: intenta el proveedor pedido y continúa por su cascada. No
+    /// modifica el motor multimedia usado para pausar/reanudar al dictar.
+    private func ejecutarMusica(_ texto: String, modo: Modo, wav: Data,
+                                history: HistoryWriter?, completion: (() -> Void)? = nil,
+                                contextoAgente: Bool = false) {
+        let solicitado = modo.musicaProveedor.isEmpty ? "auto" : modo.musicaProveedor
+        let intencion = IntencionMusica(rawValue: modo.musicaAccion) ?? Musica.intencion(texto)
+        let consulta = Musica.extraerConsulta(texto, proveedor: solicitado)
+        Log.write("  🎵 música · \(intencion.rawValue) (\(Musica.nombre(solicitado))): \(consulta)")
+        let verbo = intencion == .buscar ? "Buscar" : "Reproducir"
+        history?.finish(wav: wav, finalText: "🎵 \(verbo) · \(Musica.nombre(solicitado)): \(consulta)")
+        Musica.ejecutar(consulta, solicitado: solicitado, intencion: intencion) { [weak self] r in
+            guard let self else { completion?(); return }
+            ModosLog.registrar("musica", ["proveedor": r.proveedor, "consulta": consulta,
+                                            "intencion": intencion.rawValue,
+                                            "ok": r.ok, "mensaje": r.mensaje,
+                                            "estado": r.estado.rawValue])
+            playSound("Glass")
+            let finalizar: () -> Void = { [weak self] in
+                guard let self else { completion?(); return }
+                if completion == nil { self.restaurarModoVisualSiLibre(origen: "musica_directa") }
+                if let completion {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: completion)
+                }
+            }
+            if contextoAgente, Config.agenteRespuestaActiva() {
+                self.responderBreveAgente(r.mensaje, evento: "resultado_musica",
+                                          esperarVoz: true,
+                                          completion: finalizar)
+            } else {
+                if !self.recorder.isRecording {
+                    self.setIcono(.reposo)
+                    self.panel.updateForzado((r.ok ? "🎵 " : "⚠️ ") + r.mensaje)
+                    self.panel.hide(after: r.ok ? 2.2 : 3.2)
+                }
+                finalizar()
+            }
+        }
+    }
+
     /// Modo Buscar: abre el buscador elegido con la consulta dictada (web o Spotlight).
     private func ejecutarBusqueda(_ query: String, modo: Modo, wav: Data,
-                                  history: HistoryWriter?, completion: (() -> Void)? = nil) {
+                                  history: HistoryWriter?, completion: (() -> Void)? = nil,
+                                  contextoAgente: Bool = false) {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = modo.buscador.isEmpty ? "google" : modo.buscador
         Log.write("  🔎 buscar (\(Buscadores.nombre(id))): \(q)")

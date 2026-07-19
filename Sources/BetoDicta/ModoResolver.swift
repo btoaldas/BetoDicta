@@ -44,6 +44,20 @@ struct ModoContexto {
 struct ModoAccionPlan {
     var modo: Modo
     var destinatario: String?
+    /// Asunto explícito de un borrador de correo. Si queda vacío, el redactor
+    /// puede devolver una línea `ASUNTO:` y el ejecutor la extrae localmente.
+    var asunto: String?
+    /// Nombre sugerido para una creación local; la ubicación siempre la elige
+    /// el usuario mediante NSSavePanel.
+    var nombreArchivo: String?
+
+    init(modo: Modo, destinatario: String?, asunto: String? = nil,
+         nombreArchivo: String? = nil) {
+        self.modo = modo
+        self.destinatario = destinatario
+        self.asunto = asunto
+        self.nombreArchivo = nombreArchivo
+    }
 }
 
 /// Un plan puede tener N transformaciones y N acciones. `accion` se conserva como
@@ -139,8 +153,18 @@ struct ModoCatalogo {
                 }
             }
         }
-        exactos = ex.sorted { $0.tokens.count > $1.tokens.count }
-        difusos = di.sorted { $0.tokens.count > $1.tokens.count }
+        // Compatibilidad: versiones anteriores podían crear un modo Acción
+        // “Música” con la misma frase exacta “modo música”. A igualdad de largo,
+        // el modo dedicado nuevo gana; los alias exclusivos del modo viejo siguen
+        // funcionando. Sin este desempate el resultado dependía del orden del JSON.
+        func antes(_ a: Disparador, _ b: Disparador) -> Bool {
+            if a.tokens.count != b.tokens.count { return a.tokens.count > b.tokens.count }
+            let aMusica = a.modo.id == "musica", bMusica = b.modo.id == "musica"
+            if aMusica != bMusica { return aMusica }
+            return false
+        }
+        exactos = ex.sorted(by: antes)
+        difusos = di.sorted(by: antes)
     }
 }
 
@@ -214,6 +238,9 @@ enum ModoResolver {
         } else if modo.base == "buscar" {
             fillers = ["en"]
             reconocer = Buscadores.reconocer
+        } else if modo.base == "musica" {
+            fillers = ["en", "con"]
+            reconocer = { Musica.reconocerProveedor(en: $0) }
         } else if modo.base == "aplicacion" {
             guard Config.modoAplicaciones() else { return (modo, inicio) }
             switch AplicacionesMac.resolverPrefijo(Array(normalizados.dropFirst(inicio))) {
@@ -229,10 +256,20 @@ enum ModoResolver {
         if fillers.contains(normalizados[candidato]), candidato + 1 < normalizados.count {
             candidato += 1
         }
-        guard let valor = reconocer(normalizados[candidato]) else { return (modo, inicio) }
+        var consumidas = candidato + 1
+        var valor = reconocer(normalizados[candidato])
+        if modo.base == "musica", candidato + 1 < normalizados.count {
+            let dos = normalizados[candidato] + " " + normalizados[candidato + 1]
+            if ["apple music", "youtube music"].contains(dos),
+               let p = Musica.reconocerProveedor(en: dos) {
+                valor = p; consumidas = candidato + 2
+            }
+        }
+        guard let valor else { return (modo, inicio) }
         if modo.base == "traducir" { modo.idiomaDestino = valor }
+        else if modo.base == "musica" { modo.musicaProveedor = valor }
         else { modo.buscador = valor }
-        return (modo, candidato + 1)
+        return (modo, consumidas)
     }
 
     private static func construir(_ disparador: ModoCatalogo.Disparador,
@@ -391,6 +428,7 @@ enum ModoResolver {
         switch modo.id {
         case "traducir": return ["traduc", "traduzc"]
         case "buscar": return ["busc", "busq", "googl"]
+        case "musica": return ["music", "cancion", "reproduc", "pon"]
         case "tarea": return ["tarea"]
         case "nota": return ["nota", "apunt", "anot"]
         case "correo": return ["correo", "mail"]
@@ -573,7 +611,7 @@ enum ModoResolver {
             return nil
         }
         let cadena: ModoCadena
-        if modo.base == "accion" || modo.base == "buscar" || modo.base == "aplicacion" {
+        if modo.base == "accion" || modo.base == "buscar" || modo.base == "aplicacion" || modo.base == "musica" {
             cadena = ModoCadena(transforms: [],
                                 acciones: [ModoAccionPlan(modo: modo, destinatario: nil)],
                                 contenido: r.textoLimpio)
@@ -609,12 +647,23 @@ enum ModoResolver {
                                             fuente: .difuso, match: m)))
             return
         }
+        // CAPTURA/GRABACIÓN NATIVA: tiene gramática cerrada, herramienta propia
+        // y confirmación obligatoria. Si su interruptor está encendido, una orden
+        // inequívoca como “Graba la pantalla…” no debe depender del árbitro de IA
+        // ni del interruptor general de gramática natural. “Modo por voz” sigue
+        // siendo el corte maestro para quien quiera dictado puro.
+        if Config.modoPorVoz(), Config.agenteHerramientaCapturas(),
+           let plan = AgenteNucleo.planificarCaptura(texto) {
+            completion(.preguntarPlan(plan))
+            return
+        }
         // PEDIDO NATURAL: construye un plan de 1..N etapas por relaciones verbales.
         // Nunca ejecuta directo: el usuario ve exactamente qué entendimos y confirma.
         // Esta capa reemplaza en producción las antiguas raíces gramaticales amplias,
         // que confundían títulos como "Notas de la reunión" con órdenes.
         if Config.modoPorVoz(), Config.modoGramatical(),
-           let plan = ModoPlanificador.detectarNatural(texto, catalogo: catalogo) {
+           let plan = detectarPedidoNatural(texto, catalogo: catalogo,
+                                             permitirCapturas: false) {
             completion(.preguntarPlan(plan))
             return
         }
@@ -695,5 +744,17 @@ enum ModoResolver {
             }
         } else if solicitud { arbitrarIA() }
         else { contextoORespaldo() }
+    }
+
+    /// Une las órdenes generales de Modos con herramientas locales que tienen
+    /// una gramática especializada. Así "haz una captura…" funciona también
+    /// como orden natural (con confirmación) sin exigir "Oye Bto" ni "modo".
+    /// El parámetro explícito mantiene el QA independiente de la configuración.
+    static func detectarPedidoNatural(_ texto: String, catalogo: ModoCatalogo,
+                                      permitirCapturas: Bool = Config.agenteHerramientaCapturas())
+        -> ModoPreguntaPlan? {
+        if let plan = ModoPlanificador.detectarNatural(texto, catalogo: catalogo) { return plan }
+        if permitirCapturas, let plan = AgenteNucleo.planificarCaptura(texto) { return plan }
+        return nil
     }
 }

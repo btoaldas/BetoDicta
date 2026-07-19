@@ -190,6 +190,7 @@ struct ModelsView: View {
     // haya cerrado y reabierto a mitad de la descarga.
     @ObservedObject private var descargas = Descargas.shared
     @State private var sttTick = 0   // re-render tras detectar STT local
+    @State private var chatTick = 0  // re-render tras comprobar cuenta Codex
 
     /// DETECCIÓN INTELIGENTE: oculta los motores STT locales que NO tienen un
     /// modelo que escuche (Ollama/LM Studio sin whisper). Van al final (orden
@@ -369,6 +370,18 @@ struct ModelsView: View {
                 ForEach(Providers.cloudDisponibles, id: \.id) { c in
                     CloudRow(id: c.id, nombre: c.nombre, modelos: c.modelos, keyEnv: c.keyEnv, onChange: { m.recargar() })
                 }
+            }
+
+            // No mezclarlo con la cascada STT: una cuenta ChatGPT no transcribe
+            // audio. Es un proveedor adicional de TEXTO para pulido y Modos.
+            seccion("IA de texto por cuenta · NO transcribe audio", "brain.head.profile") {
+                let _ = chatTick
+                Label("Esta conexión no pertenece a la cascada de voz→texto. Primero transcribe Groq, Apple, ElevenLabs u otro STT; después Codex puede pulir, traducir, aplicar un Modo o responder.",
+                      systemImage: "info.circle.fill")
+                    .font(.caption).foregroundStyle(.orange)
+                CodexCuentaConexionView { chatTick += 1 }
+                Text("Cuando esté conectada aparecerá como «ChatGPT por cuenta (Codex)» en Ajustes → Pulido y en la IA propia de cada Modo. OpenAI por API y los motores STT permanecen separados.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }

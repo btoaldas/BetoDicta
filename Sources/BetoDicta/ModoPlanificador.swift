@@ -78,6 +78,33 @@ enum ModoPlanificador {
         "busca", "buscame", "buscar", "buscalo", "busquela", "googlea", "googlear",
         "busques", "busque", "busquen", "investiga", "investigar", "investigues"
     ]
+    private static let verbosMusica: Set<String> = [
+        "pon", "ponme", "poner", "reproduce", "reproduceme", "reproducir", "toca",
+        "tocame", "escucha", "escuchame", "escuchar"
+    ]
+    private static let verbosBuscarMusica: Set<String> = [
+        "busca", "buscame", "buscar", "buscalo", "busquela", "encuentra", "encuentrame",
+        "encontrar", "muestra", "muestrame", "mostrar"
+    ]
+    private static let objetosMusica: Set<String> = [
+        "musica", "cancion", "canciones", "tema", "playlist", "radio", "album"
+    ]
+    private static let verbosRecordar: Set<String> = [
+        "recuerdame", "recordarme", "avisame", "avisar", "recuerdalo"
+    ]
+    private static let verbosAgendar: Set<String> = [
+        "agenda", "agendame", "agendar", "programa", "programame", "programar"
+    ]
+    private static let objetosAgenda: Set<String> = ["evento", "reunion", "cita", "calendario", "agenda", "horario"]
+    private static let verbosMostrarArchivo: Set<String> = [
+        "muestra", "muestrame", "muestralo", "mostrar", "ver",
+        "ensena", "ensename", "ensenalo", "revela", "revelame", "revelalo"
+    ]
+    private static let verbosArchivo: Set<String> = [
+        "busca", "buscame", "buscar", "encuentra", "encuentrame", "encontrar",
+        "abre", "abrir", "abreme", "muestra", "muestrame", "muestralo", "mostrar",
+        "ver", "ensena", "ensename", "ensenalo", "revela", "revelame", "revelalo"
+    ]
     private static let verbosRedactar: Set<String> = [
         "redacta", "redactame", "redactar", "escribe", "escribeme", "escribir",
         "redactes", "redacte", "escribas", "escriba", "prepara", "preparame", "preparar",
@@ -121,12 +148,12 @@ enum ModoPlanificador {
     private static func agregarAccion(_ etapa: ModoAccionPlan, a parcial: inout Parcial) {
         let destino = etapa.modo.base == "aplicacion"
             ? "app:\(etapa.modo.appBundleId)|\(etapa.modo.appRuta)"
-            : etapa.modo.accion
+            : (etapa.modo.base == "musica" ? "musica:\(etapa.modo.musicaProveedor)" : etapa.modo.accion)
         let firma = "\(destino)|\(etapa.destinatario ?? "")"
         guard !parcial.acciones.contains(where: {
             let otro = $0.modo.base == "aplicacion"
                 ? "app:\($0.modo.appBundleId)|\($0.modo.appRuta)"
-                : $0.modo.accion
+                : ($0.modo.base == "musica" ? "musica:\($0.modo.musicaProveedor)" : $0.modo.accion)
             return "\(otro)|\($0.destinatario ?? "")" == firma
         }) else { return }
         parcial.acciones.append(etapa)
@@ -165,6 +192,16 @@ enum ModoPlanificador {
         return primer <= 8 && ts[..<primer].allSatisfy { prefijoSolicitud.contains($0.normal) }
     }
 
+    private static func pideResultadosEnFinder(desde inicio: Int, en ts: [Token]) -> Bool {
+        let fin = min(ts.count, inicio + 18)
+        guard inicio < fin else { return false }
+        let zona = Array(ts[inicio..<fin].map(\.normal))
+        guard let f = zona.firstIndex(of: "finder") else { return false }
+        if zona.contains(where: verbosMostrarArchivo.contains) { return true }
+        if f > 0, zona[f - 1] == "en" { return true }
+        return f > 1 && zona[f - 2] == "en" && zona[f - 1] == "el"
+    }
+
     private static func idiomaDespues(de i: Int, en ts: [Token]) -> (String, Int)? {
         var j = i + 1
         while j < ts.count, ["a", "al", "en", "idioma"].contains(ts[j].normal) { j += 1 }
@@ -178,6 +215,21 @@ enum ModoPlanificador {
         for j in (i + 1)..<limite {
             if let b = Buscadores.reconocer(ts[j].normal) { return (b, j) }
             if !["en", "por", "con", "el", "la", "un", "una", "buscador"].contains(ts[j].normal) { break }
+        }
+        return nil
+    }
+
+    private static func proveedorMusicaCercano(desde i: Int, en ts: [Token]) -> (String, Int)? {
+        let limite = min(ts.count, i + 7)
+        guard i + 1 < limite else { return nil }
+        for j in (i + 1)..<limite {
+            if j + 1 < limite {
+                let dos = ts[j].normal + " " + ts[j + 1].normal
+                if ["apple music", "youtube music"].contains(dos),
+                   let p = Musica.reconocerProveedor(en: dos) { return (p, j + 1) }
+            }
+            if let p = Musica.reconocerProveedor(en: ts[j].normal) { return (p, j) }
+            if !["en", "por", "con", "el", "la", "un", "una", "musica", "music"].contains(ts[j].normal) { break }
         }
         return nil
     }
@@ -288,9 +340,13 @@ enum ModoPlanificador {
             guard let anterior = finEtapaAnterior else { return false }
             return puenteValido(texto, desde: anterior, hasta: ts[indice].rango.location)
         }
-        func marcar(_ inicio: Int, _ finIndice: Int, confianza: Double) {
+        func marcar(_ inicio: Int, _ finIndice: Int,
+                    contenidoDespuesDe: Int? = nil, confianza: Double) {
             if p.primerComando == nil { p.primerComando = inicio }
-            p.ultimoComando = max(p.ultimoComando ?? 0, finIndice)
+            // Algunas palabras confirman el destino sin dejar de ser contenido.
+            // En «agenda un horario/reunión mañana…», horario/reunión será el
+            // título del evento; solo el verbo «agenda» debe recortarse.
+            p.ultimoComando = max(p.ultimoComando ?? 0, contenidoDespuesDe ?? finIndice)
             finEtapaAnterior = fin(ts[finIndice].rango)
             p.confianza = max(p.confianza, confianza)
         }
@@ -322,6 +378,62 @@ enum ModoPlanificador {
             if verbosAgente.contains(t), puedeAgregar(en: i),
                let (id, j) = destinoAgente(desde: i, en: ts), let m = modo(id, catalogo: catalogo) {
                 agregarTransform(m, a: &p); marcar(i, j, confianza: 0.91); i = j + 1; continue
+            }
+            // “busca música de Julio” conserva una intención distinta de
+            // “pon música de Julio”: la primera solo muestra resultados.
+            if verbosBuscarMusica.contains(t), puedeAgregar(en: i),
+               let mBase = modo("musica", catalogo: catalogo) {
+                let limite = min(ts.count, i + 7)
+                let cerca = i + 1 < limite ? Array(ts[(i + 1)..<limite].map(\.normal)) : []
+                let mencionaMusica = cerca.contains(where: objetosMusica.contains)
+                let prov = proveedorMusicaCercano(desde: i, en: ts)
+                if mencionaMusica || prov != nil {
+                    var m = mBase; m.musicaAccion = "buscar"; var ultimo = i
+                    if let (id, j) = prov { m.musicaProveedor = id; ultimo = max(ultimo, j) }
+                    if let j = ((i + 1)..<limite).first(where: { objetosMusica.contains(ts[$0].normal) }) {
+                        ultimo = max(ultimo, j)
+                    }
+                    agregarAccion(ModoAccionPlan(modo: m, destinatario: nil), a: &p)
+                    marcar(i, ultimo, confianza: 0.97); i = ultimo + 1; continue
+                }
+            }
+            // "pon música de Jessy Uribe" / "reproduce en Spotify…". Exige un
+            // objeto musical o proveedor cercano; "pon el informe" no activa nada.
+            if verbosMusica.contains(t), puedeAgregar(en: i),
+               let mBase = modo("musica", catalogo: catalogo) {
+                let limite = min(ts.count, i + 7)
+                let cerca = i + 1 < limite ? Array(ts[(i + 1)..<limite].map(\.normal)) : []
+                let mencionaMusica = cerca.contains(where: objetosMusica.contains)
+                let prov = proveedorMusicaCercano(desde: i, en: ts)
+                if mencionaMusica || prov != nil {
+                    var m = mBase; m.musicaAccion = "reproducir"; var ultimo = i
+                    if let (id, j) = prov { m.musicaProveedor = id; ultimo = max(ultimo, j) }
+                    if let j = ((i + 1)..<limite).first(where: { objetosMusica.contains(ts[$0].normal) }) {
+                        ultimo = max(ultimo, j)
+                    }
+                    agregarAccion(ModoAccionPlan(modo: m, destinatario: nil), a: &p)
+                    marcar(i, ultimo, confianza: 0.96); i = ultimo + 1; continue
+                }
+            }
+            if verbosRecordar.contains(t), puedeAgregar(en: i) {
+                agregarAccion(ModoAccionPlan(modo: accion("recordatorios"), destinatario: nil), a: &p)
+                marcar(i, i, confianza: 0.97); i += 1; continue
+            }
+            if verbosAgendar.contains(t), puedeAgregar(en: i) {
+                let limite = min(ts.count, i + 6)
+                if let j = ((i + 1)..<limite).first(where: { objetosAgenda.contains(ts[$0].normal) }) {
+                    agregarAccion(ModoAccionPlan(modo: accion("calendario"), destinatario: nil), a: &p)
+                    marcar(i, j, contenidoDespuesDe: i, confianza: 0.95); i = j + 1; continue
+                }
+            }
+            if verbosArchivo.contains(t), puedeAgregar(en: i) {
+                let limite = min(ts.count, i + 5)
+                if let j = ((i + 1)..<limite).first(where: { ["archivo", "documento", "carpeta"].contains(ts[$0].normal) }) {
+                    var m = accion("archivo")
+                    if pideResultadosEnFinder(desde: i, en: ts) { m.prompt = "finder" }
+                    agregarAccion(ModoAccionPlan(modo: m, destinatario: nil), a: &p)
+                    marcar(i, j, confianza: 0.95); i = j + 1; continue
+                }
             }
             if verbosBuscar.contains(t), puedeAgregar(en: i) {
                 var m = modo("buscar", catalogo: catalogo) ?? accion("buscar")
@@ -389,7 +501,21 @@ enum ModoPlanificador {
         guard limite > 0 else { return nil }
         for i in 0..<min(limite, ns.length) {
             let u = UnicodeScalar(ns.character(at: i))
-            if let u, caracteres.contains(u) { return i }
+            guard let u, caracteres.contains(u) else { continue }
+            // En "recuérdame mañana a las 8:00 p.m." los dos puntos son parte
+            // de la hora, no el límite entre la orden y su contenido. Tratarlo
+            // como separador recortaba la orden a "00 p.m." y EventKit terminaba
+            // creando el recordatorio a medianoche.
+            if u == ":", i > 0, i + 1 < ns.length {
+                let anterior = UnicodeScalar(ns.character(at: i - 1))
+                let siguiente = UnicodeScalar(ns.character(at: i + 1))
+                if let anterior, let siguiente,
+                   CharacterSet.decimalDigits.contains(anterior),
+                   CharacterSet.decimalDigits.contains(siguiente) {
+                    continue
+                }
+            }
+            return i
         }
         return nil
     }
@@ -466,17 +592,40 @@ enum ModoPlanificador {
         }
         if modo.id == "resumir" { return "Resumir" }
         if modo.id == "agente" { return "Preguntar al agente" }
+        if modo.base == "musica" {
+            let verbo = modo.musicaAccion == "buscar" ? "Buscar música" : "Reproducir música"
+            return ["", "auto"].contains(modo.musicaProveedor)
+                ? verbo
+                : "\(verbo) en \(Musica.nombre(modo.musicaProveedor))"
+        }
         if modo.nombre == "Formalizar" { return "Formalizar" }
         if modo.base == "buscar" { return "Buscar en \(Buscadores.nombre(modo.buscador))" }
         if modo.base == "aplicacion" {
             return "Abrir \(modo.appNombre.isEmpty ? "una aplicación" : modo.appNombre) y colocar el texto"
         }
         if modo.base == "accion" {
-            var d = modo.accion == "correo" || modo.accion == "outlook"
-                ? "Enviar por \(Acciones.nombre(modo.accion))"
-                : (modo.accion == "whatsapp" || modo.accion == "mensajes"
-                    ? "Enviar por \(Acciones.nombre(modo.accion))"
-                    : "Abrir \(Acciones.nombre(modo.accion))")
+            switch modo.accion {
+            case "gmail":
+                return "Preparar un borrador en Gmail" + ((destinatario?.isEmpty == false) ? " para \(destinatario!)" : "")
+            case "correo":
+                return "Preparar un borrador en Mail" + ((destinatario?.isEmpty == false) ? " para \(destinatario!)" : "")
+            case "outlook":
+                return "Preparar un borrador en Outlook" + ((destinatario?.isEmpty == false) ? " para \(destinatario!)" : "")
+            case "recordatorios": return "Crear un recordatorio"
+            case "calendario": return "Crear un evento en Calendario"
+            case "archivo": return modo.prompt == "finder"
+                ? "Mostrar resultados de archivos en Finder"
+                : "Buscar un archivo en la Mac"
+            case "archivo_nuevo": return "Crear un archivo local y elegir dónde guardarlo"
+            case "nota_local": return "Guardar una nota local"
+            case "tarea_local": return "Guardar una tarea local"
+            case "atajo_apple": return "Ejecutar el Atajo Apple configurado"
+            case "rutina": return "Ejecutar la rutina configurada"
+            default: break
+            }
+            var d = modo.accion == "whatsapp" || modo.accion == "mensajes"
+                    ? "Abrir borrador en \(Acciones.nombre(modo.accion))"
+                    : "Abrir \(Acciones.nombre(modo.accion))"
             if let destinatario, !destinatario.isEmpty { d += " a \(destinatario)" }
             return d
         }
@@ -506,6 +655,10 @@ enum ModoPlanificador {
     /// contenido. Los pedidos naturales SIEMPRE se confirman aguas arriba.
     static func detectarNatural(_ texto: String,
                                 catalogo: ModoCatalogo = ModoCatalogoCache.actual()) -> ModoPreguntaPlan? {
+        // Las órdenes largas con documento + destino llevan campos adicionales
+        // (destinatario/asunto). Se estructuran antes del parser general, pero
+        // terminan en el MISMO ModoCadena y la misma confirmación.
+        if let p = OrdenEstructurada.detectar(texto, catalogo: catalogo) { return p }
         let ns = texto as NSString
         guard ns.length > 0 else { return nil }
         var sufijo = rangoSufijoSecuencial(texto)
@@ -647,7 +800,9 @@ enum ModoPlanificador {
         let verbo = zona.contains { verbosTraducir.contains($0) || verbosResumir.contains($0)
             || verbosFormalizar.contains($0) || verbosBuscar.contains($0)
             || verbosEnvio.contains($0) || verbosRedactar.contains($0)
-            || verbosGuardar.contains($0) || verbosAbrir.contains($0) || verbosAgente.contains($0) }
+            || verbosGuardar.contains($0) || verbosAbrir.contains($0) || verbosAgente.contains($0)
+            || verbosMusica.contains($0) || verbosRecordar.contains($0)
+            || verbosAgendar.contains($0) || verbosArchivo.contains($0) }
         return pide && verbo
     }
 
@@ -666,6 +821,8 @@ enum ModoPlanificador {
                 || verbosFormalizar.contains(t) || verbosBuscar.contains(t)
                 || verbosEnvio.contains(t) || verbosRedactar.contains(t)
                 || verbosGuardar.contains(t) || verbosAbrir.contains(t) || verbosAgente.contains(t)
+                || verbosMusica.contains(t) || verbosRecordar.contains(t)
+                || verbosAgendar.contains(t) || verbosArchivo.contains(t)
             guard esVerbo, i <= 8,
                   i == 0 || zona[..<i].allSatisfy({ prefijoSolicitud.contains($0) }) else { continue }
 

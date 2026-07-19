@@ -87,6 +87,14 @@ enum ModosAnalizador {
 
         \(resumen)
         """
+        if ia.esCuentaCodex {
+            AgenteCodex.transformar(prompt, modelo: ia.modeloEfectivo,
+                                    timeout: Config.pulidoTimeout()) { salida in
+                let texto = salida?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                completion(texto.isEmpty ? "La cuenta Codex no respondió." : texto)
+            }
+            return
+        }
         guard let req = ia.requestChat(prompt: prompt, temperatura: 0.3, textLen: resumen.count) else { completion("No pude armar la consulta."); return }
         URLSession.shared.dataTask(with: req) { data, resp, _ in
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0

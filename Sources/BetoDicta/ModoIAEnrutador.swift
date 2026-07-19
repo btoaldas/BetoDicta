@@ -141,12 +141,18 @@ enum ModoIAEnrutador {
     static func resolver(_ texto: String, catalogo: ModoCatalogo = ModoCatalogoCache.actual(),
                          completion: @escaping (ModoPreguntaPlan?) -> Void) {
         let preferida = Config.modoIAProveedor()
-        let iaElegida = preferida.isEmpty
-            ? ChatIA.seleccionada()
-            : (ChatIA.conectadasPulido.first(where: { $0.id == preferida }) ?? ChatIA.seleccionada())
+        let directas = ChatIA.conectadasPulido.filter { !$0.esCuentaCodex }
+        let codex = ChatIA.catalogo.first(where: { $0.esCuentaCodex })
+        // Codex CLI tiene arranque de proceso y puede tardar varios segundos en
+        // frío. Solo usarlo aquí si el usuario lo eligió EXPRESAMENTE como
+        // árbitro; elegirlo para Pulido no debe volver lento el enrutamiento.
+        let codexSolicitado = AgenteCodex.disponible && preferida == "codex_account"
+        let iaElegida: ChatIA? = codexSolicitado ? codex : (preferida.isEmpty
+            ? (ChatIA.seleccionada().flatMap { $0.esCuentaCodex ? nil : $0 } ?? directas.first)
+            : (directas.first(where: { $0.id == preferida }) ?? directas.first))
         guard Config.modoIAEnrutamiento(),
               ModoPlanificador.parecePedidoParaArbitraje(texto),
-              let ia = iaElegida, ia.local || ia.baseSegura else {
+              let ia = iaElegida, ia.esCuentaCodex || ia.local || ia.baseSegura else {
             completion(nil); return
         }
 
@@ -182,6 +188,20 @@ enum ModoIAEnrutador {
 
         <orden>\(zona)</orden>
         """
+        if ia.esCuentaCodex {
+            let inicio = Date()
+            Log.log(.ia, "árbitro de modos → \(ia.etiqueta) (zona \(zona.count) chars)")
+            AgenteCodex.transformar(prompt, modelo: ia.modeloEfectivo,
+                                    timeout: Config.modoIATimeout()) { contenido in
+                let resultado = contenido.flatMap {
+                    interpretar($0, textoOriginal: texto, catalogo: catalogo)
+                }
+                let ms = Int(Date().timeIntervalSince(inicio) * 1000)
+                Log.write("árbitro de modos/Codex: \(resultado == nil ? "sin decisión" : "plan propuesto") en \(ms)ms")
+                completion(resultado)
+            }
+            return
+        }
         guard var request = ia.requestChat(prompt: prompt, temperatura: 0, textLen: zona.count) else {
             completion(nil); return
         }

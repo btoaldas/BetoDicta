@@ -372,6 +372,7 @@ private enum Seccion: String, CaseIterable, Identifiable {
     case ajustes = "Ajustes"
     case modelos = "Modelos"
     case modos = "Modos"
+    case asistente = "Asistente"
     case pendientes = "Tareas y notas"
     case historial = "Historial"
     case acciones = "Acciones"
@@ -385,6 +386,7 @@ private enum Seccion: String, CaseIterable, Identifiable {
         case .ajustes: return "gearshape.fill"
         case .modelos: return "cpu.fill"
         case .modos: return "wand.and.stars"
+        case .asistente: return "brain.head.profile"
         case .pendientes: return "checklist"
         case .historial: return "clock.arrow.circlepath"
         case .acciones: return "bolt.fill"
@@ -437,6 +439,7 @@ struct SettingsView: View {
         switch seccion {
         case .modelos: ModelsView()
         case .modos: ModosView()
+        case .asistente: AgenteView()
         case .pendientes: NotasView()
         case .historial: HistorialView()
         case .acciones: acciones
@@ -701,9 +704,13 @@ struct SettingsView: View {
                     // Conectar IAs de nube por key (OpenRouter, DeepSeek, xAI…)
                     SeccionPlegable("Conectar más IAs de chat") {
                         VStack(alignment: .leading, spacing: 8) {
+                            CodexCuentaConexionView { detectTrigger += 1 }
+                            Divider()
                             ForEach([("OPENROUTER_API_KEY", "OpenRouter"), ("GEMINI_API_KEY", "Gemini (Google)"),
                                      ("ANTHROPIC_API_KEY", "Anthropic (Claude)"), ("DEEPSEEK_API_KEY", "DeepSeek"),
                                      ("XAI_API_KEY", "xAI (Grok)"), ("OPENAI_API_KEY", "OpenAI"),
+                                     ("MOONSHOT_API_KEY", "Moonshot AI · Kimi API"),
+                                     ("KIMI_CODE_API_KEY", "Kimi Code · cuenta/plan"),
                                      ("MISTRAL_API_KEY", "Mistral"),
                                      ("CEREBRAS_API_KEY", "Cerebras (gratis)"), ("GITHUB_MODELS_KEY", "GitHub Models (gratis)"),
                                      ("NVIDIA_API_KEY", "NVIDIA NIM (gratis)"), ("TOGETHER_API_KEY", "Together AI"),
@@ -728,6 +735,8 @@ struct SettingsView: View {
                                     }
                                 }
                             }
+                            Text("Acceso por cuenta solo cuando el proveedor lo autoriza oficialmente. Kimi Code usa una key de tu membresía y su cuota; para pulido/producto general, Moonshot API es la vía recomendada. BetoDicta nunca reutiliza cookies ni contraseñas del navegador.")
+                                .font(.caption2).foregroundStyle(.secondary)
                             Divider()
                             Button("IA personalizada (gateway propio)…") { IAPersonalizadaWindow.show() }
                             HStack(spacing: 8) {
@@ -835,22 +844,9 @@ struct SettingsView: View {
                         Text("Activa el modo de buscar por IDEA (no por palabra exacta) en el Historial, con embeddings. Elige con cuál IA se calculan:")
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
-                        Text("Voz del sistema (texto → voz) — Modo Agente").font(.subheadline)
+                        Text("Voz del asistente (texto → voz)").font(.subheadline)
                         Toggle("Que BetoDicta pueda HABLARTE (TTS)", isOn: $m.ttsActivo)
-                        fila("Cerebro") {
-                            Picker("", selection: $m.agenteMotor) {
-                                Text("IA local (de BetoDicta)").tag("local")
-                                Text("Hermes (pasarela: su IA + sus herramientas)").tag("hermes")
-                            }.labelsHidden().frame(width: 300)
-                        }
-                        if m.agenteMotor == "hermes" {
-                            Text("BetoDicta manda tu voz a Hermes; Hermes procesa (crear carpetas, abrir web, lo que sea) y devuelve; aquí se muestra y se HABLA la respuesta. Requiere Hermes instalado (~/.local/bin/hermes).")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        Toggle("El Agente PEGA su respuesta donde estés (además de decirla)", isOn: $m.agentePega)
-                        Text("Apagado (default): el Agente es conversacional — muestra la respuesta en su notch y la habla, sin pegar. Enciéndelo si quieres el texto en tu documento. A futuro será inteligente según lo que pidas.")
-                            .font(.caption2).foregroundStyle(.secondary)
-                        Text("El Modo Agente te lee respuestas en voz. Elige el motor; si el elegido falla (sin key, sin red, sin clon), cae al siguiente y termina en la voz de macOS — nunca se queda mudo.")
+                        Text("La identidad, personalidad, cerebro, autonomía y memoria se configuran en la pestaña Asistente. Aquí eliges únicamente con qué voz habla. Si un motor falla, la cascada termina en la voz de macOS.")
                             .font(.caption).foregroundStyle(.secondary)
                         if m.ttsActivo {
                             fila("Motor") {
@@ -968,7 +964,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Picker("IA para desempatar", selection: $m.modoIAProveedor) {
                                     Text("La IA activa de Pulido").tag("")
-                                    ForEach(ChatIA.conectadasPulido, id: \.id) { ia in
+                                    ForEach(ChatIA.conectadasPulido.filter { !$0.esCuentaCodex }, id: \.id) { ia in
                                         Text(ia.etiqueta).tag(ia.id)
                                     }
                                 }.frame(maxWidth: 430)
@@ -976,7 +972,7 @@ struct SettingsView: View {
                                 Slider(value: $m.modoIAPalabras, in: 6...30, step: 1).tint(acento).frame(width: 260)
                                 Text("Espera máxima del árbitro: \(String(format: "%.1f", m.modoIATimeout)) s").font(.caption)
                                 Slider(value: $m.modoIATimeout, in: 1.5...8, step: 0.5).tint(acento).frame(width: 260)
-                                Text("Solo recibe la zona de intención y el catálogo de modos. Si no hay IA, falla o tarda, continúa sin bloquear.")
+                                Text("Solo recibe la zona de intención y el catálogo de modos. Este árbitro de pocos segundos usa una API/local directa; Codex CLI queda disponible para ejecutar el Modo, pero no para este desempate estricto. Si no hay IA, falla o tarda, continúa sin bloquear.")
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                         }
@@ -1130,6 +1126,8 @@ struct SettingsView: View {
         ("Google Gemini", "https://ai.google.dev"),
         ("DeepSeek", "https://www.deepseek.com"),
         ("xAI (Grok)", "https://x.ai"),
+        ("Moonshot AI / Kimi", "https://platform.kimi.ai"),
+        ("Kimi Code (cuenta)", "https://www.kimi.com/code"),
         ("Cerebras (gratis)", "https://www.cerebras.ai"),
         ("GitHub Models (gratis)", "https://github.com/marketplace/models"),
         ("NVIDIA NIM (gratis)", "https://build.nvidia.com"),
@@ -1189,43 +1187,78 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private func selectorModelo(_ sel: ChatIA) -> some View {
-        let _ = detectTrigger
-        let lista = modelosDe(sel)
-        let activo = sel.modeloEfectivo
-        // Incluye el activo aunque no esté en la lista (evita Picker sin tag).
-        let opciones = (lista.contains(activo) || activo.isEmpty) ? lista : [activo] + lista
-        VStack(alignment: .leading, spacing: 4) {
-            fila("Modelo") {
-                HStack(spacing: 8) {
-                    if opciones.count > 1 {
-                        Picker("", selection: Binding(
-                            get: { activo },
-                            set: { elegirModelo(sel, $0); detectTrigger += 1 })) {
-                            ForEach(opciones, id: \.self) { m in
-                                Text(conPrecio(sel, m)).tag(m)
-                            }
-                        }.labelsHidden().frame(width: 300)
-                    } else {
-                        Text(activo.isEmpty ? "—" : conPrecio(sel, activo)).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Button(descubriendoMod && msgModId == sel.id ? "Buscando…" : "Descubrir") {
-                        descubriendoMod = true; msgMod = nil; msgModId = sel.id
-                        descubrirModelosDe(sel)
-                    }.controlSize(.small).disabled(descubriendoMod)
+        if sel.esCuentaCodex {
+            VStack(alignment: .leading, spacing: 4) {
+                fila("Modelo") {
+                    Picker("", selection: Binding(
+                        get: { Config.codexCuentaModelo() },
+                        set: {
+                            Config.set("codex_cuenta_modelo", to: $0)
+                            detectTrigger += 1
+                        })) {
+                        ForEach(AgenteCodex.modelosDisponibles()) { modelo in
+                            Text(modelo.nombre + (modelo.oculto ? " · compatibilidad" : ""))
+                                .tag(modelo.id)
+                        }
+                    }.labelsHidden().frame(width: 300)
                 }
+                fila("Razonamiento") {
+                    Picker("", selection: Binding(
+                        get: { Config.codexCuentaEsfuerzo() },
+                        set: {
+                            Config.set("codex_cuenta_esfuerzo", to: $0)
+                            detectTrigger += 1
+                        })) {
+                        ForEach(AgenteCodex.esfuerzosDisponibles) { esfuerzo in
+                            Text(esfuerzo.nombre).tag(esfuerzo.id)
+                        }
+                    }.labelsHidden().frame(width: 300)
+                }
+                Text(AgenteCodex.descripcionModelo(Config.codexCuentaModelo()))
+                    .font(.caption2).foregroundStyle(.secondary)
+                Text("Modelo global de la cuenta para pulido, traducción, Modos y Asistente. En Automático, Codex puede elegir uno distinto según la solicitud; con un modelo explícito siempre se pide ese modelo.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                avisoPrivacidad(sel)
             }
-            if msgModId == sel.id, let mm = msgMod {
-                Text(mm).font(.caption2).foregroundStyle(msgModOK ? .green : .orange)
+        } else {
+            let _ = detectTrigger
+            let lista = modelosDe(sel)
+            let activo = sel.modeloEfectivo
+            // Incluye el activo aunque no esté en la lista (evita Picker sin tag).
+            let opciones = (lista.contains(activo) || activo.isEmpty) ? lista : [activo] + lista
+            VStack(alignment: .leading, spacing: 4) {
+                fila("Modelo") {
+                    HStack(spacing: 8) {
+                        if opciones.count > 1 {
+                            Picker("", selection: Binding(
+                                get: { activo },
+                                set: { elegirModelo(sel, $0); detectTrigger += 1 })) {
+                                ForEach(opciones, id: \.self) { m in
+                                    Text(conPrecio(sel, m)).tag(m)
+                                }
+                            }.labelsHidden().frame(width: 300)
+                        } else {
+                            Text(activo.isEmpty ? "—" : conPrecio(sel, activo)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Button(descubriendoMod && msgModId == sel.id ? "Buscando…" : "Descubrir") {
+                            descubriendoMod = true; msgMod = nil; msgModId = sel.id
+                            descubrirModelosDe(sel)
+                        }.controlSize(.small).disabled(descubriendoMod)
+                    }
+                }
+                if msgModId == sel.id, let mm = msgMod {
+                    Text(mm).font(.caption2).foregroundStyle(msgModOK ? .green : .orange)
+                }
+                Text(sel.id.hasPrefix("custom:")
+                     ? "Modelos del gateway. Cambia el activo cuando quieras, aquí mismo."
+                     : "Elige el modelo de este proveedor. 'Descubrir' trae la lista completa (con precio si el proveedor lo publica).")
+                    .font(.caption).foregroundStyle(.secondary)
+                // Precio del modelo activo + editor manual (por si el proveedor no lo
+                // publica, o para poner el tuyo). Prioridad: manual > publicado > curado.
+                if !activo.isEmpty { precioManual(sel, activo) }
+                // Aviso de privacidad: al usar nube/gateway, el texto SALE de tu Mac.
+                avisoPrivacidad(sel)
             }
-            Text(sel.id.hasPrefix("custom:")
-                 ? "Modelos del gateway. Cambia el activo cuando quieras, aquí mismo."
-                 : "Elige el modelo de este proveedor. 'Descubrir' trae la lista completa (con precio si el proveedor lo publica).")
-                .font(.caption).foregroundStyle(.secondary)
-            // Precio del modelo activo + editor manual (por si el proveedor no lo
-            // publica, o para poner el tuyo). Prioridad: manual > publicado > curado.
-            if !activo.isEmpty { precioManual(sel, activo) }
-            // Aviso de privacidad: al usar nube/gateway, el texto SALE de tu Mac.
-            avisoPrivacidad(sel)
         }
     }
     @ViewBuilder private func precioManual(_ sel: ChatIA, _ modelo: String) -> some View {
@@ -1540,6 +1573,19 @@ final class SettingsWindowController {
         show()
         NavAjustes.shared.ir = seccion
     }
+
+    /// Captura únicamente el contenido de ESTA ventana para QA visual; no exige
+    /// permiso de grabación de pantalla ni puede ver otras aplicaciones.
+    @discardableResult
+    func guardarSnapshotQA(_ url: URL) -> Bool {
+        guard Thread.isMainThread, let view = window?.contentView else { return false }
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return false }
+        do { try png.write(to: url, options: .atomic); return true }
+        catch { return false }
+    }
 }
 
 // MARK: - Selector del motor de embeddings (con cuál IA se calculan)
@@ -1566,6 +1612,8 @@ struct EmbeddingMotorPicker: View {
                 .onChange(of: sel) { _, nuevo in Config.set("embedding_proveedor", to: nuevo) }
             }
             pista
+            Text("ChatGPT por cuenta (Codex) no aparece como motor aquí porque no entrega vectores de embeddings. Para reconocimiento semántico usa Interno de BetoDicta/Ollama; OpenAI text-embedding-3-small requiere API y facturación separadas.")
+                .font(.caption2).foregroundStyle(.secondary)
         }
         .onAppear {
             EmbeddingSearch.detectar { res in

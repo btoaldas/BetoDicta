@@ -12,6 +12,7 @@ import AppKit   // NSWorkspace / NSAppleScript para los triggers por contexto
 //   "pulir"     — limpia/transforma el texto según `prompt` (Dictado = prompt vacío = limpieza estándar).
 //   "traducir"  — traduce al `idiomaDestino`.
 //   "responder"  — trata el dictado como una instrucción y redacta la respuesta.
+//   "musica"     — busca/reproduce con una cascada de servicios de música.
 //   "aplicacion" — abre una app instalada y coloca allí el texto, sin enviarlo.
 
 struct Modo: Codable, Identifiable {
@@ -35,19 +36,23 @@ struct Modo: Codable, Identifiable {
     var appNombre: String        // aplicación dinámica resuelta para ESTE dictado
     var appBundleId: String      // bundle id inventariado (nunca una orden arbitraria)
     var appRuta: String          // respaldo: ruta .app validada contra el catálogo actual
+    var musicaProveedor: String  // solo "musica": auto/apple_music/spotify/…
+    var musicaAccion: String     // solo "musica": auto/reproducir/buscar
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
          esFijo: Bool = true, palabraVoz: String = "", apps: [String] = [], sitios: [String] = [],
          buscador: String = "google", almacen: String = "", accion: String = "correo",
          ejemplosVoz: [String] = [], color: String = "", appNombre: String = "",
-         appBundleId: String = "", appRuta: String = "") {
+         appBundleId: String = "", appRuta: String = "", musicaProveedor: String = "auto",
+         musicaAccion: String = "auto") {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
         self.apps = apps; self.sitios = sitios; self.buscador = buscador; self.almacen = almacen
         self.accion = accion; self.ejemplosVoz = ejemplosVoz; self.color = color
         self.appNombre = appNombre; self.appBundleId = appBundleId; self.appRuta = appRuta
+        self.musicaProveedor = musicaProveedor; self.musicaAccion = musicaAccion
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -72,6 +77,8 @@ struct Modo: Codable, Identifiable {
         appNombre = (try? c.decode(String.self, forKey: .appNombre)) ?? ""
         appBundleId = (try? c.decode(String.self, forKey: .appBundleId)) ?? ""
         appRuta = (try? c.decode(String.self, forKey: .appRuta)) ?? ""
+        musicaProveedor = (try? c.decode(String.self, forKey: .musicaProveedor)) ?? "auto"
+        musicaAccion = (try? c.decode(String.self, forKey: .musicaAccion)) ?? "auto"
     }
 }
 
@@ -103,6 +110,9 @@ enum ModosStore {
              palabraVoz: "modo asistente, modo asistentes"),
         Modo(id: "buscar", nombre: "Buscar", icono: "magnifyingglass", base: "buscar",
              palabraVoz: "modo buscar, modo busca, modo búsqueda, modo buscador", buscador: "google"),
+        Modo(id: "musica", nombre: "Música", icono: "music.note", base: "musica",
+             palabraVoz: "modo música, modo musica, modo musical, pon música, reproduce música",
+             musicaProveedor: "auto"),
         Modo(id: "aplicacion", nombre: "Aplicación", icono: "square.grid.2x2.fill", base: "aplicacion",
              palabraVoz: "modo abrir aplicación, modo abrir aplicacion, modo aplicación, modo aplicacion, modo abrir app, modo abre app, modo abrir"),
         Modo(id: "agente", nombre: "Agente", icono: "sparkle", base: "agente",
@@ -134,7 +144,7 @@ enum ModosStore {
                 for f in frasesVoz(b) where !frases.contains(where: { normalizar($0) == normalizar(f) }) {
                     frases.append(f); cambio = true
                 }
-                let unido = frases.joined(separator: ", ")
+                let unido = FrasesConfigurables.formatear(frases, multilinea: false)
                 if unido != m.palabraVoz { list[i].palabraVoz = unido; cambio = true }
             }
             if m.almacen.isEmpty, !b.almacen.isEmpty { list[i].almacen = b.almacen; cambio = true }
@@ -147,6 +157,7 @@ enum ModosStore {
         if let d = try? JSONEncoder().encode(modos) {
             Config.asegurarDirSeguro()
             try? d.write(to: url, options: .atomic)
+            Config.protegerSecreto(url)
             ModoCatalogoCache.invalidar()
         }
     }
@@ -207,7 +218,7 @@ enum ModosStore {
     /// mal-escuchas del STT ("mudo tarea", "molde tarea" = "modo tarea"). Gana la
     /// frase más LARGA que haga prefijo (entre TODAS las frases de TODOS los modos).
     static func frasesVoz(_ m: Modo) -> [String] {
-        m.palabraVoz.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        FrasesConfigurables.parsear(m.palabraVoz)
     }
     static func detectarPorVoz(_ texto: String) -> (Modo, String)? {
         guard let match = ModoResolver.detectarExacto(texto) else { return nil }
@@ -394,13 +405,16 @@ enum Acciones {
     /// id, nombre, esquema URL con {q} ("" = solo abrir la app, sin texto en URL;
     /// "{q}" = URL propia del usuario en `prompt`), bundle id de la app.
     static let base: [(id: String, nombre: String, esquema: String, bundle: String)] = [
+        ("gmail",         "Gmail (nuevo borrador)",          "", ""),
         ("correo",        "Correo / Mail (nuevo correo)",    "mailto:?body={q}", "com.apple.mail"),
-        ("outlook",       "Outlook: nuevo correo",           "ms-outlook://compose?body={q}", "com.microsoft.Outlook"),
+        // Ruta especial: un `mailto:` se entrega explícitamente a Outlook y la
+        // ventana nueva se verifica por Accesibilidad (BorradoresCorreo).
+        ("outlook",       "Outlook: nuevo correo",           "", "com.microsoft.Outlook"),
         ("whatsapp",      "WhatsApp (con el texto)",         "whatsapp://send?text={q}", "net.whatsapp.WhatsApp"),
         ("mensajes",      "Mensajes (copia el texto)",       "", "com.apple.MobileSMS"),
         ("notas",         "Notas de Mac (copia el texto)",   "", "com.apple.Notes"),
-        ("recordatorios", "Recordatorios (copia el texto)",  "", "com.apple.reminders"),
-        ("calendario",    "Calendario",                      "", "com.apple.iCal"),
+        ("recordatorios", "Recordatorio nativo de Mac",      "", "com.apple.reminders"),
+        ("calendario",    "Evento nativo de Calendario",     "", "com.apple.iCal"),
         ("finder",        "Finder",                          "", "com.apple.finder"),
         ("safari",        "Safari",                          "", "com.apple.Safari"),
         ("musica",        "Música",                          "", "com.apple.Music"),
@@ -414,11 +428,31 @@ enum Acciones {
         ("appstore",      "App Store",                       "", "com.apple.AppStore"),
         ("facetime",      "FaceTime",                        "", "com.apple.FaceTime"),
         ("spotlight",     "Spotlight (⌘Espacio, pega el texto)", "", ""),
+        ("archivo",       "Buscar archivo en la Mac",        "", "com.apple.finder"),
+        ("archivo_nuevo", "Crear archivo de texto…",         "", ""),
+        ("captura_pantalla", "Captura de pantalla",           "", ""),
+        ("grabar_pantalla",  "Grabación de pantalla",         "", ""),
+        ("captura_compartir", "Captura para compartir",       "", ""),
+        ("atajo_apple",   "Atajo Apple / Siri",              "", "com.apple.shortcuts"),
+        ("rutina",        "Rutina del asistente",            "", ""),
+        ("nota_local",    "Nota local de BetoDicta",         "", ""),
+        ("tarea_local",   "Tarea local de BetoDicta",        "", ""),
         ("url",           "Abrir web (tu URL con {q})",      "{q}", ""),
     ]
     static func nombre(_ id: String) -> String { base.first { $0.id == id }?.nombre ?? id }
     static func bundle(_ id: String) -> String { base.first { $0.id == id }?.bundle ?? "" }
     static func valido(_ id: String) -> Bool { base.contains { $0.id == id } }
+    static func plantillaURLSegura(_ plantilla: String) -> Bool {
+        let prueba = plantilla.replacingOccurrences(of: "{q}", with: "prueba")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let c = URLComponents(string: prueba), let scheme = c.scheme?.lowercased() else { return false }
+        if scheme == "https" { return c.host?.isEmpty == false }
+        if scheme == "http" {
+            let h = (c.host ?? "").lowercased()
+            return ["localhost", "127.0.0.1", "::1"].contains(h)
+        }
+        return false
+    }
     /// WhatsApp con FAILOVER: app de escritorio (whatsapp://) si está instalada,
     /// si no la web wa.me. El llamador decide `app` (¿hay app de escritorio?).
     static func whatsapp(texto: String, app: Bool) -> String {
@@ -433,6 +467,7 @@ enum Acciones {
         if id == "url" {
             let c = custom.trimmingCharacters(in: .whitespaces)
             guard !c.isEmpty else { return "https://www.google.com/search?q={q}" }
+            guard plantillaURLSegura(c) else { return nil }
             // URL propia SIN {q} → abre la página tal cual (ignora el texto).
             if !c.contains("{q}") { return c }
             var cs = CharacterSet.alphanumerics; cs.insert(charactersIn: "-._~")
@@ -491,6 +526,8 @@ extension ModosStore {
         "aplicacion": "aplicacion", "app": "aplicacion", "abrir": "aplicacion", "abre": "aplicacion",
         "buscar": "buscar", "busca": "buscar", "google": "buscar", "bing": "buscar",
         "duckduckgo": "buscar", "youtube": "buscar", "maps": "buscar", "mapas": "buscar",
+        "musica": "musica", "cancion": "musica", "reproducir": "musica", "reproduce": "musica",
+        "poner": "musica", "pon": "musica",
     ]
 
     // Capa 2 (sin IA): matcheo por RAÍZ. Tolera formas variables sin enumerar todo.
@@ -505,7 +542,8 @@ extension ModosStore {
         ("mensaj", "mensajes"), ("imessage", "mensajes"),
         ("recordat", "recordatorios"), ("calendar", "calendario"), ("agenda", "calendario"),
         ("finder", "finder"), ("archivo", "finder"), ("safari", "safari"), ("navegador", "safari"),
-        ("music", "musica"), ("terminal", "terminal"), ("consola", "terminal"),
+        ("music", "musica"), ("cancion", "musica"), ("reproduc", "musica"),
+        ("terminal", "terminal"), ("consola", "terminal"),
         ("mapa", "mapas"), ("foto", "fotos"), ("contacto", "contactos"),
         ("textedit", "textedit"), ("editor", "textedit"), ("preview", "vistaprevia"), ("vista", "vistaprevia"),
         ("ajuste", "ajustes"), ("config", "ajustes"), ("appstore", "appstore"), ("tienda", "appstore"),
@@ -537,11 +575,13 @@ extension ModosStore {
         func agregarAccion(_ m: Modo) {
             let firma: String
             if m.base == "buscar" { firma = "buscar:\(m.buscador)" }
+            else if m.base == "musica" { firma = "musica:\(m.musicaProveedor)" }
             else if m.base == "aplicacion" { firma = "app:\(m.appBundleId)|\(m.appRuta)" }
             else { firma = m.accion }
             guard !acciones.contains(where: {
                 let otra: String
                 if $0.modo.base == "buscar" { otra = "buscar:\($0.modo.buscador)" }
+                else if $0.modo.base == "musica" { otra = "musica:\($0.modo.musicaProveedor)" }
                 else if $0.modo.base == "aplicacion" { otra = "app:\($0.modo.appBundleId)|\($0.modo.appRuta)" }
                 else { otra = $0.modo.accion }
                 return otra == firma
@@ -572,6 +612,24 @@ extension ModosStore {
                     if j < tokens.count, let eng = Buscadores.reconocer(limpioTok(tokens[j])) { b.buscador = eng; i = j + 1 }
                 }
                 agregarAccion(b)
+            } else if v.id == "musica" {
+                var m = modo("musica")
+                var j = i
+                while j < tokens.count, conectores.contains(limpioTok(tokens[j])) { j += 1 }
+                if j < tokens.count {
+                    if j + 1 < tokens.count {
+                        let dos = limpioTok(tokens[j]) + " " + limpioTok(tokens[j + 1])
+                        if ["apple music", "youtube music"].contains(dos),
+                           let p = Musica.reconocerProveedor(en: dos) {
+                            m.musicaProveedor = p; i = j + 2
+                        } else if let p = Musica.reconocerProveedor(en: limpioTok(tokens[j])) {
+                            m.musicaProveedor = p; i = j + 1
+                        }
+                    } else if let p = Musica.reconocerProveedor(en: limpioTok(tokens[j])) {
+                        m.musicaProveedor = p; i = j + 1
+                    }
+                }
+                agregarAccion(m)
             } else if v.id == "aplicacion", Config.modoAplicaciones() {
                 var j = i
                 let relleno: Set<String> = ["aplicacion", "app", "programa", "el", "la"]
@@ -641,6 +699,7 @@ extension ModosStore {
         case "asistente": e += ["responde esto", "ayúdame a redactar", "escribe una respuesta"]
         case "agente": e += ["pregúntale al agente", "pregúntale a la gente", "consulta al agente", "modo jarvis"]
         case "buscar": e += ["buscar en google", "busca esto en internet", "googlear algo"]
+        case "musica": e += ["poner música", "reproduce una canción", "pon música en spotify", "buscar una canción en apple music"]
         case "aplicacion": e += ["abrir una aplicación", "abre word y pega el texto", "iniciar una app de mac"]
         default:
             if m.base == "accion" {
@@ -734,7 +793,7 @@ extension ModosStore {
             // el argumento. Si viene inmediatamente después, aplícalo y consúmelo.
             var candidato = w
             while candidato < toks.count,
-                  ["a", "al", "en", "idioma", "buscador"].contains(limpioTok(toks[candidato])) {
+                  ["a", "al", "en", "con", "idioma", "buscador"].contains(limpioTok(toks[candidato])) {
                 candidato += 1
             }
             if candidato < toks.count {
@@ -742,6 +801,16 @@ extension ModosStore {
                     m.idiomaDestino = idi; w = candidato + 1
                 } else if m.base == "buscar", let b = Buscadores.reconocer(limpioTok(toks[candidato])) {
                     m.buscador = b; w = candidato + 1
+                } else if m.base == "musica" {
+                    let uno = limpioTok(toks[candidato])
+                    let dos = candidato + 1 < toks.count
+                        ? uno + " " + limpioTok(toks[candidato + 1]) : uno
+                    if ["apple music", "youtube music"].contains(dos),
+                       let p = Musica.reconocerProveedor(en: dos) {
+                        m.musicaProveedor = p; w = candidato + 2
+                    } else if let p = Musica.reconocerProveedor(en: uno) {
+                        m.musicaProveedor = p; w = candidato + 1
+                    }
                 }
             }
             let contenido = toks.dropFirst(w).joined(separator: " ")

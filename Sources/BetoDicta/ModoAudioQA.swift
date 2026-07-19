@@ -22,7 +22,7 @@ enum ModoAudioQA {
 
     static func ejecutarSiSePidio() {
         guard ProcessInfo.processInfo.environment["BETODICTA_MODOAUDIOQA"] == "1" else { return }
-        let casos = [
+        let matriz = [
             Caso(frase: "Por favor, ayúdame a traducir lo siguiente: Necesito encontrar la forma de hacer algo bueno.",
                  transforms: ["traducir"], acciones: [], negativo: false),
             Caso(frase: "Por favor, traduce esto: La vida es bella. Y después envíalo por correo electrónico.",
@@ -41,6 +41,9 @@ enum ModoAudioQA {
                  transforms: ["oficio"], acciones: ["outlook"], negativo: false, contiene: "solicito permiso"),
             Caso(frase: "Por favor, redacta un correo: necesitamos revisar el contrato.",
                  transforms: ["correo"], acciones: [], negativo: false, contiene: "necesitamos revisar"),
+            Caso(frase: "Abre Gmail y escribe un correo para prueba arroba gmail punto com: necesitamos preparar el programa del evento.",
+                 transforms: ["correo"], acciones: ["gmail"], negativo: false,
+                 contiene: "necesitamos preparar", destinatario: "prueba@gmail.com"),
             Caso(frase: "Por favor, pregúntale al agente: qué tareas tengo para hoy.",
                  transforms: ["agente"], acciones: [], negativo: false, contiene: "qué tareas tengo"),
             Caso(frase: "Me gustaría que traduzcas al portugués lo siguiente: nos vemos mañana.",
@@ -60,6 +63,12 @@ enum ModoAudioQA {
             Caso(frase: "Ayer me preguntaste si traducíamos el documento y lo enviábamos por correo.",
                  transforms: [], acciones: [], negativo: true),
         ]
+        let solicitado = Int(ProcessInfo.processInfo.environment["BETODICTA_MODOAUDIOCASE"] ?? "")
+        let casos: [Caso]
+        if let solicitado, solicitado >= 1, solicitado <= matriz.count {
+            casos = [matriz[solicitado - 1]]
+            print("MODOAUDIOQA caso aislado \(solicitado)/\(matriz.count)")
+        } else { casos = matriz }
         guard Config.apiKey() != nil else {
             print("MODOAUDIOQA OMITIDO: no hay clave ElevenLabs"); exit(4)
         }
@@ -146,6 +155,10 @@ enum ModoAudioQA {
                             guard let esperado = caso.destinatario else { return true }
                             guard let oido = r?.destinatario else { return false }
                             if oido.caseInsensitiveCompare(esperado) == .orderedSame { return true }
+                            // Una dirección nunca se corrige por semejanza: una
+                            // letra cambia el destinatario. El modal la muestra
+                            // para confirmar, pero el QA de correo exige exactitud.
+                            if esperado.contains("@") || oido.contains("@") { return false }
                             let muestra = [ContactoWA(nombre: esperado, numero: "593000000000")]
                             return ContactosWA.coincidencias(oido, en: muestra).contactos.first?.nombre == esperado
                         }()

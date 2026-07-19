@@ -217,12 +217,12 @@ struct Config {
     /// mapea al español más cercano. Parametrizable.
     static func appleSpeechIdioma() -> String { (json()["apple_speech_idioma"] as? String) ?? "es-EC" }
 
-    // Fase 7 — TTS (texto→voz). Default OFF (opt-in).
+    // TTS (texto→voz). Default OFF (opt-in).
     static func ttsActivo() -> Bool { (json()["tts_activo"] as? Bool) ?? false }
     static func ttsVoz() -> String { (json()["tts_voz"] as? String) ?? "" }
     static func ttsVelocidad() -> Double { (json()["tts_velocidad"] as? Double) ?? 0.5 }
-    /// Cerebro del Modo Agente: "local" (IA local de BetoDicta) | "hermes" (pasarela a
-    /// Hermes: su LLM + sus herramientas). A futuro: "openclaw". Parametrizable.
+    /// Cerebro del Modo Agente: "local" (IA configurada en BetoDicta) | "hermes" |
+    /// "codex" (cuenta ChatGPT delegada al cliente oficial Codex). Parametrizable.
     static func agenteMotor() -> String { (json()["agente_motor"] as? String) ?? "local" }
     /// Ruta del binario hermes (vacío = autodetectar ~/.local/bin/hermes).
     static func hermesBin() -> String { (json()["hermes_bin"] as? String) ?? "" }
@@ -231,6 +231,174 @@ struct Config {
     /// el agente es conversacional (notch + voz); actívalo si quieres el texto pegado.
     /// A futuro será inteligente según la intención (pedir texto → pega; preguntar → no).
     static func agentePega() -> Bool { (json()["agente_pega"] as? Bool) ?? false }
+
+    // MARK: Núcleo del asistente por voz
+
+    /// El núcleo orquestador es aditivo: apagado, Agente conserva el camino de chat
+    /// anterior y Dictado/Modos no cambian. Encendido por defecto para instalaciones
+    /// nuevas; todas las herramientas tienen su propio interruptor.
+    static func agenteNucleoActivo() -> Bool { (json()["agente_nucleo_activo"] as? Bool) ?? true }
+    /// Nombre/presencia que usa al hablar. No está ligado a una voz concreta: puede
+    /// llamarse Bto, Jarvis, Mamá o como decida el usuario.
+    static func agenteNombre() -> String {
+        let s = (json()["agente_nombre"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return s.isEmpty ? "Bto" : s
+    }
+    /// Personalidad libre y local. Se añade al prompt únicamente en Modo Agente.
+    static func agentePersonalidad() -> String {
+        (json()["agente_personalidad"] as? String)
+            ?? "Cálido, directo, práctico y respetuoso. Habla en español natural y con respuestas breves."
+    }
+    /// Frases que invocan al asistente DENTRO de un dictado. La escucha manos libres
+    /// continua será una capacidad separada para no mantener el micrófono abierto sin
+    /// consentimiento explícito.
+    static func agenteActivadores() -> [String] {
+        let a = (json()["agente_activadores"] as? [String]) ?? ["oye beto", "oye betodicta", "oye jarvis"]
+        // Una sola palabra ("oye", "beto", "mamá"…) aparece con demasiada
+        // frecuencia en un dictado normal. Se conserva en el JSON para que el
+        // usuario no pierda su configuración, pero no puede despertar al agente.
+        return FrasesConfigurables.activadoresSeguros(a)
+    }
+    /// Tres niveles: consultivo (todo pregunta), asistido (lecturas/aperturas seguras
+    /// automáticas) y autónomo (también cambios locales reversibles). Enviar, comprar,
+    /// borrar o publicar SIEMPRE exige confirmación, incluso en autónomo.
+    static func agenteAutonomia() -> String {
+        let s = (json()["agente_autonomia"] as? String) ?? "asistido"
+        return ["consultivo", "asistido", "autonomo"].contains(s) ? s : "asistido"
+    }
+    /// Memoria conversacional corta, 100% local y acotada.
+    static func agenteMemoriaActiva() -> Bool { (json()["agente_memoria_activa"] as? Bool) ?? true }
+    /// La memoria siempre se almacena localmente. Este interruptor separado decide
+    /// si también se adjunta como contexto al cerebro elegido (que puede ser nube).
+    static func agenteMemoriaContextoIA() -> Bool { (json()["agente_memoria_contexto_ia"] as? Bool) ?? true }
+    static func agenteMemoriaTurnos() -> Int {
+        min(30, max(1, (json()["agente_memoria_turnos"] as? Int) ?? 8))
+    }
+    /// Si el cerebro elegido falla, prueba los respaldos disponibles.
+    /// Conserva la clave histórica para no romper configuraciones existentes.
+    static func agenteFallbackCerebro() -> Bool { (json()["agente_fallback_local"] as? Bool) ?? true }
+    /// IA de chat exclusiva del agente. Vacío = la cascada global de pulido.
+    static func agenteIAProveedor() -> String { (json()["agente_ia_proveedor"] as? String) ?? "" }
+    static func agenteIAModelo() -> String { (json()["agente_ia_modelo"] as? String) ?? "" }
+
+    /// Acuse breve del asistente para que una acción o una pregunta nunca quede
+    /// silenciosa. Solo se aplica dentro de Modo Agente / una frase de presencia;
+    /// Dictado y los Modos usados directamente conservan su comportamiento.
+    static func agenteRespuestaActiva() -> Bool {
+        (json()["agente_respuesta_activa"] as? Bool) ?? true
+    }
+    /// "texto" | "texto_voz". La voz usa exactamente la cascada TTS elegida por
+    /// el usuario. Si TTS está apagado/no disponible, degrada a texto sin bloquear.
+    static func agenteRespuestaFormato() -> String {
+        let guardado = json()["agente_respuesta_formato"] as? String
+        if let guardado, ["texto", "texto_voz"].contains(guardado) { return guardado }
+        return ttsActivo() ? "texto_voz" : "texto"
+    }
+    static func agenteRespuestaConVoz() -> Bool {
+        agenteRespuestaActiva() && agenteRespuestaFormato() == "texto_voz" && ttsActivo()
+    }
+
+    // Herramientas: cada una puede apagarse sin impedir que el agente responda.
+    static func agenteHerramientaMusica() -> Bool { (json()["agente_tool_musica"] as? Bool) ?? true }
+    static func agenteHerramientaCalendario() -> Bool { (json()["agente_tool_calendario"] as? Bool) ?? true }
+    static func agenteHerramientaRecordatorios() -> Bool { (json()["agente_tool_recordatorios"] as? Bool) ?? true }
+    static func agenteHerramientaArchivos() -> Bool { (json()["agente_tool_archivos"] as? Bool) ?? true }
+    static func agenteHerramientaAplicaciones() -> Bool { (json()["agente_tool_aplicaciones"] as? Bool) ?? true }
+    static func agenteHerramientaComunicaciones() -> Bool { (json()["agente_tool_comunicaciones"] as? Bool) ?? true }
+    static func agenteHerramientaAtajos() -> Bool { (json()["agente_tool_atajos"] as? Bool) ?? false }
+    static func agenteHerramientaCapturas() -> Bool { (json()["agente_tool_capturas"] as? Bool) ?? true }
+    /// Siri no ofrece una API pública para inyectarle órdenes arbitrarias. BetoDicta
+    /// usa el puente oficial de Atajos y le pasa el texto a este atajo del usuario.
+    static func agenteAtajoApple() -> String { (json()["agente_atajo_apple"] as? String) ?? "" }
+
+    // Captura/grabación de pantalla. Cada salida es visible y reversible; una
+    // ubicación dictada solo puede ser una de estas carpetas conocidas o el
+    // selector nativo, nunca una ruta arbitraria interpretada por voz.
+    static func capturaDestino() -> String { (json()["captura_destino"] as? String) ?? "escritorio" }
+    static func capturaGuardarArchivo() -> Bool { (json()["captura_guardar"] as? Bool) ?? true }
+    static func capturaCopiarPortapapeles() -> Bool { (json()["captura_copiar"] as? Bool) ?? false }
+    static func capturaAbrirAlTerminar() -> Bool { (json()["captura_abrir"] as? Bool) ?? false }
+    static func capturaGrabarMicrofono() -> Bool { (json()["captura_microfono"] as? Bool) ?? false }
+    static func capturaMostrarClics() -> Bool { (json()["captura_mostrar_clics"] as? Bool) ?? false }
+    /// Política explícita para una captura destinada a WhatsApp. Migra el toggle
+    /// antiguo sin convertirlo jamás en autoenvío.
+    static func capturaWhatsAppPolitica() -> PoliticaWhatsAppCaptura {
+        if let s = json()["captura_whatsapp_accion"] as? String,
+           let p = PoliticaWhatsAppCaptura(rawValue: s) { return p }
+        if let antiguo = json()["captura_whatsapp_pegar"] as? Bool {
+            return antiguo ? .preparar : .portapapeles
+        }
+        return .preparar
+    }
+
+    /// Compatibilidad para código/configuración anterior.
+    static func capturaWhatsAppPegarAutomatico() -> Bool {
+        capturaWhatsAppPolitica() != .portapapeles
+    }
+    /// 0 = la persona detiene la grabación desde BetoDicta (una pulsación de
+    /// la tecla de dictado o la opción visible del menú).
+    /// Un valor positivo se usa solo cuando la orden no trae una duración propia.
+    static func capturaDuracionPredeterminada() -> Int {
+        min(3_600, max(0, (json()["captura_duracion_predeterminada"] as? Int) ?? 0))
+    }
+    /// Una grabación manual cierra fragmentos periódicos para que un fallo no
+    /// arriesgue todo el video. 60…1800 s; recomendado: 5 min.
+    static func capturaSegmentoSegundos() -> Int {
+        min(1_800, max(60, (json()["captura_segmento_segundos"] as? Int) ?? 300))
+    }
+
+    // Cuenta ChatGPT mediante el cliente oficial Codex. BetoDicta nunca lee las
+    // credenciales de Codex. La ruta vacía se autodetecta y el timeout es finito.
+    static func agenteCodexBin() -> String { (json()["agente_codex_bin"] as? String) ?? "" }
+    /// Modelo usado por TODAS las capacidades de texto delegadas a la cuenta
+    /// ChatGPT (asistente, Modos, traducción y pulido). "automatico" deja que
+    /// el cliente oficial Codex elija uno permitido por el plan para esa tarea.
+    static func codexCuentaModelo() -> String {
+        let s = ((json()["codex_cuenta_modelo"] as? String) ?? "automatico")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let n = s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return s.isEmpty || n == "automatico" ? "automatico" : s
+    }
+    /// Esfuerzo del modelo Codex: automático | low | medium | high | xhigh.
+    /// Max/Ultra no se ofrecen en la ruta de voz porque disparan latencia y
+    /// orquestación innecesaria para una transformación breve de texto.
+    static func codexCuentaEsfuerzo() -> String {
+        let s = ((json()["codex_cuenta_esfuerzo"] as? String) ?? "automatico")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["low", "medium", "high", "xhigh"].contains(s) ? s : "automatico"
+    }
+    static func agenteCodexTimeout() -> Double {
+        min(180, max(15, (json()["agente_codex_timeout"] as? Double) ?? 60))
+    }
+
+    /// Cascada del modo Música. Los no disponibles se saltan; los proveedores web
+    /// mantienen un respaldo que funciona aunque no haya ninguna app instalada.
+    static func musicaCascada() -> [String] {
+        let a = (json()["musica_cascada"] as? [String]) ?? ["apple_music", "spotify", "youtube_music", "youtube"]
+        return a.isEmpty ? ["apple_music", "youtube_music", "youtube"] : a
+    }
+    static func musicaIntentarReproducir() -> Bool { (json()["musica_intentar_reproducir"] as? Bool) ?? true }
+    /// Qué hace “pon música” sin artista/título: una pista distinta al azar
+    /// (predeterminado) o reanudar exactamente lo último que sonaba.
+    static func musicaSinConsulta() -> String {
+        let s = ((json()["musica_sin_consulta"] as? String) ?? "aleatorio").lowercased()
+        return s == "reanudar" ? "reanudar" : "aleatorio"
+    }
+    /// BetoDicta incluye este Atajo ya construido. macOS requiere que cada usuario
+    /// confirme su importación una vez; después puede reemplazarlo o desactivarlo.
+    static func musicaAtajoApple() -> String {
+        (json()["musica_atajo_apple"] as? String) ?? AppleAtajos.nombreMusicaIncluido
+    }
+    static func musicaAtajoPrimero() -> Bool { (json()["musica_atajo_primero"] as? Bool) ?? false }
+    /// Busca el primer resultado del catálogo público y lo selecciona en la app
+    /// Música con Accesibilidad. Sin permiso/red, continúa por el failover.
+    static func musicaCatalogoAutomatico() -> Bool {
+        (json()["musica_catalogo_automatico"] as? Bool) ?? true
+    }
+    /// Proveedores propios: [{nombre,url}], URL con {q}.
+    static func musicaProveedoresPersonales() -> [[String: String]] {
+        (json()["musica_proveedores_personales"] as? [[String: String]]) ?? []
+    }
 
     /// Motor de TTS: "apple" (voz de macOS) | "elevenlabs" (voz clonada Bto) |
     /// "xtts_local" (tu clon local). Cascada de failover parametrizable.

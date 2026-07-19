@@ -98,7 +98,7 @@ struct ModosView: View {
                 Button { expandido = m.crear() } label: { Image(systemName: "plus") }
                     .help("Crear un modo propio")
             }
-            Text("El MODO decide qué hacer con tu dictado: pulirlo, formatearlo, traducirlo, responder, buscar o abrir una aplicación instalada. Marca uno como POR DEFECTO aquí; cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra.")
+            Text("El MODO decide qué hacer con tu dictado: pulirlo, formatearlo, traducirlo, responder, poner música, buscar o abrir una aplicación instalada. Marca uno como POR DEFECTO aquí; cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra.")
                 .font(.caption).foregroundStyle(.secondary)
 
             Toggle("El modo elegido al vuelo es de UN SOLO USO (vuelve al de por defecto tras dictar)", isOn: $revertir)
@@ -177,6 +177,7 @@ struct ModosView: View {
                     Text("Responder (asistente)").tag("responder")
                     Text("Agente (responde por voz + tus tareas/notas)").tag("agente")
                     Text("Buscar (web / Spotlight)").tag("buscar")
+                    Text("Música (servicios con failover)").tag("musica")
                     Text("Acción (abrir app/correo/web)").tag("accion")
                     Text("Aplicación instalada (nombre por voz)").tag("aplicacion")
                 }.labelsHidden().frame(width: 200)
@@ -208,7 +209,7 @@ struct ModosView: View {
                 TextField("ej. modo tarea, mudo tarea (vacío = sin voz)", text: b.palabraVoz)
                     .textFieldStyle(.roundedBorder).frame(width: 300)
             }
-            Text("Separa VARIAS con coma (failover ante mal-escuchas del STT). La más larga que calce gana.")
+            Text("Separa VARIAS con coma (failover ante mal-escuchas). Si una frase lleva coma, escríbela entre comillas: \"Oye, Bto\". La puntuación no afecta la coincidencia.")
                 .font(.caption2).foregroundStyle(.secondary).padding(.leading, 98)
         }
         // Frases de ejemplo para el reconocimiento INTELIGENTE (embeddings)
@@ -299,6 +300,26 @@ struct ModosView: View {
                 }.controlSize(.small).disabled(buscNombre.trimmingCharacters(in: .whitespaces).isEmpty || !buscURL.contains("{q}"))
             }
             Text("Dictas y se abre el buscador con tu consulta (usa {q} donde va el texto). Agrega los tuyos (Wikipedia, Gmail, Amazon… ya vienen). Spotlight abre ⌘Espacio. Sin IA.")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        // Música: proveedor fijo para este modo o cascada global del Asistente.
+        if b.wrappedValue.base == "musica" {
+            HStack {
+                Text("Al dictar:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: b.musicaAccion) {
+                    Text("Entender “pon” o “busca”").tag("auto")
+                    Text("Siempre reproducir").tag("reproducir")
+                    Text("Solo buscar").tag("buscar")
+                }.labelsHidden().frame(width: 250)
+            }
+            HStack {
+                Text("Música en:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: b.musicaProveedor) {
+                    Text("Automático (usa la cascada)").tag("auto")
+                    ForEach(Musica.catalogo(), id: \.id) { p in Text(p.nombre).tag(p.id) }
+                }.labelsHidden().frame(width: 250)
+            }
+            Text("“Pon/reproduce” intenta sonar; “busca” solo muestra resultados. Con proveedor Automático usa la cascada de Ajustes → Asistente.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         // Acción: qué abrir con el texto (app/correo/web) — Fase 5. Sin IA ni prompt.

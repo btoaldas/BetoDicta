@@ -24,11 +24,25 @@ enum Translate {
         \(text)
         """
 
+        let inicio = Date()
+        if ia.esCuentaCodex {
+            AgenteCodex.transformar(prompt, modelo: ia.modeloEfectivo,
+                                    timeout: Config.pulidoTimeout()) { salida in
+                guard let out = salida?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !out.isEmpty else {
+                    Log.log(.ia, "traducir: cuenta Codex no respondió, texto sin traducir")
+                    completion(text); return
+                }
+                let ms = Int(Date().timeIntervalSince(inicio) * 1000)
+                Log.log(.ia, "traducir a \(idioma) con cuenta Codex: OK en \(ms)ms")
+                completion(out)
+            }
+            return
+        }
         guard let request = ia.requestChat(prompt: prompt, temperatura: 0.2, textLen: text.count) else {
             Log.log(.ia, "traducir: no pude armar la request, texto sin traducir"); completion(text); return
         }
 
-        let inicio = Date()
         URLSession.shared.dataTask(with: request) { data, response, _ in
             DispatchQueue.main.async {
                 if let data, ia.fueTruncado(data) {

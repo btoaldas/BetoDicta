@@ -18,6 +18,8 @@ enum AyudaIA {
         "DEEPSEEK_API_KEY": ("DeepSeek: muy barato y capaz. De pago (centavos).", "https://platform.deepseek.com/api_keys"),
         "XAI_API_KEY": ("xAI (Grok). De pago; requiere créditos en tu equipo.", "https://console.x.ai"),
         "OPENAI_API_KEY": ("OpenAI (GPT): pulido y también transcripción (Whisper/gpt-4o-transcribe). De pago.", "https://platform.openai.com/api-keys"),
+        "MOONSHOT_API_KEY": ("Moonshot AI Open Platform: Kimi K2.6 para chat, modos, agente, pulido y traducción. Pago por uso; esta key no usa tu membresía Kimi Code.", "https://platform.kimi.ai/console"),
+        "KIMI_CODE_API_KEY": ("Kimi Code por CUENTA: crea una key desde tu membresía y consume la cuota del plan. Permite K3/K2.7 según el nivel y está orientado a coding/agentes externos autorizados; para uso general elige Moonshot API.", "https://www.kimi.com/code/console"),
         "MISTRAL_API_KEY": ("Mistral: pulido y voz (Voxtral). Capa gratis con opt-in a entrenamiento.", "https://console.mistral.ai/api-keys"),
         "CEREBRAS_API_KEY": ("Cerebras: ultrarrápido, ~1 millón de tokens/día GRATIS.", "https://cloud.cerebras.ai/platform/apikeys"),
         "GITHUB_MODELS_KEY": ("GitHub Models: GPT, Llama, Claude y más GRATIS con tu cuenta GitHub (token de acceso).", "https://github.com/settings/tokens"),

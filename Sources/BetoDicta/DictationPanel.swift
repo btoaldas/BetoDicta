@@ -75,6 +75,10 @@ final class DictationPanel {
     /// Invalida cierres diferidos de una presentación anterior. Sin esta
     /// generación, un `hide(after:)` viejo podía ocultar el dictado nuevo.
     private var presentacionID: UInt64 = 0
+    /// Mientras macOS captura o graba la pantalla, el notch queda fuera del
+    /// Window Server visible. No basta con `orderOut` una vez: un flash o una
+    /// respuesta tardía también deben tener prohibido volver a mostrarlo.
+    private(set) var capturaPrivadaActiva = false
 
     init() {
         // Geometría real del notch (áreas útiles a sus lados)
@@ -237,7 +241,7 @@ final class DictationPanel {
     private var flashHasta = Date.distantPast
 
     func show(_ text: String) {
-        guard Config.panelVisible() else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
         presentacionID &+= 1
         if !enRespuestaIA { fondo?.layer?.opacity = 1 }
         reposicionar()
@@ -256,7 +260,7 @@ final class DictationPanel {
             }
             return
         }
-        guard Config.panelVisible() else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
         let visibles = Array(details.prefix(8))
         let sobrantes = max(0, details.count - visibles.count)
         confirmando = true
@@ -315,7 +319,7 @@ final class DictationPanel {
 
     /// Muestra un aviso breve por N segundos, por encima del texto del dictado.
     func flash(_ text: String, segundos: TimeInterval = 2.5) {
-        guard Config.panelVisible(), !enRespuestaIA else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva, !enRespuestaIA else { return }
         presentacionID &+= 1
         reposicionar()
         flashHasta = Date().addingTimeInterval(segundos)
@@ -437,13 +441,14 @@ final class DictationPanel {
     /// encargan de recortar lo viejo; no hace falta cortar a mano.
     func update(_ text: String) {
         // No pisar un aviso breve todavía vigente ni la respuesta de la IA.
-        guard !enRespuestaIA, !confirmando, Date() >= flashHasta else { return }
+        guard !capturaPrivadaActiva, !enRespuestaIA, !confirmando,
+              Date() >= flashHasta else { return }
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
     }
 
     /// Update que SÍ pisa el flash (para la entrega final del dictado).
     func updateForzado(_ text: String) {
-        guard !enRespuestaIA, !confirmando else { return }   // no pisa IA ni pregunta
+        guard !capturaPrivadaActiva, !enRespuestaIA, !confirmando else { return }
         flashHasta = .distantPast
         label.stringValue = text.replacingOccurrences(of: "\n", with: " ")
     }
@@ -464,7 +469,7 @@ final class DictationPanel {
             DispatchQueue.main.async { [weak self] in self?.pensando(ia: ia) }
             return
         }
-        guard Config.panelVisible() else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
         presentacionID &+= 1
         enRespuestaIA = true
         reposicionar()
@@ -489,7 +494,7 @@ final class DictationPanel {
             DispatchQueue.main.async { [weak self] in self?.respuestaIA(texto) }
             return
         }
-        guard Config.panelVisible() else { return }
+        guard Config.panelVisible(), !capturaPrivadaActiva else { return }
         if !enRespuestaIA { pensando(ia: "local") }   // por si no pasó por "pensando"
         label.textColor = colorIA
         let limpio = texto.replacingOccurrences(of: "\n", with: " ")
@@ -574,6 +579,37 @@ final class DictationPanel {
     }
 
     var esVisible: Bool { panel.isVisible }
+
+    /// Saca el notch de la pantalla y bloquea cualquier reaparición mientras
+    /// `screencapture` está vivo. Se llama antes de iniciar tanto fotos como video.
+    func comenzarCapturaPrivada() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.comenzarCapturaPrivada() }
+            return
+        }
+        // Una acción puede llegar justo cuando termina una respuesta o una
+        // confirmación. Normaliza ese estado antes de ocultar para que, al
+        // restaurar, no reaparezca una pregunta/latido viejo.
+        if confirmando { closeConfirmation() }
+        if enRespuestaIA { finRespuestaIA() }
+        capturaPrivadaActiva = true
+        presentacionID &+= 1
+        flashHasta = .distantPast
+        meter.reset()
+        fondo?.layer?.removeAllAnimations()
+        panel.orderOut(nil)
+    }
+
+    /// Libera el bloqueo, pero no reaparece por sí solo. El llamador decide si
+    /// muestra el resultado o permanece oculto.
+    func terminarCapturaPrivada() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.terminarCapturaPrivada() }
+            return
+        }
+        capturaPrivadaActiva = false
+        presentacionID &+= 1 // invalida cierres/respuestas diferidos del estado anterior
+    }
 
     func hide(after seconds: TimeInterval = 0) {
         meter.reset()

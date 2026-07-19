@@ -21,7 +21,9 @@ if let dmg = ProcessInfo.processInfo.environment["BETODICTA_DMGVERIFYTEST"],
     exit(ok ? 0 : 3)
 }
 if let appPath = ProcessInfo.processInfo.environment["BETODICTA_VERIFYTEST"] {
-    let ok = Updater.firmaConfiable(URL(fileURLWithPath: appPath))
+    // El hook del pipeline se ejecuta después de verificar la firma Ed25519
+    // del DMG, igual que el actualizador real.
+    let ok = Updater.firmaConfiable(URL(fileURLWithPath: appPath), contenidoAutenticado: true)
     print("VERIFYTEST \(appPath) -> identidadConfiable=\(ok)")
     exit(ok ? 0 : 3)
 }
@@ -31,6 +33,9 @@ ModoRegressionQA.ejecutarSiSePidio()
 ModoAudioQA.ejecutarSiSePidio()
 ModoIAQA.ejecutarSiSePidio()
 AplicacionesMacQA.ejecutarSiSePidio()
+AgenteCoreQA.ejecutarSiSePidio()
+AgenteCodex.ejecutarPruebaSiSePidio()
+DocumentosMac.ejecutarPruebaSiSePidio()
 
 let app = NSApplication.shared
 app.setActivationPolicy(Config.showInDock() ? .regular : .accessory)
