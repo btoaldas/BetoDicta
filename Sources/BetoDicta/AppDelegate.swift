@@ -1161,16 +1161,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ]
             print("MOVERTEST visible antes: \(m.lista.filter { m.visible($0) }.map { $0.id })")
             // Visible = [A,B,C,D]. Subir D (índice visible 3) al tope (0).
-            m.lista.move(fromOffsets: IndexSet(integer: 100), toOffset: 0)   // no-op defensivo
             let before = m.lista.map { $0.id }
-            // Llamar directo a la lógica sin guardar en disco:
-            let idxVis = m.lista.indices.filter { m.visible(m.lista[$0]) }
-            var vis = idxVis.map { m.lista[$0] }; vis.move(fromOffsets: IndexSet(integer: 3), toOffset: 0)
-            var arr = m.lista; for (k, fi) in idxVis.enumerated() { arr[fi] = vis[k] }
+            // Llama el MISMO método de producción. Primero comprueba que un índice
+            // atrasado/ inválido sea no-op; después ejecuta el arrastre real sin
+            // persistir el fixture QA en la configuración del usuario.
+            m.mover(from: IndexSet(integer: 100), to: 0, guardarEnDisco: false)
+            let invalidoSeguro = m.lista.map { $0.id } == before
+            m.mover(from: IndexSet(integer: 3), to: 0, guardarEnDisco: false)
+            let despues = m.lista.map { $0.id }
+            let esperado = ["D", "A", "ollama_stt", "B", "C"]
+            let ocultoQuieto = despues.indices.contains(2) && despues[2] == "ollama_stt"
+            let ok = invalidoSeguro && despues == esperado && ocultoQuieto
             print("MOVERTEST antes:  \(before)")
-            print("MOVERTEST después: \(arr.map { $0.id })  (esperado D,A,ollama_stt,B,C)")
-            print("MOVERTEST ollama_stt sigue en índice 2: \(arr[2].id == "ollama_stt")")
-            exit(0)
+            print("MOVERTEST después: \(despues)  (esperado \(esperado))")
+            print("MOVERTEST índice inválido seguro: \(invalidoSeguro); oculto fijo: \(ocultoQuieto)")
+            print("MOVERTEST \(ok ? "TODO OK" : "✗ FALLA")")
+            exit(ok ? 0 : 4)
         }
         // Prueba del MOTOR interno: BETODICTA_ENGINE=<carpeta_paquete> corre voz_gen.py
         // con el Python del motor y guarda /tmp/betodicta_engine.wav.

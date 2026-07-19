@@ -81,14 +81,19 @@ final class ProvidersModel: ObservableObject {
     /// ocultos (Ollama/LM Studio STT sin modelo) los índices se corrían y el arrastre
     /// movía la fila equivocada o "no subía". Fix: reordenar SOLO entre las posiciones
     /// que ocupan los visibles; los ocultos quedan clavados en su sitio.
-    func mover(from: IndexSet, to: Int) {
+    func mover(from: IndexSet, to: Int, guardarEnDisco: Bool = true) {
         let idxVisibles = lista.indices.filter { visible(lista[$0]) }
         var visibles = idxVisibles.map { lista[$0] }
+        // SwiftUI entrega índices válidos, pero un evento atrasado después de que
+        // cambie el filtro (detección STT local) no debe provocar un crash.
+        guard !from.isEmpty,
+              from.allSatisfy({ visibles.indices.contains($0) }),
+              to >= 0, to <= visibles.count else { return }
         visibles.move(fromOffsets: from, toOffset: to)
         var arr = lista
         for (k, fullIdx) in idxVisibles.enumerated() { arr[fullIdx] = visibles[k] }
         lista = arr
-        guardar()
+        if guardarEnDisco { guardar() }
     }
 
     /// Cambia el modelo/archivo del proveedor local Whisper.
