@@ -3,6 +3,38 @@ import EventKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// `Button` de SwiftUI pierde ocasionalmente su título AX dentro del ScrollView
+/// largo de Ajustes en macOS. NSButton conserva título, acción y etiqueta para
+/// VoiceOver sin depender de esa síntesis.
+private struct BotonNativoAccesible: NSViewRepresentable {
+    let titulo: String
+    let etiqueta: String
+    let accion: () -> Void
+
+    final class Coordinator: NSObject {
+        var accion: () -> Void
+        init(_ accion: @escaping () -> Void) { self.accion = accion }
+        @objc func ejecutar() { accion() }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(accion) }
+
+    func makeNSView(context: Context) -> NSButton {
+        let boton = NSButton(title: titulo, target: context.coordinator,
+                             action: #selector(Coordinator.ejecutar))
+        boton.bezelStyle = .rounded
+        boton.controlSize = .small
+        boton.setAccessibilityLabel(etiqueta)
+        return boton
+    }
+
+    func updateNSView(_ boton: NSButton, context: Context) {
+        context.coordinator.accion = accion
+        boton.title = titulo
+        boton.setAccessibilityLabel(etiqueta)
+    }
+}
+
 @MainActor
 final class AgenteSettingsModel: ObservableObject {
     @Published var activo: Bool { didSet { Config.set("agente_nucleo_activo", to: activo) } }
@@ -479,18 +511,18 @@ struct AgenteView: View {
             Text("Un solo contrato JSON despacha música, calendario, recordatorios, aplicaciones, HomeKit, Concentración, capturas, estado del Mac y resumen del día. Devuelve ok, mensaje y evidencia; las acciones fuera del nivel de autonomía exigen confirmación.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button { m.copiarEjemploUniversal() } label: {
-                    Label("Copiar JSON de ejemplo", systemImage: "doc.on.doc")
-                }
-                    .accessibilityLabel("Copiar JSON de ejemplo")
-                Button { m.probarUniversal() } label: {
-                    Label("Validar sin ejecutar", systemImage: "checkmark.shield")
-                }
-                    .accessibilityLabel("Validar el Atajo universal sin ejecutar acciones")
-                Button { m.copiarGuiaUniversal() } label: {
-                    Label("Crear en Atajos…", systemImage: "apple.logo")
-                }
-                    .accessibilityLabel("Crear el Atajo universal en Atajos de Apple")
+                BotonNativoAccesible(titulo: "Copiar JSON de ejemplo",
+                                     etiqueta: "Copiar JSON de ejemplo") {
+                    m.copiarEjemploUniversal()
+                }.fixedSize()
+                BotonNativoAccesible(titulo: "Validar sin ejecutar",
+                                     etiqueta: "Validar el Atajo universal sin ejecutar acciones") {
+                    m.probarUniversal()
+                }.fixedSize()
+                BotonNativoAccesible(titulo: "Crear en Atajos…",
+                                     etiqueta: "Crear el Atajo universal en Atajos de Apple") {
+                    m.copiarGuiaUniversal()
+                }.fixedSize()
             }.controlSize(.small)
             Text("Los Atajos Apple siguen siendo herramientas externas: debes habilitar cada uno arriba. El contrato nunca contiene ni exporta claves.")
                 .font(.caption2).foregroundStyle(.secondary)
