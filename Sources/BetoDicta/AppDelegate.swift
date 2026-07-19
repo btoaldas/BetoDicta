@@ -226,12 +226,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return (primero.modelo ?? "scribe_v2") == "scribe_v2_realtime"
     }
 
-    /// No deja perder un recordatorio si vence mientras se dicta o se graba la
-    /// pantalla. La notificación de macOS sale igualmente; notch/voz esperan una
-    /// ventana segura y nunca contaminan el audio capturado.
+    /// No deja perder un recordatorio si vence mientras se dicta, se graba la
+    /// pantalla o el asistente ya está hablando. La notificación de macOS sale
+    /// igualmente; notch/voz esperan una ventana segura y no pisan otro audio.
     private func presentarAvisoPendiente(_ aviso: TareasRecordatorios.Aviso,
                                          intento: Int = 0) {
-        guard recorder.isRecording || CapturaMac.enCurso else {
+        guard recorder.isRecording || CapturaMac.enCurso || agenteActivo || Voz.hablando else {
             let breve = String(aviso.cuerpo.prefix(180))
             panel.flash("🔔 \(aviso.titulo): \(breve)", segundos: 6)
             if aviso.hablar, Config.ttsActivo() {

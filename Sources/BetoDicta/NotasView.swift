@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - Tareas y notas locales con calendario/avisos
@@ -16,6 +17,8 @@ struct NotasView: View {
     @State private var tipoCalendario = "tarea"
     @State private var horaCalendario = Self.hoy(minutos: 9 * 60)
     @State private var permiso = "Consultando…"
+    @State private var avisosExpandidos = true
+    @State private var calendarioExpandido = true
 
     @State private var avisos = Config.tareasAvisos()
     @State private var sonido = Config.tareasAvisosSonido()
@@ -24,6 +27,7 @@ struct NotasView: View {
     @State private var resumenManana = Config.tareasResumenManana()
     @State private var resumenTarde = Config.tareasResumenTarde()
     @State private var incluirSinFecha = Config.tareasResumenIncluirSinFecha()
+    @State private var resumenIA = Config.tareasResumenIA()
     @State private var horaManana = Self.hoy(minutos: Config.tareasResumenMananaMinutos())
     @State private var horaTarde = Self.hoy(minutos: Config.tareasResumenTardeMinutos())
 
@@ -71,6 +75,7 @@ struct NotasView: View {
         Config.set("tareas_resumen_manana", to: resumenManana)
         Config.set("tareas_resumen_tarde", to: resumenTarde)
         Config.set("tareas_resumen_sin_fecha", to: incluirSinFecha)
+        Config.set("tareas_resumen_ia", to: resumenIA)
         Config.set("tareas_resumen_manana_min", to: Self.minutos(horaManana))
         Config.set("tareas_resumen_tarde_min", to: Self.minutos(horaTarde))
         TareasRecordatorios.shared.solicitarPermisoSiHaceFalta()
@@ -84,6 +89,8 @@ struct NotasView: View {
                 .font(.headline).foregroundStyle(acentoNo)
             Text("Se llenan solas al dictar con Tarea o Nota. Las fechas se detectan en frases como “mañana a las 8:00 p. m.”; todo queda local en tu Mac.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            tablero
 
             GroupBox {
                 VStack(alignment: .leading, spacing: 10) {
@@ -112,7 +119,7 @@ struct NotasView: View {
                 }.padding(4)
             }
 
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: $avisosExpandidos) {
                 VStack(alignment: .leading, spacing: 9) {
                     Toggle("Avisarme al llegar la fecha", isOn: $avisos)
                     HStack(spacing: 18) {
@@ -136,7 +143,21 @@ struct NotasView: View {
                     }
                     Toggle("Incluir tareas sin fecha en los resúmenes", isOn: $incluirSinFecha)
                         .toggleStyle(.checkbox)
-                    Text("Los resúmenes son locales y deterministas: no gastan IA. Si la Mac estaba apagada, se entrega el resumen vigente al volver a abrir BetoDicta.")
+                    Toggle("Dar forma al resumen con IA (opcional)", isOn: $resumenIA)
+                        .toggleStyle(.checkbox)
+                    Text(resumenIA
+                         ? "La IA solo reescribe el resumen ya calculado y puede recibir hasta tres títulos. Si no responde en 6 segundos, BetoDicta usa el resumen local."
+                         : "El resumen es local y determinista: no gasta IA ni sale de tu Mac.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Probar aviso ahora") {
+                            TareasRecordatorios.shared.probarAviso { recargar() }
+                        }
+                        Button("Ajustes de notificaciones…") {
+                            TareasRecordatorios.abrirAjustesNotificaciones()
+                        }
+                    }.controlSize(.small)
+                    Text("Si la Mac estaba apagada o dormida, el resumen vigente y los avisos vencidos se recuperan al volver a abrir o activar BetoDicta.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(.top, 8)
@@ -147,6 +168,7 @@ struct NotasView: View {
                 .onChange(of: resumenManana) { _, _ in guardarConfiguracion() }
                 .onChange(of: resumenTarde) { _, _ in guardarConfiguracion() }
                 .onChange(of: incluirSinFecha) { _, _ in guardarConfiguracion() }
+                .onChange(of: resumenIA) { _, _ in guardarConfiguracion() }
                 .onChange(of: horaManana) { _, _ in guardarConfiguracion() }
                 .onChange(of: horaTarde) { _, _ in guardarConfiguracion() }
             } label: {
@@ -154,7 +176,7 @@ struct NotasView: View {
                     .font(.subheadline).bold().foregroundStyle(acentoNo)
             }
 
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: $calendarioExpandido) {
                 VStack(alignment: .leading, spacing: 8) {
                     DatePicker("", selection: $diaCalendario, displayedComponents: .date)
                         .datePickerStyle(.graphical).labelsHidden().frame(maxWidth: 390)
@@ -162,14 +184,23 @@ struct NotasView: View {
                         guard let e = $0.fechaObjetivo else { return false }
                         return Calendar.current.isDate(Date(timeIntervalSince1970: e),
                                                        inSameDayAs: diaCalendario)
-                    }
+                    }.sorted { ($0.fechaObjetivo ?? 0) < ($1.fechaObjetivo ?? 0) }
                     if delDia.isEmpty {
                         Text("No hay tareas ni notas programadas ese día.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
                         ForEach(delDia) { p in
-                            Label(p.texto, systemImage: p.tipo == "tarea" ? "checkmark.circle" : "note.text")
-                                .font(.caption)
+                            HStack {
+                                Label(p.texto, systemImage: p.tipo == "tarea"
+                                      ? (p.hecho ? "checkmark.circle.fill" : "checkmark.circle")
+                                      : "note.text")
+                                Spacer()
+                                if let e = p.fechaObjetivo {
+                                    Text(Date(timeIntervalSince1970: e)
+                                        .formatted(date: .omitted, time: .shortened))
+                                        .monospacedDigit().foregroundStyle(.secondary)
+                                }
+                            }.font(.caption)
                         }
                     }
                     Button("Agregar en este día…") { editorCalendario = true }
@@ -205,6 +236,40 @@ struct NotasView: View {
                 }
             }.padding(22).frame(width: 420)
         }
+    }
+
+    @ViewBuilder private var tablero: some View {
+        let c = TareasRecordatorios.conteos(items: items)
+        GroupBox {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 8) {
+                    indicador("Vencidas", c.vencidas, color: c.vencidas > 0 ? .red : .secondary)
+                    indicador("Hoy", c.hoy, color: acentoNo)
+                    indicador("Mañana", c.manana, color: .blue)
+                    indicador("Sin fecha", c.sinFecha, color: .secondary)
+                }
+                if let siguiente = TareasRecordatorios.siguiente(items: items),
+                   let e = siguiente.fechaObjetivo {
+                    Label("Siguiente: \(siguiente.texto) · \(Date(timeIntervalSince1970: e).formatted(date: .abbreviated, time: .shortened))",
+                          systemImage: "clock")
+                        .font(.caption).lineLimit(2)
+                } else if c.total == 0 {
+                    Label("Todo al día", systemImage: "checkmark.seal.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+            }.padding(3)
+        }
+    }
+
+    private func indicador(_ titulo: String, _ valor: Int, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text("\(valor)").font(.title3).bold().monospacedDigit().foregroundStyle(color)
+            Text(titulo).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 5)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(titulo): \(valor)")
     }
 
     @ViewBuilder private var listaTareas: some View {

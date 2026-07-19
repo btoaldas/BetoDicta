@@ -239,6 +239,12 @@ struct Config {
     static func tareasResumenIncluirSinFecha() -> Bool {
         (json()["tareas_resumen_sin_fecha"] as? Bool) ?? true
     }
+    /// Reescribe el resumen determinista con la IA de pulido seleccionada. Es
+    /// opt-in porque puede enviar hasta tres títulos de tareas al proveedor; si
+    /// no hay IA o tarda, el reloj entrega el resumen local sin bloquearse.
+    static func tareasResumenIA() -> Bool {
+        (json()["tareas_resumen_ia"] as? Bool) ?? false
+    }
     static func tareasResumenUltimo(_ periodo: String) -> String {
         (json()["tareas_resumen_ultimo_\(periodo)"] as? String) ?? ""
     }
