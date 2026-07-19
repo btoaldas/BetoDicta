@@ -376,20 +376,11 @@ enum Musica {
                 completion(ResultadoMusica(ok: false, proveedor: "",
                     mensaje: "No hay un servicio de música disponible.", estado: .fallo)); return
             }
-            var respaldoAbierto: (ProveedorMusica, EstadoMusica)?
             for p in candidatos {
                 let estado: EstadoMusica? = simular
                     ? (intencion == .buscar ? (consulta.isEmpty ? .abierto : .busqueda) : .reproduciendo)
                     : abrir(p, consulta: consulta, intencion: intencion)
                 if let estado {
-                    // Para una orden de reproducir, abrir una app o una página
-                    // es solo un respaldo: seguimos buscando un proveedor que
-                    // confirme audio real. Conservamos la primera apertura por
-                    // si ningún motor de la cascada puede reproducir.
-                    if intencion == .reproducir, estado != .reproduciendo {
-                        if respaldoAbierto == nil { respaldoAbierto = (p, estado) }
-                        continue
-                    }
                     let accion = mensaje(estado: estado, proveedor: p,
                                          consulta: consulta, intencion: intencion)
                     AgenteLog.registrar("musica", ["proveedor": p.id, "consulta": consulta,
@@ -399,16 +390,6 @@ enum Musica {
                     completion(ResultadoMusica(ok: true, proveedor: p.id,
                                                mensaje: accion, estado: estado)); return
                 }
-            }
-            if let (p, estado) = respaldoAbierto {
-                let accion = mensaje(estado: estado, proveedor: p,
-                                     consulta: consulta, intencion: intencion)
-                AgenteLog.registrar("musica", ["proveedor": p.id, "consulta": consulta,
-                                                "simular": simular, "ok": true,
-                                                "intencion": intencion.rawValue,
-                                                "estado": estado.rawValue])
-                completion(ResultadoMusica(ok: true, proveedor: p.id,
-                                           mensaje: accion, estado: estado)); return
             }
             AgenteLog.registrar("musica", ["consulta": consulta, "ok": false,
                                             "intencion": intencion.rawValue])
