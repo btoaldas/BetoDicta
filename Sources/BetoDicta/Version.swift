@@ -6,11 +6,20 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.45.0"
+    static let numero = "0.46.0"
     static let fecha = "2026-07-19"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.46.0", "2026-07-19", [
+            "REPRODUCTOR INTERNO DE MÚSICA: BetoDicta · YouTube integra búsqueda, cola, Anterior, Play/Pausa, Stop y Siguiente; diferencia buscar de reproducir, verifica el estado real y participa en la cascada configurable de Modo Música",
+            "GOOGLE SIN CONTRASEÑAS EMBEBIDAS: búsqueda mediante YouTube Data API v3 con API key propia u OAuth de escritorio en el navegador externo, PKCE y retorno exclusivo a 127.0.0.1; el token revocable queda protegido en el archivo privado de claves",
+            "GRABACIONES MÁS CLARAS: reconoce grabemos, hagamos, inicia y comienza; si falta el área pregunta pantalla o ventana conservando la orden original, y al terminar deja una confirmación persistente con la ruta y Ver en Finder",
+            "CONTROL LOCAL DEL VOLUMEN: entiende porcentaje, subir, bajar, máximo, silencio y reactivar; comprueba el estado final del Mac antes de responder y evita falsos positivos como volumen de ventas",
+            "PERMISOS GUIADOS: el primer arranque explica y enlaza Notificaciones, voz de Apple, pantalla, Contactos, Calendario, Recordatorios, Ubicación, Música, Automatización y archivos sin volver obligatorias las funciones opcionales",
+            "AUTOAYUDA RÁPIDA: botones, enlaces e interruptores muestran una explicación inmediata y conservan descripciones para VoiceOver; la burbuja visual es parametrizable",
+            "XTTS RESIDENTE MÁS ÁGIL: la voz local espera y reutiliza el servidor ya cargado en vez de levantar un generador completo por cada frase; mantiene streaming y batch como degradación segura",
+        ]),
         ("0.45.0", "2026-07-19", [
             "ACTIVACIÓN MANOS LIBRES CONFIGURABLE: el nombre y las frases pertenecen al usuario; una pausa local despierta al asistente, ofrece un acuse breve editable y abre un turno limpio. El listener es opt-in, libera el micrófono al trabajar y convive con una pasarela Siri/Atajos instalable",
             "DICTADO ASISTIDO SIN MANOS: dicta, transcribe, escribe, corrige, actualiza o mejora un texto; BetoDicta quita únicamente la orden, pule con degradación al original, pega en la aplicación activa y conserva opcionalmente el portapapeles. Decir solo ‘dictado’ abre una segunda toma automática",
