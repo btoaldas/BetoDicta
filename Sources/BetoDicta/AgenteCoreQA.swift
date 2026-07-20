@@ -891,6 +891,7 @@ enum AgenteCoreQA {
             ("Reanuda la música", .reanudar), ("detén la música", .detener),
             ("siguiente canción", .siguiente), ("canción anterior", .anterior),
             ("cierra el reproductor", .cerrar),
+            ("mezcla la música", .aleatorio),
             ("pon el video a pantalla completa", .pantallaCompleta),
             ("pon la música en modo compacto", .compacto),
         ]
@@ -909,7 +910,8 @@ enum AgenteCoreQA {
                   !ComandoMusica.pausar.esAplicable(en: vacio)
                     && !ComandoMusica.detener.esAplicable(en: vacio)
                     && !ComandoMusica.siguiente.esAplicable(en: vacio)
-                    && !ComandoMusica.anterior.esAplicable(en: vacio))
+                    && !ComandoMusica.anterior.esAplicable(en: vacio)
+                    && !ComandoMusica.aleatorio.esAplicable(en: vacio))
         comprobar("pausa y stop exigen audio reproduciéndose",
                   ComandoMusica.pausar.esAplicable(en: sonando)
                     && ComandoMusica.detener.esAplicable(en: sonando)
@@ -922,16 +924,47 @@ enum AgenteCoreQA {
         comprobar("anterior/siguiente exigen cola",
                   ComandoMusica.siguiente.esAplicable(en: sonando)
                     && ComandoMusica.anterior.esAplicable(en: sonando)
+                    && ComandoMusica.aleatorio.esAplicable(en: sonando)
                     && !ComandoMusica.siguiente.esAplicable(en: .init(
                         reproduciendo: true, tieneContenido: true,
                         tieneCola: false, interfazVisible: true)))
         let planControl = ModoPlanificador.detectarNatural("Detén la música", catalogo: catalogo)
         comprobar("compuerta reconoce solo control musical puro",
                   planControl.flatMap { Musica.controlExclusivo(en: $0.cadena) } == .detener)
-        comprobar("compacto oculta video sin borrar la sesión lógica",
-                  !ReproductorYouTubeModel.debeMostrarVideo(compacto: true))
-        comprobar("vista amplia vuelve a mostrar video",
-                  ReproductorYouTubeModel.debeMostrarVideo(compacto: false))
+        comprobar("compacto conserva el mínimo oficial de YouTube",
+                  ReproductorYouTubeModel.cumpleMinimoYouTube(
+                    ReproductorYouTubeModel.tamanoVideoCompacto))
+        let bibliotecaQA = [
+            VideoYouTubeInterno(id: "aaaaaaaaaaa", titulo: "Nuestro juramento",
+                                canal: "Julio Jaramillo", miniatura: nil),
+            VideoYouTubeInterno(id: "bbbbbbbbbbb", titulo: "Historia del Ecuador",
+                                canal: "Aula", miniatura: nil),
+            VideoYouTubeInterno(id: "ccccccccccc", titulo: "Fatalidad",
+                                canal: "Julio Jaramillo", miniatura: nil),
+        ]
+        comprobar("filtro local busca título o canal sin red",
+                  ReproductorYouTubeModel.filtrar(bibliotecaQA, por: "Jaramillo").count == 2
+                    && ReproductorYouTubeModel.filtrar(bibliotecaQA, por: "historia").count == 1)
+        comprobar("respaldo local ignora palabras operativas y conserva la intención",
+                  YouTubeBibliotecaCache.buscar("pon música de Julio Jaramillo",
+                                                en: bibliotecaQA).count == 2
+                    && YouTubeBibliotecaCache.buscar("tutorial del Ecuador",
+                                                     en: bibliotecaQA).map(\.id) == ["bbbbbbbbbbb"])
+        comprobar("respaldo aleatorio usa toda la biblioteca sin consulta útil",
+                  YouTubeBibliotecaCache.buscar("pon música", en: bibliotecaQA,
+                                                permitirTodos: true).count == 3)
+        comprobar("error de cuota queda tipado para activar el failover local",
+                  ErrorYouTubeInterno.cuotaAgotada("QA").esCuotaAgotada
+                    && !ErrorYouTubeInterno.red("QA").esCuotaAgotada)
+        comprobar("aleatorio evita lo recién escuchado si hay alternativa",
+                  ReproductorYouTubeModel.candidatosAleatorios(
+                    bibliotecaQA, evitando: ["aaaaaaaaaaa", "bbbbbbbbbbb"]) == [2])
+        comprobar("video no embebible salta una sola vuelta sin bucle",
+                  ReproductorYouTubeModel.siguienteDisponible(
+                    en: bibliotecaQA, despuesDe: 0, omitiendo: ["aaaaaaaaaaa"]) == 1
+                    && ReproductorYouTubeModel.siguienteDisponible(
+                        en: bibliotecaQA, despuesDe: 0,
+                        omitiendo: Set(bibliotecaQA.map(\.id))) == nil)
         comprobar("continúa el informe no controla música",
                   ModoPlanificador.detectarNatural("Continúa el informe para rectorado",
                                                     catalogo: catalogo) == nil)

@@ -190,6 +190,9 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var musicaInternaConsulta: String {
         didSet { Config.set("musica_interna_consulta_default", to: String(musicaInternaConsulta.prefix(160))) }
     }
+    @Published var youtubeBusquedasDiarias: Int {
+        didSet { Config.set("youtube_busquedas_diarias", to: youtubeBusquedasDiarias) }
+    }
     @Published var youtubeEstado = ""
     @Published var youtubeTrabajando = false
     @Published var rutinas: [RutinaAgente]
@@ -254,6 +257,7 @@ final class AgenteSettingsModel: ObservableObject {
         musicaInternaAvanzar = Config.musicaInternaAvanzarSolo()
         musicaInternaCompacta = Config.musicaInternaCompacta()
         musicaInternaConsulta = Config.musicaInternaConsultaPredeterminada()
+        youtubeBusquedasDiarias = Config.youtubeBusquedasDiarias()
         rutinas = RutinasAgenteStore.todas(); atajosDetalle = AppleAtajosCatalogo.todos()
         actualizarEstadoYouTube()
     }
@@ -311,6 +315,11 @@ final class AgenteSettingsModel: ObservableObject {
     }
 
     func quitarYouTubeKey() { ApiKeys.set("YOUTUBE_DATA_API_KEY", ""); actualizarEstadoYouTube() }
+
+    func reiniciarCuotaYouTube() {
+        YouTubeCuotaBusqueda.reiniciarEstimacion()
+        aviso = "Contador local reiniciado. Esto no amplía ni reinicia la cuota real de Google."
+    }
 
     func importarOAuthYouTube() {
         let p = NSOpenPanel(); p.title = "Credenciales OAuth de Google para BetoDicta"
@@ -990,8 +999,25 @@ struct AgenteView: View {
                         NSWorkspace.shared.open(URL(string: "https://console.cloud.google.com/apis/library/youtube.googleapis.com")!)
                     }.controlSize(.small)
                         .help("Abrir la página oficial de YouTube Data API v3")
+                    Button("Crear cliente OAuth ↗") {
+                        NSWorkspace.shared.open(URL(string: "https://console.cloud.google.com/apis/credentials")!)
+                    }.controlSize(.small)
+                        .help("Crear credenciales OAuth de tipo Aplicación de escritorio para leer tus listas")
                 }
-                Text("Para OAuth, crea en tu propio proyecto de Google un cliente de tipo “Aplicación de escritorio”, descarga su JSON e impórtalo. La autorización se abre siempre en tu navegador, porque Google prohíbe pedir credenciales dentro de una ventana embebida.")
+                Text("Búsquedas públicas: basta la API key. Mis listas: 1) activa YouTube Data API; 2) crea un cliente OAuth “Aplicación de escritorio”; 3) descarga su JSON e impórtalo; 4) pulsa Conectar cuenta Google. La autorización se abre en tu navegador y BetoDicta nunca recibe tu contraseña.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                HStack(spacing: 8) {
+                    Stepper("Límite preventivo diario: \(m.youtubeBusquedasDiarias)",
+                            value: $m.youtubeBusquedasDiarias, in: 1...10_000)
+                        .help("Google asigna 100 búsquedas diarias por defecto; aumenta este valor solo si tu proyecto obtuvo más cuota")
+                    Spacer()
+                    Button("Reiniciar estimación") { m.reiniciarCuotaYouTube() }
+                        .controlSize(.small)
+                        .help("Usar al cambiar de proyecto; no reinicia la cuota real de Google")
+                }
+                Text(YouTubeCuotaBusqueda.resumen())
+                    .font(.caption2).foregroundStyle(.secondary)
+                Text("Al agotarse la cuota o fallar la red, BetoDicta busca sin conexión en resultados previos, favoritos, cola, historial y listas que ya abriste.")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
 

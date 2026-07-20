@@ -602,6 +602,11 @@ struct Config {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return s.isEmpty ? "música para escuchar" : String(s.prefix(160))
     }
+    /// Desde junio de 2026 Google asigna por defecto 100 llamadas diarias a
+    /// search.list. Es un límite local preventivo: el servidor sigue mandando.
+    static func youtubeBusquedasDiarias() -> Int {
+        min(10_000, max(1, (json()["youtube_busquedas_diarias"] as? Int) ?? 100))
+    }
     /// Proveedores propios: [{nombre,url}], URL con {q}.
     static func musicaProveedoresPersonales() -> [[String: String]] {
         (json()["musica_proveedores_personales"] as? [[String: String]]) ?? []

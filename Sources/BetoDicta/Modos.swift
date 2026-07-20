@@ -37,7 +37,7 @@ struct Modo: Codable, Identifiable {
     var appBundleId: String      // bundle id inventariado (nunca una orden arbitraria)
     var appRuta: String          // respaldo: ruta .app validada contra el catálogo actual
     var musicaProveedor: String  // solo "musica": auto/apple_music/spotify/…
-    var musicaAccion: String     // solo "musica": auto/reproducir/buscar
+    var musicaAccion: String     // solo "musica": auto/reproducir/buscar/controles
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",

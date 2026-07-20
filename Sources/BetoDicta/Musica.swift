@@ -33,7 +33,7 @@ enum IntencionMusica: String {
 
 enum ComandoMusica: String {
     case reproducir, buscar, pausar, reanudar, detener, siguiente, anterior
-    case cerrar, pantallaCompleta = "pantalla_completa", compacto
+    case aleatorio, cerrar, pantallaCompleta = "pantalla_completa", compacto
 
     var intencion: IntencionMusica? {
         switch self {
@@ -51,6 +51,14 @@ struct EstadoControlMusica: Equatable {
     let tieneContenido: Bool
     let tieneCola: Bool
     let interfazVisible: Bool
+    let puedeAleatorio: Bool
+
+    init(reproduciendo: Bool, tieneContenido: Bool, tieneCola: Bool,
+         interfazVisible: Bool, puedeAleatorio: Bool? = nil) {
+        self.reproduciendo = reproduciendo; self.tieneContenido = tieneContenido
+        self.tieneCola = tieneCola; self.interfazVisible = interfazVisible
+        self.puedeAleatorio = puedeAleatorio ?? tieneCola
+    }
 
     static let vacio = EstadoControlMusica(reproduciendo: false,
                                            tieneContenido: false,
@@ -69,6 +77,8 @@ extension ComandoMusica {
             return estado.tieneContenido && !estado.reproduciendo
         case .siguiente, .anterior:
             return estado.tieneCola
+        case .aleatorio:
+            return estado.puedeAleatorio
         case .cerrar, .pantallaCompleta, .compacto:
             return estado.interfazVisible
         case .reproducir, .buscar:
@@ -208,9 +218,12 @@ enum Musica {
         if ["pausa", "pausar"].contains(s) { return .pausar }
         if ["reanuda", "reanudar", "continua", "continuar"].contains(s) { return .reanudar }
         if ["deten", "detener", "stop"].contains(s) { return .detener }
+        if ["shuffle", "mezcla", "baraja", "aleatorio"].contains(s) { return .aleatorio }
         if s.contains("pantalla completa"), musical { return .pantallaCompleta }
         if (s.contains("modo compacto") || s.contains("vista compacta")
             || s.contains("solo musica") || s.contains("sin video")), musical { return .compacto }
+        if s.range(of: #"^(?:por favor )?(?:mezcla|mezclar|baraja|barajar|shuffle|modo aleatorio)(?: la| el)? (?:musica|cola|canciones|reproductor)(?:\b|$)"#,
+                   options: .regularExpression) != nil { return .aleatorio }
         if s.range(of: #"^(?:por favor )?(?:pausa|pausar|pon en pausa)(?:\b| )"#,
                    options: .regularExpression) != nil, musical { return .pausar }
         if s.range(of: #"^(?:por favor )?(?:reanuda|reanudar|continua|continuar|sigue)(?:\b| )"#,
@@ -248,8 +261,8 @@ enum Musica {
                 completion(true)
                 return
             }
-            // Estas tres operaciones pertenecen exclusivamente a la ventana propia.
-            guard ![ComandoMusica.cerrar, .pantallaCompleta, .compacto].contains(comando) else {
+            // Estas operaciones pertenecen exclusivamente a la ventana propia.
+            guard ![ComandoMusica.aleatorio, .cerrar, .pantallaCompleta, .compacto].contains(comando) else {
                 completion(false)
                 return
             }
@@ -300,6 +313,9 @@ enum Musica {
             case .anterior where comando.esAplicable(en: player.estadoControl):
                 player.anterior(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
                     mensaje: "Volví al resultado anterior.", estado: .reproduciendo)); return
+            case .aleatorio where comando.esAplicable(en: player.estadoControl):
+                player.aleatorio(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Elegí otra pista de la cola al azar.", estado: .reproduciendo)); return
             case .cerrar:
                 player.cerrar()
                 terminar(.init(ok: true, proveedor: "betodicta_youtube",
@@ -311,7 +327,7 @@ enum Musica {
             case .compacto:
                 player.configurarCompacto(true)
                 terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Oculté el video y dejé los controles de audio.", estado: .abierto)); return
+                    mensaje: "Reduje la interfaz y mantuve visible el reproductor oficial.", estado: .abierto)); return
             case .reproducir, .buscar:
                 terminar(.init(ok: false, proveedor: "",
                     mensaje: "La orden necesita una consulta.", estado: .fallo)); return
@@ -341,6 +357,8 @@ enum Musica {
                 case .anterior:
                     ok = MediaControl.anteriorActual(); exito = "Volví a la canción anterior."
                     fallo = "No hay una cola musical disponible."; estado = .reproduciendo
+                case .aleatorio:
+                    return
                 default: return
                 }
                 terminar(.init(ok: ok, proveedor: "sistema", mensaje: ok ? exito : fallo,

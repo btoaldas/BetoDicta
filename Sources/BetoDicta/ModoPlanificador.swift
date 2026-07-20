@@ -700,7 +700,7 @@ enum ModoPlanificador {
                 "buscar": "Buscar música o video", "reproducir": "Reproducir música",
                 "pausar": "Pausar música", "reanudar": "Reanudar música",
                 "detener": "Detener música", "siguiente": "Siguiente canción",
-                "anterior": "Canción anterior", "cerrar": "Cerrar reproductor",
+                "anterior": "Canción anterior", "aleatorio": "Mezclar la cola", "cerrar": "Cerrar reproductor",
                 "pantalla_completa": "Cambiar pantalla completa", "compacto": "Cambiar vista compacta",
             ]
             let verbo = nombres[modo.musicaAccion] ?? "Reproducir música"

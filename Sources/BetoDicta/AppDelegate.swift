@@ -356,6 +356,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return (primero.modelo ?? "scribe_v2") == "scribe_v2_realtime"
     }
 
+    /// Aviso breve del reproductor sin interrumpir una grabación o una respuesta.
+    /// La ventana musical conserva el detalle aunque el notch esté ocupado.
+    func presentarAvisoMusica(_ mensaje: String) {
+        guard !recorder.isRecording, !CapturaMac.enCurso, !agenteActivo, !Voz.hablando else {
+            return
+        }
+        panel.flash(String(mensaje.prefix(180)), segundos: 3.5)
+    }
+
     /// No deja perder un recordatorio si vence mientras se dicta, se graba la
     /// pantalla o el asistente ya está hablando. La notificación de macOS sale
     /// igualmente; notch/voz esperan una ventana segura y no pisan otro audio.
@@ -485,23 +494,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // QA visual/real del reproductor interno. `cue` prepara el video oficial
         // de prueba sin sonido; `play` exige estado 1; `controls` verifica además
         // pausa/reanudación/stop y navegación anterior-siguiente; `compact`
-        // comprueba que el video desaparece sin desmontar ni pausar la sesión.
+        // comprueba que reduce la interfaz sin pausar; `skip` usa un ID real
+        // bloqueado para embeds y exige que salte al video oficial de prueba;
+        // `local` fuerza cuota agotada y exige resolver sin red.
         if let modo = ProcessInfo.processInfo.environment["BETODICTA_YTPLAYERTEST"],
-           ["cue", "play", "controls", "compact"].contains(modo) {
+           ["cue", "play", "controls", "compact", "skip", "local"].contains(modo) {
             let player = ReproductorYouTubeInterno.shared
             let compactoOriginal = player.model.compacto
             if modo == "compact" { player.configurarCompacto(false) }
-            player.mostrar(); player.model.consulta = "M7lc1UVf-VE"
+            player.mostrar()
+            if modo == "skip" {
+                player.model.resultados = [
+                    .init(id: "5jPa6ojk6SE", titulo: "Bloqueado para embeds", canal: "QA", miniatura: nil),
+                    .init(id: "M7lc1UVf-VE", titulo: "YouTube API Demo", canal: "Google", miniatura: nil),
+                ]
+                player.model.seleccionar(0)
+                let limite = Date().addingTimeInterval(25)
+                let timer = Timer(timeInterval: 0.25, repeats: true) { timer in
+                    MainActor.assumeIsolated {
+                        if player.model.videoID == "M7lc1UVf-VE", player.model.reproduciendo {
+                            timer.invalidate()
+                            print("YTPLAYERTEST TODO OK bloqueado omitido y siguiente reproduciendo")
+                            fflush(stdout); exit(0)
+                        }
+                        if Date() >= limite {
+                            timer.invalidate()
+                            print("YTPLAYERTEST FALLA skip id=\(player.model.videoID) estado=\(player.model.estado)")
+                            fflush(stdout); exit(7)
+                        }
+                    }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                return
+            }
+            if modo == "local" {
+                player.model.resultados = [
+                    .init(id: "aaaaaaaaaaa", titulo: "Nuestro juramento",
+                          canal: "Julio Jaramillo", miniatura: nil),
+                    .init(id: "bbbbbbbbbbb", titulo: "Fatalidad",
+                          canal: "Julio Jaramillo", miniatura: nil),
+                    .init(id: "ccccccccccc", titulo: "Historia del Ecuador",
+                          canal: "Aula", miniatura: nil),
+                ]
+                player.model.videoID = "qa-preparado"
+                player.model.consulta = "pon música de Julio Jaramillo"
+                player.model.buscar(reproducir: false) { r in
+                    let ok = r.encontro && player.model.usandoRespaldoLocal
+                        && player.model.resultados.count == 2
+                        && player.model.resultados.allSatisfy { $0.canal == "Julio Jaramillo" }
+                    print("YTPLAYERTEST \(ok ? "TODO OK" : "FALLA") respaldo_local=\(player.model.usandoRespaldoLocal) resultados=\(player.model.resultados.count)")
+                    fflush(stdout); exit(ok ? 0 : 8)
+                }
+                return
+            }
+            player.model.consulta = "M7lc1UVf-VE"
             player.model.buscar(reproducir: modo != "cue") { r in
                 if modo == "compact", r.reproduciendo {
                     player.configurarCompacto(true)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                        let oculto = player.model.compacto && !player.model.videoVisible
+                        let compacto = player.model.compacto && player.model.videoVisible
+                            && ReproductorYouTubeModel.cumpleMinimoYouTube(
+                                ReproductorYouTubeModel.tamanoVideoCompacto)
                         let audioVivo = player.model.reproduciendo
                             && player.estadoControl.tieneContenido
                         player.configurarCompacto(compactoOriginal)
-                        let ok = oculto && audioVivo
-                        print("YTPLAYERTEST \(ok ? "TODO OK" : "FALLA") compacto=\(oculto) audio=\(audioVivo)")
+                        let ok = compacto && audioVivo
+                        print("YTPLAYERTEST \(ok ? "TODO OK" : "FALLA") compacto=\(compacto) audio=\(audioVivo)")
                         fflush(stdout); exit(ok ? 0 : 6)
                     }
                     return

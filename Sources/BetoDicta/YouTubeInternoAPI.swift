@@ -40,17 +40,24 @@ enum ErrorYouTubeInterno: LocalizedError {
     case credencialesInvalidas(String)
     case red(String)
     case respuesta(String)
+    case cuotaAgotada(String)
     case cancelado
 
     var errorDescription: String? {
         switch self {
         case .sinCredenciales:
             return "Conecta tu cuenta Google o guarda una clave de YouTube Data API en Ajustes → Asistente → Modo Música."
-        case .credencialesInvalidas(let detalle), .red(let detalle), .respuesta(let detalle):
+        case .credencialesInvalidas(let detalle), .red(let detalle), .respuesta(let detalle),
+             .cuotaAgotada(let detalle):
             return detalle
         case .cancelado:
             return "La autorización de Google se canceló o venció."
         }
+    }
+
+    var esCuotaAgotada: Bool {
+        if case .cuotaAgotada = self { return true }
+        return false
     }
 }
 
@@ -72,7 +79,10 @@ enum YouTubeDataAPI {
             let snippet: Snippet
         }
         struct Fallo: Decodable {
-            struct Detalle: Decodable { let message: String }
+            struct Detalle: Decodable {
+                let message: String
+                let reason: String?
+            }
             let message: String?
             let errors: [Detalle]?
         }
@@ -110,6 +120,10 @@ enum YouTubeDataAPI {
             completion(.success([.init(id: id, titulo: "Video de YouTube", canal: "YouTube", miniatura: nil)]))
             return
         }
+        if ProcessInfo.processInfo.environment["BETODICTA_YT_FORCE_LOCAL"] == "1" {
+            completion(.failure(ErrorYouTubeInterno.cuotaAgotada("QA: cuota agotada.")))
+            return
+        }
         YouTubeOAuth.autorizacion { auth in
             switch auth {
             case .failure(let error): completion(.failure(error))
@@ -122,6 +136,11 @@ enum YouTubeDataAPI {
     private static func buscar(_ consulta: String, tipo: TipoBusquedaYouTube,
                                autorizacion: AutorizacionYouTube,
                                completion: @escaping (Result<[VideoYouTubeInterno], Error>) -> Void) {
+        guard YouTubeCuotaBusqueda.consumirSiDisponible() else {
+            completion(.failure(ErrorYouTubeInterno.cuotaAgotada(
+                "Se alcanzó el límite preventivo de búsquedas de YouTube de hoy.")))
+            return
+        }
         var c = componentesBusqueda(consulta, tipo: tipo)
         if case .apiKey(let key) = autorizacion { c.queryItems?.append(.init(name: "key", value: key)) }
         guard let url = c.url else {
@@ -148,6 +167,18 @@ enum YouTubeDataAPI {
             guard (200..<300).contains(http.statusCode) else {
                 let detalle = dec.error?.message ?? dec.error?.errors?.first?.message
                     ?? "HTTP \(http.statusCode)"
+                let razones = dec.error?.errors?.compactMap(\.reason) ?? []
+                let cuota = (razones + [detalle]).contains {
+                    let s = $0.lowercased()
+                    return s.contains("quota") || s.contains("dailylimit")
+                        || s.contains("rate limit")
+                }
+                if cuota {
+                    YouTubeCuotaBusqueda.marcarAgotadaPorServidor()
+                    terminar(.failure(ErrorYouTubeInterno.cuotaAgotada(
+                        "YouTube informó que la cuota de búsquedas se agotó por hoy.")))
+                    return
+                }
                 terminar(.failure(ErrorYouTubeInterno.respuesta("YouTube rechazó la búsqueda: \(detalle)"))); return
             }
             let videos = (dec.items ?? []).compactMap { item -> VideoYouTubeInterno? in
@@ -158,6 +189,7 @@ enum YouTubeDataAPI {
                              canal: desescapar(item.snippet.channelTitle),
                              miniatura: mini.flatMap(URL.init(string:)))
             }
+            YouTubeBibliotecaCache.registrar(videos)
             terminar(.success(videos))
         }.resume()
     }
@@ -262,7 +294,7 @@ enum YouTubeDataAPI {
                 ]
                 pedir(c, token: token, como: RespuestaElementosLista.self) { resultado in
                     completion(resultado.map { respuesta in
-                        (respuesta.items ?? []).compactMap { item in
+                        let videos: [VideoYouTubeInterno] = (respuesta.items ?? []).compactMap { item in
                             guard let id = item.snippet.resourceId.videoId,
                                   id.range(of: #"^[A-Za-z0-9_-]{11}$"#,
                                            options: .regularExpression) != nil else { return nil }
@@ -272,6 +304,8 @@ enum YouTubeDataAPI {
                                          canal: desescapar(item.snippet.videoOwnerChannelTitle ?? "YouTube"),
                                          miniatura: mini.flatMap(URL.init(string:)))
                         }
+                        YouTubeBibliotecaCache.registrar(videos)
+                        return videos
                     })
                 }
             }
