@@ -19,17 +19,23 @@ binario final solo enlace frameworks del sistema.
 
 | Motor | Revisión verificada | Contratos de BetoDicta comprobados |
 |---|---|---|
-| **transcribe.cpp** | `5a5a49664a8ea1f0e5b3be1dfc544730d1b62561` (v0.1.3 + Parakeet multitalker/MOSS) | API pública sin cambios; `transcribe-cli`; streaming `beto-stream`; Canary y Nemotron |
+| **transcribe.cpp** | `8c7ae674ea7b26b0c9074529da99f938553db32f` (motor 0.2.0, diarización MOSS/Granite) | ABI nueva; `transcribe-cli`; `beto-stream` reconstruido; Canary, Nemotron y Voxtral Realtime |
 | **llama.cpp** | `b10068` — `571d0d540df04f25298d0e159e520d9fc62ed121` | `llama-server`; `--mmproj`; chat con audio Voxtral; `/v1/embeddings`; Metal y Accelerate |
 
-QA del 19-07-2026: `transcribe.cpp` pasó **31/31** pruebas upstream y `llama.cpp`
+QA del 19-07-2026: `transcribe.cpp` pasó **33/33** pruebas upstream y `llama.cpp`
 pasó **53/53, sin fallos**. Para completar también las dos pruebas auxiliares se
 usaron Jinja2 3.1.6 en un entorno Python aislado y Git LFS 3.7.1 con los seis
 vocabularios GGUF oficiales. El resultado se reprodujo dos veces: una suite
 secuencial (**53/53**, 144,37 s) y otra con paralelismo moderado (**53/53**,
 155,54 s). Estas herramientas son solo de QA y no se incorporan al bundle. Además
 se probaron con modelos reales los cuatro caminos que sí usa la app: Canary batch,
-Nemotron streaming, Voxtral multimodal y BGE-M3 embeddings.
+Nemotron y Voxtral Realtime por streaming, Voxtral multimodal y BGE-M3 embeddings.
+
+La revisión 8c7ae67 cambia la ABI y añade estructuras de diarización. BetoDicta
+no activa diarización automáticamente: conserva el comportamiento existente y
+solo incorpora el motor actualizado. El puente se recompiló contra la cabecera
+0.2.0 y se verificó con el mismo audio de 16 kHz en Canary, Nemotron y Voxtral
+Realtime; los dos motores en vivo emitieron `READY`, parciales y final válido.
 
 Para reconstruir el puente después de compilar `~/transcribe.cpp` estático:
 

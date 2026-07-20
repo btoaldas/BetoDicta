@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.48.0"
+    static let numero = "0.48.1"
     static let fecha = "2026-07-19"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.48.1", "2026-07-19", [
+            "TRANSCRIBE.CPP 0.2.0 ACTUALIZADO: incorpora la revisión 8c7ae67 con las nuevas bases de diarización de MOSS y Granite sin activar funciones no configuradas por el usuario",
+            "PUENTE LOCAL RECONSTRUIDO: beto-stream se volvió a enlazar contra la ABI nueva y conserva el protocolo READY, parciales y resultado final que usa el notch",
+            "COMPATIBILIDAD REAL VERIFICADA: 33/33 pruebas upstream, Canary por lotes, Nemotron streaming y Voxtral Realtime ejecutados con modelos y audio reales en Metal",
+        ]),
         ("0.48.0", "2026-07-19", [
             "REPRODUCTOR INTERNO RESILIENTE: separa Buscar, Favoritos, Historial, Cola y Mis listas; conserva cada fuente, filtra localmente, mezcla la pestaña activa y evita repetir lo recién escuchado",
             "VIDEOS BLOQUEADOS SIN ROMPER LA MÚSICA: los errores de reproducción embebida 101/150 muestran un aviso y saltan automáticamente al siguiente elemento; el recorrido es acotado y nunca entra en bucle",
