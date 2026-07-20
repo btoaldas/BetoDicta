@@ -770,8 +770,15 @@ enum ConexionesRunner {
               !conexion.promptRespuesta.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             completion(r); return
         }
+        // La redacción recibe QUÉ operación fue: una consulta jamás puede
+        // narrarse como «quedó registrado» (pasó: describió una lectura del
+        // día como si acabara de publicar).
+        let clave = r.evidencia["endpoint"] ?? ""
+        let ep = conexion.endpoints.first { $0.clave == clave }
+        let operacion = ep.map { "\($0.clave) (\($0.efectivamenteEscritura ? "escritura" : "consulta de solo lectura")): \($0.descripcion)" } ?? ""
         ConexionesIA.redactarRespuesta(modo: modo, conexion: conexion, pedido: pedido,
-                                       respuestaAPI: r.evidencia["salida"] ?? r.mensaje) { redactado in
+                                       respuestaAPI: r.evidencia["salida"] ?? r.mensaje,
+                                       operacion: operacion) { redactado in
             guard let redactado else {
                 // La redacción nunca bloquea, pero un JSON crudo tampoco se
                 // muestra ni se habla: cae al formato legible determinista.

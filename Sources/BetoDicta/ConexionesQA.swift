@@ -381,6 +381,19 @@ enum ConexionesQA {
         check("propuesta con IA apagada por defecto → sin explicación",
               (esperaExplicacion ?? "no llegó") == nil)
 
+        // 15b1c. La redacción sabe qué operación fue: consulta jamás se narra
+        // como registro (pasó en producción: leyó el día y dijo «quedó registrada»).
+        let promptOp = ConexionesIA.promptRedaccion(instrucciones: "resume",
+                                                    pedido: "pon mis tareas",
+                                                    respuestaAPI: "{\"count\":1}",
+                                                    operacion: "hoy (consulta de solo lectura): tareas del día")
+        check("la redacción recibe la operación ejecutada",
+              promptOp.contains("OPERACIÓN EJECUTADA: hoy (consulta de solo lectura)")
+              && promptOp.contains("jamás digas que algo «quedó registrado»"))
+        check("regla del plan: narración = escritura",
+              ConexionesIA.promptPara(modo: modo, conexion: conexIA, texto: "x")
+                .contains("elige el endpoint de ESCRITURA correspondiente aunque el verbo sea raro"))
+
         // 15b2. Prompt de vuelta (redacción): estructura y datos no confiables.
         check("prompt de vuelta lleva instrucciones, pedido y respuesta",
               {

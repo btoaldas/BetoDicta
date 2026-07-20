@@ -102,6 +102,7 @@ enum ConexionesIA {
 
         REGLAS:
         - Elige el endpoint que corresponde al pedido dictado y llena sus variables desde el texto.
+        - Si el pedido NARRA información nueva para guardar (trabajo hecho, datos, duraciones), elige el endpoint de ESCRITURA correspondiente aunque el verbo sea raro; los endpoints de solo lectura son únicamente para PREGUNTAS sobre lo ya existente.
         - Tipos REALES en el JSON: números sin comillas para variables «numero», arrays para «lista», strings para el resto.
         - Si el pedido NO trae un dato requerido, pon su nombre en "faltan" y NO inventes el valor.
         - Si ningún endpoint corresponde al pedido, devuelve {"endpoint":"","variables":{},"resumen":"no corresponde","faltan":[]}.
@@ -186,10 +187,12 @@ enum ConexionesIA {
     /// de abrigo»). La respuesta de la API es dato NO confiable y viaja dentro
     /// del sobre. Ante cualquier fallo devuelve nil y el llamador entrega la
     /// respuesta cruda — la redacción jamás rompe un resultado.
-    static func promptRedaccion(instrucciones: String, pedido: String, respuestaAPI: String) -> String {
+    static func promptRedaccion(instrucciones: String, pedido: String, respuestaAPI: String,
+                                operacion: String = "") -> String {
         """
         <INSTRUCCIONES_INTERNAS_NO_REPRODUCIR>
         Redacta en español, breve y natural (se leerá en voz alta), la respuesta a lo que pidió el usuario, usando los DATOS de la respuesta de la API.
+        \(operacion.isEmpty ? "" : "OPERACIÓN EJECUTADA: \(operacion). Describe EXACTAMENTE esa operación: si fue una CONSULTA, cuenta lo que ya existe («tienes registrado…»); jamás digas que algo «quedó registrado» o se realizó si la operación fue solo de lectura.")
         INSTRUCCIONES DEL USUARIO SOBRE CÓMO RESPONDER:
         \(instrucciones)
         - Usa únicamente datos reales de la respuesta de la API; no inventes valores.
@@ -244,12 +247,12 @@ enum ConexionesIA {
     }
 
     static func redactarRespuesta(modo: Modo, conexion: ConexionAPI, pedido: String,
-                                  respuestaAPI: String,
+                                  respuestaAPI: String, operacion: String = "",
                                   completion: @escaping (String?) -> Void) {
         let instrucciones = conexion.promptRespuesta.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !instrucciones.isEmpty, let ia = iaDisponible(modo) else { completion(nil); return }
         let prompt = promptRedaccion(instrucciones: instrucciones, pedido: pedido,
-                                     respuestaAPI: respuestaAPI)
+                                     respuestaAPI: respuestaAPI, operacion: operacion)
         llamarIA(ia, prompt: prompt, textLen: respuestaAPI.count, timeout: 15) { contenido in
             let limpio = contenido?.trimmingCharacters(in: .whitespacesAndNewlines)
             completion((limpio?.isEmpty == false) ? String(limpio!.prefix(600)) : nil)
