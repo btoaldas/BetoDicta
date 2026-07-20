@@ -22,12 +22,14 @@ binario final solo enlace frameworks del sistema.
 | **transcribe.cpp** | `5a5a49664a8ea1f0e5b3be1dfc544730d1b62561` (v0.1.3 + Parakeet multitalker/MOSS) | API pública sin cambios; `transcribe-cli`; streaming `beto-stream`; Canary y Nemotron |
 | **llama.cpp** | `b10068` — `571d0d540df04f25298d0e159e520d9fc62ed121` | `llama-server`; `--mmproj`; chat con audio Voxtral; `/v1/embeddings`; Metal y Accelerate |
 
-QA del 19-07-2026: `transcribe.cpp` pasó **31/31** pruebas upstream. `llama.cpp`
-pasó **51/53**; las dos restantes son auxiliares y no prueban el servidor: una
-requiere el módulo de desarrollo Python `jinja2` y la otra Git LFS para descargar
-vocabularios de prueba. Además se probaron con modelos reales los cuatro caminos
-que sí usa la app: Canary batch, Nemotron streaming, Voxtral multimodal y BGE-M3
-embeddings.
+QA del 19-07-2026: `transcribe.cpp` pasó **31/31** pruebas upstream y `llama.cpp`
+pasó **53/53, sin fallos**. Para completar también las dos pruebas auxiliares se
+usaron Jinja2 3.1.6 en un entorno Python aislado y Git LFS 3.7.1 con los seis
+vocabularios GGUF oficiales. El resultado se reprodujo dos veces: una suite
+secuencial (**53/53**, 144,37 s) y otra con paralelismo moderado (**53/53**,
+155,54 s). Estas herramientas son solo de QA y no se incorporan al bundle. Además
+se probaron con modelos reales los cuatro caminos que sí usa la app: Canary batch,
+Nemotron streaming, Voxtral multimodal y BGE-M3 embeddings.
 
 Para reconstruir el puente después de compilar `~/transcribe.cpp` estático:
 
