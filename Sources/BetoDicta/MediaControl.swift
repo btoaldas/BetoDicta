@@ -12,6 +12,9 @@ import AppKit
 private enum MediaAdapter {
     static let play = 0
     static let pause = 1
+    static let stop = 3
+    static let next = 4
+    static let previous = 5
 
     typealias Ahora = (reproduciendo: Bool, titulo: String, artista: String, id: String?)
 
@@ -96,6 +99,37 @@ final class MediaControl {
     static func estadoActual(timeout: TimeInterval = 3) -> (reproduciendo: Bool,
                                    titulo: String, artista: String, id: String?)? {
         MediaAdapter.ahora(timeout: timeout)
+    }
+
+    @discardableResult
+    static func pausarActual() -> Bool {
+        guard MediaAdapter.isPlaying(), MediaAdapter.send(MediaAdapter.pause) else { return false }
+        Thread.sleep(forTimeInterval: 0.16)
+        return !MediaAdapter.isPlaying()
+    }
+
+    @discardableResult
+    static func detenerActual() -> Bool {
+        guard MediaAdapter.ahora(timeout: 1) != nil,
+              MediaAdapter.send(MediaAdapter.stop) else { return false }
+        Thread.sleep(forTimeInterval: 0.16)
+        return !MediaAdapter.isPlaying()
+    }
+
+    @discardableResult
+    static func siguienteActual() -> Bool { cambiarPista(MediaAdapter.next) }
+
+    @discardableResult
+    static func anteriorActual() -> Bool { cambiarPista(MediaAdapter.previous) }
+
+    private static func cambiarPista(_ comando: Int) -> Bool {
+        guard let antes = MediaAdapter.ahora(timeout: 1), MediaAdapter.send(comando) else { return false }
+        for espera in [0.18, 0.28, 0.42] {
+            Thread.sleep(forTimeInterval: espera)
+            guard let despues = MediaAdapter.ahora(timeout: 1) else { continue }
+            if despues.id != antes.id || despues.titulo != antes.titulo { return true }
+        }
+        return false
     }
 
     /// Al empezar a dictar: pausa REAL lo que suene.

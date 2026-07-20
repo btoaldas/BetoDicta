@@ -180,6 +180,13 @@ final class AgenteSettingsModel: ObservableObject {
     @Published var musicaAtajoPrimero: Bool { didSet { Config.set("musica_atajo_primero", to: musicaAtajoPrimero) } }
     @Published var musicaInternaAuto: Bool { didSet { Config.set("musica_interna_autoplay", to: musicaInternaAuto) } }
     @Published var musicaInternaAvanzar: Bool { didSet { Config.set("musica_interna_avanzar", to: musicaInternaAvanzar) } }
+    @Published var musicaInternaCompacta: Bool {
+        didSet {
+            Config.set("musica_interna_compacta", to: musicaInternaCompacta)
+            let valor = musicaInternaCompacta
+            DispatchQueue.main.async { ReproductorYouTubeInterno.shared.configurarCompacto(valor) }
+        }
+    }
     @Published var musicaInternaConsulta: String {
         didSet { Config.set("musica_interna_consulta_default", to: String(musicaInternaConsulta.prefix(160))) }
     }
@@ -245,6 +252,7 @@ final class AgenteSettingsModel: ObservableObject {
         musicaAtajo = Config.musicaAtajoApple(); musicaAtajoPrimero = Config.musicaAtajoPrimero()
         musicaInternaAuto = Config.musicaInternaAutoReproducir()
         musicaInternaAvanzar = Config.musicaInternaAvanzarSolo()
+        musicaInternaCompacta = Config.musicaInternaCompacta()
         musicaInternaConsulta = Config.musicaInternaConsultaPredeterminada()
         rutinas = RutinasAgenteStore.todas(); atajosDetalle = AppleAtajosCatalogo.todos()
         actualizarEstadoYouTube()
@@ -935,6 +943,9 @@ struct AgenteView: View {
                 Toggle("Avanzar al resultado siguiente cuando termine una canción",
                        isOn: $m.musicaInternaAvanzar)
                     .help("Continúa automáticamente por la cola visible del reproductor")
+                Toggle("Abrir el reproductor en vista compacta",
+                       isOn: $m.musicaInternaCompacta)
+                    .help("Conserva visible el reproductor oficial de YouTube en su tamaño mínimo; YouTube no permite ocultar el video ni separar solo el audio")
                 field("Si digo solo “pon música”", text: $m.musicaInternaConsulta,
                       placeholder: "música para escuchar")
 

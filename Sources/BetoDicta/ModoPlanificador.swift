@@ -90,6 +90,7 @@ enum ModoPlanificador {
     private static let objetosMusica: Set<String> = [
         "musica", "cancion", "canciones", "tema", "playlist", "radio", "album"
     ]
+    private static let objetosVideo: Set<String> = ["video", "videos", "tutorial", "tutoriales"]
     private static let verbosRecordar: Set<String> = [
         "recuerdame", "recordarme", "avisame", "avisar", "recuerdalo"
     ]
@@ -455,6 +456,17 @@ enum ModoPlanificador {
                let (id, j) = destinoAgente(desde: i, en: ts), let m = modo(id, catalogo: catalogo) {
                 agregarTransform(m, a: &p); marcar(i, j, confianza: 0.91); i = j + 1; continue
             }
+            // Controles del reproductor: “pausa la música”, “siguiente canción”,
+            // “cierra el reproductor”… Se resuelven localmente, sin IA.
+            if puedeAgregar(en: i), let mBase = modo("musica", catalogo: catalogo) {
+                let control = Musica.comando(texto)
+                if control.intencion == nil {
+                    var m = mBase; m.musicaAccion = control.rawValue
+                    agregarAccion(ModoAccionPlan(modo: m, destinatario: nil), a: &p)
+                    marcar(i, max(i, ts.count - 1), confianza: 0.99)
+                    i = ts.count; continue
+                }
+            }
             // “busca música de Julio” conserva una intención distinta de
             // “pon música de Julio”: la primera solo muestra resultados.
             if verbosBuscarMusica.contains(t), puedeAgregar(en: i),
@@ -462,15 +474,24 @@ enum ModoPlanificador {
                 let limite = min(ts.count, i + 7)
                 let cerca = i + 1 < limite ? Array(ts[(i + 1)..<limite].map(\.normal)) : []
                 let mencionaMusica = cerca.contains(where: objetosMusica.contains)
+                let mencionaVideo = cerca.contains(where: objetosVideo.contains)
                 let prov = proveedorMusicaCercano(desde: i, en: ts)
-                if mencionaMusica || prov != nil {
+                if mencionaMusica || mencionaVideo || prov != nil {
                     var m = mBase; m.musicaAccion = "buscar"; var ultimo = i
+                    if mencionaVideo { m.musicaProveedor = "betodicta_youtube" }
                     if let (id, j) = prov { m.musicaProveedor = id; ultimo = max(ultimo, j) }
-                    if let j = ((i + 1)..<limite).first(where: { objetosMusica.contains(ts[$0].normal) }) {
+                    if let j = ((i + 1)..<limite).first(where: {
+                        objetosMusica.contains(ts[$0].normal) || objetosVideo.contains(ts[$0].normal)
+                    }) {
                         ultimo = max(ultimo, j)
                     }
                     agregarAccion(ModoAccionPlan(modo: m, destinatario: nil), a: &p)
-                    marcar(i, ultimo, confianza: 0.97); i = ultimo + 1; continue
+                    // “tutoriales/videos” también define el tipo de búsqueda;
+                    // se conserva en la consulta para que la API no aplique el
+                    // filtro musical cuando el usuario no repite “video”.
+                    marcar(i, ultimo, contenidoDespuesDe: mencionaVideo ? i : nil,
+                           confianza: 0.97)
+                    i = ultimo + 1; continue
                 }
             }
             // "pon música de Jessy Uribe" / "reproduce en Spotify…". Exige un
@@ -480,15 +501,21 @@ enum ModoPlanificador {
                 let limite = min(ts.count, i + 7)
                 let cerca = i + 1 < limite ? Array(ts[(i + 1)..<limite].map(\.normal)) : []
                 let mencionaMusica = cerca.contains(where: objetosMusica.contains)
+                let mencionaVideo = cerca.contains(where: objetosVideo.contains)
                 let prov = proveedorMusicaCercano(desde: i, en: ts)
-                if mencionaMusica || prov != nil {
+                if mencionaMusica || mencionaVideo || prov != nil {
                     var m = mBase; m.musicaAccion = "reproducir"; var ultimo = i
+                    if mencionaVideo { m.musicaProveedor = "betodicta_youtube" }
                     if let (id, j) = prov { m.musicaProveedor = id; ultimo = max(ultimo, j) }
-                    if let j = ((i + 1)..<limite).first(where: { objetosMusica.contains(ts[$0].normal) }) {
+                    if let j = ((i + 1)..<limite).first(where: {
+                        objetosMusica.contains(ts[$0].normal) || objetosVideo.contains(ts[$0].normal)
+                    }) {
                         ultimo = max(ultimo, j)
                     }
                     agregarAccion(ModoAccionPlan(modo: m, destinatario: nil), a: &p)
-                    marcar(i, ultimo, confianza: 0.96); i = ultimo + 1; continue
+                    marcar(i, ultimo, contenidoDespuesDe: mencionaVideo ? i : nil,
+                           confianza: 0.96)
+                    i = ultimo + 1; continue
                 }
             }
             if verbosRecordar.contains(t), puedeAgregar(en: i) {
@@ -669,7 +696,14 @@ enum ModoPlanificador {
         if modo.id == "resumir" { return "Resumir" }
         if modo.id == "agente" { return "Preguntar al agente" }
         if modo.base == "musica" {
-            let verbo = modo.musicaAccion == "buscar" ? "Buscar música" : "Reproducir música"
+            let nombres: [String: String] = [
+                "buscar": "Buscar música o video", "reproducir": "Reproducir música",
+                "pausar": "Pausar música", "reanudar": "Reanudar música",
+                "detener": "Detener música", "siguiente": "Siguiente canción",
+                "anterior": "Canción anterior", "cerrar": "Cerrar reproductor",
+                "pantalla_completa": "Cambiar pantalla completa", "compacto": "Cambiar vista compacta",
+            ]
+            let verbo = nombres[modo.musicaAccion] ?? "Reproducir música"
             return ["", "auto"].contains(modo.musicaProveedor)
                 ? verbo
                 : "\(verbo) en \(Musica.nombre(modo.musicaProveedor))"
@@ -740,6 +774,24 @@ enum ModoPlanificador {
         // (destinatario/asunto). Se estructuran antes del parser general, pero
         // terminan en el MISMO ModoCadena y la misma confirmación.
         if let p = OrdenEstructurada.detectar(texto, catalogo: catalogo) { return p }
+        // “Pon música” puede repetirse por énfasis o porque el STT duplicó el
+        // parcial. Es una orden completa sin consulta: se colapsa a UNA acción y
+        // usa la consulta predeterminada/aleatoria, nunca se manda a una IA.
+        let palabrasMusica = ModoResolver.tokensNormalizados(texto).filter {
+            !["por", "favor", "porfavor", "oye", "beto", "betodicta"].contains($0)
+        }
+        if !palabrasMusica.isEmpty, palabrasMusica.count.isMultiple(of: 2) {
+            let paresValidos = stride(from: 0, to: palabrasMusica.count, by: 2).allSatisfy { i in
+                ["pon", "ponme", "reproduce", "toca"].contains(palabrasMusica[i])
+                    && palabrasMusica[i + 1] == "musica"
+            }
+            if paresValidos, var m = modo("musica", catalogo: catalogo) {
+                m.musicaAccion = "reproducir"
+                return pregunta(para: ModoCadena(transforms: [],
+                    acciones: [ModoAccionPlan(modo: m, destinatario: nil)], contenido: ""),
+                    fuente: .natural, confianza: 0.99)
+            }
+        }
         let ns = texto as NSString
         guard ns.length > 0 else { return nil }
         var sufijo = rangoSufijoSecuencial(texto)
@@ -846,7 +898,15 @@ enum ModoPlanificador {
         inicio = saltarMarcador(texto, desde: inicio, hasta: finContenido)
         let bruto = ns.substring(with: NSRange(location: inicio, length: max(0, finContenido - inicio)))
         let contenido = limpiarContenido(bruto)
-        guard contenido.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) else { return nil }
+        let soloControlMusical = principal.transforms.isEmpty && !principal.acciones.isEmpty
+            && principal.acciones.allSatisfy {
+                $0.modo.base == "musica"
+                    && ComandoMusica(rawValue: $0.modo.musicaAccion)?.intencion == nil
+            }
+        guard soloControlMusical
+                || contenido.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) else {
+            return nil
+        }
 
         let cadena = ModoCadena(transforms: principal.transforms,
                                 acciones: principal.acciones,

@@ -77,6 +77,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             menu.items.first(where: { $0.tag == 85 })?.title = "Modo: \(ModosStore.activo().nombre)"
         }
+        if let musicaItem = menu.items.first(where: { $0.tag == 87 }),
+           let musicaMenu = musicaItem.submenu {
+            musicaMenu.removeAllItems()
+            let modelo = ReproductorYouTubeInterno.shared.model
+            musicaItem.title = modelo.reproduciendo ? "🎵 \(String(modelo.tituloActual.prefix(34)))"
+                : "🎵 Reproductor de música"
+            if !modelo.tituloActual.isEmpty {
+                let ahora = NSMenuItem(title: modelo.tituloActual, action: nil, keyEquivalent: "")
+                ahora.isEnabled = false; musicaMenu.addItem(ahora)
+                musicaMenu.addItem(NSMenuItem.separator())
+            }
+            let abrir = NSMenuItem(title: "Abrir reproductor…", action: #selector(openMusicPlayer), keyEquivalent: "")
+            abrir.target = self; musicaMenu.addItem(abrir)
+            if !modelo.videoID.isEmpty {
+                let alternar = NSMenuItem(title: modelo.reproduciendo ? "Pausar" : "Reanudar",
+                    action: #selector(alternarMusicaMenu), keyEquivalent: "")
+                alternar.target = self; musicaMenu.addItem(alternar)
+                let anterior = NSMenuItem(title: "Anterior", action: #selector(anteriorMusicaMenu), keyEquivalent: "")
+                anterior.target = self; musicaMenu.addItem(anterior)
+                let siguiente = NSMenuItem(title: "Siguiente", action: #selector(siguienteMusicaMenu), keyEquivalent: "")
+                siguiente.target = self; musicaMenu.addItem(siguiente)
+                let favorito = NSMenuItem(title: modelo.esFavoritoActual ? "Quitar de favoritos" : "Añadir a favoritos",
+                    action: #selector(favoritoMusicaMenu), keyEquivalent: "")
+                favorito.target = self; musicaMenu.addItem(favorito)
+                musicaMenu.addItem(NSMenuItem.separator())
+                let detener = NSMenuItem(title: "Detener", action: #selector(detenerMusicaMenu), keyEquivalent: "")
+                detener.target = self; musicaMenu.addItem(detener)
+                let cerrar = NSMenuItem(title: "Cerrar reproductor", action: #selector(cerrarMusicaMenu), keyEquivalent: "")
+                cerrar.target = self; musicaMenu.addItem(cerrar)
+            }
+        }
         if let recientes = menu.items.first(where: { $0.tag == 80 })?.submenu {
             recientes.removeAllItems()
             let fmt = DateFormatter()
@@ -1951,7 +1982,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(recientes)
         menu.addItem(withTitle: "Exportar dictados de hoy", action: #selector(exportToday), keyEquivalent: "e")
         menu.addItem(withTitle: "Abrir historial", action: #selector(openHistory), keyEquivalent: "")
-        menu.addItem(withTitle: "Reproductor de música…", action: #selector(openMusicPlayer), keyEquivalent: "")
+        let musicaMenu = NSMenuItem(title: "🎵 Reproductor de música", action: nil, keyEquivalent: "")
+        musicaMenu.tag = 87; musicaMenu.submenu = NSMenu(); menu.addItem(musicaMenu)
         menu.addItem(withTitle: "Ver registro (log)", action: #selector(openLog), keyEquivalent: "l")
         let dev = NSMenuItem(title: "Modo desarrollo", action: #selector(toggleDevMode(_:)), keyEquivalent: "")
         dev.tag = 79
@@ -2488,6 +2520,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openMusicPlayer() {
         Log.log(.ui, "abrir reproductor interno")
         DispatchQueue.main.async { ReproductorYouTubeInterno.shared.mostrar() }
+    }
+    @objc private func alternarMusicaMenu() {
+        DispatchQueue.main.async { ReproductorYouTubeInterno.shared.model.alternar() }
+    }
+    @objc private func anteriorMusicaMenu() {
+        DispatchQueue.main.async { ReproductorYouTubeInterno.shared.anterior() }
+    }
+    @objc private func siguienteMusicaMenu() {
+        DispatchQueue.main.async { ReproductorYouTubeInterno.shared.siguiente() }
+    }
+    @objc private func detenerMusicaMenu() {
+        DispatchQueue.main.async { ReproductorYouTubeInterno.shared.detener() }
+    }
+    @objc private func cerrarMusicaMenu() {
+        DispatchQueue.main.async { ReproductorYouTubeInterno.shared.cerrar() }
+    }
+    @objc private func favoritoMusicaMenu() {
+        DispatchQueue.main.async { ReproductorYouTubeInterno.shared.model.alternarFavoritoActual() }
     }
     @objc private func detenerGrabacionPantalla() {
         doblePulsacion.reiniciar()
@@ -6094,7 +6144,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 history: HistoryWriter?, completion: (() -> Void)? = nil,
                                 contextoAgente: Bool = false) {
         let solicitado = modo.musicaProveedor.isEmpty ? "auto" : modo.musicaProveedor
-        let intencion = IntencionMusica(rawValue: modo.musicaAccion) ?? Musica.intencion(texto)
+        let comando = Musica.comando(texto, accionConfigurada: modo.musicaAccion)
+        if comando.intencion == nil {
+            Log.write("  🎵 control · \(comando.rawValue)")
+            history?.finish(wav: wav, finalText: "🎵 \(comando.rawValue)")
+            Musica.controlar(comando) { [weak self] r in
+                guard let self else { completion?(); return }
+                ModosLog.registrar("musica_control", ["comando": comando.rawValue,
+                                                        "ok": r.ok, "mensaje": r.mensaje])
+                let finalizar: () -> Void = { [weak self] in
+                    guard let self else { completion?(); return }
+                    if completion == nil { self.restaurarModoVisualSiLibre(origen: "musica_control") }
+                    completion?()
+                }
+                if contextoAgente, Config.agenteRespuestaActiva() {
+                    self.responderBreveAgente(r.mensaje, evento: "control_musica",
+                                              esperarVoz: true, completion: finalizar)
+                } else {
+                    if !self.recorder.isRecording {
+                        self.setIcono(.reposo)
+                        self.panel.updateForzado((r.ok ? "🎵 " : "⚠️ ") + r.mensaje)
+                        self.panel.hide(after: r.ok ? 1.8 : 3.0)
+                    }
+                    finalizar()
+                }
+            }
+            return
+        }
+        let intencion = comando.intencion ?? .reproducir
         let consulta = Musica.extraerConsulta(texto, proveedor: solicitado)
         Log.write("  🎵 música · \(intencion.rawValue) (\(Musica.nombre(solicitado))): \(consulta)")
         let verbo = intencion == .buscar ? "Buscar" : "Reproducir"

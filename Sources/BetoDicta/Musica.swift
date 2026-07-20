@@ -24,11 +24,24 @@ struct ResultadoMusica {
 }
 
 enum EstadoMusica: String {
-    case reproduciendo, busqueda, abierto, fallo
+    case reproduciendo, pausado, detenido, busqueda, abierto, fallo
 }
 
 enum IntencionMusica: String {
     case reproducir, buscar
+}
+
+enum ComandoMusica: String {
+    case reproducir, buscar, pausar, reanudar, detener, siguiente, anterior
+    case cerrar, pantallaCompleta = "pantalla_completa", compacto
+
+    var intencion: IntencionMusica? {
+        switch self {
+        case .reproducir: .reproducir
+        case .buscar: .buscar
+        default: nil
+        }
+    }
 }
 
 enum Musica {
@@ -134,7 +147,7 @@ enum Musica {
     /// operación musical normal sigue siendo reproducir.
     static func intencion(_ texto: String) -> IntencionMusica {
         let patronesBusqueda = [
-            #"^(?:por\s+favor[,;:]?\s*)?(?:modo\s+)?m[uú]sica[,;:]?\s*(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)(?:\b|\s)"#,
+            #"^(?:por\s+favor[,;:]?\s*)?(?:modo\s+)?m[uú]sica(?:\s+(?:interna?|interno|en\s+(?:beto\s*dicta|youtube|spotify|apple\s+music|youtube\s+music)))?[,;:]?\s*(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)(?:\b|\s)"#,
             #"^(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)\s+(?:en\s+)?(?:reproductor\s+interno|youtube\s+interno|beto\s*dicta|apple\s+music|youtube\s+music|spotify|youtube|soundcloud|bandcamp|m[uú]sica|canci[oó]n(?:es)?)\b"#,
             #"^(?:por\s+favor[,;:]?\s*)?(?:b[uú]sca(?:me|r|lo|la)?|encuentra(?:me|r)?|mu[eé]stra(?:me|r)?)(?:\b|\s)"#,
         ]
@@ -146,6 +159,117 @@ enum Musica {
             }
         }
         return .reproducir
+    }
+
+    /// Interpreta controles breves sin IA. Se exige una cabecera accionable y,
+    /// salvo órdenes inequívocas, una referencia musical para no convertir una
+    /// frase normal como “continúa el informe” en un control multimedia.
+    static func comando(_ texto: String, accionConfigurada: String = "auto") -> ComandoMusica {
+        if let fijo = ComandoMusica(rawValue: accionConfigurada), accionConfigurada != "auto" {
+            return fijo
+        }
+        let s = PerfilAgente.normalizar(texto)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let musical = ["musica", "cancion", "reproductor", "youtube", "spotify", "video"]
+            .contains { s.contains($0) }
+        if ["pausa", "pausar"].contains(s) { return .pausar }
+        if ["reanuda", "reanudar", "continua", "continuar"].contains(s) { return .reanudar }
+        if ["deten", "detener", "stop"].contains(s) { return .detener }
+        if s.contains("pantalla completa"), musical { return .pantallaCompleta }
+        if (s.contains("modo compacto") || s.contains("vista compacta")
+            || s.contains("solo musica") || s.contains("sin video")), musical { return .compacto }
+        if s.range(of: #"^(?:por favor )?(?:pausa|pausar|pon en pausa)(?:\b| )"#,
+                   options: .regularExpression) != nil, musical { return .pausar }
+        if s.range(of: #"^(?:por favor )?(?:reanuda|reanudar|continua|continuar|sigue)(?:\b| )"#,
+                   options: .regularExpression) != nil, musical { return .reanudar }
+        if s.range(of: #"^(?:por favor )?(?:deten|detener|stop)(?: la| el)? (?:musica|cancion|reproductor|video)(?:\b| )"#,
+                   options: .regularExpression) != nil
+            || s.range(of: #"^(?:por favor )?para(?: la| el)? (?:musica|cancion|reproductor|video)(?:\b| )"#,
+                       options: .regularExpression) != nil { return .detener }
+        if s.range(of: #"^(?:por favor )?(?:siguiente|proxima|proximo)(?: cancion| tema| video)?$"#,
+                   options: .regularExpression) != nil { return .siguiente }
+        if s.range(of: #"^(?:por favor )?(?:anterior|cancion anterior|tema anterior|video anterior)$"#,
+                   options: .regularExpression) != nil { return .anterior }
+        if s.range(of: #"^(?:por favor )?(?:cierra|cerrar)(?: la| el)? (?:musica|reproductor|video)(?:\b|$)"#,
+                   options: .regularExpression) != nil { return .cerrar }
+        return intencion(texto) == .buscar ? .buscar : .reproducir
+    }
+
+    static func controlar(_ comando: ComandoMusica,
+                          completion: @escaping (ResultadoMusica) -> Void) {
+        func terminar(_ resultado: ResultadoMusica) {
+            DispatchQueue.main.async {
+                AgenteLog.registrar("musica_control", ["comando": comando.rawValue,
+                                                        "ok": resultado.ok,
+                                                        "estado": resultado.estado.rawValue])
+                completion(resultado)
+            }
+        }
+        DispatchQueue.main.async {
+            let player = ReproductorYouTubeInterno.shared
+            switch comando {
+            case .pausar where player.tieneContenido:
+                player.pausar(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Pausé la reproducción.", estado: .pausado)); return
+            case .reanudar where player.tieneContenido:
+                player.reanudar(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Reanudé la reproducción.", estado: .reproduciendo)); return
+            case .detener where player.tieneContenido:
+                player.detener(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Detuve la reproducción.", estado: .detenido)); return
+            case .siguiente where player.tieneCola:
+                player.siguiente(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Pasé al resultado siguiente.", estado: .reproduciendo)); return
+            case .anterior where player.tieneCola:
+                player.anterior(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Volví al resultado anterior.", estado: .reproduciendo)); return
+            case .cerrar:
+                player.cerrar()
+                terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Cerré el reproductor y detuve la música.", estado: .detenido)); return
+            case .pantallaCompleta:
+                player.mostrar(); player.alternarPantallaCompleta()
+                terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Cambié la vista de pantalla completa.", estado: .abierto)); return
+            case .compacto:
+                player.alternarCompacto()
+                terminar(.init(ok: true, proveedor: "betodicta_youtube",
+                    mensaje: "Cambié la vista compacta del reproductor.", estado: .abierto)); return
+            case .reproducir, .buscar:
+                terminar(.init(ok: false, proveedor: "",
+                    mensaje: "La orden necesita una consulta.", estado: .fallo)); return
+            default:
+                break
+            }
+            // El adaptador multimedia puede tardar mientras consulta al proceso
+            // activo. Nunca bloqueamos AppKit ni congelamos el notch/menú.
+            DispatchQueue.global(qos: .userInitiated).async {
+                let ok: Bool
+                let exito: String
+                let fallo: String
+                let estado: EstadoMusica
+                switch comando {
+                case .pausar:
+                    ok = MediaControl.pausarActual(); exito = "Pausé la reproducción."
+                    fallo = "No encontré música activa para pausar."; estado = .pausado
+                case .reanudar:
+                    ok = MediaControl.reproducirActual(); exito = "Reanudé la reproducción."
+                    fallo = "No encontré música para reanudar."; estado = .reproduciendo
+                case .detener:
+                    ok = MediaControl.detenerActual(); exito = "Detuve la reproducción."
+                    fallo = "No encontré música activa para detener."; estado = .detenido
+                case .siguiente:
+                    ok = MediaControl.siguienteActual(); exito = "Pasé a la canción siguiente."
+                    fallo = "No hay una cola musical disponible."; estado = .reproduciendo
+                case .anterior:
+                    ok = MediaControl.anteriorActual(); exito = "Volví a la canción anterior."
+                    fallo = "No hay una cola musical disponible."; estado = .reproduciendo
+                default: return
+                }
+                terminar(.init(ok: ok, proveedor: "sistema", mensaje: ok ? exito : fallo,
+                               estado: ok ? estado : .fallo))
+            }
+        }
     }
 
     /// Convierte una orden hablada en una consulta limpia. Sirve tanto para el
@@ -358,6 +482,8 @@ enum Musica {
         case .abierto:
             if intencion == .buscar { return "Abrí \(proveedor.nombre) para que busques música." }
             return "Abrí \(proveedor.nombre), pero no encontré una reproducción disponible."
+        case .pausado: return "Pausé la reproducción."
+        case .detenido: return "Detuve la reproducción."
         case .fallo:
             return "No pude abrir ningún servicio de música."
         }

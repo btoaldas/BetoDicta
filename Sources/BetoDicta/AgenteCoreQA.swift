@@ -844,6 +844,78 @@ enum AgenteCoreQA {
                     && musicaInternaNatural?.cadena.acciones.first?.modo.musicaProveedor == "betodicta_youtube"
                     && musicaInternaNatural?.cadena.acciones.first?.modo.musicaAccion == "reproducir",
                   "proveedor=\(musicaInternaNatural?.cadena.acciones.first?.modo.musicaProveedor ?? "nil")")
+        let musicaNuestroJuramento = ModoPlanificador.detectarNatural(
+            "Pon música de Julio Jaramillo, Nuestro juramento", catalogo: catalogo)
+        comprobar("artista y título se conservan completos",
+                  musicaNuestroJuramento?.cadena.acciones.first?.modo.musicaAccion == "reproducir"
+                    && Musica.extraerConsulta(musicaNuestroJuramento?.cadena.contenido ?? "",
+                                              proveedor: "auto")
+                        .localizedCaseInsensitiveContains("Julio Jaramillo") == true
+                    && musicaNuestroJuramento?.cadena.contenido
+                        .localizedCaseInsensitiveContains("Nuestro juramento") == true,
+                  musicaNuestroJuramento?.cadena.contenido ?? "nil")
+        let tutorialNatural = ModoPlanificador.detectarNatural(
+            "Busca tutoriales de video de viajes a China", catalogo: catalogo)
+        comprobar("tutorial usa el reproductor interno y búsqueda general",
+                  tutorialNatural?.cadena.acciones.first?.modo.base == "musica"
+                    && tutorialNatural?.cadena.acciones.first?.modo.musicaAccion == "buscar"
+                    && tutorialNatural?.cadena.acciones.first?.modo.musicaProveedor == "betodicta_youtube"
+                    && TipoBusquedaYouTube.inferir(tutorialNatural?.cadena.contenido ?? "") == .videos,
+                  tutorialNatural?.cadena.contenido ?? "nil")
+        let tutorialSinRepetirVideo = ModoPlanificador.detectarNatural(
+            "Busca tutoriales de viajes a China", catalogo: catalogo)
+        comprobar("tutorial conserva su tipo aunque no diga video",
+                  tutorialSinRepetirVideo?.cadena.acciones.first?.modo.musicaProveedor == "betodicta_youtube"
+                    && TipoBusquedaYouTube.inferir(tutorialSinRepetirVideo?.cadena.contenido ?? "") == .videos,
+                  tutorialSinRepetirVideo?.cadena.contenido ?? "nil")
+        comprobar("modo música interno conserva la orden buscar",
+                  Musica.intencion("modo música interno, busca tutoriales de viajes a China") == .buscar)
+        let qMusica = YouTubeDataAPI.componentesBusqueda("Julio Jaramillo", tipo: .musica)
+        let qTutorial = YouTubeDataAPI.componentesBusqueda("tutoriales de Swift", tipo: .videos)
+        comprobar("API separa música de tutoriales",
+                  qMusica.queryItems?.contains(where: { $0.name == "videoCategoryId" && $0.value == "10" }) == true
+                    && qTutorial.queryItems?.contains(where: { $0.name == "videoCategoryId" }) == false)
+        let videoCodable = VideoYouTubeInterno(id: "M7lc1UVf-VE", titulo: "QA",
+                                                canal: "YouTube", miniatura: nil)
+        let videoRedondo = try? JSONDecoder().decode(VideoYouTubeInterno.self,
+            from: JSONEncoder().encode(videoCodable))
+        comprobar("favorito portable conserva metadatos", videoRedondo == videoCodable)
+        let musicaExactaPausa = ModoResolver.detectarExacto("modo música, pausa", catalogo: catalogo)
+        comprobar("modo música exacto también controla",
+                  musicaExactaPausa.map {
+                    Musica.comando($0.textoLimpio,
+                                   accionConfigurada: $0.modo.musicaAccion) == .pausar
+                  } == true)
+        let controles: [(String, ComandoMusica)] = [
+            ("Pausa la música", .pausar), ("pausa", .pausar),
+            ("Reanuda la música", .reanudar), ("detén la música", .detener),
+            ("siguiente canción", .siguiente), ("canción anterior", .anterior),
+            ("cierra el reproductor", .cerrar),
+            ("pon el video a pantalla completa", .pantallaCompleta),
+            ("pon la música en modo compacto", .compacto),
+        ]
+        for (frase, esperado) in controles {
+            let plan = ModoPlanificador.detectarNatural(frase, catalogo: catalogo)
+            comprobar("control musical \(esperado.rawValue)",
+                      plan?.cadena.acciones.first?.modo.musicaAccion == esperado.rawValue,
+                      "\(frase) → \(plan?.cadena.acciones.first?.modo.musicaAccion ?? "nil")")
+        }
+        comprobar("continúa el informe no controla música",
+                  ModoPlanificador.detectarNatural("Continúa el informe para rectorado",
+                                                    catalogo: catalogo) == nil)
+        let repetida = ModoPlanificador.detectarNatural("Pon música, pon música", catalogo: catalogo)
+        comprobar("pon música repetido conserva consulta vacía",
+                  repetida?.cadena.acciones.first?.modo.musicaAccion == "reproducir"
+                    && Musica.extraerConsulta(repetida?.cadena.contenido ?? "",
+                                              proveedor: "auto").isEmpty,
+                  repetida?.cadena.contenido ?? "nil")
+        let sinConsulta = ModoPlanificador.detectarNatural("Pon música", catalogo: catalogo)
+        comprobar("pon música funciona sin artista",
+                  sinConsulta?.cadena.acciones.first?.modo.musicaAccion == "reproducir"
+                    && sinConsulta?.cadena.contenido.isEmpty == true)
+        comprobar("siguiente sección no salta una canción",
+                  ModoPlanificador.detectarNatural("Siguiente sección del informe",
+                                                    catalogo: catalogo) == nil)
         var simBuscar: ResultadoMusica?
         Musica.ejecutar("Julio Jaramillo", intencion: .buscar, simular: true) { simBuscar = $0 }
         comprobar("simulación buscar solo abre resultados", simBuscar?.estado == .busqueda)

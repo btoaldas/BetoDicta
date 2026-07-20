@@ -8,6 +8,18 @@ struct ResultadoReproductorYouTube {
     let mensaje: String
 }
 
+enum SeccionReproductorYouTube: String, CaseIterable, Identifiable {
+    case buscar, favoritos, listas
+    var id: String { rawValue }
+    var nombre: String {
+        switch self { case .buscar: "Buscar"; case .favoritos: "Favoritos"; case .listas: "Mis listas" }
+    }
+}
+
+extension Notification.Name {
+    static let reproductorYouTubeCambio = Notification.Name("BetoDictaReproductorYouTubeCambio")
+}
+
 @MainActor
 final class ReproductorYouTubeModel: ObservableObject {
     @Published var consulta = ""
@@ -21,15 +33,33 @@ final class ReproductorYouTubeModel: ObservableObject {
     @Published var listo = false
     @Published var secuenciaCarga = 0
     @Published var reproducirAlCargar = false
+    @Published var seccion: SeccionReproductorYouTube = .buscar
+    @Published var tipoBusqueda: TipoBusquedaYouTube = .musica
+    @Published var listas: [ListaYouTubeInterna] = []
+    @Published var listaActual: ListaYouTubeInterna?
+    @Published var compacto = Config.musicaInternaCompacta() {
+        didSet { Config.set("musica_interna_compacta", to: compacto) }
+    }
 
     var ejecutarJavaScript: ((String) -> Void)?
+    var pedirPantallaCompleta: (() -> Void)?
+    var pedirCompacto: ((Bool) -> Void)?
     private var pendienteID: UUID?
     private var pendiente: ((ResultadoReproductorYouTube) -> Void)?
     private var detencionSolicitada = false
 
+    var videoActual: VideoYouTubeInterno? {
+        guard let indiceActual, resultados.indices.contains(indiceActual) else { return nil }
+        return resultados[indiceActual]
+    }
+
+    var esFavoritoActual: Bool { videoActual.map { YouTubeFavoritos.contiene($0.id) } ?? false }
+
     func ejecutar(_ texto: String, reproducir: Bool,
                   completion: @escaping (ResultadoReproductorYouTube) -> Void) {
         consulta = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        tipoBusqueda = TipoBusquedaYouTube.inferir(consulta)
+        seccion = .buscar
         if consulta.isEmpty, reproducir {
             consulta = Config.musicaInternaConsultaPredeterminada()
         }
@@ -46,7 +76,7 @@ final class ReproductorYouTubeModel: ObservableObject {
         }
         cancelarPendiente(mensaje: "La búsqueda anterior fue reemplazada.")
         cargando = true; estado = "Buscando «\(q)» en YouTube…"
-        YouTubeDataAPI.buscar(q) { [weak self] resultado in
+        YouTubeDataAPI.buscar(q, tipo: tipoBusqueda) { [weak self] resultado in
             guard let self else { return }
             self.cargando = false
             switch resultado {
@@ -57,7 +87,7 @@ final class ReproductorYouTubeModel: ObservableObject {
             case .success(let videos):
                 self.resultados = videos
                 guard !videos.isEmpty else {
-                    self.estado = "YouTube no encontró resultados musicales para «\(q)»."
+                    self.estado = "YouTube no encontró resultados para «\(q)»."
                     completion?(.init(encontro: false, reproduciendo: false, mensaje: self.estado)); return
                 }
                 if reproducir {
@@ -83,13 +113,27 @@ final class ReproductorYouTubeModel: ObservableObject {
         reproduciendo = false; reproducirAlCargar = reproducir
         estado = reproducir ? "Cargando «\(video.titulo)»…" : "Preparé «\(video.titulo)»."
         secuenciaCarga += 1
+        notificarCambio()
     }
 
     func alternar() { ejecutarJavaScript?("bdCommand('toggle')") }
+    func pausar() {
+        ejecutarJavaScript?("bdCommand('pause')")
+        reproduciendo = false
+        if !tituloActual.isEmpty { estado = "En pausa: «\(tituloActual)»." }
+        notificarCambio()
+    }
+    func reanudar() {
+        guard !videoID.isEmpty else { return }
+        ejecutarJavaScript?("bdCommand('play')")
+        estado = "Reanudando «\(tituloActual)»…"
+        notificarCambio()
+    }
     func detener() {
         detencionSolicitada = true
         ejecutarJavaScript?("bdCommand('stop')")
         reproduciendo = false; estado = "Reproducción detenida."
+        notificarCambio()
     }
     func anterior() {
         guard !resultados.isEmpty else { return }
@@ -100,6 +144,74 @@ final class ReproductorYouTubeModel: ObservableObject {
         guard !resultados.isEmpty else { return }
         let actual = indiceActual ?? -1
         seleccionar((actual + 1) % resultados.count)
+    }
+
+    func alternarFavoritoActual() {
+        guard let actual = videoActual else { return }
+        let agregado = YouTubeFavoritos.alternar(actual)
+        estado = agregado ? "Añadí «\(actual.titulo)» a tus favoritos de BetoDicta."
+            : "Quité «\(actual.titulo)» de tus favoritos."
+        if seccion == .favoritos { cargarFavoritos() }
+        objectWillChange.send(); notificarCambio()
+    }
+
+    func alternarFavorito(_ video: VideoYouTubeInterno) {
+        _ = YouTubeFavoritos.alternar(video)
+        if seccion == .favoritos { cargarFavoritos() }
+        else { objectWillChange.send(); notificarCambio() }
+    }
+
+    func cargarFavoritos() {
+        cancelarPendiente(mensaje: "Cambiaste de biblioteca.")
+        seccion = .favoritos; listaActual = nil
+        resultados = YouTubeFavoritos.todos(); indiceActual = nil
+        estado = resultados.isEmpty ? "Aún no guardas favoritos en BetoDicta."
+            : "Tus \(resultados.count) favorito(s) locales."
+        notificarCambio()
+    }
+
+    func cargarListas() {
+        cancelarPendiente(mensaje: "Cambiaste de biblioteca.")
+        seccion = .listas; listaActual = nil; resultados = []; indiceActual = nil; cargando = true
+        estado = "Leyendo tus listas de YouTube…"
+        YouTubeDataAPI.misListas { [weak self] resultado in
+            guard let self else { return }
+            self.cargando = false
+            switch resultado {
+            case .failure(let error): self.listas = []; self.estado = error.localizedDescription
+            case .success(let listas):
+                self.listas = listas
+                self.estado = listas.isEmpty ? "Tu cuenta no tiene listas visibles."
+                    : "Encontré \(listas.count) lista(s) en tu cuenta."
+            }
+            self.notificarCambio()
+        }
+    }
+
+    func abrirLista(_ lista: ListaYouTubeInterna) {
+        listaActual = lista; resultados = []; indiceActual = nil
+        cargando = true; estado = "Abriendo «\(lista.titulo)»…"
+        YouTubeDataAPI.videos(de: lista) { [weak self] resultado in
+            guard let self else { return }
+            self.cargando = false
+            switch resultado {
+            case .failure(let error): self.resultados = []; self.estado = error.localizedDescription
+            case .success(let videos):
+                self.resultados = videos; self.indiceActual = nil
+                self.estado = videos.isEmpty ? "La lista no contiene videos reproducibles."
+                    : "«\(lista.titulo)»: \(videos.count) video(s)."
+                if self.videoID.isEmpty, !videos.isEmpty { self.seleccionar(0, reproducir: false) }
+            }
+            self.notificarCambio()
+        }
+    }
+
+    func cambiarSeccion(_ nueva: SeccionReproductorYouTube) {
+        switch nueva {
+        case .buscar: seccion = .buscar; listaActual = nil
+        case .favoritos: cargarFavoritos()
+        case .listas: cargarListas()
+        }
     }
 
     func mensajeWeb(_ cuerpo: Any) {
@@ -138,6 +250,7 @@ final class ReproductorYouTubeModel: ObservableObject {
                     detencionSolicitada = false; estado = "Reproducción detenida."
                 } else if Config.musicaInternaAvanzarSolo() { siguiente() }
             }
+            notificarCambio()
         case "error":
             reproduciendo = false
             let codigo = (d["value"] as? NSNumber)?.intValue ?? 0
@@ -149,6 +262,10 @@ final class ReproductorYouTubeModel: ObservableObject {
             resolverPendiente(.init(encontro: true, reproduciendo: false, mensaje: estado))
         default: break
         }
+    }
+
+    private func notificarCambio() {
+        NotificationCenter.default.post(name: .reproductorYouTubeCambio, object: nil)
     }
 
     private func iniciarPendiente(_ completion: ((ResultadoReproductorYouTube) -> Void)?) {
@@ -265,9 +382,28 @@ private struct ReproductorYouTubeView: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Picker("Biblioteca", selection: $model.seccion) {
+                    ForEach(SeccionReproductorYouTube.allCases) { s in Text(s.nombre).tag(s) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+                .onChange(of: model.seccion) { model.cambiarSeccion($0) }
+                Spacer()
+                if model.seccion == .buscar {
+                    Picker("Tipo", selection: $model.tipoBusqueda) {
+                        ForEach(TipoBusquedaYouTube.allCases) { t in Text(t.nombre).tag(t) }
+                    }.frame(width: 190)
+                        .help("Música limita los resultados al catálogo musical; Videos permite tutoriales y contenido general")
+                }
+            }
+
+            if model.seccion == .buscar {
             HStack(spacing: 8) {
                 Image(systemName: "music.note.house.fill").foregroundStyle(violeta)
-                TextField("Canción, artista, álbum o enlace de YouTube", text: $model.consulta)
+                TextField(model.tipoBusqueda == .musica
+                          ? "Canción, artista, álbum o enlace de YouTube"
+                          : "Video, tutorial o tema", text: $model.consulta)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { model.buscar() }
                 Button("Buscar") { model.buscar() }
@@ -279,11 +415,31 @@ private struct ReproductorYouTubeView: View {
                     .buttonStyle(.borderedProminent).tint(violeta)
                     .help("Buscar y reproducir el primer resultado")
             }
+            } else if model.seccion == .listas, let lista = model.listaActual {
+                HStack {
+                    Button { model.cargarListas() } label: {
+                        Label("Mis listas", systemImage: "chevron.left")
+                    }.buttonStyle(.plain).help("Volver al listado de tu cuenta")
+                    Text(lista.titulo).font(.headline).lineLimit(1)
+                    Spacer()
+                }
+            }
 
-            ReproductorWebYouTube(model: model)
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .background(Color.black)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            Group {
+                if model.compacto {
+                    HStack {
+                        Spacer()
+                        ReproductorWebYouTube(model: model)
+                            .frame(width: 356, height: 200)
+                        Spacer()
+                    }
+                } else {
+                    ReproductorWebYouTube(model: model)
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                }
+            }
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
 
             HStack(spacing: 18) {
                 Button(action: model.anterior) { Image(systemName: "backward.end.fill") }
@@ -296,13 +452,27 @@ private struct ReproductorYouTubeView: View {
                     .help("Detener la reproducción")
                 Button(action: model.siguiente) { Image(systemName: "forward.end.fill") }
                     .help("Resultado siguiente")
+                Button(action: model.alternarFavoritoActual) {
+                    Image(systemName: model.esFavoritoActual ? "star.fill" : "star")
+                }.disabled(model.videoActual == nil)
+                    .help(model.esFavoritoActual ? "Quitar de favoritos locales" : "Guardar como favorito local")
                 Spacer()
+                Button {
+                    model.compacto.toggle(); model.pedirCompacto?(model.compacto)
+                } label: {
+                    Label(model.compacto ? "Vista amplia" : "Compacto",
+                          systemImage: model.compacto ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
+                }.controlSize(.small)
+                    .help("Reduce la ventana manteniendo visible el reproductor oficial de YouTube")
+                Button { model.pedirPantallaCompleta?() } label: {
+                    Label("Pantalla", systemImage: "arrow.up.left.and.arrow.down.right")
+                }.controlSize(.small).help("Mostrar el video y los controles a pantalla completa")
                 if !model.videoID.isEmpty {
                     Button {
                         if let u = URL(string: "https://music.youtube.com/watch?v=\(model.videoID)") {
                             NSWorkspace.shared.open(u)
                         }
-                    } label: { Label("Abrir en YouTube Music", systemImage: "arrow.up.right.square") }
+                    } label: { Label("YouTube Music", systemImage: "arrow.up.right.square") }
                         .controlSize(.small).help("Abrir esta pista en el navegador")
                 }
             }.buttonStyle(.bordered)
@@ -318,12 +488,34 @@ private struct ReproductorYouTubeView: View {
                 }.controlSize(.small).help("Abrir la configuración del reproductor interno")
             }
 
-            if !model.resultados.isEmpty {
+            if model.seccion == .listas, model.listaActual == nil, !model.listas.isEmpty {
+                ScrollView {
+                    LazyVStack(spacing: 5) {
+                        ForEach(model.listas) { lista in
+                            Button { model.abrirLista(lista) } label: {
+                                HStack(spacing: 9) {
+                                    AsyncImage(url: lista.miniatura) { fase in
+                                        if let imagen = fase.image { imagen.resizable().scaledToFill() }
+                                        else { Color.gray.opacity(0.18).overlay(Image(systemName: "music.note.list")) }
+                                    }.frame(width: 84, height: 47).clipped().cornerRadius(5)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(lista.titulo).font(.subheadline).lineLimit(2)
+                                        Text("\(lista.cantidad) elemento(s)").font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                    Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                                }.padding(6).contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                                .help("Abrir la lista \(lista.titulo)")
+                        }
+                    }
+                }.frame(maxHeight: 245)
+            } else if (model.seccion != .listas || model.listaActual != nil), !model.resultados.isEmpty {
                 ScrollView {
                     LazyVStack(spacing: 5) {
                         ForEach(Array(model.resultados.enumerated()), id: \.element.id) { indice, video in
-                            Button { model.seleccionar(indice) } label: {
-                                HStack(spacing: 9) {
+                            HStack(spacing: 9) {
+                                Button { model.seleccionar(indice) } label: {
+                                    HStack(spacing: 9) {
                                     AsyncImage(url: video.miniatura) { fase in
                                         if let imagen = fase.image { imagen.resizable().scaledToFill() }
                                         else { Color.gray.opacity(0.18).overlay(Image(systemName: "music.note")) }
@@ -337,8 +529,12 @@ private struct ReproductorYouTubeView: View {
                                         Image(systemName: model.reproduciendo ? "speaker.wave.2.fill" : "play.circle")
                                             .foregroundStyle(violeta)
                                     }
-                                }.padding(6).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                                    }.contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                Button { model.alternarFavorito(video) } label: {
+                                    Image(systemName: YouTubeFavoritos.contiene(video.id) ? "star.fill" : "star")
+                                }.buttonStyle(.plain).help("Añadir o quitar de favoritos locales")
+                            }.padding(6)
                                 .background(model.indiceActual == indice ? violeta.opacity(0.10) : Color.clear)
                                 .clipShape(RoundedRectangle(cornerRadius: 7))
                                 .help("Reproducir \(video.titulo), de \(video.canal)")
@@ -348,15 +544,21 @@ private struct ReproductorYouTubeView: View {
             }
         }
         .padding(16)
-        .frame(minWidth: 660, idealWidth: 720, minHeight: 600, idealHeight: 690)
+        .frame(minWidth: 660, idealWidth: 720,
+               minHeight: model.compacto ? 460 : 600,
+               idealHeight: model.compacto ? 520 : 690)
     }
 }
 
 @MainActor
-final class ReproductorYouTubeInterno {
+final class ReproductorYouTubeInterno: NSObject, NSWindowDelegate {
     static let shared = ReproductorYouTubeInterno()
     let model = ReproductorYouTubeModel()
     private var window: NSWindow?
+    var tieneContenido: Bool { !model.videoID.isEmpty }
+    var tieneCola: Bool { !model.resultados.isEmpty }
+
+    override private init() { super.init() }
 
     func mostrar() {
         crearSiHaceFalta()
@@ -370,15 +572,42 @@ final class ReproductorYouTubeInterno {
         model.ejecutar(consulta, reproducir: reproducir, completion: completion)
     }
 
+    func pausar() { model.pausar() }
+    func reanudar() { mostrar(); model.reanudar() }
+    func detener() { model.detener() }
+    func anterior() { mostrar(); model.anterior() }
+    func siguiente() { mostrar(); model.siguiente() }
+    func cerrar() { model.detener(); window?.orderOut(nil) }
+    func alternarPantallaCompleta() { crearSiHaceFalta(); window?.toggleFullScreen(nil) }
+    func alternarCompacto() {
+        mostrar(); model.compacto.toggle(); model.pedirCompacto?(model.compacto)
+    }
+    func configurarCompacto(_ valor: Bool) {
+        guard model.compacto != valor else { return }
+        model.compacto = valor
+        if window != nil { model.pedirCompacto?(valor) }
+    }
+
+    func windowWillClose(_ notification: Notification) { model.detener() }
+    func windowWillMiniaturize(_ notification: Notification) { model.pausar() }
+
     private func crearSiHaceFalta() {
         guard window == nil else { return }
         let hosting = NSHostingController(rootView: ReproductorYouTubeView(model: model))
         let w = NSWindow(contentViewController: hosting)
         w.title = "Música · BetoDicta"
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        w.setContentSize(.init(width: 720, height: 690))
-        w.minSize = .init(width: 660, height: 600)
-        w.isReleasedWhenClosed = false
+        w.setContentSize(.init(width: 720, height: model.compacto ? 520 : 690))
+        w.minSize = .init(width: 660, height: model.compacto ? 450 : 600)
+        w.level = model.compacto ? .floating : .normal
+        w.isReleasedWhenClosed = false; w.delegate = self
+        model.pedirPantallaCompleta = { [weak self] in self?.alternarPantallaCompleta() }
+        model.pedirCompacto = { [weak w] compacto in
+            guard let w, !w.styleMask.contains(.fullScreen) else { return }
+            w.level = compacto ? .floating : .normal
+            w.minSize = .init(width: 660, height: compacto ? 450 : 600)
+            w.setContentSize(.init(width: 720, height: compacto ? 520 : 690))
+        }
         w.center(); window = w
     }
 }

@@ -594,6 +594,9 @@ struct Config {
     static func musicaInternaAvanzarSolo() -> Bool {
         (json()["musica_interna_avanzar"] as? Bool) ?? true
     }
+    static func musicaInternaCompacta() -> Bool {
+        (json()["musica_interna_compacta"] as? Bool) ?? false
+    }
     static func musicaInternaConsultaPredeterminada() -> String {
         let s = ((json()["musica_interna_consulta_default"] as? String) ?? "música para escuchar")
             .trimmingCharacters(in: .whitespacesAndNewlines)

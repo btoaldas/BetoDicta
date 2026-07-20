@@ -6,11 +6,28 @@ import Security
 
 // MARK: - Catálogo oficial de YouTube para el reproductor interno
 
-struct VideoYouTubeInterno: Identifiable, Hashable {
+struct VideoYouTubeInterno: Identifiable, Hashable, Codable {
     let id: String
     let titulo: String
     let canal: String
     let miniatura: URL?
+}
+
+struct ListaYouTubeInterna: Identifiable, Hashable, Codable {
+    let id: String
+    let titulo: String
+    let cantidad: Int
+    let miniatura: URL?
+}
+
+enum TipoBusquedaYouTube: String, CaseIterable, Identifiable {
+    case musica, videos
+    var id: String { rawValue }
+    var nombre: String { self == .musica ? "Música" : "Videos y tutoriales" }
+    static func inferir(_ texto: String) -> Self {
+        let normal = PerfilAgente.normalizar(texto)
+        return normal.contains("tutorial") || normal.contains("video") ? .videos : .musica
+    }
 }
 
 enum AutorizacionYouTube {
@@ -49,7 +66,7 @@ enum YouTubeDataAPI {
                 }
                 let title: String
                 let channelTitle: String
-                let thumbnails: Thumbnails
+                let thumbnails: Thumbnails?
             }
             let id: ID
             let snippet: Snippet
@@ -87,7 +104,7 @@ enum YouTubeDataAPI {
         return candidato
     }
 
-    static func buscar(_ consulta: String,
+    static func buscar(_ consulta: String, tipo: TipoBusquedaYouTube = .musica,
                        completion: @escaping (Result<[VideoYouTubeInterno], Error>) -> Void) {
         if let id = idDirecto(consulta) {
             completion(.success([.init(id: id, titulo: "Video de YouTube", canal: "YouTube", miniatura: nil)]))
@@ -96,26 +113,16 @@ enum YouTubeDataAPI {
         YouTubeOAuth.autorizacion { auth in
             switch auth {
             case .failure(let error): completion(.failure(error))
-            case .success(let autorizacion): buscar(consulta, autorizacion: autorizacion, completion: completion)
+            case .success(let autorizacion):
+                buscar(consulta, tipo: tipo, autorizacion: autorizacion, completion: completion)
             }
         }
     }
 
-    private static func buscar(_ consulta: String, autorizacion: AutorizacionYouTube,
+    private static func buscar(_ consulta: String, tipo: TipoBusquedaYouTube,
+                               autorizacion: AutorizacionYouTube,
                                completion: @escaping (Result<[VideoYouTubeInterno], Error>) -> Void) {
-        var c = URLComponents(string: "https://www.googleapis.com/youtube/v3/search")!
-        c.queryItems = [
-            .init(name: "part", value: "snippet"),
-            .init(name: "type", value: "video"),
-            .init(name: "maxResults", value: "12"),
-            .init(name: "order", value: "relevance"),
-            .init(name: "safeSearch", value: "moderate"),
-            .init(name: "videoCategoryId", value: "10"),
-            .init(name: "videoEmbeddable", value: "true"),
-            .init(name: "videoSyndicated", value: "true"),
-            .init(name: "relevanceLanguage", value: Locale.preferredLanguages.first?.prefix(2).description ?? "es"),
-            .init(name: "q", value: consulta),
-        ]
+        var c = componentesBusqueda(consulta, tipo: tipo)
         if case .apiKey(let key) = autorizacion { c.queryItems?.append(.init(name: "key", value: key)) }
         guard let url = c.url else {
             completion(.failure(ErrorYouTubeInterno.respuesta("No pude construir la búsqueda de YouTube."))); return
@@ -146,12 +153,164 @@ enum YouTubeDataAPI {
             let videos = (dec.items ?? []).compactMap { item -> VideoYouTubeInterno? in
                 guard let id = item.id.videoId,
                       id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil else { return nil }
-                let mini = item.snippet.thumbnails.medium?.url ?? item.snippet.thumbnails.default?.url
+                let mini = item.snippet.thumbnails?.medium?.url ?? item.snippet.thumbnails?.default?.url
                 return .init(id: id, titulo: desescapar(item.snippet.title),
                              canal: desescapar(item.snippet.channelTitle),
                              miniatura: mini.flatMap(URL.init(string:)))
             }
             terminar(.success(videos))
+        }.resume()
+    }
+
+    /// Constructor puro para QA: música aplica categoría 10; tutoriales y video
+    /// general no quedan atrapados en ese filtro.
+    static func componentesBusqueda(_ consulta: String,
+                                     tipo: TipoBusquedaYouTube) -> URLComponents {
+        var c = URLComponents(string: "https://www.googleapis.com/youtube/v3/search")!
+        c.queryItems = [
+            .init(name: "part", value: "snippet"),
+            .init(name: "type", value: "video"),
+            .init(name: "maxResults", value: "12"),
+            .init(name: "order", value: "relevance"),
+            .init(name: "safeSearch", value: "moderate"),
+            .init(name: "videoEmbeddable", value: "true"),
+            .init(name: "videoSyndicated", value: "true"),
+            .init(name: "relevanceLanguage", value: Locale.preferredLanguages.first?.prefix(2).description ?? "es"),
+            .init(name: "q", value: consulta),
+        ]
+        if tipo == .musica { c.queryItems?.append(.init(name: "videoCategoryId", value: "10")) }
+        return c
+    }
+
+    private struct RespuestaListas: Decodable {
+        struct Item: Decodable {
+            struct Snippet: Decodable {
+                struct Thumbnails: Decodable {
+                    struct Imagen: Decodable { let url: String }
+                    let medium: Imagen?
+                    let `default`: Imagen?
+                }
+                let title: String
+                let thumbnails: Thumbnails?
+            }
+            struct Detalles: Decodable { let itemCount: Int? }
+            let id: String
+            let snippet: Snippet
+            let contentDetails: Detalles?
+        }
+        let items: [Item]?
+    }
+
+    private struct RespuestaElementosLista: Decodable {
+        struct Item: Decodable {
+            struct Snippet: Decodable {
+                struct Recurso: Decodable { let videoId: String? }
+                struct Thumbnails: Decodable {
+                    struct Imagen: Decodable { let url: String }
+                    let medium: Imagen?
+                    let `default`: Imagen?
+                }
+                let title: String
+                let videoOwnerChannelTitle: String?
+                let resourceId: Recurso
+                let thumbnails: Thumbnails?
+            }
+            let snippet: Snippet
+        }
+        let items: [Item]?
+    }
+
+    /// Listas propias visibles para la cuenta Google conectada. La API key sola
+    /// no identifica al usuario y por eso no se usa como sustituto silencioso.
+    static func misListas(completion: @escaping (Result<[ListaYouTubeInterna], Error>) -> Void) {
+        YouTubeOAuth.autorizacionSoloCuenta { auth in
+            switch auth {
+            case .failure(let error): completion(.failure(error))
+            case .success(let token):
+                var c = URLComponents(string: "https://www.googleapis.com/youtube/v3/playlists")!
+                c.queryItems = [
+                    .init(name: "part", value: "snippet,contentDetails"),
+                    .init(name: "mine", value: "true"),
+                    .init(name: "maxResults", value: "50"),
+                ]
+                pedir(c, token: token, como: RespuestaListas.self) { resultado in
+                    completion(resultado.map { respuesta in
+                        (respuesta.items ?? []).map { item in
+                            let mini = item.snippet.thumbnails?.medium?.url
+                                ?? item.snippet.thumbnails?.default?.url
+                            return .init(id: item.id, titulo: desescapar(item.snippet.title),
+                                         cantidad: item.contentDetails?.itemCount ?? 0,
+                                         miniatura: mini.flatMap(URL.init(string:)))
+                        }
+                    })
+                }
+            }
+        }
+    }
+
+    static func videos(de lista: ListaYouTubeInterna,
+                       completion: @escaping (Result<[VideoYouTubeInterno], Error>) -> Void) {
+        YouTubeOAuth.autorizacionSoloCuenta { auth in
+            switch auth {
+            case .failure(let error): completion(.failure(error))
+            case .success(let token):
+                var c = URLComponents(string: "https://www.googleapis.com/youtube/v3/playlistItems")!
+                c.queryItems = [
+                    .init(name: "part", value: "snippet"),
+                    .init(name: "playlistId", value: lista.id),
+                    .init(name: "maxResults", value: "50"),
+                ]
+                pedir(c, token: token, como: RespuestaElementosLista.self) { resultado in
+                    completion(resultado.map { respuesta in
+                        (respuesta.items ?? []).compactMap { item in
+                            guard let id = item.snippet.resourceId.videoId,
+                                  id.range(of: #"^[A-Za-z0-9_-]{11}$"#,
+                                           options: .regularExpression) != nil else { return nil }
+                            let mini = item.snippet.thumbnails?.medium?.url
+                                ?? item.snippet.thumbnails?.default?.url
+                            return .init(id: id, titulo: desescapar(item.snippet.title),
+                                         canal: desescapar(item.snippet.videoOwnerChannelTitle ?? "YouTube"),
+                                         miniatura: mini.flatMap(URL.init(string:)))
+                        }
+                    })
+                }
+            }
+        }
+    }
+
+    private static func pedir<T: Decodable>(_ componentes: URLComponents, token: String,
+                                             como: T.Type,
+                                             completion: @escaping (Result<T, Error>) -> Void) {
+        guard let url = componentes.url else {
+            completion(.failure(ErrorYouTubeInterno.respuesta("No pude construir la consulta de YouTube.")))
+            return
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("close", forHTTPHeaderField: "Connection")
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            let terminar: (Result<T, Error>) -> Void = { resultado in
+                DispatchQueue.main.async { completion(resultado) }
+            }
+            if let error {
+                terminar(.failure(ErrorYouTubeInterno.red("YouTube no respondió: \(error.localizedDescription)")))
+                return
+            }
+            guard let http = response as? HTTPURLResponse, let data else {
+                terminar(.failure(ErrorYouTubeInterno.respuesta("YouTube devolvió una respuesta vacía.")))
+                return
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                let detalle = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                    .flatMap { $0["error"] as? [String: Any] }?["message"] as? String
+                terminar(.failure(ErrorYouTubeInterno.respuesta(
+                    "YouTube rechazó la consulta: \(detalle ?? "HTTP \(http.statusCode)")")))
+                return
+            }
+            do { terminar(.success(try JSONDecoder().decode(T.self, from: data))) }
+            catch { terminar(.failure(ErrorYouTubeInterno.respuesta("No pude leer la biblioteca de YouTube."))) }
         }.resume()
     }
 
@@ -266,6 +425,15 @@ enum YouTubeOAuth {
         }
         let key = ApiKeys.get("YOUTUBE_DATA_API_KEY")
         completion(key.isEmpty ? .failure(ErrorYouTubeInterno.sinCredenciales) : .success(.apiKey(key)))
+    }
+
+    static func autorizacionSoloCuenta(completion: @escaping (Result<String, Error>) -> Void) {
+        guard conectada else {
+            completion(.failure(ErrorYouTubeInterno.credencialesInvalidas(
+                "Conecta tu cuenta Google para ver tus listas. Una clave API solo permite búsquedas públicas.")))
+            return
+        }
+        token(completion: completion)
     }
 
     static func conectar(completion: @escaping (Bool, String) -> Void) {
