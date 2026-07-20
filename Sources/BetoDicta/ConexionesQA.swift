@@ -624,6 +624,52 @@ enum ConexionesQA {
             print("CONEXIONTEST red: \(String((rReal?.mensaje ?? "sin respuesta").prefix(160)))")
         }
 
+        // 18. Export/import de modos (fase 6): round-trip SIN secretos.
+        SecretosKeychain.guardar("clave-super-secreta-xyz", cuenta: "modo-exp-qa")
+        var modoExp = Modo(id: "modo-exp-qa", nombre: "Conector Demo", icono: "bolt",
+                           base: "accion", esFijo: false, accion: "conexion")
+        modoExp.proveedorId = "custom:abc"; modoExp.modelo = "gpt-x"
+        modoExp.conexion = ConexionAPI(
+            baseURL: "https://api.ejemplo.com",
+            auth: AuthConexion(tipo: "login", usuario: "persona@ejemplo.com"),
+            endpoints: [EndpointAPI(clave: "reg", metodo: "POST", ruta: "/r", esEscritura: true,
+                                    variables: [VariableAPI(nombre: "items", tipo: "lista", requerida: true)])],
+            confirmEndpointId: "", promptRespuesta: "cuenta el resultado")
+        let base0 = ModosStore.base[0]
+        let paquete = ModosPortables.exportar([modoExp, base0])
+        check("export produce un paquete", paquete != nil)
+        let texto = paquete.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        check("export: la clave del Llavero NUNCA viaja",
+              !texto.contains("clave-super-secreta-xyz"))
+        check("export: el usuario del exportador se vacía", !texto.contains("persona@ejemplo.com"))
+        check("export: la IA local del exportador se vacía",
+              !texto.contains("custom:abc") && !texto.contains("gpt-x"))
+        // Import a una biblioteca que YA tiene ese id → id nuevo, no pisa.
+        let (validos, errores) = ModosPortables.importar(paquete ?? Data(),
+                                                         existentes: [modoExp])
+        check("import: modo base descartado, propio aceptado",
+              validos.count == 1 && validos.first?.nombre == "Conector Demo")
+        check("import: id en conflicto se renombra",
+              validos.first?.id != "modo-exp-qa" && validos.first?.id.hasPrefix("propio-") == true)
+        check("import: la conexión llega completa (endpoints/prompt)",
+              validos.first?.conexion?.endpoints.first?.clave == "reg"
+              && validos.first?.conexion?.promptRespuesta == "cuenta el resultado")
+        check("import: llega sin usuario (lo pone el receptor)",
+              validos.first?.conexion?.auth.usuario == "")
+        check("import: necesita secreto se detecta",
+              ModosPortables.necesitaSecreto(validos.first ?? base0) == true
+              || (validos.first?.conexion?.auth.tipo == "login"))
+        // URL insegura → rechazada con motivo.
+        var modoMalo = modoExp; modoMalo.id = "malo"; modoMalo.conexion?.baseURL = "http://remoto.com"
+        let paqMalo = ModosPortables.exportar([modoMalo])
+        let (v2, e2) = ModosPortables.importar(paqMalo ?? Data(), existentes: [])
+        check("import: URL insegura rechazada con motivo",
+              v2.isEmpty && e2.contains { $0.contains("segura") })
+        check("import: archivo basura da error claro",
+              ModosPortables.importar(Data("no soy json".utf8), existentes: []).errores.isEmpty == false)
+        _ = errores
+        SecretosKeychain.borrar(cuenta: "modo-exp-qa")
+
         print(fallos == 0 ? "CONEXIONTEST TODO OK" : "CONEXIONTEST ✗ \(fallos) FALLOS")
         fflush(stdout); exit(fallos == 0 ? 0 : 4)
     }

@@ -64,6 +64,97 @@ struct ModosView: View {
     @State private var secretoConexion = ""      // borrador del secreto (jamás persiste aquí)
     @State private var avisoConexion = ""        // resultado de Guardar secreto / Probar
     @State private var conexionVer = 0
+    // Export/import de modos (fase 6)
+    @State private var avisoPortar = ""
+    @State private var importPendiente: [Modo] = []      // parseados, esperando elección
+    @State private var importErrores: [String] = []
+    @State private var importSeleccion: Set<String> = [] // ids elegidos en el sheet
+    @State private var mostrarImport = false
+
+    // MARK: Export / Import de modos (con conexiones, SIN secretos)
+
+    private func exportarModos() {
+        let propios = m.modos.filter { !$0.esFijo }
+        guard !propios.isEmpty else { avisoPortar = "No tienes modos propios para exportar."; return }
+        guard let data = ModosPortables.exportar(propios) else {
+            avisoPortar = "No pude preparar el paquete."; return
+        }
+        let p = NSSavePanel(); p.nameFieldStringValue = "modos_betodicta.json"
+        p.allowedContentTypes = [.json]
+        if p.runModal() == .OK, let u = p.url {
+            do {
+                try data.write(to: u, options: .atomic)
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: u.path)
+                avisoPortar = "✅ Exporté \(propios.count) modo(s). Las claves NO se incluyen — cada quien pone la suya."
+            } catch { avisoPortar = "No pude guardar: \(error.localizedDescription)" }
+        }
+    }
+
+    private func abrirImportarModos() {
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.json]; p.allowsMultipleSelection = false
+        guard p.runModal() == .OK, let u = p.url, let data = try? Data(contentsOf: u) else { return }
+        let (validos, errores) = ModosPortables.importar(data)
+        importPendiente = validos; importErrores = errores
+        importSeleccion = Set(validos.map(\.id))   // todos marcados por defecto
+        if validos.isEmpty {
+            avisoPortar = "⚠️ Nada importable. " + errores.joined(separator: " · ")
+        } else {
+            mostrarImport = true
+        }
+    }
+
+    private func confirmarImportModos() {
+        let elegidos = importPendiente.filter { importSeleccion.contains($0.id) }
+        ModosPortables.fusionar(elegidos)
+        m.modos = ModosStore.todos()
+        let conClave = elegidos.filter { ModosPortables.necesitaSecreto($0) }.map(\.nombre)
+        avisoPortar = "✅ Importé \(elegidos.count) modo(s)."
+            + (conClave.isEmpty ? "" : " Pon la clave en: \(conClave.joined(separator: ", ")).")
+        if !importErrores.isEmpty { avisoPortar += " (\(importErrores.count) descartado(s))" }
+        mostrarImport = false; importPendiente = []; importSeleccion = []
+    }
+
+    @ViewBuilder private var sheetImportModos: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Elige qué modos importar").font(.headline)
+            Text("Marca los que quieras. Los que necesiten clave se importan igual; luego pones TU clave en cada uno.")
+                .font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(importPendiente) { modo in
+                        Toggle(isOn: Binding(
+                            get: { importSeleccion.contains(modo.id) },
+                            set: { on in if on { importSeleccion.insert(modo.id) } else { importSeleccion.remove(modo.id) } }
+                        )) {
+                            HStack {
+                                Image(systemName: modo.icono).frame(width: 18)
+                                Text(modo.nombre)
+                                if modo.conexion != nil {
+                                    Text("conexión API").font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
+                                        .background(Color.blue.opacity(0.15)).clipShape(Capsule())
+                                }
+                                if ModosPortables.necesitaSecreto(modo) {
+                                    Text("⚠️ falta la clave").font(.caption2).foregroundStyle(.orange)
+                                }
+                            }
+                        }.toggleStyle(.checkbox)
+                    }
+                }
+            }.frame(maxHeight: 260)
+            if !importErrores.isEmpty {
+                Text("Descartados: \(importErrores.joined(separator: " · "))")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
+            HStack {
+                Button("Cancelar") { mostrarImport = false; importPendiente = [] }
+                Spacer()
+                Button("Importar \(importSeleccion.count)") { confirmarImportModos() }
+                    .buttonStyle(.borderedProminent).tint(acentoMo)
+                    .disabled(importSeleccion.isEmpty)
+            }
+        }.padding(16).frame(width: 420)
+    }
 
     private func importarContactos() {
         let p = NSOpenPanel()
@@ -105,8 +196,19 @@ struct ModosView: View {
                     .help("Mejorar modos: analiza el registro y sugiere mejoras (autónomo o con IA)")
                 Button { ModosLog.abrir() } label: { Image(systemName: "doc.text.magnifyingglass") }
                     .help("Ver el registro detallado de modos (para analizar y mejorar)")
+                Menu {
+                    Button("Exportar mis modos…") { exportarModos() }
+                    Button("Importar modos…") { abrirImportarModos() }
+                } label: { Image(systemName: "square.and.arrow.up.on.square") }
+                    .help("Compartir tus modos (con conexiones, SIN claves) o traer los de alguien más")
+                    .frame(width: 34)
                 Button { expandido = m.crear() } label: { Image(systemName: "plus") }
                     .help("Crear un modo propio")
+            }
+            if !avisoPortar.isEmpty {
+                Text(avisoPortar).font(.caption)
+                    .foregroundStyle(avisoPortar.hasPrefix("✅") ? Color.green : Color.secondary)
+                    .textSelection(.enabled)
             }
             Text("El MODO decide qué hacer con tu dictado: pulirlo, formatearlo, traducirlo, responder, poner música, buscar o abrir una aplicación instalada. Marca uno como POR DEFECTO aquí; cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -133,6 +235,7 @@ struct ModosView: View {
                 tarjetaModo(modo)
             }
         }
+        .sheet(isPresented: $mostrarImport) { sheetImportModos }
     }
 
     @ViewBuilder private func tarjetaModo(_ modo: Modo) -> some View {
