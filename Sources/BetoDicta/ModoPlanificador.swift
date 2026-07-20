@@ -329,7 +329,7 @@ enum ModoPlanificador {
             "por", "mediante", "en", "via", "y", "e", "luego", "despues", "que",
             "diciendo", "mensaje", "texto", "con"
         ]
-        // "mándaselo A Alberto POR WhatsApp"
+        // "mándaselo A Andrés POR WhatsApp"
         if verbo + 1 < medio,
            let a = ((verbo + 1)..<medio).first(where: { ["a", "al", "para"].contains(ts[$0].normal) }) {
             var nombres: [String] = []
@@ -340,7 +340,7 @@ enum ModoPlanificador {
             }
             if !nombres.isEmpty { return (nombres.joined(separator: " "), max(medio, ultimo)) }
         }
-        // "por WhatsApp A Alberto, ...". Sin coma tomamos una palabra: no nos
+        // "por WhatsApp A Andrés, ...". Sin coma tomamos una palabra: no nos
         // comemos el mensaje entero intentando adivinar un apellido.
         var j = medio + 1
         if j < ts.count, ["a", "al", "para"].contains(ts[j].normal) {
@@ -360,7 +360,7 @@ enum ModoPlanificador {
             }
             return (nombres.joined(separator: " "), ultimo)
         }
-        // El STT puede omitir la preposición: "manda por WhatsApp Adalberto,
+        // El STT puede omitir la preposición: "manda por WhatsApp Andrés,
         // llego a las ocho". La coma vuelve seguro el límite; sin puntuación no
         // adivinamos, porque podría ser ya el comienzo del mensaje.
         j = medio + 1
@@ -736,7 +736,7 @@ enum ModoPlanificador {
             case "tarea_local": return "Guardar una tarea local"
             case "atajo_apple": return "Ejecutar el Atajo Apple configurado"
             case "rutina": return "Ejecutar la rutina configurada"
-            case "conexion": return "Consultar \(modo.nombre) (conexión API)"
+            case "conexion": return "Usar la conexión \(modo.nombre)"
             default: break
             }
             var d = modo.accion == "whatsapp" || modo.accion == "mensajes"

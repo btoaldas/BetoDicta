@@ -31,6 +31,7 @@ final class ElevenLabsStreamTTS: NSObject {
     private var onPCM: ((Data) -> Void)?      // para captura (tests); si nil → reproduce
     private var terminado = false
     private var done: ((Bool) -> Void)?
+    private var bytesSonados = 0              // audio ya reproducido: un corte tardío NO debe repetirse
 
     /// Habla en vivo (reproduce por los parlantes).
     static func hablar(_ texto: String, completion: @escaping (Bool) -> Void) {
@@ -71,6 +72,10 @@ final class ElevenLabsStreamTTS: NSObject {
         req.setValue(key, forHTTPHeaderField: "xi-api-key")
         req.timeoutInterval = 15
         let task = URLSession.shared.webSocketTask(with: req)
+        // El default (1 MB) revienta con frames de audio de respuestas largas
+        // («Message too long») y disparaba el failover a batch A MITAD de la
+        // reproducción — el texto entero se oía DOS veces.
+        task.maximumMessageSize = 8 * 1024 * 1024
         ws = task
         task.resume()
         recibir()
@@ -101,7 +106,14 @@ final class ElevenLabsStreamTTS: NSObject {
             switch result {
             case .failure(let e):
                 Log.log(.ia, "TTS WS recv: \(e.localizedDescription)")
-                self.finish(false)
+                // Si YA sonó audio, esto es un corte al final, no un fallo total:
+                // repetir el texto completo por batch duplicaría lo escuchado.
+                if self.reproducir, self.bytesSonados > 0 {
+                    Log.log(.ia, "TTS WS cortó tras reproducir \(self.bytesSonados) bytes — no se repite por batch")
+                    self.finish(true)
+                } else {
+                    self.finish(false)
+                }
             case .success(let msg):
                 if case .string(let txt) = msg, let data = txt.data(using: .utf8),
                    let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -129,6 +141,7 @@ final class ElevenLabsStreamTTS: NSObject {
             for i in 0..<n { out[i] = Float(Int16(littleEndian: s[i])) / 32768.0 }
         }
         player.scheduleBuffer(buf)
+        bytesSonados += pcm.count
     }
 
     private func finish(_ ok: Bool) {
