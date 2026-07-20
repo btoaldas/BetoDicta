@@ -28,7 +28,11 @@ enum ConexionesIA {
     /// (mismo criterio que el árbitro de modos, que también la excluye salvo
     /// elección expresa).
     static func iaDisponible(_ modo: Modo) -> ChatIA? {
-        if let propia = LLMPostProcess.iaDeModo(modo) { return propia }
+        // La cuenta Codex degrada el contrato JSON (su envoltorio), por eso para
+        // ARMAR/ELEGIR el plan se evita AUNQUE el modo la tenga como IA propia
+        // (pasaba: el modo UEA con proveedorId=codex_account elegía «hoy» en vez
+        // de «registrar»). Se prefiere la IA propia solo si NO es Codex.
+        if let propia = LLMPostProcess.iaDeModo(modo), !propia.esCuentaCodex { return propia }
         let cadena = ChatIA.cadenaPulido()
         return cadena.first { !$0.esCuentaCodex } ?? cadena.first
     }

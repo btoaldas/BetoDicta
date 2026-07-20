@@ -119,7 +119,10 @@ enum RouterGlobalIA {
             completion(nil); return
         }
         req.setValue("close", forHTTPHeaderField: "Connection")
-        req.timeoutInterval = Config.modoIATimeout()
+        // El prompt del router lleva TODO el catálogo (decenas de capacidades):
+        // necesita más aire que el árbitro de modos (cuyo tope es 8 s). Sin esto
+        // se cortaba y el pedido caía al cerebro sin ejecutar (ej. "hazme una tarea").
+        req.timeoutInterval = 15
         URLSession.shared.dataTask(with: req) { data, resp, error in
             let out: String? = {
                 guard error == nil, let data,

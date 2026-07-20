@@ -44,6 +44,29 @@ enum CatalogoQA {
             }
             RunLoop.main.run()
         }
+        // Prueba en vivo: el plan de la conexión UEA real con un verbo de
+        // escritura, ¿elige "registrar" (no "hoy")? Verifica el fix de evitar Codex.
+        if ProcessInfo.processInfo.environment["BETODICTA_UEAPLANTEST"] == "1" {
+            guard let uea = ModosStore.todos().first(where: {
+                $0.accion == "conexion" && ($0.nombre.lowercased().contains("actividad"))
+            }), let cx = uea.conexion else {
+                print("UEAPLANTEST: no hay modo de actividades configurado"); exit(4)
+            }
+            print("IA del plan: \(ConexionesIA.iaDisponible(uea)?.etiqueta ?? "ninguna")")
+            var resultado: String?
+            ConexionesIA.resolver(modo: uea, conexion: cx,
+                                  texto: "en el sistema de actividades registra que trabajé una hora en la universidad") { r in
+                switch r {
+                case .plan(let p): resultado = "endpoint elegido: \(p.endpoint.clave)"
+                case .faltan(let f): resultado = "faltan: \(f.joined(separator: ","))"
+                case .invalido(let m): resultado = "invalido: \(m)"
+                }
+            }
+            let limite = Date().addingTimeInterval(30)
+            while resultado == nil, Date() < limite { _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+            print("UEAPLANTEST → \(resultado ?? "SIN RESPUESTA (timeout)")")
+            fflush(stdout); exit(0)
+        }
         guard ProcessInfo.processInfo.environment["BETODICTA_CATALOGOQA"] == "1" else { return }
         var fallos = 0
         func check(_ nombre: String, _ ok: @autoclosure () -> Bool) {
