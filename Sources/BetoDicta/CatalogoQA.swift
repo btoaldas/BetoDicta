@@ -17,6 +17,33 @@ enum CatalogoQA {
             }
             fflush(stdout); exit(0)
         }
+        // Demo EN VIVO: el router IA decide sobre frases reales contra el
+        // catálogo real (necesita IA/red). Solo diagnóstico, no ejecuta.
+        if ProcessInfo.processInfo.environment["BETODICTA_ROUTERDEMO"] == "1" {
+            let caps = CatalogoCapacidades.todas()
+            let frases = ["registra que trabajé una hora en el sistema de la universidad",
+                          "hazme una tarea de comprar pan mañana",
+                          "qué clima hace en el Puyo",
+                          "abre Word y escribe el informe",
+                          "resume mis tareas pendientes",
+                          "traduce esto al inglés",
+                          "cuéntame un chiste"]
+            let grupo = DispatchGroup()
+            var salida: [String] = []
+            for f in frases {
+                grupo.enter()
+                RouterGlobalIA.decidir(f, catalogo: caps) { d in
+                    salida.append("  «\(f)» → \(d.map { "[\($0.tipo):\($0.clave)] \($0.nombre) · «\($0.contenido.prefix(40))»" } ?? "SIN DECISIÓN")")
+                    grupo.leave()
+                }
+            }
+            grupo.notify(queue: .main) {
+                print("ROUTER EN VIVO (IA sobre \(caps.count) capacidades):")
+                salida.sorted().forEach { print($0) }
+                fflush(stdout); exit(0)
+            }
+            RunLoop.main.run()
+        }
         guard ProcessInfo.processInfo.environment["BETODICTA_CATALOGOQA"] == "1" else { return }
         var fallos = 0
         func check(_ nombre: String, _ ok: @autoclosure () -> Bool) {
@@ -76,6 +103,31 @@ enum CatalogoQA {
         check("paraIA lista con tipo:clave",
               menu.contains("[modo:correo]") && menu.contains("[conexion:propio-uea]"))
         check("paraIA no filtra secretos ni vacíos", !menu.contains("[atajo:Secreto]"))
+
+        // ROUTER GLOBAL (fase 3, núcleo): valida la elección contra el catálogo.
+        func decisionValida(_ j: String) -> DecisionRouter? {
+            RouterGlobalIA.interpretar(j, catalogo: base, texto: "haz una tarea de comprar pan")
+        }
+        check("router acepta una capacidad real del catálogo",
+              decisionValida(#"{"tipo":"modo","clave":"correo","confianza":0.9,"contenido":"hola"}"#)?.clave == "correo")
+        check("router usa el contenido devuelto",
+              decisionValida(#"{"tipo":"modo","clave":"correo","contenido":"cuerpo del correo"}"#)?.contenido == "cuerpo del correo")
+        check("router RECHAZA una capacidad inventada (no está en el catálogo)",
+              decisionValida(#"{"tipo":"modo","clave":"inexistente-xyz","confianza":0.99}"#) == nil)
+        check("router acepta el cerebro como salida",
+              decisionValida(#"{"tipo":"cerebro","clave":"cerebro","confianza":0.4}"#)?.tipo == "cerebro")
+        check("router con JSON basura → nil (no ejecuta a ciegas)",
+              decisionValida("no soy json") == nil)
+        check("router valida la conexión del catálogo",
+              decisionValida(#"{"tipo":"conexion","clave":"propio-uea","contenido":"registra 1 hora"}"#)?.clave == "propio-uea")
+        check("router: contenido vacío cae al texto original",
+              decisionValida(#"{"tipo":"modo","clave":"correo","contenido":""}"#)?.contenido == "haz una tarea de comprar pan")
+        check("prompt del router lleva catálogo cerrado y anti-inyección",
+              {
+                  let p = RouterGlobalIA.prompt(catalogo: base, texto: "x")
+                  return p.contains("[modo:correo]") && p.contains("INSTRUCCIONES_INTERNAS_NO_REPRODUCIR")
+                      && p.contains("Jamás inventes")
+              }())
 
         print(fallos == 0 ? "CATALOGOQA TODO OK" : "CATALOGOQA ✗ \(fallos) FALLOS")
         fflush(stdout); exit(fallos == 0 ? 0 : 3)
