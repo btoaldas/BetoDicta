@@ -636,6 +636,33 @@ Precedencia resumida: una cadena u orden explícita manda; después vienen el **
 
 **Reconocimiento inteligente de modos** (opt-in, *Ajustes → Avanzado*): entiende el llamado **aunque lo digas de muchas formas**, tanto con *"modo"* como en una petición real al inicio. Es parametrizable: tamaño de la zona, umbral, margen entre candidatos, auto-mejora y árbitro IA. También es **entrenable por ti**: en *Ajustes → Modos*, cada modo tiene **"Ejemplos"** para agregar tus propias formas de pedirlo. La primera vez calcula los vectores en segundo plano; si no hay motor disponible, salta esta capa y continúa con las reglas normales.
 
+## 16 ter. Modo Conexión API — habla con cualquier sistema
+
+Un modo con acción **"Conexión API"** conecta BetoDicta con **cualquier API REST que tú declares** (un sistema de tu trabajo, una API pública, tu propio backend): dictas en lenguaje natural, una IA arma el llamado, y el resultado te lo cuenta hablado. Nada del sistema concreto vive en la app: **todo es configuración tuya**. Se activa en *Ajustes → Asistente → "Conexiones API"* (apagado por defecto).
+
+**Cómo se configura** (en *Ajustes → Modos*, crea un modo y elige comportamiento **"Conexión"**):
+
+- **URL base** — solo `https` (o `http` para `localhost`). Todo lo demás es fail-closed.
+- **Autenticación** — *Sin auth* · *API key en encabezado* · *Usuario y clave (login → token)*. **La clave/API key se guarda en el Llavero de macOS, jamás en el archivo del modo.** Si el Llavero no está disponible, cae a un archivo `0600` y la UI te lo dice.
+- **Endpoints** — cada uno con clave, método (GET/POST/PUT/DELETE), ruta y `query` con `{variables}`, descripción (la lee la IA), y `body` en JSON con `{variables}`. Marca *"Escritura"* en los que modifican datos.
+- **Variables tipadas** — texto, número, fecha o lista; `{texto}` (lo que dictas) y `{hoy}` (fecha actual) siempre están disponibles sin declararlas.
+- **Prompt del modo** — instrucciones para la IA: qué hace la API, cómo mapear lo dictado, el formato de los datos. Aquí vive el conocimiento del dominio.
+- **La IA arma el plan** (por defecto ON) — elige el endpoint y llena sus variables desde tu dictado libre; si falta un dato, te lo repregunta.
+- **Respuesta (prompt de vuelta)** — cómo contarte el resultado en lenguaje natural (*"dime la ciudad, los grados y un consejo de abrigo"*); vacío = respuesta cruda.
+- **La IA explica la propuesta** (opcional) — antes de confirmar, te resume en voz qué se va a enviar; los datos exactos del servidor se muestran siempre debajo.
+- **Confirmación** — el endpoint de 2ª fase (proponer → confirmar): el de escritura actúa como propuesta, ves su respuesta y solo tras tu **función (fn)** se confirma.
+- **Probar conexión** — llama el login o un GET de lectura y te dice si responde. Nunca toca un endpoint de escritura.
+
+**Cómo se usa:**
+
+- **Lectura** — *"modo clima web dime qué clima hace en Quito"* → responde hablado.
+- **Escritura, con tu visto bueno** — *"oye Jarvis, registra en el sistema que hice dos horas de soporte"* → la IA arma la propuesta → el servidor la devuelve → ves la **tabla legible** (con scroll si es larga) + explicación hablada → **fn = enviar, equis o silencio = cancelar**. El tiempo para leer es generoso y configurable (*Ajustes → Asistente*, por defecto 2 minutos). Si algo no te gusta, cancela con **equis** y vuelve a dictar el ajuste (*"mejor ponle 90 minutos"*): la IA corrige la propuesta anterior sin empezar de cero.
+- **Desde el asistente y desde rutinas** — *"oye Jarvis, …"* la enruta; y en *Ajustes → Asistente → Rutinas* puedes añadir un paso **"Conexión API"** para combinarla con otros modos.
+
+**Seguridad — por diseño:** la IA nunca ejecuta HTTP ni ve las credenciales (solo propone un plan JSON que Swift valida y ejecuta); las conexiones con escritura siempre piden tu confirmación; no se siguen redirecciones fuera del host declarado ni de `https` a `http`; y **ni la clave ni el token aparecen jamás en los registros**.
+
+**Compartir tus conexiones** (*Ajustes → Modos*, icono de compartir): **Exportar mis modos** crea un paquete JSON con tus modos propios —conexiones completas incluidas— **sin ninguna clave** (viven en el Llavero) ni tus datos personales (usuario de login e IA local se vacían). Tu compañero hace **Importar modos**, **elige con casillas cuáles traer** (uno, varios o todos), y cada conexión que necesite clave queda marcada *"falta la clave"* hasta que ponga la suya. Las URLs inseguras y los archivos inválidos se rechazan con un motivo claro.
+
 **Modos encadenados (pipeline por voz):** puedes juntar varias transformaciones y varios destinos. Ej.: *"modo resumir traducir quichua correo WhatsApp, …"* resume, traduce y abre ambos destinos con el mismo resultado. También funciona hablando natural: *"por favor, traduce esto… y después envíalo por correo"*. Los conectores delimitan etapas y lo demás se conserva como contenido. El **Agente** mantiene su flujo especializado (herramientas, conversación y voz) y por ahora no se usa como etapa intermedia de una cadena.
 
 ### Matriz manual de estabilidad de Modos
