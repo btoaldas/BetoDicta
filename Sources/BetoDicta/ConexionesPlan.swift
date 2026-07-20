@@ -237,7 +237,7 @@ enum ConexionesIA {
         \(String(cuerpo.prefix(3_000)))
         </PROPUESTA_DEL_SERVIDOR>
         """
-        llamarIA(ia, prompt: prompt, textLen: cuerpo.count) { contenido in
+        llamarIA(ia, prompt: prompt, textLen: cuerpo.count, timeout: 15) { contenido in
             let limpio = contenido?.trimmingCharacters(in: .whitespacesAndNewlines)
             completion((limpio?.isEmpty == false) ? String(limpio!.prefix(400)) : nil)
         }
@@ -250,7 +250,7 @@ enum ConexionesIA {
         guard !instrucciones.isEmpty, let ia = iaDisponible(modo) else { completion(nil); return }
         let prompt = promptRedaccion(instrucciones: instrucciones, pedido: pedido,
                                      respuestaAPI: respuestaAPI)
-        llamarIA(ia, prompt: prompt, textLen: respuestaAPI.count) { contenido in
+        llamarIA(ia, prompt: prompt, textLen: respuestaAPI.count, timeout: 15) { contenido in
             let limpio = contenido?.trimmingCharacters(in: .whitespacesAndNewlines)
             completion((limpio?.isEmpty == false) ? String(limpio!.prefix(600)) : nil)
         }
@@ -259,10 +259,12 @@ enum ConexionesIA {
     /// Una llamada de texto a la IA (HTTP o cuenta Codex), con el timeout del
     /// árbitro de modos. Siempre completa exactamente una vez, en main.
     private static func llamarIA(_ ia: ChatIA, prompt: String, textLen: Int,
+                                 timeout: Double? = nil,
                                  _ completion: @escaping (String?) -> Void) {
+        let limite = timeout ?? Config.modoIATimeout()
         if ia.esCuentaCodex {
             AgenteCodex.transformar(prompt, modelo: ia.modeloEfectivo,
-                                    timeout: Config.modoIATimeout()) { contenido in
+                                    timeout: limite) { contenido in
                 DispatchQueue.main.async { completion(contenido) }
             }
             return
@@ -271,7 +273,7 @@ enum ConexionesIA {
             DispatchQueue.main.async { completion(nil) }; return
         }
         req.setValue("close", forHTTPHeaderField: "Connection")
-        req.timeoutInterval = Config.modoIATimeout()
+        req.timeoutInterval = limite
         URLSession.shared.dataTask(with: req) { data, resp, error in
             let contenido: String? = {
                 guard error == nil, let data,

@@ -4316,9 +4316,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                let det = ConexionesDeteccion.detectar(inv.contenido,
                                                       modos: ModosStore.todos(),
                                                       nombreAsistente: Config.agenteNombre()) {
+                // El plan de la IA necesita la INTENCIÓN completa («pon en mis
+                // actividades que…»), no el recorte tras la frase: con el verbo
+                // amputado elegía consultar en vez de registrar.
                 let cadena = ModoCadena(transforms: [],
                     acciones: [ModoAccionPlan(modo: det.modo, destinatario: nil)],
-                    contenido: det.contenido)
+                    contenido: inv.contenido)
                 if procesarPlanDelAgente(cadena, crudo: crudoFlujo,
                                          textoNormal: inv.contenido,
                                          modoNormal: modoNormal, wav: wav,

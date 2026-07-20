@@ -670,7 +670,7 @@ enum AgenteNucleo {
             return ModoPlanificador.pregunta(
                 para: ModoCadena(transforms: [],
                     acciones: [ModoAccionPlan(modo: det.modo, destinatario: nil)],
-                    contenido: det.contenido),
+                    contenido: texto),   // pedido COMPLETO: la IA necesita el verbo
                 fuente: .natural, confianza: 0.97)
         }
 

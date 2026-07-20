@@ -756,7 +756,21 @@ enum ConexionesRunner {
         }
         ConexionesIA.redactarRespuesta(modo: modo, conexion: conexion, pedido: pedido,
                                        respuestaAPI: r.evidencia["salida"] ?? r.mensaje) { redactado in
-            guard let redactado else { completion(r); return }
+            guard let redactado else {
+                // La redacción nunca bloquea, pero un JSON crudo tampoco se
+                // muestra ni se habla: cae al formato legible determinista.
+                let crudo = r.evidencia["salida"] ?? r.mensaje
+                if let data = crudo.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) {
+                    let legible = ConexionesMotor.lineasLegibles(json).joined(separator: "\n")
+                    var evidencia = r.evidencia
+                    evidencia["salida"] = legible
+                    completion(.init(ok: true, mensaje: legible, evidencia: evidencia))
+                } else {
+                    completion(r)
+                }
+                return
+            }
             var evidencia = r.evidencia
             evidencia["redactado"] = "true"
             evidencia["salida_cruda"] = evidencia["salida"] ?? ""
