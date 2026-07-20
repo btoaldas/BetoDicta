@@ -213,6 +213,13 @@ Todo el control de motores vive aquí:
 
 > Los motores locales (whisper.cpp, llama.cpp, transcribe.cpp) se mantienen **al día** con sus proyectos base: cada versión de BetoDicta trae las últimas mejoras de rendimiento y correcciones, sin que tengas que hacer nada ni volver a descargar tus modelos.
 
+**Compatibilidad comprobada en 0.47.1.** Canary y Nemotron se probaron con
+`transcribe.cpp` 5a5a496; Voxtral Mini y el motor interno de embeddings BGE-M3,
+con `llama.cpp` b10068. Además, Voxtral Mini envía ahora la instrucción antes del
+audio —el orden que requiere el servidor multimodal— para evitar respuestas de
+rechazo en lugar de la transcripción. Los modelos descargados no cambian ni se
+vuelven a bajar.
+
 **Descargar modelos locales**
 - Cada familia tiene su sección: Whisper / Voxtral / Nemotron / Canary.
 - Clic en el botón de descarga (⬇) → verás la barra de progreso.

@@ -6,11 +6,16 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.47.0"
+    static let numero = "0.47.1"
     static let fecha = "2026-07-19"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.47.1", "2026-07-19", [
+            "MOTORES NATIVOS ACTUALIZADOS CON EVIDENCIA: incorpora transcribe.cpp 5a5a496 y llama.cpp b10068 tras comprobar procedencia, licencias, API pública, Metal, binarios ARM64 y modelos reales Canary, Nemotron, Voxtral y BGE-M3",
+            "VOXTRAL LOCAL CORREGIDO: la instrucción llega antes que el audio al servidor multimodal; evita respuestas de rechazo y recupera la transcripción real con el glosario intacto",
+            "PUENTE STREAMING REPRODUCIBLE Y SEGURO: make beto-stream valida todas las bibliotecas, construye aparte y reemplaza el ejecutable únicamente al terminar correctamente; un fallo conserva el motor anterior",
+        ]),
         ("0.47.0", "2026-07-19", [
             "VOZ XTTS ESTABLE HASTA EL FINAL: segmenta localmente los textos largos sin depender de spaCy, conserva pausas naturales y valida el cierre completo del flujo HTTP para no aceptar audios truncados ni frases que se mueren al final",
             "CALENTAMIENTO LOCAL PARAMETRIZABLE: conserva únicamente el motor de voz activo, lo protege 60 minutos al abrir y 15 minutos después de usarlo, y puede precompilar XTTS o Qwen3-MLX con una frase silenciosa editable",
