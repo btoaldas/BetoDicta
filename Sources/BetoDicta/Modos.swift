@@ -119,7 +119,7 @@ enum ModosStore {
         Modo(id: "aplicacion", nombre: "Aplicación", icono: "square.grid.2x2.fill", base: "aplicacion",
              palabraVoz: "modo abrir aplicación, modo abrir aplicacion, modo aplicación, modo aplicacion, modo abrir app, modo abre app, modo abrir"),
         Modo(id: "agente", nombre: "Agente", icono: "sparkle", base: "agente",
-             prompt: "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos.",
+             prompt: "Eres el asistente de voz del usuario. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos.",
              palabraVoz: "modo agente, modo la gente, modo gente, modo asistente de voz, modo jarvis"),
     ]
 
@@ -287,7 +287,7 @@ enum ContextoApp {
 
 enum Idiomas {
     /// Idiomas comunes con la bandera que MÁS los representa (aprox: idioma≠país).
-    /// kichwa/shuar → 🇪🇨 (Amazonía ecuatoriana, contexto UEA).
+    /// kichwa/shuar → 🇪🇨 (lenguas de la Amazonía ecuatoriana).
     static let base: [(nombre: String, bandera: String)] = [
         ("inglés", "🇬🇧"), ("español", "🇪🇸"), ("portugués", "🇧🇷"), ("francés", "🇫🇷"),
         ("alemán", "🇩🇪"), ("italiano", "🇮🇹"), ("chino", "🇨🇳"), ("japonés", "🇯🇵"),
@@ -780,8 +780,8 @@ extension ModosStore {
         }
         // VENTANA DINÁMICA: crecemos la zona-comando palabra por palabra y nos
         // quedamos con la ventana de MAYOR score (donde la intención "consolida").
-        // Así "mándale mensaje whatsapp | a Alberto, hola" corta bien: el comando
-        // llega hasta donde el score es máximo, y "a Alberto…" queda como contenido
+        // Así "mándale mensaje whatsapp | a Andrés, hola" corta bien: el comando
+        // llega hasta donde el score es máximo, y "a Andrés…" queda como contenido
         // (para extraer el destinatario). Techo = 1ª coma o N palabras (parametrizable).
         var techo = min(toks.count, max(2, Config.modoSemanticoPalabras()))
         if let coma = toks.firstIndex(where: { $0.contains(",") }) { techo = min(techo, coma + 1) }
@@ -816,7 +816,7 @@ extension ModosStore {
                                         superaUmbral: false, inequívoco: false)); return
             }
             // No dejes conectores finales ("a", "para"…) en el comando: van al
-            // contenido, para que "…whatsapp a | Alberto" → contenido "a Alberto"
+            // contenido, para que "…whatsapp a | Andrés" → contenido "a Andrés"
             // y objetivo() extraiga el destinatario.
             var w = mejor.w
             while w > 1, conectores.contains(limpioTok(toks[w - 1])) { w -= 1 }

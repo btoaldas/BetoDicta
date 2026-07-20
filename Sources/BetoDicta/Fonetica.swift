@@ -4,7 +4,7 @@ import Foundation
 //
 // Convierte una palabra en un código de cómo SUENA en español, normalizando
 // las consonantes que comparten sonido (k/qu/c, b/v, s/z/c-suave, j/g-suave,
-// y/ll, x/ks). Así "Quipux", "Kipux", "Guipux" caen en códigos muy cercanos.
+// y/ll, x/ks). Así "Zentrix", "Sentrix", "Gentrix" caen en códigos muy cercanos.
 //
 // NO se usa solo: siempre con un doble candado (sonido + escritura parecidos)
 // para no sobre-corregir palabras que apenas suenan parecido.

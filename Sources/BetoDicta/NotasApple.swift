@@ -491,7 +491,7 @@ enum NotasApple {
         Minuta segura de BetoDicta
 
         - Revisar el informe & anexos
-        - Confirmar <fecha> con “Alberto”
+        - Confirmar <fecha> con “Andrés”
         """
         guard let plan = preparar(muestra) else {
             print("NOTASAPPLETEST FALLA no se creó el plan"); exit(3)
@@ -508,7 +508,7 @@ enum NotasApple {
                 Minuta segura de BetoDicta
 
                 Revisar el informe & anexos
-                Confirmar <fecha> con “Alberto”
+                Confirmar <fecha> con “Andrés”
                 """)
             && preparar("Título: Compras\n\n- Pan\n- Café")?.titulo == "Compras"
             && preparar("Titulada Compras: pan y café")?.cuerpo == "pan y café"

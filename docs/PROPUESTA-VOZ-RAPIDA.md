@@ -8,7 +8,7 @@ motor experimental se integró porque todavía no superó la referencia XTTS en 
 
 ## 1. Contexto y realidad computacional
 
-- **Hardware:** Mac Apple M5 Pro, 64 GB RAM, macOS 26. Sin GPU NVIDIA local.
+- **Hardware de referencia:** un Mac Apple Silicon reciente (M-series Pro, 64 GB RAM), macOS 26. Sin GPU NVIDIA local.
 - **Regla de aceleración (verificada empíricamente):** PyTorch MPS **no sirve** para TTS en este Mac
   (XTTS con GPT en MPS + vocoder CPU dio RTF 1.23 vs 0.52 en CPU puro; Qwen3/F5/fish-speech en MPS: 2.5-10x
   más lentos que tiempo real según issues de terceros). Las vías sanas son **CPU** y **MLX (Metal nativo)**.
@@ -18,9 +18,9 @@ motor experimental se integró porque todavía no superó la referencia XTTS en 
 
 ### Lo que YA existe y NO SE TOCA (regla de oro)
 
-| Carril | Motor | Calidad | Velocidad medida (M5 Pro) | Estado |
+| Carril | Motor | Calidad | Velocidad medida (Mac de referencia) | Estado |
 |---|---|---|---|---|
-| Máxima fidelidad | XTTS v2 fine-tune (voz mamá, `~/.betodicta/voces/mama-rafaela`) | **Excelente — es la referencia** | RTF 0.78 streaming vía server residente; primera palabra ≈ colchón (2 s hoy) | Producción (fix d6654cb) |
+| Máxima fidelidad | XTTS v2 fine-tune (voz clonada de referencia, `~/.betodicta/voces/voz-referencia`) | **Excelente — es la referencia** | RTF 0.78 streaming vía server residente; primera palabra ≈ colchón (2 s hoy) | Producción (fix d6654cb) |
 | Equilibrio | Qwen3-TTS sobre mlx-audio (`MlxVozEngine`, venv `mlx-venv`) | Buena | TTFB ~0.1 s reportado | Producción |
 | Rápida | Piper ONNX (`rapida/voz.onnx`) | Robótica (inaceptable como principal) | RTF ~0.2 | Producción |
 | Nube | ElevenLabs WS | Excelente | ~75-130 ms | Producción |
@@ -34,7 +34,7 @@ se apaga el toggle y todo queda EXACTAMENTE como estaba. Cero regresiones posibl
 ## 2. Objetivo (definición de gol)
 
 1. **Latencia:** primera palabra audible en **≤ 1 segundo** con el motor caliente (1 s ya es el tope exagerado).
-2. **Calidad:** igual o mejor que el XTTS fine-tuneado actual (juez final: el oído de Alberto, apoyado por
+2. **Calidad:** igual o mejor que el XTTS fine-tuneado actual (juez final: el oído del dueño del proyecto, apoyado por
    similitud d-vector que el Entrenador ya calcula).
 3. **100 % local** (la voz nunca sale del Mac). Crear/entrenar/usar voces nuevas con el mismo estándar.
 4. **Calentamiento parametrizable** (sección 6).
@@ -64,7 +64,7 @@ se apaga el toggle y todo queda EXACTAMENTE como estaba. Cero regresiones posibl
 - **Qué es:** el modelo que BetoDicta ya usa en el carril equilibrio, pero en variante **Base** fine-tuneada
   con las horas de audio de la voz objetivo. Fine-tune **oficial del vendor** (Apache 2.0 código y pesos).
 - **Velocidad:** TTFB 57-111 ms, RTF ~0.59 con 1.7B-4bit en MLX (gist oficial de Blaizzy, mantenedor de
-  mlx-audio). En M5 Pro será mejor (sin cifra publicada).
+  mlx-audio). En el Mac de referencia será mejor (sin cifra publicada).
 - **Encaje:** infra 100 % existente (mismo venv, mismo server, mismo carril). Solo cambia el checkpoint.
 - **Ruta de entrenamiento:** LoRA sobre `Qwen3-TTS-1.7B-Base` en GPU nube con
   `instavar/qwen3-tts-lora-finetuning` (parchea el bug de doble label-shift del script oficial;
@@ -87,7 +87,7 @@ se apaga el toggle y todo queda EXACTAMENTE como estaba. Cero regresiones posibl
 
 | Opción | Por qué NO |
 |---|---|
-| RVC (Retrieval-based VC) | No es TTS; conversor de timbre que PRESERVA la prosodia de la fuente → Piper robótico entra, mamá-robot sale. Repo oficial abandonó Mac (main reinicializado solo-Windows 19-jul-2026). Única excepción futura: refinador de timbre opcional (port MLX Acelogic, RTF 0.09 en M3 Max, sin licencia declarada). |
+| RVC (Retrieval-based VC) | No es TTS; conversor de timbre que PRESERVA la prosodia de la fuente → Piper robótico entra, clon robótico sale. Repo oficial abandonó Mac (main reinicializado solo-Windows 19-jul-2026). Única excepción futura: refinador de timbre opcional (port MLX Acelogic, RTF 0.09 en M3 Max, sin licencia declarada). |
 | CorentinJ/Real-Time-Voice-Cloning | 2019, solo inglés, 16 kHz; el propio autor lo declara superado y redirige a Chatterbox. |
 | PyTorch MPS (cualquier modelo) | Medido/verificado: siempre peor que CPU o inestable. MLX es la única aceleración sana. |
 | Piper con más entrenamiento | Lo robótico es techo arquitectural (VITS chico), no falta de steps. |
@@ -116,9 +116,9 @@ la reproducción de la frase 1 cubre la generación de la 2 en adelante (pipelin
 ## 5. Plan por fases con criterios GO/NO-GO (nada se rompe en ninguna fase)
 
 ### Fase 1 — Shootout a oído, CERO cambios en la app (1-2 h, gratis)
-Con 10-15 s limpios de la voz de mamá como referencia, generar el MISMO párrafo con:
+Con 10-15 s limpios de la voz clonada de referencia, generar el MISMO párrafo con:
 Chatterbox-MLX (venv de prueba ya existe en `/tmp/cbx-venv`), Qwen3-TTS CustomVoice, F5-Spanish-MLX,
-y compararlo contra el XTTS actual. Medir RTF y tiempo-a-primer-audio reales en el M5 Pro + escuchar.
+y compararlo contra el XTTS actual. Medir RTF y tiempo-a-primer-audio reales en el Mac de referencia + escuchar.
 - **GO a Fase 2** si algún candidato suena ≥ XTTS (oído + d-vector) y da RTF < 0.5.
 - **NO-GO:** quedarse con XTTS + bajar colchón a 1 s. Nada cambió.
 
@@ -141,7 +141,7 @@ y motor del Entrenador actual).
 
 ---
 
-## 6. Política de calentamiento (spec de Alberto — TODO parametrizable)
+## 6. Política de calentamiento (spec del dueño del proyecto — TODO parametrizable)
 
 | Parámetro (por motor) | Default propuesto | Comportamiento |
 |---|---|---|
@@ -162,8 +162,8 @@ El ahorro global respeta la ventana inicial y, al primer uso real, pasa a contar
    intercambiables) o server mlx-audio separado en otro puerto? Trade-off: RAM/simplicidad vs aislamiento de fallos.
 2. **Streaming:** ¿`mlx_audio` expone generación por chunks (streaming) para Chatterbox/Qwen3, o solo WAV
    completo? Si solo completo: ¿partir por frases en Swift (como hoy) basta para ≤ 1 s?
-3. **Convivencia de motores calientes:** ¿política cuando el usuario alterna voces (XTTS mamá ↔ Chatterbox
-   mamá)? ¿Dormir el no-activo de inmediato o respetar los 15 min de cada uno?
+3. **Convivencia de motores calientes:** ¿política cuando el usuario alterna voces (XTTS clon ↔ Chatterbox
+   clon)? ¿Dormir el no-activo de inmediato o respetar los 15 min de cada uno?
 4. **Verificación LoRA→MLX barata:** ¿mejor camino para confirmar la conversión Qwen3/Chatterbox fine-tuneado
    → MLX sin gastar en GPU (¿checkpoint dummy en CPU? ¿Colab gratis?)?
 5. **Riesgo del colchón 1 s en XTTS** (RTF 0.78): ¿colchón adaptativo (arrancar al tener frase 1 completa
@@ -204,7 +204,7 @@ Corrección aplicada:
 - la ruta residente y la ruta de respaldo usan la misma regla;
 - hook QA con dos respuestas consecutivas, texto largo, duración de audio, RTF y error real.
 
-Pruebas sobre la voz instalada `mama-rafaela`:
+Pruebas sobre la voz instalada `voz-referencia`:
 
 | Prueba | Resultado |
 |---|---|
@@ -214,7 +214,7 @@ Pruebas sobre la voz instalada `mama-rafaela`:
 | Seis respuestas calientes | RTF 0,625–0,753; memoria estable; cero degradación progresiva |
 | Ruta de respaldo sin servidor | WAV válido de 300.332 bytes |
 
-El colchón de Alberto permanece en 2 s: la medición demuestra que puede bajarse, pero no se reduce a
+El colchón configurado permanece en 2 s: la medición demuestra que puede bajarse, pero no se reduce a
 ciegas porque la estabilidad tiene prioridad.
 
 ### 9.2 Shootout Chatterbox-MLX

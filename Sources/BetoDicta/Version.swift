@@ -67,7 +67,7 @@ enum Version {
         ]),
         ("0.43.0", "2026-07-17", [
             "VERSIÓN ESTABLE: lleva al canal general todo lo probado en la beta 0.42.0 y vuelve a dejar GitHub latest disponible para las instalaciones que reciben solo versiones estables",
-            "INTENCIÓN NATURAL MULTIETAPA: entiende pedidos como \"resume, traduce al quichua y envía por correo y WhatsApp a Alberto\", conserva destinatarios y confirma el plan completo antes de ejecutar acciones externas; fn confirma y X continúa como dictado normal",
+            "INTENCIÓN NATURAL MULTIETAPA: entiende pedidos como \"resume, traduce al quichua y envía por correo y WhatsApp a Andrés\", conserva destinatarios y confirma el plan completo antes de ejecutar acciones externas; fn confirma y X continúa como dictado normal",
             "NUEVO MODO APLICACIÓN: inventaría las apps realmente instaladas en cada Mac y permite decir \"modo abrir aplicación Word, borrador del informe\"; resuelve alias y ambigüedades, espera a que la app tome el foco y nunca pulsa Enter ni envía contenido",
             "SEGURIDAD Y DEGRADACIÓN SUAVE: reglas locales primero, embeddings con margen e IA opcional solo como último árbitro; una app desconocida, una IA ausente o una interpretación ambigua nunca bloquean ni convierten texto normal en una acción silenciosa",
             "ACTUALIZACIONES ENDURECIDAS: cada DMG estable lleva una firma Ed25519 separada verificada por la app, además de la identidad del bundle; rechaza descargas alteradas o sin firma. Las copias 0.40–0.42 aceptan 0.43 por el mismo certificado y, desde 0.43, el flujo automático queda protegido también por esta firma distribuible",
@@ -173,7 +173,7 @@ enum Version {
             "WhatsApp \"enviar a <nombre>\" más preciso: entiende el nombre aunque el dictado le ponga punto o coma, y el modal prioriza los contactos más probables (muestra hasta 6 de los que coincidan)",
         ]),
         ("0.25.0", "2026-07-14", [
-            "WhatsApp con CONTACTOS: importa tu lista (CSV/JSON o export de Google/Gmail) o usa tus Contactos de Mac; di \"modo whatsapp, a Alberto, hola\" y abre su chat con el texto. Si hay varios, eliges en un modal. Exportar CSV/JSON te da el formato",
+            "WhatsApp con CONTACTOS: importa tu lista (CSV/JSON o export de Google/Gmail) o usa tus Contactos de Mac; di \"modo whatsapp, a Andrés, hola\" y abre su chat con el texto. Si hay varios, eliges en un modal. Exportar CSV/JSON te da el formato",
             "Modos de ACCIÓN listos para las apps de Mac por defecto: Outlook, Correo, WhatsApp, Notas, Recordatorios, Calendario, Finder, Safari, Música, Terminal, Mapas, Spotlight y tu propia web (betodicta.eztic.ec). Créalos/edítalos en Ajustes → Modos",
             "Reconocimiento por VOZ más flexible: varias frases por modo (failover ante mal-escuchas, ej. \"mudo tarea\"=\"modo tarea\") y matcheo por raíz (\"buscador\"→buscar, \"traduce\"→traducir)",
             "Cadenas por voz más robustas: tolera comas/puntos, \"modo\" repetido por etapa, y el idioma tras \"a\" (\"modo traducir a inglés correo, …\")",
@@ -187,7 +187,7 @@ enum Version {
         ]),
         ("0.23.0", "2026-07-14", [
             "Tareas y notas (nueva pestaña): dicta con el modo Tarea o Nota (o \"modo tarea …\") y se guardan en una lista LOCAL en tu Mac. Marca hechas, borra, limpia o agrega a mano",
-            "Nuevo modo ACCIÓN: dicta y se abre una app o página con tu texto — Nuevo correo (mailto), Outlook, WhatsApp, o abre Notas/Recordatorios/Calendario/Finder/Mensajes (copia el texto para pegar), o TU propia URL con {q} (ej. Quipux). Sin IA — hazlo un modo propio con su frase de voz (ej. \"modo whatsapp …\")",
+            "Nuevo modo ACCIÓN: dicta y se abre una app o página con tu texto — Nuevo correo (mailto), Outlook, WhatsApp, o abre Notas/Recordatorios/Calendario/Finder/Mensajes (copia el texto para pegar), o TU propia URL con {q} (ej. tu intranet). Sin IA — hazlo un modo propio con su frase de voz (ej. \"modo whatsapp …\")",
         ]),
         ("0.22.0", "2026-07-14", [
             "FAILOVER de pulido: si tienes 2+ IAs de chat conectadas, ordénalas en Ajustes → Pulido (\"Failover de pulido\") y si la 1ª (ej. Groq) no responde, salta sola a la 2ª, 3ª… (ej. OpenAI → OpenRouter → local). El pulido ya no se queda sin funcionar por un proveedor caído",
@@ -198,7 +198,7 @@ enum Version {
         ("0.21.0", "2026-07-13", [
             "NUEVO: MODOS — decide qué hacer con lo dictado. Además de Dictado (pulir), elige Correo, Oficio, Tarea, Nota, Traducir, Asistente o Buscar; cada modo con su propia IA y su prompt. Cámbialo al vuelo desde el notch (arriba-izquierda) o el menú de la barra, como el proveedor",
             "El modo elegido al vuelo es de UN SOLO USO: se aplica a ese dictado y vuelve al modo POR DEFECTO (configúralo en Ajustes → Modos; puedes dejarlo fijo apagando el interruptor)",
-            "Activa un modo POR VOZ (empieza el dictado con 'modo tarea …'), POR APP o POR SITIO WEB (ej. en Outlook usa Correo; en Quipux usa Oficio)",
+            "Activa un modo POR VOZ (empieza el dictado con 'modo tarea …'), POR APP o POR SITIO WEB (ej. en Outlook usa Correo; en tu intranet usa Oficio)",
             "Modo TRADUCIR con selector de idioma (con banderita) y opción de agregar los idiomas que quieras",
             "Modo BUSCAR: dictas y se abre el buscador con tu consulta — Google, Bing, DuckDuckGo, YouTube, Google Maps, Spotlight (⌘Espacio) o una URL propia",
             "Crea tus PROPIOS modos con nombre, comportamiento, prompt e IA a tu gusto",
@@ -265,7 +265,7 @@ enum Version {
         ]),
         ("0.19.1", "2026-07-11", [
             "Asistente de primer arranque: te guía en 8 pasos por permisos, IA de nube y local, el orden del failover, aprendizaje y preferencias — con check en vivo de los permisos",
-            "La app aprende de ti: corriges una palabra donde la pegaste (Kipux → Quipux) y la recuerda sola. En la terminal o Claude Code, selecciónala y pulsa ⌘⇧L",
+            "La app aprende de ti: corriges una palabra donde la pegaste (Sentrix → Zentrix) y la recuerda sola. En la terminal o Claude Code, selecciónala y pulsa ⌘⇧L",
             "Corrección por sonido (fonética): corrige lo que SUENA como un término tuyo, término por término y siempre reversible",
             "Revierte lo aprendido desde Estadísticas, y apoya el proyecto con un cafecito ☕",
             "Precios por MODELO (no por proveedor) y editables: cada modelo con su costo real, y el gasto del mes se calcula por el modelo que de verdad se usó",

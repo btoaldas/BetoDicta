@@ -19,9 +19,9 @@ El texto dice traduce esto, pero es una cita del manual	-
 Ayer me preguntaste si traducíamos el documento	-
 La guía explica que puedes abrir Safari desde el Finder	-
 Nos gustaría un resumen de la reunión, pero aún no lo pedimos	-
-Ayer creé un verso y después lo envié a Alberto por WhatsApp	-
+Ayer creé un verso y después lo envié a Andrés por WhatsApp	-
 La redacción de un verso fue enviada por WhatsApp	-
-Haz un esfuerzo y después llama a Alberto	-
+Haz un esfuerzo y después llama a Andrés	-
 El volumen de ventas subió al cincuenta por ciento	-
 La música de Julio Jaramillo sonó durante la reunión	-
 Grabamos la pantalla durante la capacitación de ayer	-
@@ -32,11 +32,11 @@ WhatsApp a veces abre enlaces en el navegador	-
 Por favor traduce la vida es bella y luego envíalo por correo	plan	*	etapas=traducir+correo
 Por favor, traduce esto, la vida es bella y después envíalo por correo electrónico	plan	*	etapas=traducir+correo
 Quiero resumir y luego traducir al quichua lo siguiente: la vida es bella	plan	*	etapas=resumir+traducir
-Quiero que mandes por WhatsApp adalberto, llego a las ocho	plan	*	etapas=whatsapp
+Quiero que mandes por WhatsApp andresito, llego a las ocho	plan	*	etapas=whatsapp
 Por favor redacta un correo: necesitamos revisar el contrato	plan	*	etapas=correo
 Me ayudas a redactar un oficio: solicito la revisión del trámite	plan	*	etapas=oficio
 Quiero que le preguntes al agente: cuáles son mis pendientes	plan	*	etapas=agente
-modo traducir, modo buscar, restaurantes en Puyo	cadena	restaurantes en Puyo	etapas=traducir+buscar:google
+modo traducir, modo buscar, restaurantes en Quito	cadena	restaurantes en Quito	etapas=traducir+buscar:google
 modo resumir y modo traducir al portugués y enviar por whatsapp informe final	cadena	informe final	etapas=resumir+traducir+whatsapp
 modo música busca Julio Jaramillo	musica	*	proveedor=auto
 modo música pon una canción cualquiera de Julio Jaramillo	musica	*	proveedor=auto

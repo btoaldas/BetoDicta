@@ -641,7 +641,7 @@ enum AgenteNucleo {
             return p
         }
 
-        // “Mándaselo a Alberto por WhatsApp” carece deliberadamente de cuerpo.
+        // “Mándaselo a Andrés por WhatsApp” carece deliberadamente de cuerpo.
         // Solo entonces completamos con la última respuesta y volvemos a pasar
         // por el MISMO planificador/confirmación; no ejecutamos nada aquí.
         let anterior = referencia ?? MemoriaAgente.ultimaRespuestaParaReferencia()

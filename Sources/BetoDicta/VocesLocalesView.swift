@@ -510,7 +510,7 @@ struct VocesLocalesEditor: View {
                 Button("⚡ Subir voz rápida (.onnx)") { subirPiper() }.controlSize(.small)
                     .help("Voz Piper (.onnx): rápida, casi instantánea")
                 Button("➕ Agregar voz") { mostrarAgregar.toggle() }.controlSize(.small)
-                Button("🔍 Detectar mis voces (VozClonPOC)") {
+                Button("🔍 Detectar mis voces (VozClon)") {
                     detectadas = VocesLocales.detectarDeVozClon()
                     estado = detectadas.isEmpty ? "No encontré proyectos entrenados en \(Config.vozClonBase())." : ""
                 }.controlSize(.small)
@@ -555,12 +555,12 @@ struct VocesLocalesEditor: View {
 
             if mostrarAgregar {
                 VStack(alignment: .leading, spacing: 3) {
-                    TextField("Nombre (ej. Mamá Rafaela)", text: $nuevoNombre)
+                    TextField("Nombre (ej. Voz clonada)", text: $nuevoNombre)
                         .textFieldStyle(.roundedBorder).frame(width: 300)
                     TextField("Comando con {texto} y {salida}", text: $nuevoCmd)
                         .textFieldStyle(.roundedBorder).frame(width: 460)
                     Text("Persona (opcional): cómo habla esa persona. El Agente redacta en ese estilo antes de que la voz lo lea.").font(.caption2).foregroundStyle(.secondary)
-                    TextField("ej. Habla como mamá: cariñosa, diminutivos (mijo), termina con 'chao chao'…", text: $nuevaPersona, axis: .vertical)
+                    TextField("ej. Habla cariñosa: usa diminutivos, frases cortas, se despide con 'hasta pronto'…", text: $nuevaPersona, axis: .vertical)
                         .textFieldStyle(.roundedBorder).frame(width: 460).lineLimit(2...5)
                     HStack {
                         Button("Guardar") {
@@ -576,7 +576,7 @@ struct VocesLocalesEditor: View {
             }
 
             if !estado.isEmpty { Text(estado).font(.caption).foregroundStyle(.secondary) }
-            Text("Los paquetes y runtimes gestionados viven en ~/.betodicta. “Detectar VozClonPOC” queda solo para migrar proyectos antiguos; crear, usar, restaurar y exportar voces nuevas ya es propio de BetoDicta.")
+            Text("Los paquetes y runtimes gestionados viven en ~/.betodicta. “Detectar VozClon” queda solo para migrar proyectos antiguos; crear, usar, restaurar y exportar voces nuevas ya es propio de BetoDicta.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .onAppear { refrescar() }

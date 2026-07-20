@@ -31,27 +31,27 @@ enum ModoPlanQA {
             Caso(texto: "Por favor traduce la vida es bella y luego envíalo por correo.",
                  transforms: ["traducir"], acciones: ["correo"], idioma: nil, destinatario: nil,
                  contiene: "la vida es bella"),
-            Caso(texto: "Resume, traduce al inglés y envía por correo y por WhatsApp a Alberto: mañana nos reunimos a las ocho.",
+            Caso(texto: "Resume, traduce al inglés y envía por correo y por WhatsApp a Andrés: mañana nos reunimos a las ocho.",
                  transforms: ["resumir", "traducir"], acciones: ["correo", "whatsapp"],
-                 idioma: "inglés", destinatario: "Alberto", contiene: "mañana nos reunimos"),
-            Caso(texto: "Mándaselo a Alberto por WhatsApp: nos vemos mañana.",
+                 idioma: "inglés", destinatario: "Andrés", contiene: "mañana nos reunimos"),
+            Caso(texto: "Mándaselo a Andrés por WhatsApp: nos vemos mañana.",
                  transforms: [], acciones: ["whatsapp"], idioma: nil,
-                 destinatario: "Alberto", contiene: "nos vemos mañana"),
+                 destinatario: "Andrés", contiene: "nos vemos mañana"),
             Caso(texto: "Por favor redacta un correo: necesitamos revisar el contrato.",
                  transforms: ["correo"], acciones: [], idioma: nil, destinatario: nil,
                  contiene: "necesitamos revisar"),
-            Caso(texto: "Haz una redacción de un verso sin esfuerzo, algo simpático, como ejemplo. Después mándaselo a Alberto por WhatsApp.",
+            Caso(texto: "Haz una redacción de un verso sin esfuerzo, algo simpático, como ejemplo. Después mándaselo a Andrés por WhatsApp.",
                  transforms: ["generar"], acciones: ["whatsapp"], idioma: nil,
-                 destinatario: "Alberto", contiene: "una redacción de un verso"),
-            Caso(texto: "Crea una redacción básica de un verso y después mándaselo a Alberto por WhatsApp.",
+                 destinatario: "Andrés", contiene: "una redacción de un verso"),
+            Caso(texto: "Crea una redacción básica de un verso y después mándaselo a Andrés por WhatsApp.",
                  transforms: ["generar"], acciones: ["whatsapp"], idioma: nil,
-                 destinatario: "Alberto", contiene: "una redacción básica de un verso"),
-            Caso(texto: "Anótame una tarea: revisar el Quipux y configurar el MikroTik.",
+                 destinatario: "Andrés", contiene: "una redacción básica de un verso"),
+            Caso(texto: "Anótame una tarea: revisar el informe y configurar el router.",
                  transforms: ["tarea"], acciones: [], idioma: nil, destinatario: nil,
-                 contiene: "revisar el Quipux"),
-            Caso(texto: "Busca en Wikipedia: Universidad Estatal Amazónica.",
+                 contiene: "revisar el informe"),
+            Caso(texto: "Busca en Wikipedia: Torre Eiffel.",
                  transforms: [], acciones: ["buscar"], idioma: nil, destinatario: nil,
-                 contiene: "Universidad Estatal Amazónica"),
+                 contiene: "Torre Eiffel"),
             Caso(texto: "Tradúceme esto: el correo recibido confirma la reunión.",
                  transforms: ["traducir"], acciones: [], idioma: nil, destinatario: nil,
                  contiene: "el correo recibido"),
@@ -73,12 +73,12 @@ enum ModoPlanQA {
             Caso(texto: "Me gustaría que traduzcas al portugués lo siguiente: nos vemos mañana.",
                  transforms: ["traducir"], acciones: [], idioma: "portugués",
                  destinatario: nil, contiene: "nos vemos mañana"),
-            Caso(texto: "Quiero que mandes por WhatsApp a Alberto: llego a las ocho.",
+            Caso(texto: "Quiero que mandes por WhatsApp a Andrés: llego a las ocho.",
                  transforms: [], acciones: ["whatsapp"], idioma: nil,
-                 destinatario: "Alberto", contiene: "llego a las ocho"),
-            Caso(texto: "Quiero que mandes por WhatsApp adalberto, llego a las ocho.",
+                 destinatario: "Andrés", contiene: "llego a las ocho"),
+            Caso(texto: "Quiero que mandes por WhatsApp aandrés, llego a las ocho.",
                  transforms: [], acciones: ["whatsapp"], idioma: nil,
-                 destinatario: "adalberto", contiene: "llego a las ocho"),
+                 destinatario: "aandrés", contiene: "llego a las ocho"),
             Caso(texto: "Podemos resumir y después enviar por correo este texto: mañana habrá reunión.",
                  transforms: ["resumir"], acciones: ["correo"], idioma: nil,
                  destinatario: nil, contiene: "mañana habrá reunión"),
@@ -114,9 +114,9 @@ enum ModoPlanQA {
             "Ayer me preguntaste si traducíamos el documento",
             "La guía explica que puedes abrir Safari desde el Finder",
             "Nos gustaría un resumen de la reunión, pero aún no lo pedimos",
-            "Ayer creé un verso y después lo envié a Alberto por WhatsApp",
+            "Ayer creé un verso y después lo envié a Andrés por WhatsApp",
             "La redacción de un verso fue enviada por WhatsApp",
-            "Haz un esfuerzo y después llama a Alberto"
+            "Haz un esfuerzo y después llama a Andrés"
         ]
 
         var fallos = 0
@@ -158,13 +158,13 @@ enum ModoPlanQA {
             print("MODOPLANTEST EXP \(ok ? "OK" : "✗") T=\(tg) A=\(ag) | \(p.contenido)")
         }
 
-        let textoIA = "Por favor, traduce al quichua y envía por WhatsApp a Alberto: la vida es bella."
-        let jsonIA = #"{"intent":true,"confidence":0.91,"prefix_words":9,"suffix_words":0,"stages":[{"key":"modo:traducir","idioma":"quichua","destinatario":null},{"key":"accion:whatsapp","idioma":null,"destinatario":"Alberto"}],"alternatives":[]}"#
+        let textoIA = "Por favor, traduce al quichua y envía por WhatsApp a Andrés: la vida es bella."
+        let jsonIA = #"{"intent":true,"confidence":0.91,"prefix_words":9,"suffix_words":0,"stages":[{"key":"modo:traducir","idioma":"quichua","destinatario":null},{"key":"accion:whatsapp","idioma":null,"destinatario":"Andrés"}],"alternatives":[]}"#
         if let p = ModoIAEnrutador.interpretar(jsonIA, textoOriginal: textoIA, catalogo: catalogo) {
             let ok = p.cadena.transforms.first?.id == "traducir"
                 && p.cadena.transforms.first?.idiomaDestino == "quichua"
                 && p.cadena.acciones.first?.modo.accion == "whatsapp"
-                && p.cadena.acciones.first?.destinatario == "Alberto"
+                && p.cadena.acciones.first?.destinatario == "Andrés"
                 && p.cadena.contenido == "la vida es bella."
             if !ok { fallos += 1 }
             print("MODOPLANTEST IA \(ok ? "OK" : "✗") \(p.descripcion) | \(p.cadena.contenido)")
@@ -188,9 +188,9 @@ enum ModoPlanQA {
         let senales: [(String, Bool)] = [
             ("Por favor necesito traducir lo siguiente", true),
             ("Modo no sé qué enviar por correo", true),
-            ("Quisiera mandar un WhatsApp a Alberto", true),
+            ("Quisiera mandar un WhatsApp a Andrés", true),
             ("Necesito revisar el correo que llegó ayer", false),
-            ("Ayer envié un WhatsApp a Alberto", false),
+            ("Ayer envié un WhatsApp a Andrés", false),
             ("El informe menciona traducir y resumir", false)
         ]
         for (texto, esperado) in senales {
@@ -199,12 +199,12 @@ enum ModoPlanQA {
             if !ok { fallos += 1 }
             print("MODOPLANTEST GATE \(ok ? "OK" : "✗") \(got) ← \(texto)")
         }
-        let agenda = [ContactoWA(nombre: "Alberto Aldás", numero: "593111"),
+        let agenda = [ContactoWA(nombre: "Andrés Torres", numero: "593111"),
                       ContactoWA(nombre: "Roberto López", numero: "593222")]
-        let aprox = ContactosWA.coincidencias("adalberto", en: agenda)
-        let exacta = ContactosWA.coincidencias("Alberto", en: agenda)
-        let contactoOK = aprox.aproximada && aprox.contactos.first?.nombre == "Alberto Aldás"
-            && !exacta.aproximada && exacta.contactos.first?.nombre == "Alberto Aldás"
+        let aprox = ContactosWA.coincidencias("aandrés", en: agenda)
+        let exacta = ContactosWA.coincidencias("Andrés", en: agenda)
+        let contactoOK = aprox.aproximada && aprox.contactos.first?.nombre == "Andrés Torres"
+            && !exacta.aproximada && exacta.contactos.first?.nombre == "Andrés Torres"
         if !contactoOK { fallos += 1 }
         print("MODOPLANTEST CONTACTO \(contactoOK ? "OK" : "✗") aproximado=\(aprox.aproximada) → \(aprox.contactos.first?.nombre ?? "nil")")
         print("MODOPLANTEST \(fallos == 0 ? "TODO OK" : "✗ \(fallos) FALLOS")")

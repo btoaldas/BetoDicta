@@ -39,14 +39,14 @@
 
 ## 1. Qué es BetoDicta
 
-BetoDicta convierte tu voz en texto en cualquier aplicación del Mac: pulsas una tecla, hablas, vuelves a pulsar, y el texto aparece donde estaba tu cursor. Fue creada en Ecuador 🇪🇨 para el español latino, porque los dictados comerciales no entendían palabras como *Quipux*, *DGTIC* o *SENESCYT*.
+BetoDicta convierte tu voz en texto en cualquier aplicación del Mac: pulsas una tecla, hablas, vuelves a pulsar, y el texto aparece donde estaba tu cursor. Fue creada en Ecuador 🇪🇨 para el español latino, porque los dictados comerciales no entendían las siglas y nombres propios del español institucional.
 
 Sus cuatro superpoderes:
 
 - **Texto en vivo**: ves lo que dices mientras lo dices, junto al notch — con la nube (ElevenLabs) o **100% sin internet** (Voxtral Realtime, Nemotron).
 - **Failover transparente**: si un motor falla, otro toma el mando solo — nunca pierdes un dictado.
 - **Tu vocabulario manda**: tu glosario personal llega a todos los motores, y una capa de reemplazos corrige después.
-- **Aprende de ti**: cuando corriges una palabra ahí donde la pegaste, la app aprende la regla sola (Kipux → Quipux) — sin que vuelvas a repetir el trabajo.
+- **Aprende de ti**: cuando corriges una palabra ahí donde la pegaste, la app aprende la regla sola (Sentrix → Zentrix) — sin que vuelvas a repetir el trabajo.
 
 ## 2. Requisitos
 
@@ -310,7 +310,7 @@ Tres formas, de la más rápida a la más completa:
   2. BetoDicta **mide la duración** y te **recomienda** las etapas (menos de 1 h no sirve; 1-2 h → ~3000; 2-4 h → ~4000; 4-6 h → ~5000). **Tú decides** — todo editable.
   3. **Entrena** en segundo plano (verás el **progreso en vivo**: paso, %, y una **gráfica**).
   4. Al terminar, **compara los cortes** (elige el mejor por parecido a la voz real), **escucha** cualquiera, **elige** el que te guste (o envía descartados a la Papelera), y sale un checkpoint **slim** dentro de tu **paquete portable**. La **persona** (vocabulario, inicios, cierres, cariños y ejemplos reales) se extrae automáticamente y queda editable.
-  5. Los scripts y la base oficial XTTS viven bajo `~/.betodicta/voz-engine/pipeline/`: no necesitas tener `VozClonPOC` ni Hermes. La preparación explícita reutiliza cachés solo si coinciden sus SHA‑256; si no, descarga las bases oficiales.
+  5. Los scripts y la base oficial XTTS viven bajo `~/.betodicta/voz-engine/pipeline/`: no necesitas tener `VozClon` ni Hermes. La preparación explícita reutiliza cachés solo si coinciden sus SHA‑256; si no, descarga las bases oficiales.
 - **Protección contra accidentes**: cambiar voz/variante, recrear un carril, quitar un runtime o descartar un checkpoint pide confirmación con el alcance exacto. **Quitar una voz nunca la elimina**: mueve configuración, modelo, persona y variantes a **Papelera de voces**, desde donde puedes restaurarla. Los checkpoints descartados van a la Papelera de macOS.
 - **Aviso de privacidad**: al pulir con una IA de **nube** o un **gateway de terceros**, la app te recuerda que **tu texto sale de tu Mac** — no dictes datos sensibles (claves, tarjetas). Para que **nada** salga, usa una IA **local**. El aviso se puede ocultar en *Ajustes → Avanzado*. Si un gateway usa **http sin cifrar**, la API key **no se envía** (protección).
 - **Conectar más IAs de chat** (despliega la sección): pega la API key de la que quieras (OpenRouter/DeepSeek/xAI…). Para los locales, pulsa **"Buscar"** (o préndelos y reabre) — la app encuentra el modelo cargado.
@@ -339,9 +339,9 @@ Esta pestaña convierte a BetoDicta en un asistente por voz sin reemplazar su fu
 
 **Presencia y personalidad**
 
-- El nombre es libre: **Bto, Jarvis, Mamá** o el que quieras.
+- El nombre es libre: **Bto, Jarvis, Gloria** o el que quieras.
 - Puedes escribir la personalidad completa: tono, trato, brevedad, vocabulario y forma de responder. La personalidad decide **cómo redacta**; la voz TTS decide **cómo suena**.
-- Las frases de presencia son editables, **una por línea y con mínimo dos palabras**: *“oye Gloria”*, *“Gloria dicta”*, *“hola Jarvis”* o las que decidas. La lista —no un nombre escrito en el código— es la única fuente de verdad. La puntuación no cambia la coincidencia: `Oye, Gloria` funciona igual que `Oye Gloria`. Los valores genéricos de una palabra (`oye`, `Gloria`, `mamá`) se ignoran para evitar falsos positivos. Sin manos libres, deben ir al inicio de un dictado ya iniciado con fn; si dices solo la frase, queda listo Agente para el siguiente dictado.
+- Las frases de presencia son editables, **una por línea y con mínimo dos palabras**: *“oye Gloria”*, *“Gloria dicta”*, *“hola Jarvis”* o las que decidas. La lista —no un nombre escrito en el código— es la única fuente de verdad. La puntuación no cambia la coincidencia: `Oye, Gloria` funciona igual que `Oye Gloria`. Los valores genéricos de una palabra (`oye`, `Gloria`, `Jarvis`) se ignoran para evitar falsos positivos. Sin manos libres, deben ir al inicio de un dictado ya iniciado con fn; si dices solo la frase, queda listo Agente para el siguiente dictado.
 - **Activar manos libres al decir una frase de presencia** es opcional y viene **apagado por defecto**. En macOS 26 usa Apple Speech local. El gesto recomendado funciona como un timbre: di **solamente** una frase configurada —por ejemplo *“Oye Gloria”*— y guarda silencio. Apple no siempre marca sus parciales como finales, así que BetoDicta confirma mediante una pausa acústica configurable de **0,8–3 s** (**2 s** por defecto). Si el parcial crece con contenido, cancela el candidato. Entonces acusa recibo y abre un **turno Agente nuevo y limpio**, sin depender de un nombre fijo en el código.
 - **Frase + orden en una sola toma** continúa disponible como opción **avanzada**, apagada por defecto. Al activarla, un búfer circular configurable de 2–8 segundos conserva el comienzo de *“Oye Gloria, dime mis tareas”*. Si está apagada, una toma con contenido adicional no despierta al agente: repite solo el timbre y habla después del acuse.
 - El acuse de despertar es independiente y editable. Puedes escribir varias respuestas, una por línea —*“Te escucho”*, *“Dímelo”*, *“Cuéntame”*, *“Aquí estoy”*— y BetoDicta elige una al azar. Se muestra como **Solo texto, Texto y voz o Solo voz**. La voz usa la cascada TTS seleccionada. BetoDicta suelta Apple Speech, termina el saludo y recién después abre el dictado; así nunca se transcribe a sí mismo. Si TTS está apagado, cae a texto en vez de quedar silencioso. Una pulsación de **fn** durante el saludo lo corta y abre el turno inmediatamente, aunque la activación normal use doble fn.
@@ -360,7 +360,7 @@ Esta pestaña convierte a BetoDicta en un asistente por voz sin reemplazar su fu
 - Después de activar al asistente puedes ordenar *“dicta esto: …”*, *“transcribe lo siguiente: …”*, *“escribe esto: …”*, *“corrige esto: …”*, *“actualiza esto: …”*, *“mejora esto: …”* o *“crea un dictado: …”*. BetoDicta quita únicamente esa orden inicial, pule el contenido y lo entrega en el campo que ya estaba activo. Es una ruta local y determinista: **no llama al cerebro ni abre otra aplicación**.
 - Si dices solamente *“dictado”*, responde *“Dímelo”* —por texto o con la voz configurada— y abre automáticamente **una sola grabación adicional**. Lo que digas allí se convierte en el contenido; *“cancela”* u *“olvídalo”* descartan ese turno. Esc y cualquier fallo de micrófono también limpian la espera, de modo que nunca se reutiliza sobre un dictado posterior.
 - En *Ajustes → Asistente → Dictado asistido sin manos* puedes apagar toda la función, editar la respuesta breve de la segunda toma y decidir por separado si quieres **pulir**, **pegar en la aplicación activa** y **conservar una copia en el portapapeles**. El pulido usa la cascada configurada; sin IA o sin red entrega el original. El pegado requiere Accesibilidad, pero el portapapeles sigue siendo un respaldo independiente.
-- La detección es conservadora: *“escribe un correo para Alberto”* continúa en la herramienta Correo, *“actualiza el sistema”* sigue en el planificador y una narración como *“ayer dije dicta esto”* continúa como dictado normal. Los verbos ambiguos solo entran en esta ruta cuando llevan **esto / lo siguiente / este texto** al inicio.
+- La detección es conservadora: *“escribe un correo para Andrés”* continúa en la herramienta Correo, *“actualiza el sistema”* sigue en el planificador y una narración como *“ayer dije dicta esto”* continúa como dictado normal. Los verbos ambiguos solo entran en esta ruta cuando llevan **esto / lo siguiente / este texto** al inicio.
 
 **Tres niveles de autonomía**
 
@@ -379,21 +379,21 @@ Los envíos de correo/WhatsApp, publicaciones, compras, borrados y cualquier acc
 - **La cuenta ChatGPT no se convierte en API**: OpenAI mantiene separados ChatGPT y la plataforma API. La ruta Codex consume el cupo de Codex de tu plan; una conexión OpenAI de la pestaña Modelos sigue necesitando su propia clave y facturación API. Codex CLI entrega texto, pero **no un endpoint de embeddings**: para glosario inteligente, semántica e historial usa el motor Interno de BetoDicta/Ollama, o una API de embeddings. Tampoco convierte el plan en STT/TTS. Consulta [ChatGPT frente a API](https://help.openai.com/en/articles/9039756-billing-settings-in-chatgpt-vs-platform) y [Codex con tu plan ChatGPT](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan).
 - **Hermes** puede ser cerebro principal o de respaldo. Eliges cuál va primero y el interruptor de failover prueba el otro si falla. BetoDicta le pide la respuesta **sin cederle herramientas**; las acciones pasan por el planificador y la política de autonomía de BetoDicta.
 - La memoria corta vive en `~/.betodicta/agente_memoria.json`, guarda exactamente el número de turnos elegido (1–30) y se puede borrar con un clic. Un interruptor separado decide si se adjunta como contexto al cerebro: si ese cerebro es una IA de nube, el contexto necesario se envía a ese proveedor; apagado, el archivo y los seguimientos deterministas permanecen locales.
-- Los seguimientos inequívocos reutilizan la última respuesta: después de pedir una redacción puedes decir *“mándaselo a Alberto por WhatsApp”* o *“tradúcelo al inglés”*. El nuevo plan conserva la confirmación obligatoria del envío; una narración corriente nunca hereda texto en silencio.
+- Los seguimientos inequívocos reutilizan la última respuesta: después de pedir una redacción puedes decir *“mándaselo a Andrés por WhatsApp”* o *“tradúcelo al inglés”*. El nuevo plan conserva la confirmación obligatoria del envío; una narración corriente nunca hereda texto en silencio.
 
 **Herramientas nativas y pasarela Apple**
 
 - **Volumen del Mac, local y sin IA**: dentro del Asistente puedes decir *“baja el volumen”*, *“sube el sonido”*, *“pon el volumen al 50%”*, *“ponlo al setenta y cinco por ciento”*, *“volumen al máximo”*, *“pon mute”*, *“silencia el sonido”* o *“activa el sonido”*. Una cifra con **al/a** fija el nivel; *“sube/baja”* sin cifra cambia el número de puntos configurado (10 por defecto). BetoDicta lee de nuevo el estado del sistema y solo confirma si macOS aplicó el nivel o el silencio. En *Ajustes → Asistente → Herramientas nativas* puedes apagar esta capacidad y elegir el paso relativo. Las frases narrativas como *“volumen de ventas”* continúan como texto normal, y una orden clara nunca llama a una IA.
-- **Clima real, antes de la IA**: *“Oye Bto, ¿cómo está el clima de hoy?”* solicita una única ubicación aproximada del Mac y consulta Open-Meteo; *“clima de Puyo, Pastaza, Ecuador”* geocodifica esa ciudad y **no usa GPS**. Puedes pedir hoy, mañana o pasado mañana. En *Ajustes → Asistente → Herramientas nativas* puedes apagar la herramienta, desactivar la ubicación actual, escribir una ciudad de respaldo, solicitar/revisar el permiso y probar el resultado. BetoDicta no rastrea ni guarda coordenadas: conserva la lectura solo 15 minutos en memoria y envía la ciudad o las coordenadas aproximadas por HTTPS a Open-Meteo. Si no autorizas ubicación y no hay respaldo, te pide una ciudad; el dictado y el resto del asistente continúan normales.
+- **Clima real, antes de la IA**: *“Oye Bto, ¿cómo está el clima de hoy?”* solicita una única ubicación aproximada del Mac y consulta Open-Meteo; *“clima de Quito, Pichincha, Ecuador”* geocodifica esa ciudad y **no usa GPS**. Puedes pedir hoy, mañana o pasado mañana. En *Ajustes → Asistente → Herramientas nativas* puedes apagar la herramienta, desactivar la ubicación actual, escribir una ciudad de respaldo, solicitar/revisar el permiso y probar el resultado. BetoDicta no rastrea ni guarda coordenadas: conserva la lectura solo 15 minutos en memoria y envía la ciudad o las coordenadas aproximadas por HTTPS a Open-Meteo. Si no autorizas ubicación y no hay respaldo, te pide una ciudad; el dictado y el resto del asistente continúan normales.
 - **Aplicaciones**: inventaría las apps instaladas y puede abrir la que nombras; el pegado automático conserva las salvaguardas del modo Aplicación.
-- **Órdenes largas y borradores**: estructura localmente destino, tipo de documento, destinatario, asunto y contenido. Ejemplo: *“Oye Bto, abre Gmail y escribe un correo bien estructurado para alberto@example.com: prepara el programa del evento”*. Primero redacta con el modo Correo, luego abre un **borrador** de Gmail con campos separados. Mail y Outlook funcionan igual. **Nunca pulsa Enviar**; toda comunicación externa conserva la confirmación obligatoria. La herramienta se puede apagar por separado.
-- **Documentos en cualquier app**: *“abre Word y crea un oficio completo…”* reutiliza el modo Oficio y el inventario real de aplicaciones: redacta, abre Word, crea el documento y coloca el resultado. Para una web propia, crea un modo Acción con su nombre y URL (por ejemplo Quipux); el asistente abre la página y deja el texto en el portapapeles, sin adivinar formularios ni pulsar botones.
+- **Órdenes largas y borradores**: estructura localmente destino, tipo de documento, destinatario, asunto y contenido. Ejemplo: *“Oye Bto, abre Gmail y escribe un correo bien estructurado para andres@example.com: prepara el programa del evento”*. Primero redacta con el modo Correo, luego abre un **borrador** de Gmail con campos separados. Mail y Outlook funcionan igual. **Nunca pulsa Enviar**; toda comunicación externa conserva la confirmación obligatoria. La herramienta se puede apagar por separado.
+- **Documentos en cualquier app**: *“abre Word y crea un oficio completo…”* reutiliza el modo Oficio y el inventario real de aplicaciones: redacta, abre Word, crea el documento y coloca el resultado. Para una web propia, crea un modo Acción con su nombre y URL (por ejemplo tu intranet); el asistente abre la página y deja el texto en el portapapeles, sin adivinar formularios ni pulsar botones.
 - **Archivos**: busca con Spotlight dentro de tu carpeta de usuario. El selector previo muestra solamente coincidencias razonables **por nombre** (frase completa y palabras), para que un archivo cuyo contenido menciona “informe final” no aparezca con un nombre engañoso como `MANUAL.md`. Si no hay un nombre convincente, abre Finder con la búsqueda completa. Si dices *“busca el archivo informe final y muéstralo en Finder”* o *“mostrar en Finder el archivo informe final”*, abre directamente la búsqueda nativa con la consulta visible y **todos** sus resultados. Además entiende *“crea un archivo llamado agenda: …”*: conserva el texto y abre el selector nativo para que tú decidas nombre y ubicación. Nunca interpreta una ruta dictada, sobrescribe en silencio ni ejecuta el archivo como comando.
 - **Capturas de pantalla**: entiende pantalla completa/principal, ventana, selección y los cuatro cuadrantes. Puedes pedir Escritorio, Descargas, Documentos o el selector nativo; nombre, portapapeles y abrir al terminar son opcionales. Ejemplos: *“Oye Bto, haz una captura de una sección, guárdala en Descargas con el nombre informe y cópiala al portapapeles”* o *“Haz una captura de una sección, guárdala en Descargas con el nombre «informe», cópiala y ábrela”*. La segunda forma funciona sin activador: BetoDicta muestra el plan y una pulsación de **fn** lo confirma. **“Cópiala”** basta para solicitar el portapapeles. Nunca sobrescribe un archivo: si el nombre existe, añade un número.
 - **Grabación de pantalla**: *“graba la pantalla durante 20 segundos con micrófono y guarda en Documentos”*, *“grabemos la pantalla”*, *“hagamos una grabación”*, *“inicia una grabación”* y *“comienza una grabación”* entran al mismo ejecutor local sin confundir una grabación de audio. Si no indicas el área, pregunta **“¿pantalla o ventana?”**, guarda el pedido original durante 90 segundos y lo completa con tu siguiente respuesta. Si dices *“graba hasta que yo la detenga y guarda en mis Documentos”*, BetoDicta empieza directamente —sin la barra ambigua de macOS— y conserva el destino solicitado. Para terminar y guardar pulsa **una sola vez** tu tecla de dictado, aunque uses doble-fn para iniciar, o elige **■ Detener y guardar grabación** en el menú de BetoDicta. El resultado siempre termina en `.mov` y, al finalizar, queda una confirmación persistente con la ruta, **Ver en Finder** y **Cerrar**; no desaparece por otro flash del notch. La duración predeterminada, micrófono y visualización de clics son configurables. La primera vez debes autorizar **Privacidad y seguridad → Grabación de pantalla**.
 - **Protección de grabaciones largas**: mientras continúa, BetoDicta cierra fragmentos reproducibles cada **1, 5, 10, 15 o 30 minutos** (5 min recomendado) y los une sin recodificar al detener. Si la app o el Mac se interrumpen, al próximo arranque recupera automáticamente los fragmentos ya cerrados; como máximo queda expuesto el fragmento que estaba escribiéndose. Los respaldos transitorios viven con permisos privados en `~/.betodicta/grabaciones-en-curso/` y se eliminan después de consolidar correctamente.
 - **Interfaz fuera de la toma**: justo antes del primer fotograma BetoDicta oculta el notch y bloquea parciales, flashes y respuestas tardías para que no vuelva a aparecer durante la captura o grabación. Solo lo restaura cuando macOS termina o cancela la operación.
-- **Captura/grabación → WhatsApp**: *“toma una captura y envíala por WhatsApp a Alberto”* o *“graba la pantalla, guarda en mis Documentos y envíala por WhatsApp a Alberto”* conserva todas las acciones. En **Ajustes → Asistente → Capturas y grabaciones** eliges la política: **solo abrir y dejar en el portapapeles**, **pegar en el chat sin enviar** (recomendado) o **pegar y autoenviar**. El autoenvío nunca se activa por una frase: debe quedar habilitado expresamente. Antes de pulsar el único botón accesible llamado **Enviar**, BetoDicta compara la interfaz anterior y posterior al pegado y exige evidencia de que apareció una vista previa nueva del adjunto; si no puede demostrarlo, lo deja preparado. Así no envía por accidente un texto que ya estaba escrito en el chat. Además, cualquier Enter automático pendiente de otro dictado queda bloqueado durante la preparación. Para grupos o chats sin identificador público, abre WhatsApp y conserva el archivo en el portapapeles.
+- **Captura/grabación → WhatsApp**: *“toma una captura y envíala por WhatsApp a Andrés”* o *“graba la pantalla, guarda en mis Documentos y envíala por WhatsApp a Andrés”* conserva todas las acciones. En **Ajustes → Asistente → Capturas y grabaciones** eliges la política: **solo abrir y dejar en el portapapeles**, **pegar en el chat sin enviar** (recomendado) o **pegar y autoenviar**. El autoenvío nunca se activa por una frase: debe quedar habilitado expresamente. Antes de pulsar el único botón accesible llamado **Enviar**, BetoDicta compara la interfaz anterior y posterior al pegado y exige evidencia de que apareció una vista previa nueva del adjunto; si no puede demostrarlo, lo deja preparado. Así no envía por accidente un texto que ya estaba escrito en el chat. Además, cualquier Enter automático pendiente de otro dictado queda bloqueado durante la preparación. Para grupos o chats sin identificador público, abre WhatsApp y conserva el archivo en el portapapeles.
 - **Recordatorios y Calendario**: crean el elemento mediante **EventKit**, la API nativa de macOS, después de tu permiso y según el nivel de autonomía. Ya no dependen de simular ⌘N/⌘V.
 - **Notas de Apple**: crea la nota mediante el diccionario oficial de automatización, vuelve a leer su contenido y solo confirma el éxito si coincide. En *Ajustes → Asistente → Herramientas nativas* puedes apagar la herramienta, elegir una **carpeta**, decidir si BetoDicta debe crearla cuando falte y si abre la nota al terminar. El mismo panel muestra el permiso y ofrece **Probar sin dejar nota**: crea, verifica y borra un elemento temporal. Entiende *“Título: Compras”* o *“Titulada Compras: …”* y conserva párrafos, encabezados (`#`), listas numeradas o con viñetas, casillas y citas. Si Notas o el permiso falla, abre la app, conserva todo en el portapapeles y **no inventa éxito**. Sigue siendo distinta de **Nota local**, que vive en Tareas y notas.
 - **Pasarela inversa Siri → BetoDicta**: en *Asistente → Presencia* pulsa **Instalar**. BetoDicta abre un paquete `.shortcut` firmado cuyo nombre ya corresponde al nombre configurado del asistente; tú revisas la acción y pulsas **Añadir atajo**. El paquete no contiene claves: ejecuta un ayudante incluido que lee localmente la capacidad privada de esta instalación. Después, *“Oye Siri, Gloria”* abre un turno Agente aun con manos libres apagado. Si cambias el nombre, usa **Reinstalar** para generar el paquete con el nombre nuevo. Apple exige esa autorización visible y BetoDicta nunca la acepta en silencio.
@@ -425,7 +425,7 @@ Los envíos de correo/WhatsApp, publicaciones, compras, borrados y cualquier acc
 BetoDicta trae estas recetas listas, editables y desactivables:
 
 - **Resumen del día**: lee calendario, recordatorios y tareas locales; muestra el resultado y, si el Asistente está en texto+voz, lo habla con la voz y el failover TTS elegidos.
-- **Empezar jornada**: intenta abrir Outlook, Quipux, Word y Calendario, pone música de trabajo y ejecuta tu Atajo de Concentración si lo habilitaste. Los pasos que no existan se omiten sin detener los demás.
+- **Empezar jornada**: intenta abrir Outlook, Word y Calendario, pone música de trabajo y ejecuta tu Atajo de Concentración si lo habilitaste. Los pasos que no existan se omiten sin detener los demás.
 - **Cerrar jornada**: resume lo pendiente, guarda una nota local fechada y prepara el día siguiente. No cierra aplicaciones por defecto. Si agregas un paso **Cerrar aplicaciones**, toda la receta pasa a riesgo destructivo y exige confirmación.
 - **Modo reunión**: usa tu Atajo autorizado de reunión/Concentración, abre la primera app disponible entre Teams y Zoom y crea una nota con fecha.
 - **Actuar sobre la selección**: selecciona texto y di *“Oye Bto, resume”*, *“traduce”*, *“responde”*, *“convierte en tarea”*, *“lee”* o *“guarda la selección en Notas de Apple”*. Las frases largas *“resume la selección”* y equivalentes también funcionan. La forma breve solo coincide cuando ese es todo el pedido: *“resume el informe de mañana”* sigue siendo un resumen normal. La receta de Notas crea y verifica el elemento real antes de responder.
@@ -465,11 +465,11 @@ El corazón de "que escriba bien mis palabras":
 
 ![Editor del glosario](img/editor-keyterms.png)
 
-**Glosario (keyterms)** — Configuración → Acciones → *Editar palabras del glosario*. Una palabra o frase por línea (nombres propios, siglas, términos técnicos: *Quipux, SENESCYT, Aldás…*). El glosario **viaja a TODOS los motores**: ElevenLabs lo recibe nativo, Whisper/Groq/OpenAI como contexto, Voxtral dentro de la instrucción. Editas el archivo y aplica desde el siguiente dictado.
+**Glosario (keyterms)** — Configuración → Acciones → *Editar palabras del glosario*. Una palabra o frase por línea (nombres propios, siglas, términos técnicos: *Zentrix, UNESCO, Pérez…*). El glosario **viaja a TODOS los motores**: ElevenLabs lo recibe nativo, Whisper/Groq/OpenAI como contexto, Voxtral dentro de la instrucción. Editas el archivo y aplica desde el siguiente dictado.
 
 ![Editor de reemplazos](img/editor-reemplazos.png)
 
-**Reemplazos** — Configuración → Acciones → *Editar reemplazos*. Correcciones automáticas DESPUÉS de transcribir, para todos los motores siempre: si un motor escribe "Kipux", la regla `kipux, kipox, quipus… → Quipux` lo corrige antes de pegar.
+**Reemplazos** — Configuración → Acciones → *Editar reemplazos*. Correcciones automáticas DESPUÉS de transcribir, para todos los motores siempre: si un motor escribe "Sentrix", la regla `sentrix, sentrox, zentrus… → Zentrix` lo corrige antes de pegar.
 
 Cada fila del editor tiene, de izquierda a derecha:
 - ☑️ **Activo**: apaga la regla sin borrarla.
@@ -482,7 +482,7 @@ Cada fila del editor tiene, de izquierda a derecha:
 
 Soporta expresiones regulares para cazar familias enteras de variantes. Importar/Exportar tus reglas está en el menú de compartir (arriba a la derecha).
 
-**Coincidencia por audio (experimental)** — arriba del editor hay un interruptor "Coincidir por audio". Con él encendido, cada fila muestra un **🎙** para **grabar tu voz** diciendo el término (varias veces = mejor) y una casilla **Abc** para marcarlo como **sigla** (DGTIC). Al dictar, la app reconoce el término por **cómo suena tu voz** —además del texto— y corrige aunque el motor lo escriba muy distinto. Es experimental: se calibra con "probar por voz" y una **raya al dictar** ajustable, y solo actúa en dictados ≤30 s. Apagado no cambia nada.
+**Coincidencia por audio (experimental)** — arriba del editor hay un interruptor "Coincidir por audio". Con él encendido, cada fila muestra un **🎙** para **grabar tu voz** diciendo el término (varias veces = mejor) y una casilla **Abc** para marcarlo como **sigla** (DSTI). Al dictar, la app reconoce el término por **cómo suena tu voz** —además del texto— y corrige aunque el motor lo escriba muy distinto. Es experimental: se calibra con "probar por voz" y una **raya al dictar** ajustable, y solo actúa en dictados ≤30 s. Apagado no cambia nada.
 
 **¿Cuál usar?** Los dos: el glosario ayuda al motor a acertar a la primera; los reemplazos son la red de seguridad que corrige lo que se escape.
 
@@ -494,8 +494,8 @@ En vez de que edites reglas a mano, BetoDicta puede **aprender sola** de las cor
 
 **Cómo funciona**
 1. Dictas y la app pega el texto donde está tu cursor.
-2. Ahí mismo, **antes de enviar**, corriges una palabra que salió mal (ej. borras "Kipux" y escribes "Quipux").
-3. Un vigilante lee ese campo, compara lo pegado con lo que quedó, y si el cambio es del tipo *"palabra rara → palabra parecida"*, **aprende la regla solo** (`Kipux → Quipux`). La próxima vez ya te la corrige.
+2. Ahí mismo, **antes de enviar**, corriges una palabra que salió mal (ej. borras "Sentrix" y escribes "Zentrix").
+3. Un vigilante lee ese campo, compara lo pegado con lo que quedó, y si el cambio es del tipo *"palabra rara → palabra parecida"*, **aprende la regla solo** (`Sentrix → Zentrix`). La próxima vez ya te la corrige.
 4. Todo **100% local** — nada sale de tu Mac. La regla nueva se guarda en tus reemplazos.
 
 **Dónde funciona automático**
@@ -511,7 +511,7 @@ En vez de que edites reglas a mano, BetoDicta puede **aprender sola** de las cor
 
 ## 15. Corrección por sonido (fonética)
 
-Los reemplazos normales corrigen variantes que ya conoces. La **corrección por sonido** va más allá: corrige palabras que **SUENAN** como un término tuyo, aunque nunca las hayas visto antes (cualquier cosa que suene a *Quipux* → *Quipux*).
+Los reemplazos normales corrigen variantes que ya conoces. La **corrección por sonido** va más allá: corrige palabras que **SUENAN** como un término tuyo, aunque nunca las hayas visto antes (cualquier cosa que suene a *Zentrix* → *Zentrix*).
 
 **Se enciende en dos niveles** (los dos, a propósito — es potente y conservadora):
 1. **Global**: Ajustes → Aprendizaje → **"Corrección por sonido (fonética)"** (opt-in, apagada por defecto).
@@ -528,19 +528,19 @@ Convierte cada palabra en un código de **cómo suena**, normalizando las conson
 | j / g (ge,gi) | **J** |
 | ll | **Y** · x → **KS** · ch → **X** · h → (muda) |
 
-Así *Quipux*, *Kipux* y *Guipux* caen en códigos casi idénticos (`KIPUKS`, `GIPUKS`).
+Así *Zentrix*, *Sentrix* y *Gentrix* caen en códigos casi idénticos (`SENTRIKS`, `JENTRIKS`).
 
 **Triple candado (para no sobre-corregir)** — una palabra solo se cambia si cumple las tres:
 1. tiene 3+ letras y no es ya el término correcto,
 2. su **sonido** está a distancia ≤ 1 del término (suena casi idéntico),
 3. su **escritura** no está muy lejos (≤ 40 % de su largo), y no es una palabra común.
 
-**Ejemplos reales** (con el término *Quipux* marcado 🔊):
+**Ejemplos reales** (con el término *Zentrix* marcado 🔊):
 
 | Palabra | ¿Qué hace? |
 |---|---|
-| Kipux, Guipux, Quibux, Whipux | ✅ corrige → **Quipux** |
-| cripto, kilos, equipo | ❌ las deja igual (suenan distinto) |
+| Sentrix, Gentrix, Centrix, Zentrics | ✅ corrige → **Zentrix** |
+| centro, sintaxis, zenit | ❌ las deja igual (suenan distinto) |
 
 **Reversible siempre** — cada corrección por sonido queda registrada (con 🔊) en Estadísticas → Aprendizaje (debug), con su botón **↺**. Y si un término empieza a corregir de más, basta **quitarle la casilla 🔊** en Editar reemplazos: vuelve a ser un reemplazo normal.
 
@@ -565,19 +565,19 @@ Un **modo** decide cómo se procesa tu dictado. Se configura en **Ajustes → Mo
 
 La detección por voz tiene varias capas de tolerancia (el micrófono a veces escucha *"molde traductor"*, *"moto agente"* o incluso *"la gente"* por *"agente"* — igual lo entiende cuando aparece como orden al inicio). Un único resolver aplica este orden: **cadena explícita → frase exacta → frase difusa → pedido natural → modo confirmado durante la pausa → semántica local → IA árbitro opcional → app/sitio → respaldo captado en vivo → modo manual**. La detección difusa es local, conservadora y exige una palabra inicial segura; expresiones normales como *"moda de invierno"*, *"modo de empleo"*, *"necesito revisar el correo"* o *"todo agente tiene un jefe"* no activan nada. Cada grabación tiene una identidad y un modo normal congelados: resultados tardíos de otra grabación no pueden contaminarlos.
 
-**Pedidos naturales y cadenas de 1 a N etapas.** Puedes decir *"por favor, ayúdame a traducir lo siguiente: …"*, *"resume, traduce al inglés y envía por correo"*, *"traduce al quichua y mándaselo a Alberto por WhatsApp"* o *"Oye Bto, crea un verso sencillo y después mándaselo a Alberto por WhatsApp"*. BetoDicta separa **transformaciones** (redactar, resumir, formalizar, traducir…) de **destinos** (correo, WhatsApp, buscador…), conserva idioma y destinatario, genera primero el contenido pedido y recién después abre el destino. Las cadenas explícitas que empiezan con *"modo"* siguen siendo ágiles; los pedidos naturales muestran primero el plan. Un envío externo siempre pide confirmación y prepara el borrador: la IA no puede sustituir esa acción diciendo solamente *"lo enviaré"*.
+**Pedidos naturales y cadenas de 1 a N etapas.** Puedes decir *"por favor, ayúdame a traducir lo siguiente: …"*, *"resume, traduce al inglés y envía por correo"*, *"traduce al quichua y mándaselo a Andrés por WhatsApp"* o *"Oye Bto, crea un verso sencillo y después mándaselo a Andrés por WhatsApp"*. BetoDicta separa **transformaciones** (redactar, resumir, formalizar, traducir…) de **destinos** (correo, WhatsApp, buscador…), conserva idioma y destinatario, genera primero el contenido pedido y recién después abre el destino. Las cadenas explícitas que empiezan con *"modo"* siguen siendo ágiles; los pedidos naturales muestran primero el plan. Un envío externo siempre pide confirmación y prepara el borrador: la IA no puede sustituir esa acción diciendo solamente *"lo enviaré"*.
 
 **Órdenes estructuradas para trabajar en apps.** La misma base entiende instrucciones más largas sin mandar toda la frase a una IA para decidir la ruta:
 
-- *“Oye, Bto, abre Gmail y escribe un correo bien estructurado para alberto@example.com: necesitamos preparar el programa del evento”* → **Correo estructurado → borrador Gmail**, con destinatario, asunto sugerido y cuerpo separados.
+- *“Oye, Bto, abre Gmail y escribe un correo bien estructurado para andres@example.com: necesitamos preparar el programa del evento”* → **Correo estructurado → borrador Gmail**, con destinatario, asunto sugerido y cuerpo separados.
 - *“Abre Outlook y escribe un correo. Asunto: Reunión. Cuerpo: Nos vemos mañana a las diez”* → entrega un enlace `mailto:` directamente a Outlook y comprueba que apareció una ventana nueva con sus campos reales. Si la app no está o no confirma el borrador, abre Outlook web. **Nunca lo envía solo.**
 - *“Abre Word y crea un oficio completo con encabezado, fecha, destinatario y cierre solicitando apoyo…”* → **Oficio → Word**. BetoDicta crea un documento mediante la automatización nativa de Word, coloca el texto y lo vuelve a leer antes de anunciar éxito. La primera vez, macOS puede pedir permiso en **Privacidad y seguridad → Automatización → BetoDicta → Microsoft Word**; si falla, el oficio completo queda respaldado en el portapapeles.
-- *“Abre Quipux y crea un oficio: …”* → funciona cuando tú has creado un modo Acción llamado Quipux con su URL. En sitios sin API, abre y copia; no envía formularios a ciegas.
+- *“Abre Zentrix y crea un oficio: …”* → funciona cuando tú has creado un modo Acción llamado Zentrix con su URL. En sitios sin API, abre y copia; no envía formularios a ciegas.
 - *“Crea un archivo llamado agenda de mañana: comprar materiales y llamar a Rafael”* → muestra el selector de guardado y crea un `.txt` solo donde tú confirmes.
 
 El reconocimiento de la **ruta y los campos es local y determinista**. La IA se usa únicamente para redactar/formalizar el contenido cuando el plan incluye Correo, Oficio u otro documento; si ninguna regla alcanza, recién entra el árbitro IA opcional ya existente. Un pedido sin destino como *“redacta un correo”* solo redacta: no abre una aplicación por su cuenta.
 
-**Confirmación clara, sin perder el dictado.** Cuando una frase natural o ambigua propone un plan, el notch **se expande hacia abajo**, enumera lo entendido y muestra un extracto del texto que va a procesar: *1. Resumir · 2. Traducir al inglés · 3. Enviar por WhatsApp a Alberto*. Pulsa **fn una sola vez** para confirmar, aunque uses doble-fn para iniciar el dictado. Pulsa **X**, toca el notch o deja vencer el tiempo para rechazar **solo la interpretación**: el texto completo continúa con el modo normal; no se cancela. El tiempo es configurable (6–30 s).
+**Confirmación clara, sin perder el dictado.** Cuando una frase natural o ambigua propone un plan, el notch **se expande hacia abajo**, enumera lo entendido y muestra un extracto del texto que va a procesar: *1. Resumir · 2. Traducir al inglés · 3. Enviar por WhatsApp a Andrés*. Pulsa **fn una sola vez** para confirmar, aunque uses doble-fn para iniciar el dictado. Pulsa **X**, toca el notch o deja vencer el tiempo para rechazar **solo la interpretación**: el texto completo continúa con el modo normal; no se cancela. El tiempo es configurable (6–30 s).
 
 **Semántica y último árbitro.** Si las reglas exactas no alcanzan, los embeddings comparan la zona inicial con los ejemplos de cada modo. Se exige tanto un **umbral** como una separación mínima entre el 1.º y 2.º candidato; un empate no se adivina. Como último recurso opcional, una IA de chat conectada puede clasificar únicamente la **zona de intención** y devolver un JSON de etapas validado contra el catálogo. Puedes elegir proveedor, máximo de palabras y timeout estricto. La IA nunca ejecuta el plan: todavía lo confirmas; si no existe, falla o tarda, el dictado sigue sin bloqueo.
 
@@ -597,7 +597,7 @@ Modos base:
 - **Música**: busca o reproduce mediante una cascada configurable de Apple Music, Spotify y servicios web. También admite proveedores propios.
 - **Buscar**: no pega texto — **abre el buscador con tu consulta**. Vienen muchos: **Google, Bing, DuckDuckGo, Wikipedia, YouTube, Google Maps, Gmail** (buscar correo), **Outlook/Hotmail, Facebook, Amazon, MercadoLibre, X (Twitter), GitHub**, **Spotlight** (⌘Espacio en tu Mac) o una **URL propia** (usa `{q}` donde va el texto). Y puedes **agregar los tuyos** (nombre + URL con `{q}`) en el mismo modo Buscar — quedan para todos y se reconocen por voz (*"modo buscar wikipedia Ecuador"*). Sin IA.
 - **Aplicación**: descubre automáticamente las aplicaciones instaladas en esta Mac. Di *"modo abrir aplicación Word, borrador del informe"*: abre **Microsoft Word**, crea un documento nuevo y coloca el texto. También entiende nombres largos (*"Microsoft PowerPoint"*) y alias comunes (*"Word", "Excel", "Chrome"*). Solo hace un inventario de nombres/bundle IDs; **no lee los datos privados** de las aplicaciones.
-- **Acción**: abre una **app o página con tu texto** — borrador de **Gmail, Mail u Outlook**, **WhatsApp**, **Nota de Apple, Recordatorios, Calendario, Finder, Mensajes**, crear/buscar archivo, o **tu propia URL** (ej. Quipux: pones la URL con `{q}`). Los borradores nunca se envían solos. Ideal como modo propio con su frase de voz (ej. *"modo whatsapp …"*).
+- **Acción**: abre una **app o página con tu texto** — borrador de **Gmail, Mail u Outlook**, **WhatsApp**, **Nota de Apple, Recordatorios, Calendario, Finder, Mensajes**, crear/buscar archivo, o **tu propia URL** (ej. Zentrix: pones la URL con `{q}`). Los borradores nunca se envían solos. Ideal como modo propio con su frase de voz (ej. *"modo whatsapp …"*).
 
 Cada modo de texto usa **su propia IA y su propio prompt** — o la IA global de Pulido (Buscar y Acción no usan IA). Puedes crear tus **propios** modos con el botón **+** (nombre, comportamiento, prompt/IA, o acción). Los que producen texto pueden además **guardarse** en Tareas o Notas (opción *"Guardar en"*).
 
@@ -609,7 +609,7 @@ En **Avisos y resúmenes** puedes apagar todo, elegir sonido/voz, incluir **Nota
 
 - *“Modo nota, ideas para el informe”* → procesa y guarda una **Nota local de BetoDicta**.
 - *“Crea una nota en Notas de Apple: comprar filtros mañana”* → pregunta el plan, crea una **nota real de Apple** y verifica su contenido.
-- *“Guarda en la aplicación Notas que diga llamar a mamá”* → tolera esa forma natural y conserva *“llamar a mamá”* como contenido.
+- *“Guarda en la aplicación Notas que diga llamar a Andrés”* → tolera esa forma natural y conserva *“llamar a Andrés”* como contenido.
 
 **Abrir cualquier aplicación instalada:** el modo **Aplicación** complementa esos presets. Revisa `/Applications`, las aplicaciones del sistema y las del usuario, y guarda un catálogo rápido en memoria. Ejemplos:
 
@@ -620,7 +620,7 @@ En **Avisos y resúmenes** puedes apagar todo, elegir sonido/voz, incluir **Nota
 
 En **Ajustes → Modos → Aplicación** puedes apagar por completo esta función, desactivar el pegado automático, decidir si Word/TextEdit/LibreOffice deben crear un documento nuevo y actualizar el inventario. BetoDicta espera hasta que la app sea realmente la ventana frontal; si no toma el foco o no acepta texto, **no escribe en otra app** y deja el contenido en el portapapeles. Si dos nombres coinciden, pregunta cuál abrir. Nunca pulsa **Enter**, nunca envía el texto y nunca ejecuta una ruta que no pertenezca al inventario. El pegado automático requiere el permiso de **Accesibilidad** de BetoDicta.
 
-**WhatsApp con contactos:** en el modo WhatsApp puedes **importar** tu lista y/o usar tus **Contactos de Mac**. El import **auto-detecta el formato**: **vCard `.vcf`** (teléfono iPhone/Android, iCloud, Outlook), **CSV de Google/Gmail** (inglés o español), **CSV de Outlook/Edge**, o CSV/JSON simple — y te dice cuántos **válidos/inválidos** importó. Di *"modo whatsapp, enviar a Alberto, hola qué tal"* → busca a Alberto y abre su chat con el texto; si hay varios, **eliges en un modal** (los más probables primero). Si el STT oye algo cercano (*"Adalberto"* por *"Alberto"*), hace una coincidencia local aproximada pero **siempre te pide confirmar el contacto**: nunca envía directo con un nombre dudoso. **Exportar CSV/JSON** te da el formato (con ejemplo si está vacío). *(Los números deben tener código de país — ej. 593… — para abrir el chat correcto.)*
+**WhatsApp con contactos:** en el modo WhatsApp puedes **importar** tu lista y/o usar tus **Contactos de Mac**. El import **auto-detecta el formato**: **vCard `.vcf`** (teléfono iPhone/Android, iCloud, Outlook), **CSV de Google/Gmail** (inglés o español), **CSV de Outlook/Edge**, o CSV/JSON simple — y te dice cuántos **válidos/inválidos** importó. Di *"modo whatsapp, enviar a Andrés, hola qué tal"* → busca a Andrés y abre su chat con el texto; si hay varios, **eliges en un modal** (los más probables primero). Si el STT oye algo cercano (*"Andresito"* por *"Andrés"*), hace una coincidencia local aproximada pero **siempre te pide confirmar el contacto**: nunca envía directo con un nombre dudoso. **Exportar CSV/JSON** te da el formato (con ejemplo si está vacío). *(Los números deben tener código de país — ej. 593… — para abrir el chat correcto.)*
 
 **Un solo uso (por defecto ON):** el modo que eliges en el notch/menú se aplica **solo a ese dictado** y luego vuelve al **modo por defecto**. Marca el por defecto con **"Poner por defecto"**. Si prefieres que el modo elegido se quede fijo, apaga el interruptor *"El modo elegido al vuelo es de un solo uso"*. El nombre, color y ejecución se restauran juntos al terminar; además, cada nuevo dictado vuelve a sincronizar el notch con la fuente de verdad para que nunca herede solo la apariencia del anterior.
 
@@ -628,7 +628,7 @@ En **Ajustes → Modos → Aplicación** puedes apagar por completo esta funció
 
 - **Por voz** — empieza el dictado con la frase del modo (ej. *"modo tarea comprar la comida"*): se aplica ese modo y la frase se quita. Edita/vacía cada frase en Ajustes → Modos. **Con argumento**: la frase mágica puede llevar un dato que ajusta el modo solo por ese dictado — *"modo traducir quichua hola"* traduce a quichua; *"modo buscar google gatos"* busca en Google. Sin argumento usa el idioma/buscador por defecto del modo.
 - Las frases admiten varias alternativas. Si una alternativa contiene una coma literal, guárdala entre comillas (`"Oye, Bto"`); la puntuación que agregue el transcriptor se ignora al comparar.
-- **Por app / sitio web** — pon en cada modo las **apps** (ej. Outlook) o **sitios** (ej. `quipux.gob.ec`) donde debe aplicarse solo. La primera vez, los sitios piden permiso de Automatización para leer la URL del navegador.
+- **Por app / sitio web** — pon en cada modo las **apps** (ej. Outlook) o **sitios** (ej. `docs.ejemplo.com`) donde debe aplicarse solo. La primera vez, los sitios piden permiso de Automatización para leer la URL del navegador.
 
 Precedencia resumida: una cadena u orden explícita manda; después vienen el **pedido natural**, el modo confirmado en vivo, la **semántica/IA solo si hay señal de petición**, **app/sitio**, el respaldo vivo y finalmente el modo elegido a mano.
 
@@ -650,14 +650,14 @@ Prueba estas frases **en orden**, dejando terminar cada una. Cuando aparezca una
 | 4 | “Quiero traducir lo siguiente: este texto debe quedarse igual.” | En la pregunta pulsa X; continúa como Dictado normal, completo. |
 | 5 | “Esta es una frase normal después de traducir.” | Ejecuta y muestra el modo por defecto, no Traducir. |
 | 6 | “Modo correo, confirmo la reunión del lunes.” | Redacta como correo. |
-| 7 | “Mudo tarea, revisar el Quipux y configurar el MikroTik.” | Tolera la mala escucha, crea Tarea y vuelve al defecto. |
+| 7 | “Mudo tarea, revisar el Zentrix y configurar el MikroTik.” | Tolera la mala escucha, crea Tarea y vuelve al defecto. |
 | 8 | “Modo nota, llamar a Rafael el viernes.” | Crea una Nota local. |
-| 9 | “Modo buscar Google, Universidad Estatal Amazónica.” | Abre la búsqueda en Google. |
+| 9 | “Modo buscar Google, energía renovable.” | Abre la búsqueda en Google. |
 | 10 | “Modo buscar Wikipedia, Ecuador.” | Abre Wikipedia con la consulta. |
 | 11 | “Modo traducir inglés y buscar Google, mejores laptops 2026.” | Traduce y después busca el resultado. |
 | 12 | “Por favor, traduce esto: la vida es bella. Después envíalo por correo electrónico.” | Propone Traducir → Correo; una fn ejecuta ambas. |
-| 13 | “Resume, traduce al quichua y envía por correo y WhatsApp a Alberto: mañana hay reunión.” | Propone cuatro etapas, conserva Alberto y pide confirmación. |
-| 14 | “Modo WhatsApp, enviar a Alberto: llego a las ocho.” | Resuelve contacto; si hay varios Albertos, muestra selector. |
+| 13 | “Resume, traduce al quichua y envía por correo y WhatsApp a Andrés: mañana hay reunión.” | Propone cuatro etapas, conserva Andrés y pide confirmación. |
+| 14 | “Modo WhatsApp, enviar a Andrés: llego a las ocho.” | Resuelve contacto; si hay varios Andrés, muestra selector. |
 | 15 | “Molde traductor, buenos días.” | Fuzzy reconoce Traducir; no deja pegado el color después. |
 | 16 | “Modo agente” · pausa de 2 s · “dime qué tareas tengo hoy.” | El color cambia durante la pausa y Agente responde. |
 | 17 | Di solamente “Modo agente” y termina. En el siguiente dictado di “¿qué tareas tengo hoy?” | Prepara Agente para una sola siguiente entrada, sin consulta vacía. |
@@ -680,12 +680,12 @@ Prueba estas frases **en orden**, dejando terminar cada una. Cuando aparezca una
 | 31 | “Busca el archivo informe final y muéstralo en Finder.” | Abre Finder con la búsqueda visible y todos los resultados. |
 | 31 | “La música del informe fue agradable.” | Dictado normal; mencionar música no ejecuta el modo. |
 | 32 | Ejecuta una rutina que contenga un Atajo Apple. | Siempre pregunta antes, incluso en autonomía 3. |
-| 33 | Después de una respuesta del Agente: “Mándaselo a Alberto por WhatsApp.” | Recupera esa última respuesta, propone WhatsApp a Alberto y exige confirmar. |
+| 33 | Después de una respuesta del Agente: “Mándaselo a Andrés por WhatsApp.” | Recupera esa última respuesta, propone WhatsApp a Andrés y exige confirmar. |
 | 34 | Selecciona dos párrafos y di “Oye Bto, guarda la selección en Notas de Apple.” | Crea una nota real, conserva los párrafos y responde únicamente después de volver a verificarla. |
 | 35 | Activa al asistente y di “Dicta esto: mañana entregaré el informe en Rectorado.” | Pule y pega solo el contenido; además queda en el portapapeles si esa opción está activa. |
 | 36 | Activa al asistente y di solamente “Dictado”; cuando responda “Dímelo”, di “mañana entregaré el informe”. | Abre un único segundo turno y entrega esa frase sin volver a pedir fn. |
 | 37 | Durante el segundo turno del caso anterior di “Olvídalo”. | Cancela la espera; no pega ni conserva estado para el próximo dictado. |
-| 38 | Activa al asistente y di “Escribe un correo para Alberto”. | No entra en Dictado asistido; conserva el plan normal de Correo. |
+| 38 | Activa al asistente y di “Escribe un correo para Andrés”. | No entra en Dictado asistido; conserva el plan normal de Correo. |
 | 39 | Activa al asistente y di “Actualiza el sistema esta noche”. | No roba la frase como texto: continúa por el planificador normal. |
 | 40 | En Dictado normal di “Ayer dije dicta esto durante la reunión”. | No activa al asistente ni recorta ninguna palabra. |
 
@@ -697,7 +697,7 @@ Prueba estas frases **en orden**, dejando terminar cada una. Cuando aparezca una
 
 Todos tus dictados, buscables:
 
-- **Buscador** instantáneo — no distingue mayúsculas ni tildes ("aldas" encuentra "Aldás").
+- **Buscador** instantáneo — no distingue mayúsculas ni tildes ("perez" encuentra "Pérez").
 - **Buscar por significado (semántica)** 🧠 — enciende el interruptor y busca por IDEA, no por palabra exacta: "bajar el volumen de la música" encuentra dictados sobre "mutear las reproducciones" aunque no compartan palabras. Escribe y pulsa **Enter**; los resultados salen ordenados por **% afín**. Cada dictado se procesa una vez y queda en caché (la primera búsqueda de un historial grande tarda, las siguientes son instantáneas). Se activa y se elige el motor en *Ajustes → Avanzado*: por defecto usa **Interno de BetoDicta** (`bge-m3`, local, gratis y privado); también puedes elegir **Ollama, OpenAI, Gemini, Mistral** o uno personalizado. El selector muestra cuáles están listos (✓) y cuáles requieren descarga o clave (○). Cambiar de motor vuelve a indexar porque los vectores de motores distintos no son compatibles. Apagado, el Historial busca por texto exacto como siempre.
 - **▶** escucha el audio original de ese dictado.
 - **📋** copia el texto al portapapeles.

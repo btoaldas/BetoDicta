@@ -126,7 +126,7 @@ struct ModosView: View {
             Toggle("Activar un modo POR APP / SITIO WEB", isOn: $porContexto)
                 .toggleStyle(.switch).controlSize(.mini)
                 .onChange(of: porContexto) { _, v in Config.set("modo_por_contexto", to: v) }
-            Text("Aplica un modo solo por estar en cierta app o página. Ej.: en Outlook usa Correo; en Quipux (por URL) usa Oficio. Configura las apps y sitios de cada modo abajo. La voz manda sobre el contexto.")
+            Text("Aplica un modo solo por estar en cierta app o página. Ej.: en Outlook usa Correo; en tu intranet (por URL) usa Oficio. Configura las apps y sitios de cada modo abajo. La voz manda sobre el contexto.")
                 .font(.caption2).foregroundStyle(.secondary)
 
             ForEach(m.modos) { modo in
@@ -251,7 +251,7 @@ struct ModosView: View {
             HStack(alignment: .top) {
                 Text("En sitios:").font(.caption).frame(width: 90, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
-                    TextField("ej. quipux.gob.ec, mail.google.com", text: listaTexto(b.sitios))
+                    TextField("ej. docs.ejemplo.com, mail.google.com", text: listaTexto(b.sitios))
                         .textFieldStyle(.roundedBorder).frame(width: 300)
                     Text("Dominios o trozos de URL (navegador). Requiere permiso de Automatización la 1ª vez.")
                         .font(.caption2).foregroundStyle(.secondary)
@@ -346,7 +346,7 @@ struct ModosView: View {
             if b.wrappedValue.accion == "url" {
                 HStack {
                     Text("URL:").font(.caption).frame(width: 90, alignment: .leading)
-                    TextField("https://quipux.gob.ec/…?q={q}", text: b.prompt)
+                    TextField("https://docs.ejemplo.com/…?q={q}", text: b.prompt)
                         .textFieldStyle(.roundedBorder).frame(width: 280)
                 }
             }
@@ -366,14 +366,14 @@ struct ModosView: View {
                     if !resultadoImport.isEmpty {
                         Text(resultadoImport).font(.caption).foregroundStyle(.green)
                     }
-                    Text("Di \"modo whatsapp, a Alberto, hola qué tal\" → busca a Alberto y abre su chat. Si hay varios, eliges. Importa CSV/JSON (o export de Google/Gmail: detecta columnas Nombre/Teléfono). Exportar vacío = te da un ejemplo del formato. Si no encuentra el nombre, cae a Contactos de Mac.")
+                    Text("Di \"modo whatsapp, a Andrés, hola qué tal\" → busca a Andrés y abre su chat. Si hay varios, eliges. Importa CSV/JSON (o export de Google/Gmail: detecta columnas Nombre/Teléfono). Exportar vacío = te da un ejemplo del formato. Si no encuentra el nombre, cae a Contactos de Mac.")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
             if b.wrappedValue.accion == "conexion" {
                 seccionConexion(b)
             } else {
-                Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Nota de Apple crea y verifica una nota real; Finder y otras apps sin API dejan el texto respaldado en el portapapeles. Quipux/tu web: pon la URL. Sin IA.")
+                Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Nota de Apple crea y verifica una nota real; Finder y otras apps sin API dejan el texto respaldado en el portapapeles. Tu intranet/tu web: pon la URL. Sin IA.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }

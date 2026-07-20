@@ -462,7 +462,7 @@ struct AgenteView: View {
 
             card("Presencia y personalidad", "person.wave.2.fill") {
                 Toggle("Activar el núcleo del asistente", isOn: $m.activo)
-                field("Nombre", text: $m.nombre, placeholder: "Bto, Jarvis, Mamá…")
+                field("Nombre", text: $m.nombre, placeholder: "Bto, Jarvis…")
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Frases de activación al iniciar un dictado").font(.subheadline)
                     TextEditor(text: $m.activadores)
@@ -695,7 +695,7 @@ struct AgenteView: View {
                     Toggle("Usar mi ubicación actual si no digo una ciudad",
                            isOn: $m.climaUbicacionActual)
                     field("Ubicación de respaldo", text: $m.climaUbicacionPredeterminada,
-                          placeholder: "Ej.: Puyo, Pastaza, Ecuador")
+                          placeholder: "Ej.: Quito, Pichincha, Ecuador")
                     HStack {
                         Text("Ubicación: \(UbicacionClima.nombreEstado())")
                         Spacer()

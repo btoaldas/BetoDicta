@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Contexto BAJO DEMANDA para el Agente (no meter todo siempre)
 //
-// Problema (Alberto): si a cada capacidad le metemos su contexto FIJO en el prompt
+// Problema: si a cada capacidad le metemos su contexto FIJO en el prompt
 // (hora, tareas, web, archivos…), el prompt crece sin control → mucha RAM, muchos
 // tokens (caro/lento) y el modelo se pierde. Solución: cada capacidad es una FUENTE
 // de contexto con sus disparadores; solo se INYECTA la que toca el tema del pedido.

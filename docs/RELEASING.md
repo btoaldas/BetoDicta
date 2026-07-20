@@ -9,7 +9,7 @@ Cada release pasa por un **pipeline fijo y en este orden**. No se salta ningún 
 3. **Manual + README** — actualizarlos con **todo** lo mejorado hasta este release (incluidas capturas nuevas). Si el manual no se toca, el pipeline **bloquea** el release.
 4. **Build + firma** — compilar, armar el DMG, y verificar que el bundle quede firmado con el certificado propio **y** que el DMG pase la MISMA verificación de firma que exige el updater (así nunca se publica algo que la app instalada rechazaría al actualizar).
 5. **Publicar** — `gh release create` con el DMG **versionado** y el DMG **estable** `BetoDicta.dmg` (el que consume el tap de Homebrew: `releases/latest/download/BetoDicta.dmg`).
-6. **Verificar** — `latest` apunta a la versión nueva, el redirect estable de brew da 302 a la versión nueva, y la app instalada (versión anterior) verá **"Actualizar a vX" + novedades**. **No se instala** nada en la máquina del autor: Alberto actualiza desde la app para ver las novedades.
+6. **Verificar** — `latest` apunta a la versión nueva, el redirect estable de brew da 302 a la versión nueva, y la app instalada (versión anterior) verá **"Actualizar a vX" + novedades**. **No se instala** nada en la máquina del autor: el mantenedor actualiza desde la app para ver las novedades.
 
 ## El comando
 

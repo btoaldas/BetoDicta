@@ -178,7 +178,7 @@ enum ContactosWA {
         return ImportResult(validos: validos, invalidos: invalidos, total: dedup.count, detalle: detalle)
     }
     static func plantillaCSV() -> String {
-        "nombre,numero\nAlberto Aldás,593999999999\nMaría López,593988888888\n"
+        "nombre,numero\nAna Pérez,593999999999\nMaría López,593988888888\n"
     }
     /// Exporta los contactos actuales; si está vacío, un EJEMPLO para ver el formato.
     static func exportarCSV() -> String {
@@ -189,7 +189,7 @@ enum ContactosWA {
     static func exportarJSON() -> String {
         let cs = importados()
         let arr: [[String: String]] = cs.isEmpty
-            ? [["nombre": "Alberto Aldás", "numero": "593999999999"], ["nombre": "María López", "numero": "593988888888"]]
+            ? [["nombre": "Ana Pérez", "numero": "593999999999"], ["nombre": "María López", "numero": "593988888888"]]
             : cs.map { ["nombre": $0.nombre, "numero": $0.numero] }
         let d = try? JSONSerialization.data(withJSONObject: arr, options: [.prettyPrinted, .sortedKeys])
         return d.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -216,7 +216,7 @@ enum ContactosWA {
     }
 
     /// Coincidencia local y determinista. Exacto primero; solo si no existe usa
-    /// distancia por PALABRA ("Adalberto"→"Alberto"). El llamador recibe el flag
+    /// distancia por PALABRA ("Andresito"→"Andrés"). El llamador recibe el flag
     /// aproximado para obligar a confirmar incluso cuando solo haya un resultado.
     static func coincidencias(_ nombre: String, en contactos: [ContactoWA])
         -> (contactos: [ContactoWA], aproximada: Bool) {

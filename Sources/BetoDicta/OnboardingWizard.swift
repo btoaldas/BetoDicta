@@ -429,7 +429,7 @@ struct OnboardingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     wizToggle("Aprender de mis correcciones", isOn: $m.aprender,
-                              nota: "Corriges una palabra donde la pegaste (ej. Kipux → Quipux) y la app guarda la regla sola. En la terminal/Claude Code: seleccionas el texto corregido y pulsas ⌘⇧L. Recomendado.")
+                              nota: "Corriges una palabra donde la pegaste (ej. Sentrix → Zentrix) y la app guarda la regla sola. En la terminal/Claude Code: seleccionas el texto corregido y pulsas ⌘⇧L. Recomendado.")
                     wizToggle("Corrección por sonido (fonética)", isOn: $m.porSonido,
                               nota: "Corrige palabras que SUENAN como un término tuyo. Más potente pero puede pasarse: la activas término por término (casilla 🔊 en Reemplazos) y siempre es reversible.")
                     wizToggle("Pulido con IA (Groq)", isOn: $m.postProceso,
@@ -437,7 +437,7 @@ struct OnboardingView: View {
                     // Glosario inicial
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Tu glosario").font(.headline)
-                        Text("Palabras que quieres que SIEMPRE escriba bien: nombres, siglas, términos (Quipux, SENESCYT, Aldás…). Tienes \(glosario.activas) ya guardadas.")
+                        Text("Palabras que quieres que SIEMPRE escriba bien: nombres, siglas, términos (Zentrix, UNESCO, Pérez…). Tienes \(glosario.activas) ya guardadas.")
                             .font(.caption).foregroundStyle(.secondary)
                         HStack(spacing: 8) {
                             TextField("Agrega palabras separadas por coma", text: $nuevaPalabra)
@@ -512,7 +512,7 @@ struct OnboardingView: View {
                     Toggle("Activar el núcleo del asistente", isOn: $agenteActivo)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("¿Cómo quieres que se llame?").font(.headline)
-                        TextField("Bto, Gloria, Jarvis, Mamá…", text: nombreAgenteBinding)
+                        TextField("Bto, Gloria, Jarvis…", text: nombreAgenteBinding)
                             .textFieldStyle(.roundedBorder)
                         Text("Ejemplo: di “Oye \(nombreAgenteLimpio)” al comenzar un dictado.")
                             .font(.caption).foregroundStyle(.secondary)

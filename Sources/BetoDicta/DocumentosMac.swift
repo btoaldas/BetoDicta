@@ -250,7 +250,7 @@ enum DocumentosMac {
         guard ProcessInfo.processInfo.environment["BETODICTA_WORDTEST"] == "1" else { return }
         let muestra = """
         OFICIO N° [___________]
-        Puyo, 18 de julio de 2026
+        Quito, 18 de julio de 2026
 
         Señor [___________]
         [___________]

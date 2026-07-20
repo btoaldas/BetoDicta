@@ -9,7 +9,7 @@ import AVFoundation
 // de PARÁMETROS: según cuánto audio hay, recomienda etapas + checkpoints (el usuario
 // puede cambiarlos). Nada se entrena aquí todavía — solo se decide el plan.
 //
-// Regla de Alberto (confirmada con el pipeline real, info.py):
+// Regla de la casa (confirmada con el pipeline real, info.py):
 //   < 1h  → NO sirve (ni dejar iniciar): lo genérico domina, ningún checkpoint convence.
 //   1–2h  → aceptable (se reconoce a la persona).       recomendado ~3000 etapas.
 //   2–4h  → bueno (la persona domina, su acento).        recomendado ~4000.

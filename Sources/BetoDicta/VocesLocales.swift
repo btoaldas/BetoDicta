@@ -8,7 +8,7 @@ import Foundation
 
 struct VozLocal: Codable, Identifiable, Equatable {
     var id: String
-    var nombre: String        // lo que ve el usuario ("Mamá Rafaela", "Mi voz Bto")
+    var nombre: String        // lo que ve el usuario ("Voz clonada", "Mi voz Bto")
     var cmd: String           // comando con {texto} y {salida} (modo bootstrap/externo)
     var persona: String = ""  // 2º parámetro: PROMPT de cómo habla esa persona. Cuando
                               // el Agente responde con esta voz, la IA redacta en ESE estilo.
@@ -23,7 +23,7 @@ struct VozLocal: Codable, Identifiable, Equatable {
     var mlxRefText: String = ""
     var mlxModelo: String = MlxVozEngine.modeloDefault
     /// Máxima gestionada por BetoDicta: XTTS del paquete + restauración local común.
-    /// No contiene rutas a Hermes/VozClonPOC y viaja como metadato en el portable.
+    /// No contiene rutas a Hermes/VozClon y viaja como metadato en el portable.
     var maximaInterna: Bool = false
     var variante: String = "xtts" // "maxima" (restaurada), "xtts" (calidad), "mlx" (equilibrada), "onnx" (rápida)
     /// Acepta el nuevo carril interno y, por compatibilidad, comandos externos antiguos.
@@ -740,7 +740,7 @@ enum VocesLocales {
                           activa: (cfg["activa"] as? Bool) ?? false)
     }
 
-    /// Compatibilidad de migración: escanea proyectos históricos de VozClonPOC y arma
+    /// Compatibilidad de migración: escanea proyectos históricos de VozClon y arma
     /// un comando listo por cada uno. Las voces nuevas se crean dentro de BetoDicta.
     /// Devuelve [(nombreSugerido, cmd)]. No agrega nada: el usuario confirma.
     static func detectarDeVozClon() -> [(nombre: String, cmd: String)] {
@@ -748,7 +748,7 @@ enum VocesLocales {
         let fm = FileManager.default
         var out: [(String, String)] = []
 
-        // (a) Scripts de voz LISTOS en la base (voz_*.sh, como voz_mama_rapid.sh):
+        // (a) Scripts de voz LISTOS en la base (voz_*.sh, como voz_clon_rapid.sh):
         //     ya envuelven un clon entrenado. Comando: bash <base>/<script> "{texto}" {salida} 1.0
         if let archivos = try? fm.contentsOfDirectory(atPath: base) {
             for f in archivos.sorted() where f.hasPrefix("voz_") && f.hasSuffix(".sh") {

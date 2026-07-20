@@ -29,7 +29,7 @@ struct ProbarSonidoView: View {
             Text("Probar fonética → \(termino)").font(.headline)
             Text("Escribe una palabra y te digo si la corregiría a «\(termino)». Sin audio: compara cómo se escriben.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            TextField("ej: Guipux, Kipux, kilos…", text: $palabra).textFieldStyle(.roundedBorder)
+            TextField("ej: Gentrix, Sentrix, kilos…", text: $palabra).textFieldStyle(.roundedBorder)
             let p = palabra.trimmingCharacters(in: .whitespaces)
             if !p.isEmpty {
                 let caza = p.count >= 3 && !Aprendizaje.esComun(p) && Fonetica.coincide(palabra: p, termino: termino)
@@ -462,10 +462,10 @@ struct RulesEditor: View {
                         Toggle("", isOn: Binding(get: { rule.activo },
                                                  set: { rule.activo = $0; store.save() }))
                             .toggleStyle(.checkbox).labelsHidden().frame(width: 22)
-                        TextField("kipux, keybox…", text: $rule.original, onCommit: { store.save() })
+                        TextField("sentrix, senbox…", text: $rule.original, onCommit: { store.save() })
                             .textFieldStyle(.roundedBorder)
                         Image(systemName: "arrow.right").foregroundStyle(.secondary)
-                        TextField("Quipux", text: $rule.replacement, onCommit: { store.save() })
+                        TextField("Zentrix", text: $rule.replacement, onCommit: { store.save() })
                             .textFieldStyle(.roundedBorder).frame(width: 110)
                         // Escuchar (TTS): solo pronuncia el término. NO es cómo
                         // funciona la corrección (esa es por texto) — es comodidad.
@@ -499,12 +499,12 @@ struct RulesEditor: View {
                                                           set: { if !$0 { vozID = nil; refrescarSugerido += 1; umbral = Double(AudioMatch.umbral()) } })) {
                                 VozView(termino: rule.replacement)
                             }
-                            // Sigla: acrónimo (DGTIC) → coloca por posición del audio.
+                            // Sigla: acrónimo (DSTI) → coloca por posición del audio.
                             Toggle(isOn: Binding(get: { rule.sigla }, set: { rule.sigla = $0; store.save() })) {
                                 Image(systemName: "textformat.abc")
                             }
                             .toggleStyle(.checkbox)
-                            .help("Es una SIGLA/acrónimo (DGTIC, SENESCYT). El audio la coloca por DÓNDE sonó, no por parecido de letras (las siglas deletreadas no suenan a sus letras).")
+                            .help("Es una SIGLA/acrónimo (DSTI, UNESCO). El audio la coloca por DÓNDE sonó, no por parecido de letras (las siglas deletreadas no suenan a sus letras).")
                         }
                         // Interruptor de la corrección por sonido (fonética).
                         Toggle(isOn: Binding(get: { rule.porSonido },

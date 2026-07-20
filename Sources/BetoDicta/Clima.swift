@@ -306,7 +306,7 @@ enum ClimaServicio {
                           completion: @escaping (ResultadoHerramientaApple) -> Void) {
         guard let solicitud = SolicitudClima.interpretar(texto) else {
             completar(.init(ok: false,
-                mensaje: "No entendí qué clima quieres consultar. Prueba: clima de Puyo, o clima de hoy."),
+                mensaje: "No entendí qué clima quieres consultar. Prueba: clima de Quito, o clima de hoy."),
                 completion)
             return
         }
@@ -367,7 +367,7 @@ enum ClimaServicio {
     }
 
     /// Open-Meteo busca nombres de localidades, no direcciones completas. Si
-    /// el STT quitó las comas de «Puyo, Pastaza, Ecuador», probamos prefijos
+    /// el STT quitó las comas de «Quito, Pichincha, Ecuador», probamos prefijos
     /// decrecientes y acotados hasta encontrar la ciudad. Con comas usamos
     /// directamente el primer componente, que conserva ciudades compuestas.
     static func consultasGeocodificacion(_ consulta: String) -> [String] {
@@ -573,11 +573,11 @@ enum ClimaQA {
         guard ProcessInfo.processInfo.environment["BETODICTA_CLIMATEST"] == "1" else { return }
         let casos: [(String, String?, Int)] = [
             ("¿Puedes decirme el clima del día de hoy?", nil, 0),
-            ("¿Me puedes decir el clima de Puyo, Pastaza, Ecuador?", "Puyo, Pastaza, Ecuador", 0),
+            ("¿Me puedes decir el clima de Quito, Pichincha, Ecuador?", "Quito, Pichincha, Ecuador", 0),
             ("Qué tiempo hará mañana en Quito", "Quito", 1),
             ("¿Va a llover hoy en Tena?", "Tena", 0),
             ("Pronóstico para pasado mañana en Cuenca", "Cuenca", 2),
-            ("Clima Puyo", "Puyo", 0),
+            ("Clima Quito", "Quito", 0),
             ("Clima actual", nil, 0),
             ("¿Qué temperatura hay en Loja?", "Loja", 0),
         ]
@@ -589,7 +589,7 @@ enum ClimaQA {
             print("CLIMATEST \(ok ? "OK" : "FALLA") \(texto) → \(r?.lugar ?? "ubicación actual") día=\(r?.diasDesdeHoy ?? -1)")
         }
         let negativos = [
-            "El clima de Puyo estuvo agradable ayer.",
+            "El clima de Quito estuvo agradable ayer.",
             "Necesito tiempo para terminar el informe.",
             "El documento habla del pronóstico meteorológico.",
             "Ayer pregunté si iba a llover.",
@@ -608,8 +608,8 @@ enum ClimaQA {
             && ClimaServicio.descripcion(95) == "tormenta"
         if !codigos { fallos += 1 }
         print("CLIMATEST códigos=\(codigos ? "OK" : "FALLA")")
-        let terminos = ClimaServicio.consultasGeocodificacion("Puyo Pastaza Ecuador")
-        let sinComas = terminos == ["Puyo Pastaza Ecuador", "Puyo Pastaza", "Puyo"]
+        let terminos = ClimaServicio.consultasGeocodificacion("Quito Pichincha Ecuador")
+        let sinComas = terminos == ["Quito Pichincha Ecuador", "Quito Pichincha", "Quito"]
         if !sinComas { fallos += 1 }
         print("CLIMATEST ciudad-sin-comas=\(sinComas ? "OK" : "FALLA") \(terminos)")
         print("CLIMATEST \(fallos == 0 ? "TODO OK" : "FALLOS=\(fallos)")")

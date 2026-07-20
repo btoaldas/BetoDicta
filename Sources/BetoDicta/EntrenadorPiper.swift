@@ -12,7 +12,7 @@ import AVFoundation
 // EL FONDO (verificado por ejecución, esta máquina):
 //   • El error ".view size not compatible" del backward era un BUG SOLO-MPS de PyTorch
 //     (pytorch#142344). Se arregla FORZANDO CPU en el Trainer (--trainer.accelerator cpu).
-//     Con eso torch 2.5.1 entrena sin tocar nada (la voz XTTS de mamá queda intacta).
+//     Con eso torch 2.5.1 entrena sin tocar nada (la voz XTTS clonada queda intacta).
 //   • Fine-tune FRESCO: carga SOLO los pesos de la base; Adam y schedulers arrancan nuevos.
 //   • Export ONNX funciona en Apple Silicon; el config del entreno = <modelo>.onnx.json.
 //   • Resumible: si se apaga la compu, se reanuda desde el último checkpoint del proyecto.
@@ -416,7 +416,7 @@ enum EntrenadorPiper {
     static func detenerProyecto(_ proyecto: URL, done: @escaping (Bool) -> Void = { _ in }) {
         cancelado = true
         proc?.terminate(); proc = nil
-        let patron = proyecto.lastPathComponent   // p.ej. "rafaelamaster_run": único por proyecto
+        let patron = proyecto.lastPathComponent   // p.ej. "mivoz_run": único por proyecto
         DispatchQueue.global(qos: .userInitiated).async {
             matar(["-TERM", "-f", patron])
             Thread.sleep(forTimeInterval: 0.8)
@@ -444,7 +444,7 @@ enum EntrenadorPiper {
     }
 
     /// Extrae una PISTA legible del dataset.log para decirle al usuario qué pasó
-    /// (ffmpeg faltante, sin audios, errores por archivo). Alberto lo pidió: ver el porqué.
+    /// (ffmpeg faltante, sin audios, errores por archivo). Objetivo: ver el porqué.
     static func pistaDataset(_ proyecto: URL) -> String {
         let log = (try? String(contentsOf: proyecto.appendingPathComponent("dataset.log"), encoding: .utf8)) ?? ""
         let lineas = log.split(separator: "\n").map(String.init)
@@ -1200,7 +1200,7 @@ enum EntrenadorPiper {
             "Mañana vamos a cocinar algo rico.",
             "¿Puedes revisar el informe antes de las ocho y treinta?",
             "Ecuador tiene costa, sierra, Amazonía y región insular.",
-            "Por favor envía el correo a Alberto cuando esté listo.",
+            "Por favor envía el correo a Andrés cuando esté listo.",
             "Uno, dos, tres, cuatro, cinco, seis, siete, ocho y nueve.",
             "Gracias por tu ayuda; nos vemos mañana, que descanses."]
     def norm(s):

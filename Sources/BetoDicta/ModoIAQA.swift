@@ -8,7 +8,7 @@ enum ModoIAQA {
         let casos: [(String, [String], [String])] = [
             ("Por favor, necesito traducir al inglés y después mandar por correo: la vida es bella.",
              ["traducir"], ["correo"]),
-            ("Quisiera mandar un WhatsApp a Alberto: nos vemos mañana.",
+            ("Quisiera mandar un WhatsApp a Andrés: nos vemos mañana.",
              [], ["whatsapp"]),
             ("Por favor, resume, traduce al quichua y envía por correo y WhatsApp: mañana hay reunión.",
              ["resumir", "traducir"], ["correo", "whatsapp"]),

@@ -4,7 +4,7 @@ import Accelerate
 
 // MARK: - Coincidencia por AUDIO (experimental, opt-in)
 //
-// Idea de Alberto: grabar tu voz diciendo un término ("Quipux") y, al dictar,
+// Idea: grabar tu voz diciendo un término ("Zentrix") y, al dictar,
 // reconocer ese sonido aunque el motor escriba otra cosa. Es "reconocer
 // tarareando": nunca hay match perfecto, se mide QUÉ TAN PARECIDO (distancia)
 // y se compara contra un umbral.
@@ -214,7 +214,7 @@ enum AudioMatch {
     /// Umbral efectivo de "probar por voz" (palabra aislada).
     static func umbral() -> Float { Float(Config.umbralAudio() ?? Double(umbralDefecto)) }
     /// Raya del DICTADO real (subsequence DTW). Escala PROPIA (~8–13, más alta
-    /// que "probar por voz") — calibrada con audio real de Alberto: dichas
+    /// que "probar por voz") — calibrada con audio real del dueño del proyecto: dichas
     /// ≤10.46, no-dichas ≥10.49. Default conservador; ajustable.
     static let umbralDictadoDefecto: Float = 10.4
     static func umbralDictado() -> Float { Float(Config.umbralAudioDictado() ?? Double(umbralDictadoDefecto)) }

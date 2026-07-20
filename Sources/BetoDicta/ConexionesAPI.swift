@@ -387,7 +387,7 @@ enum ConexionesMotor {
             (#"%"#, " por ciento"),
             (#"km/h\b"#, " kilómetros por hora"),   // sin \b inicial: "5km/h" viene pegado
             (#"(?<=\d)\s*m/s\b"#, " metros por segundo"),
-            (#"(?<=[\p{L}\)])\s*:"#, ","),         // "Puyo:" → "Puyo," (no toca horas 14:30)
+            (#"(?<=[\p{L}\)])\s*:"#, ","),         // "Quito:" → "Quito," (no toca horas 14:30)
         ]
         for (patron, valor) in reemplazos {
             t = t.replacingOccurrences(of: patron, with: valor, options: .regularExpression)
@@ -426,7 +426,8 @@ enum ConexionesMotor {
 enum ConexionesDeteccion {
     private static let cortesia: Set<String> = [
         "por", "favor", "porfavor", "porfa", "oye", "me", "puedes", "podrias",
-        "ayudame", "necesito", "quiero", "porfis",
+        "ayudame", "necesito", "quiero", "porfis", "debes", "deberias", "hay",
+        "que", "vamos", "a",
     ]
 
     /// «pongo»~«pon», «registro»~«registra», «actividad»~«actividades»: las
@@ -456,9 +457,15 @@ enum ConexionesDeteccion {
                     .filter { $0 != "modo" }   // «modo actividades» sirve también como «actividades»
                 guard !ft.isEmpty else { continue }
                 // Tokens de la frase EN ORDEN dentro de una ventana con hasta 2 extras.
-                var i = 0, j = 0, extras = 0
+                // Hasta 3 palabras iniciales cualesquiera antes del primer token
+                // de la frase («debes INGRESAR EN mis actividades…»): la frase
+                // completa igual debe aparecer en orden — sin robar narraciones.
+                var i = 0, j = 0, extras = 0, arranque = 0
                 while i < toks.count, j < ft.count, extras <= 2 {
-                    if coincide(toks[i], ft[j]) { j += 1 } else if j > 0 || toks[i] == "modo" { extras += 1 } else { break }
+                    if coincide(toks[i], ft[j]) { j += 1 }
+                    else if j == 0, arranque < 3 { arranque += 1 }
+                    else if j > 0 { extras += 1 }
+                    else { break }
                     i += 1
                 }
                 if j == ft.count {

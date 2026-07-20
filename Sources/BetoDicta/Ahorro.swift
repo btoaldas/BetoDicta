@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Modo AHORRO global (Alberto: si no lo usas, ¿para qué gasta recursos?)
+// MARK: - Modo AHORRO global (filosofía: si no lo usas, ¿para qué gasta recursos?)
 //
 // Un solo reloj de inactividad. Si BetoDicta no se usa en N minutos, DUERME lo pesado:
 //   • el clon local (mata el server → libera ~2 GB de RAM),

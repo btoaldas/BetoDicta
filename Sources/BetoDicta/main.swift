@@ -1,4 +1,4 @@
-// BetoDicta v0.2 — dictado por voz de Alberto Aldás
+// BetoDicta v0.2 — dictado por voz para macOS
 // <tecla>: abre panel y graba · <tecla> otra vez: transcribe y pega
 // Streaming en vivo (scribe_v2_realtime) o batch (scribe_v1 / scribe_v2)
 //

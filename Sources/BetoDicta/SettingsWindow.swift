@@ -787,7 +787,7 @@ struct SettingsView: View {
             }
             tarjeta("Aprendizaje", "brain.head.profile") {
                 Toggle("Aprender de mis correcciones", isOn: $m.aprender)
-                Text("Cuando corriges el texto dictado ahí donde lo pegaste (antes de enviarlo), la app aprende la regla sola (ej: Kipux → Quipux). 100% local.")
+                Text("Cuando corriges el texto dictado ahí donde lo pegaste (antes de enviarlo), la app aprende la regla sola (ej: Sentrix → Zentrix). 100% local.")
                     .font(.caption).foregroundStyle(.secondary)
                 Text("• Automático en apps nativas (Notas, Mail, Word, Pages…).")
                     .font(.caption).foregroundStyle(.secondary)
@@ -798,7 +798,7 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Divider()
                 Toggle("Corrección por sonido (fonética)", isOn: $m.porSonido)
-                Text("Corrige palabras que SUENAN como un término, aunque no sea una variante ya conocida (ej: cualquier cosa que suene a Quipux). Actívala por término en Editar reemplazos (casilla 🔊). Más potente pero puede sobre-corregir: revisa lo que hizo en Estadísticas (con Modo desarrollo) y revierte apagando el término.")
+                Text("Corrige palabras que SUENAN como un término, aunque no sea una variante ya conocida (ej: cualquier cosa que suene a Zentrix). Actívala por término en Editar reemplazos (casilla 🔊). Más potente pero puede sobre-corregir: revisa lo que hizo en Estadísticas (con Modo desarrollo) y revierte apagando el término.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             tarjeta("Multimedia", "speaker.wave.2") {
@@ -899,7 +899,7 @@ struct SettingsView: View {
                                 TTSNubeConfig(id: m.ttsProveedor)
                             }
                             Button("🔊 Probar voz") {
-                                Voz.decir("Hola Alberto. Soy BetoDicta y ya puedo hablarte con el motor que elegiste.")
+                                Voz.decir("Hola. Soy BetoDicta y ya puedo hablarte con el motor que elegiste.")
                             }.controlSize(.small)
                         }
                         Divider()

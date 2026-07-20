@@ -139,7 +139,7 @@ enum VozEngine {
     /// Prepara el motor para ENTRENAR: instala las deps extra y deja el pipeline
     /// (scripts + xtts_base) bajo voz-engine/pipeline/. Requiere el motor base listo.
     /// Los scripts vienen dentro de BetoDicta y la base oficial se migra solo cuando
-    /// coincide su SHA-256 o se descarga por HTTPS. No depende de VozClonPOC/Hermes.
+    /// coincide su SHA-256 o se descarga por HTTPS. No depende de VozClon/Hermes.
     static func instalarEntrenamiento(onProgreso: @escaping (String) -> Void,
                                       completion: @escaping (Bool, String) -> Void) {
         guard estado() == .listo else { completion(false, "Primero instala el motor de voz."); return }
@@ -259,7 +259,7 @@ enum VozEngine {
     def rel(k, d): return os.path.join(PKG, man.get(k, d))
     config = XttsConfig(); config.load_json(rel("config", "config.json"))
     model = Xtts.init_from_config(config)
-    model.load_checkpoint(config, checkpoint_path=rel("modelo", "xtts_mama_3000_slim.pth"),
+    model.load_checkpoint(config, checkpoint_path=rel("modelo", "xtts_clon.pth"),
                           vocab_path=rel("vocab", "vocab.json"), use_deepspeed=False)
     model.cpu(); model.train(False)
     refs = [os.path.join(PKG, l.strip()) for l in open(rel("ref_list", "ref_list.txt")) if l.strip()]

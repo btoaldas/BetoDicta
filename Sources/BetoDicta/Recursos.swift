@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Recursos de la Mac + recomendación de parámetros (wizard/test de rendimiento)
 //
-// Idea de Alberto: en vez de defaults ciegos, mirar los recursos ACTUALES de la máquina
+// Idea: en vez de defaults ciegos, mirar los recursos ACTUALES de la máquina
 // (RAM, núcleos, GPU) y RECOMENDAR qué activar (precargar el clon, cada cuánto dormir…).
 // Así en una Mac potente se aprovecha; en una modesta no se satura. El usuario decide.
 

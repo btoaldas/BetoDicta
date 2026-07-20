@@ -138,7 +138,7 @@ enum OrdenEstructurada {
             .filter { vistos.insert($0.lowercased()).inserted }
         if !lista.isEmpty { return lista.joined(separator: ",") }
 
-        // Un motor puede escribir lo que oyó (“alberto alex arroba gmail punto
+        // Un motor puede escribir lo que oyó (“ana perez arroba example punto
         // com”) en lugar de reconstruir la dirección. Se normaliza solo dentro
         // de una cláusula `para/a … arroba … punto …`; nunca se adivina desde
         // palabras sueltas del cuerpo.

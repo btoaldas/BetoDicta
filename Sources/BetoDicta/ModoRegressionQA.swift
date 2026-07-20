@@ -30,14 +30,14 @@ enum ModoRegressionQA {
             Modo(id: "correo", nombre: "Correo", icono: "envelope.fill", base: "pulir",
                  apps: ["Outlook", "com.microsoft.Outlook"]),
             Modo(id: "oficio", nombre: "Oficio", icono: "doc.text.fill", base: "pulir",
-                 sitios: ["quipux.gob.ec"]),
+                 sitios: ["intranet.example.com"]),
             Modo(id: "dictado", nombre: "Dictado", icono: "mic.fill", base: "pulir",
                  apps: ["Finder"])
         ]
         let contextos: [(String, String, String?, String?)] = [
             ("com.microsoft.Outlook", "Microsoft Outlook", nil, "correo"),
             ("com.otra.cosa", "Outlook para Mac", nil, "correo"),
-            ("com.apple.Safari", "Safari", "https://quipux.gob.ec/inicio", "oficio"),
+            ("com.apple.Safari", "Safari", "https://intranet.example.com/inicio", "oficio"),
             ("com.apple.Safari", "Safari", "https://google.com", nil),
             ("com.apple.finder", "Finder", nil, nil)
         ]

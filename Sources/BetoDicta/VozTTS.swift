@@ -26,7 +26,7 @@ enum Voz {
     private static var player: AVAudioPlayer?
 
     /// Motores en orden de intento: el ELEGIDO y, si falla, la voz de macOS (neutral).
-    /// NUNCA cae a otra voz CLONADA (sonaría otra persona): si eliges el clon de mamá y
+    /// NUNCA cae a otra voz CLONADA (sonaría otra persona): si eliges una voz clonada y
     /// falla, hablas con la voz de macOS, no con la de otro. Apple nunca falla.
     private static func cadena() -> [String] {
         let principal = Config.ttsProveedor()
@@ -490,7 +490,7 @@ enum ElevenLabsTTS {
 enum XttsLocalTTS {
     /// Genera el audio con tu clon local y devuelve la URL del archivo (o nil).
     /// Parametrizable: Config.ttsXttsCmd es un comando de shell donde {texto} y
-    /// {salida} se sustituyen (ej. `bash ~/Downloads/VozClonPOC/clonar.sh decir Bto run/ckpt.pth "{texto}" {salida}`).
+    /// {salida} se sustituyen (ej. `bash ~/mi-clon/clonar.sh "{texto}" {salida}`).
     /// Vacío = motor no configurado → failover. NO bloquea la UI (corre en background).
     static func decir(_ texto: String, completion: @escaping (URL?) -> Void) {
         // La voz activa de la biblioteca manda; si no hay ninguna, el comando suelto (compat).

@@ -81,7 +81,7 @@ enum AgenteCoreQA {
         // Falsos positivos deliberados: estas órdenes pertenecen al planificador
         // de herramientas o a un dictado normal, nunca a la salida local.
         comprobar("escribir correo no se roba",
-                  DictadoAsistido.detectar("Escribe un correo para Alberto") == nil)
+                  DictadoAsistido.detectar("Escribe un correo para Andrés") == nil)
         comprobar("actualizar sistema no se roba",
                   DictadoAsistido.detectar("Actualiza el sistema esta noche") == nil)
         comprobar("mejora continua no se roba",
@@ -92,36 +92,36 @@ enum AgenteCoreQA {
                   DictadoAsistido.detectar("El dictado médico quedó archivado") == nil)
 
         let seguimiento = AgenteNucleo.completarSeguimiento(
-            "Mándaselo a Alberto por WhatsApp", referencia: "La reunión será mañana a las ocho.")
+            "Mándaselo a Andrés por WhatsApp", referencia: "La reunión será mañana a las ocho.")
         let planSeguimiento = seguimiento.flatMap { ModoPlanificador.detectarNatural($0,
             catalogo: ModoCatalogo(modos: ModosStore.todos())) }
         comprobar("memoria resuelve pronombre con confirmación",
                   planSeguimiento?.cadena.acciones.first?.modo.accion == "whatsapp"
-                    && planSeguimiento?.cadena.acciones.first?.destinatario == "Alberto"
+                    && planSeguimiento?.cadena.acciones.first?.destinatario == "Andrés"
                     && planSeguimiento?.cadena.contenido.contains("reunión será mañana") == true)
         let seguimientoReal = AgenteNucleo.planificar(
-            "Mándaselo a Alberto por WhatsApp",
+            "Mándaselo a Andrés por WhatsApp",
             catalogo: ModoCatalogo(modos: ModosStore.todos()),
             referencia: "La reunión será mañana a las ocho.",
             ignorarInterruptor: true)
         comprobar("seguimiento atraviesa el núcleo",
-                  seguimientoReal?.cadena.acciones.first?.destinatario == "Alberto"
+                  seguimientoReal?.cadena.acciones.first?.destinatario == "Andrés"
                     && seguimientoReal?.cadena.contenido.contains("reunión será mañana") == true)
         comprobar("memoria no invade una narración",
                   AgenteNucleo.completarSeguimiento("Ayer lo envié por WhatsApp", referencia: "secreto") == nil)
 
-        let climaPuyo = AgenteNucleo.planificarClima(
-            "¿Me puedes decir el clima de Puyo, Pastaza, Ecuador?")
+        let climaQuito = AgenteNucleo.planificarClima(
+            "¿Me puedes decir el clima de Quito, Pichincha, Ecuador?")
         comprobar("clima explícito entra antes de la IA",
-                  climaPuyo?.cadena.acciones.first?.modo.accion == "clima"
-                    && climaPuyo?.cadena.contenido.contains("Puyo") == true)
+                  climaQuito?.cadena.acciones.first?.modo.accion == "clima"
+                    && climaQuito?.cadena.contenido.contains("Quito") == true)
         let climaActual = AgenteNucleo.planificarClima(
             "¿Puedes decirme cómo está el clima del día de hoy?")
         comprobar("clima sin ciudad usa herramienta local",
                   climaActual?.cadena.acciones.first?.modo.accion == "clima")
         comprobar("narración meteorológica no se desvía",
                   AgenteNucleo.planificarClima(
-                    "Ayer conversamos sobre el clima de Puyo durante la reunión") == nil)
+                    "Ayer conversamos sobre el clima de Quito durante la reunión") == nil)
         let climaResolver = ModoResolver.detectarPedidoNatural(
             "Qué tiempo hará mañana en Quito", catalogo: ModoCatalogo(modos: ModosStore.todos()))
         comprobar("resolver natural conserva el día y la ciudad",
@@ -129,18 +129,18 @@ enum AgenteCoreQA {
                     && climaResolver?.cadena.contenido == "Qué tiempo hará mañana en Quito")
 
         let generarYEnviar = AgenteNucleo.planificar(
-            "crea una redacción de un verso sin esfuerzo, algo como ejemplo, y después mándaselo a Alberto por WhatsApp",
+            "crea una redacción de un verso sin esfuerzo, algo como ejemplo, y después mándaselo a Andrés por WhatsApp",
             catalogo: ModoCatalogo(modos: ModosStore.todos()),
             ignorarInterruptor: true)
         comprobar("generación encadena WhatsApp y destinatario",
                   generarYEnviar?.cadena.transforms.map(\.id) == ["generar"]
                     && generarYEnviar?.cadena.acciones.map(\.modo.accion) == ["whatsapp"]
-                    && generarYEnviar?.cadena.acciones.first?.destinatario == "Alberto"
+                    && generarYEnviar?.cadena.acciones.first?.destinatario == "Andrés"
                     && generarYEnviar?.cadena.contenido.localizedCaseInsensitiveContains("redacción de un verso") == true,
                   generarYEnviar.map { "\($0.descripcion) | \($0.cadena.contenido)" } ?? "nil")
         comprobar("generación libre no confunde una narración",
                   AgenteNucleo.planificar(
-                    "Ayer creé un verso y después lo envié a Alberto por WhatsApp",
+                    "Ayer creé un verso y después lo envié a Andrés por WhatsApp",
                     catalogo: ModoCatalogo(modos: ModosStore.todos()),
                     ignorarInterruptor: true) == nil)
 
@@ -423,7 +423,7 @@ enum AgenteCoreQA {
                   MensajesAgente.requiereSilencioTotal(cadenaGrabacion))
 
         let fraseManualWA = "Oye, \(nombreQA), haz una grabación en pantalla y luego guarda en mis documentos, "
-            + "cópialo en el portapapeles o envíalo por WhatsApp a Alberto"
+            + "cópialo en el portapapeles o envíalo por WhatsApp a Andrés"
         let grabacionManualWA = SolicitudCapturaMac.interpretar(
             fraseManualWA, duracionPredeterminada: 0)
         let argsManualWA = CapturaMac.argumentos(grabacionManualWA,
@@ -435,7 +435,7 @@ enum AgenteCoreQA {
                     && grabacionManualWA.destino == .documentos
                     && grabacionManualWA.copiar
                     && grabacionManualWA.compartirWhatsApp
-                    && grabacionManualWA.contactoWhatsApp == "Alberto"
+                    && grabacionManualWA.contactoWhatsApp == "Andrés"
                     && argsManualWA.contains("-v") && !argsManualWA.contains("-i")
                     && !argsManualWA.contains("-U") && !argsManualWA.contains("-V"),
                   grabacionManualWA.detallePlan + " | " + argsManualWA.joined(separator: " "))
@@ -463,7 +463,7 @@ enum AgenteCoreQA {
         let modoCompartirVideo = Modo(id: "qa-video-wa", nombre: "Video WhatsApp",
             icono: "record.circle", base: "accion", accion: "captura_compartir")
         let cadenaVideoWA = ModoCadena(transforms: [],
-            acciones: [ModoAccionPlan(modo: modoCompartirVideo, destinatario: "Alberto")],
+            acciones: [ModoAccionPlan(modo: modoCompartirVideo, destinatario: "Andrés")],
             contenido: fraseManualWA)
         comprobar("video para WhatsApp también silencia voz y sonidos",
                   MensajesAgente.requiereSilencioTotal(cadenaVideoWA))
@@ -494,13 +494,13 @@ enum AgenteCoreQA {
                   compartirCaptura.compartirWhatsApp && compartirCaptura.copiar
                     && compartirCaptura.contactoWhatsApp == "grupo TI Noticias",
                   compartirCaptura.contactoWhatsApp ?? "nil")
-        let fraseTomoWA = "Tomo una captura y la envío por WhatsApp a Alberto."
+        let fraseTomoWA = "Tomo una captura y la envío por WhatsApp a Andrés."
         let planTomoWA = AgenteNucleo.planificarCaptura(fraseTomoWA)
         let solicitudTomoWA = SolicitudCapturaMac.interpretar(fraseTomoWA)
         comprobar("STT toma→tomo conserva captura a contacto",
                   planTomoWA?.cadena.acciones.first?.modo.accion == "captura_compartir"
                     && solicitudTomoWA.compartirWhatsApp
-                    && solicitudTomoWA.contactoWhatsApp == "Alberto",
+                    && solicitudTomoWA.contactoWhatsApp == "Andrés",
                   solicitudTomoWA.contactoWhatsApp ?? "nil")
         comprobar("tomo narrativo no acciona captura",
                   AgenteNucleo.planificarCaptura(
@@ -651,24 +651,24 @@ enum AgenteCoreQA {
                     == ["automatico", "low", "medium", "high", "xhigh"])
 
         let catalogo = ModoCatalogo(modos: ModosStore.todos())
-        let gmailLargo = "\(fraseQA), abre Gmail y escribe un correo electrónico bien estructurado para albertoalex@gmail.com y que diga lo siguiente y que trate sobre el siguiente asunto: Necesito que se prepare un programa para un evento mañana en la Universidad Estatal Amazónica."
+        let gmailLargo = "\(fraseQA), abre Gmail y escribe un correo electrónico bien estructurado para usuario@example.com y que diga lo siguiente y que trate sobre el siguiente asunto: Necesito que se prepare un programa para un evento mañana en la universidad."
         let invGmail = PerfilAgente.invocacion(en: gmailLargo, activadores: activadores)
         let planGmail = invGmail.flatMap { OrdenEstructurada.detectar($0.contenido,
             catalogo: catalogo, aplicaciones: []) }
         comprobar("orden global Gmail",
                   planGmail?.cadena.transforms.first?.id == "correo"
                     && planGmail?.cadena.acciones.first?.modo.accion == "gmail"
-                    && planGmail?.cadena.acciones.first?.destinatario == "albertoalex@gmail.com"
+                    && planGmail?.cadena.acciones.first?.destinatario == "usuario@example.com"
                     && planGmail?.cadena.contenido.hasPrefix("Necesito que se prepare") == true,
                   "\(planGmail?.descripcion ?? "nil") | \(planGmail?.cadena.contenido ?? "nil")")
         let gmailHablado = OrdenEstructurada.detectar(
-            "Abre Gmail y escribe un correo para alberto alex arroba gmail punto com: prueba de dirección dictada.",
+            "Abre Gmail y escribe un correo para ana perez arroba example punto com: prueba de dirección dictada.",
             catalogo: catalogo, aplicaciones: [])
         comprobar("correo dictado con arroba/punto",
-                  gmailHablado?.cadena.acciones.first?.destinatario == "albertoalex@gmail.com",
+                  gmailHablado?.cadena.acciones.first?.destinatario == "anaperez@example.com",
                   gmailHablado?.cadena.acciones.first?.destinatario ?? "nil")
         let gmailPunto = OrdenEstructurada.detectar(
-            "Abre Gmail y escribe un correo para beto@gmail.com. Necesitamos preparar el programa del evento.",
+            "Abre Gmail y escribe un correo para beto@example.com. Necesitamos preparar el programa del evento.",
             catalogo: catalogo, aplicaciones: [])
         comprobar("punto del STT separa cabecera y cuerpo",
                   gmailPunto?.cadena.contenido == "Necesitamos preparar el programa del evento.",
@@ -698,7 +698,7 @@ enum AgenteCoreQA {
                   "\(planWord?.descripcion ?? "nil") | \(planWord?.cadena.contenido ?? "nil")")
         let oficioEstructurado = """
         OFICIO N° [___________]
-        Puyo, 18 de julio de 2026
+        Quito, 18 de julio de 2026
 
         Señor [___________]
         [___________]
@@ -744,20 +744,20 @@ enum AgenteCoreQA {
                   wordMencionaGmail?.cadena.acciones.first?.modo.appBundleId == "com.microsoft.Word"
                     && wordMencionaGmail?.cadena.acciones.first?.modo.base == "aplicacion")
 
-        var modosQuipux = ModosStore.todos()
-        modosQuipux.append(Modo(id: "qa-quipux", nombre: "Quipux", icono: "globe",
-                                base: "accion", prompt: "https://quipux.example/", esFijo: false,
+        var modosZentrix = ModosStore.todos()
+        modosZentrix.append(Modo(id: "qa-zentrix", nombre: "Zentrix", icono: "globe",
+                                base: "accion", prompt: "https://zentrix.example/", esFijo: false,
                                 accion: "url"))
-        let planQuipux = OrdenEstructurada.detectar(
-            "Abre Quipux y crea un oficio: solicito la revisión del trámite.",
-            catalogo: ModoCatalogo(modos: modosQuipux), aplicaciones: [])
+        let planZentrix = OrdenEstructurada.detectar(
+            "Abre Zentrix y crea un oficio: solicito la revisión del trámite.",
+            catalogo: ModoCatalogo(modos: modosZentrix), aplicaciones: [])
         comprobar("conector web propio reutilizable",
-                  planQuipux?.cadena.acciones.first?.modo.id == "qa-quipux"
-                    && planQuipux?.cadena.contenido == "solicito la revisión del trámite.")
+                  planZentrix?.cadena.acciones.first?.modo.id == "qa-zentrix"
+                    && planZentrix?.cadena.contenido == "solicito la revisión del trámite.")
         comprobar("web propia exige HTTPS o localhost",
-                  Acciones.plantillaURLSegura("https://quipux.example/?q={q}")
+                  Acciones.plantillaURLSegura("https://zentrix.example/?q={q}")
                     && Acciones.plantillaURLSegura("http://127.0.0.1:8080/?q={q}")
-                    && !Acciones.plantillaURLSegura("http://quipux.example/?q={q}")
+                    && !Acciones.plantillaURLSegura("http://zentrix.example/?q={q}")
                     && !Acciones.plantillaURLSegura("javascript:alert('{q}')"))
         comprobar("redactar sin destino no abre una app",
                   OrdenEstructurada.detectar("Redacta un correo: revisemos el contrato.",
@@ -776,15 +776,15 @@ enum AgenteCoreQA {
                                              catalogo: catalogo, aplicaciones: [word]) == nil)
 
         let borrador = BorradoresCorreo.preparar(
-            texto: "ASUNTO: Programa del evento\n\nEstimado Alberto:\nAdjunto el programa.",
-            destinatario: "alberto@example.com", asuntoSugerido: nil)
+            texto: "ASUNTO: Programa del evento\n\nEstimada Ana:\nAdjunto el programa.",
+            destinatario: "ana@example.com", asuntoSugerido: nil)
         let gmailURL = BorradoresCorreo.urlGmail(borrador)
         let gmailItems = gmailURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }
         comprobar("borrador extrae asunto sin enviarlo",
                   borrador.asunto == "Programa del evento"
                     && !borrador.cuerpo.contains("ASUNTO:")
                     && gmailURL?.scheme == "https"
-                    && gmailItems?.first(where: { $0.name == "to" })?.value == "alberto@example.com"
+                    && gmailItems?.first(where: { $0.name == "to" })?.value == "ana@example.com"
                     && gmailItems?.first(where: { $0.name == "su" })?.value == "Programa del evento",
                   gmailURL?.absoluteString ?? "nil")
 
@@ -1097,7 +1097,7 @@ enum AgenteCoreQA {
         let recordatorio = Modo(id: "qa-rem", nombre: "Recordatorio", icono: "bell", base: "accion", accion: "recordatorios")
         let cambio = ModoCadena(transforms: [], acciones: [ModoAccionPlan(modo: recordatorio, destinatario: nil)], contenido: "algo")
         let whatsapp = Modo(id: "qa-wa", nombre: "WhatsApp", icono: "message", base: "accion", accion: "whatsapp")
-        let externo = ModoCadena(transforms: [], acciones: [ModoAccionPlan(modo: whatsapp, destinatario: "Alberto")], contenido: "hola")
+        let externo = ModoCadena(transforms: [], acciones: [ModoAccionPlan(modo: whatsapp, destinatario: "Andrés")], contenido: "hola")
         let capturaLocal = Modo(id: "qa-captura", nombre: "Captura", icono: "camera",
                                 base: "accion", accion: "captura_pantalla")
         let cadenaCaptura = ModoCadena(transforms: [],

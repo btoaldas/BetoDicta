@@ -101,7 +101,6 @@ enum RutinasAgenteStore {
                    frases: ["empezar jornada", "iniciar jornada", "comenzar el trabajo"],
                    pasos: [
                     .init(tipo: "app", valor: "Outlook", opcional: true),
-                    .init(tipo: "url", valor: "https://www.gestiondocumental.gob.ec/", opcional: true),
                     .init(tipo: "app", valor: "Word", opcional: true),
                     .init(tipo: "app", valor: "Calendario", opcional: true),
                     .init(tipo: "musica", valor: "música para trabajar", opcional: true),

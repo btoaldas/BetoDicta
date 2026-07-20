@@ -787,7 +787,7 @@ enum LLMPostProcess {
             // el prompt → memoria/tokens/lento). Traemos SOLO el bloque del tema del que
             // habla el pedido (v1 por palabras clave; embeddings/vectores a futuro).
             var base = modo.prompt.isEmpty
-                ? "Eres el asistente de voz de Alberto. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos."
+                ? "Eres el asistente de voz del usuario. Responde su pedido de forma útil, directa y BREVE (se leerá en voz alta), en español, sin preámbulos."
                 : modo.prompt
             if Config.ttsProveedor() == "xtts_local", let voz = VocesLocales.activa(),
                !voz.persona.trimmingCharacters(in: .whitespaces).isEmpty {

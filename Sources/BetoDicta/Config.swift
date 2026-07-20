@@ -136,7 +136,7 @@ struct Config {
     /// cambia al vuelo; si modoRevertir está ON, vuelve al defecto tras cada dictado.
     static func modoActivo() -> String { (json()["modo_activo"] as? String) ?? modoDefecto() }
     /// El modo elegido en caliente (notch/menú) es de UN SOLO USO: tras dictar,
-    /// vuelve al modo por defecto. Default ON (pedido de Alberto). Apágalo = sticky.
+    /// vuelve al modo por defecto. Default ON (decisión de producto). Apágalo = sticky.
     static func modoRevertir() -> Bool { (json()["modo_revertir"] as? Bool) ?? true }
     /// Idiomas que el usuario agregó al selector de "Traducir" (además de los base).
     static func idiomasPersonales() -> [String] { (json()["idiomas_personales"] as? [String]) ?? [] }
@@ -145,7 +145,7 @@ struct Config {
     /// Default ON (los modos base traen su frase; edítalas o vacíalas en Modos).
     static func modoPorVoz() -> Bool { (json()["modo_por_voz"] as? Bool) ?? true }
     /// Activar un modo por CONTEXTO: si estás en una app (ej. Outlook) o un sitio
-    /// web (ej. Quipux) que un modo declara, ese modo se aplica solo a ese dictado.
+    /// web (ej. tu intranet) que un modo declara, ese modo se aplica solo a ese dictado.
     /// Default ON (inofensivo: los modos base no traen apps/sitios hasta que los pongas).
     static func modoPorContexto() -> Bool { (json()["modo_por_contexto"] as? Bool) ?? true }
     /// Inventaría las apps instaladas para "modo abrir aplicación Word…". Puede
@@ -288,7 +288,7 @@ struct Config {
     /// nuevas; todas las herramientas tienen su propio interruptor.
     static func agenteNucleoActivo() -> Bool { (json()["agente_nucleo_activo"] as? Bool) ?? true }
     /// Nombre/presencia que usa al hablar. No está ligado a una voz concreta: puede
-    /// llamarse Bto, Jarvis, Mamá o como decida el usuario.
+    /// llamarse Bto, Jarvis o como decida el usuario.
     static func agenteNombre() -> String {
         let s = (json()["agente_nombre"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return s.isEmpty ? "Bto" : s
@@ -640,7 +640,7 @@ struct Config {
     static func fijarTtsCloud(_ campo: String, _ id: String, _ valor: Any) {
         var d = (json()[campo] as? [String: Any]) ?? [:]; d[id] = valor; set(campo, to: d)
     }
-    /// Comando de shell para tu clon LOCAL XTTS (VozClonPOC). {texto} y {salida}
+    /// Comando de shell para tu clon LOCAL XTTS (VozClon). {texto} y {salida}
     /// se sustituyen. Vacío = motor no configurado (failover). Parametrizable.
     /// (Compat: se usa si no hay voces en la biblioteca [[VocesLocales]].)
     static func ttsXttsCmd() -> String { (json()["tts_xtts_cmd"] as? String) ?? "" }
@@ -690,8 +690,8 @@ struct Config {
     /// Modo AHORRO global: al inactivar (mismos minutos), libera lo pesado (clon + latido
     /// de red); fn despierta todo. Default ON. Parametrizable.
     static func ahorroGlobal() -> Bool { (json()["ahorro_global"] as? Bool) ?? true }
-    /// Carpeta base de VozClonPOC (para el botón "Detectar mis voces"). Parametrizable.
-    static func vozClonBase() -> String { (json()["voz_clon_base"] as? String) ?? "~/Downloads/VozClonPOC" }
+    /// Carpeta base de VozClon (para el botón "Detectar mis voces"). Parametrizable.
+    static func vozClonBase() -> String { (json()["voz_clon_base"] as? String) ?? "~/Downloads/VozClon" }
     /// Buscadores propios del usuario: [{nombre, url}] (url con {q}). Para el modo Buscar.
     static func buscadoresPersonales() -> [[String: String]] { (json()["buscadores_personales"] as? [[String: String]]) ?? [] }
     /// Despertar el túnel de red al grabar (mitiga latencia del 1er dictado con VPN). Default ON.
@@ -869,7 +869,7 @@ struct Config {
         let isRegex: Bool?
         let activo: Bool?
         let porSonido: Bool?     // además de variantes exactas, corregir por sonido
-        let sigla: Bool?         // es un acrónimo (DGTIC): coloca por posición de audio
+        let sigla: Bool?         // es un acrónimo (DSTI): coloca por posición de audio
     }
 
     /// Solo las reglas activas (las desactivadas se conservan pero no se aplican).

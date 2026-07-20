@@ -63,7 +63,7 @@ struct HistorialView: View {
     @State private var ordenSem: [URL] = []            // orden por cercanía
     @State private var errorSem: String?
 
-    /// Búsqueda insensible a mayúsculas y tildes ("aldas" encuentra "Aldás").
+    /// Búsqueda insensible a mayúsculas y tildes ("perez" encuentra "Pérez").
     private var filtradas: [EntradaHistorial] {
         // Modo SEMÁNTICO: ya ordenado por cercanía (top primero), con score. Se
         // muestran los 40 más afines (el resto sería ruido de baja relevancia).

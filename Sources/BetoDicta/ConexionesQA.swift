@@ -108,12 +108,12 @@ enum ConexionesQA {
                                              valores: ["min": 5, "hoy": "2026-07-20"]).isEmpty)
 
         // 8b. Texto hablable: sin emojis, espacios colapsados, con tope.
-        let hablable = ConexionesMotor.textoParaVoz("Puyo: 🌤️  +16°C\nviento ↓ 5km/h")
-        if hablable != "Puyo, 16 grados viento 5 kilómetros por hora" {
+        let hablable = ConexionesMotor.textoParaVoz("Quito: 🌤️  +16°C\nviento ↓ 5km/h")
+        if hablable != "Quito, 16 grados viento 5 kilómetros por hora" {
             print("CONEXIONTEST debug voz: «\(hablable)»")
         }
         check("texto para voz en español hablado",
-              hablable == "Puyo, 16 grados viento 5 kilómetros por hora")
+              hablable == "Quito, 16 grados viento 5 kilómetros por hora")
         check("voz: negativos y porcentajes",
               ConexionesMotor.textoParaVoz("Quito: -3°C, humedad 92%")
               == "Quito, menos 3 grados, humedad 92 por ciento")
@@ -138,7 +138,7 @@ enum ConexionesQA {
         // 11. Catálogo y descripciones.
         check("acción conexion existe en el catálogo", Acciones.valido("conexion"))
         check("descripción de etapa legible",
-              ModoPlanificador.descripcionEtapa(modo).lowercased().contains("conexión api"))
+              ModoPlanificador.descripcionEtapa(modo).contains("Usar la conexión"))
 
         // 12. INVARIANTE del árbitro IA: una acción sintética "accion:conexion"
         // (sin API embebida) se rechaza; solo el MODO del usuario la lleva.
@@ -214,14 +214,14 @@ enum ConexionesQA {
         }
 
         let planOK = ConexionesIA.interpretar(
-            #"{"endpoint":"clima","variables":{"ciudad":"Puyo"},"resumen":"Clima de Puyo","faltan":[]}"#,
-            conexion: conexIA, textoDictado: "qué clima hace en el Puyo")
+            #"{"endpoint":"clima","variables":{"ciudad":"Quito"},"resumen":"Clima de Quito","faltan":[]}"#,
+            conexion: conexIA, textoDictado: "qué clima hace en Quito")
         check("plan válido aceptado con valores",
               esPlan(planOK)?.endpoint.clave == "clima"
-              && (esPlan(planOK)?.valores["ciudad"] as? String) == "Puyo"
-              && esPlan(planOK)?.resumen == "Clima de Puyo")
+              && (esPlan(planOK)?.valores["ciudad"] as? String) == "Quito"
+              && esPlan(planOK)?.resumen == "Clima de Quito")
         check("plan añade {texto} automático",
-              (esPlan(planOK)?.valores["texto"] as? String) == "qué clima hace en el Puyo")
+              (esPlan(planOK)?.valores["texto"] as? String) == "qué clima hace en Quito")
         let fence = ConexionesIA.interpretar(
             "```json\n{\"endpoint\":\"clima\",\"variables\":{\"ciudad\":\"Tena\"},\"resumen\":\"ok\",\"faltan\":[]}\n```",
             conexion: conexIA, textoDictado: "x")
@@ -249,10 +249,10 @@ enum ConexionesQA {
               esFaltan(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{},"faltan":[]}"#,
                                                 conexion: conexIA, textoDictado: "x")) == ["ciudad"])
         check("faltan inventadas se filtran",
-              esFaltan(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{"ciudad":"Puyo"},"faltan":["inventada"]}"#,
+              esFaltan(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{"ciudad":"Quito"},"faltan":["inventada"]}"#,
                                                 conexion: conexIA, textoDictado: "x")) == nil)
         check("variable no declarada en plan rechazada",
-              esInvalido(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{"ciudad":"Puyo","extra":1}}"#,
+              esInvalido(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{"ciudad":"Quito","extra":1}}"#,
                                                   conexion: conexIA, textoDictado: "x")))
         check("prompt lleva catálogo y sobre anti-inyección",
               {
@@ -319,7 +319,7 @@ enum ConexionesQA {
         // fallaron: cortesía inicial, «en» intercalado, nombre a secas).
         var modoAct = Modo(id: "qa-det", nombre: "Registro de Tareas", icono: "bolt",
                            base: "accion", esFijo: false,
-                           palabraVoz: "modo registro, pon mis tareas, registra mis tareas",
+                           palabraVoz: "modo registro, pon mis tareas, registra mis tareas, mis tareas",
                            accion: "conexion")
         modoAct.conexion = ConexionAPI(baseURL: "https://x.ejemplo.com")
         let catalogoDet = [modoAct, ModosStore.base[0]]
@@ -337,6 +337,10 @@ enum ConexionesQA {
               det("registro")?.modo.id == "qa-det" && det("registro")?.contenido == "")
         check("«modo registro» sin más también",
               det("modo registro")?.modo.id == "qa-det")
+        check("arranque libre: «debes ingresar en mis tareas»",
+              det("debes ingresar en mis tareas que hice pruebas del conector")?.modo.id == "qa-det")
+        check("descripción del modal es neutra",
+              ModoPlanificador.descripcionEtapa(modoAct) == "Usar la conexión Registro de Tareas")
         check("conjugación tolerada: «pongo en mis tareas»",
               det("pongo en mis tareas que hice pruebas del conector durante 15 minutos")?.modo.id == "qa-det")
         check("conjugación tolerada: «registro … tareas»",
@@ -381,10 +385,10 @@ enum ConexionesQA {
         check("prompt de vuelta lleva instrucciones, pedido y respuesta",
               {
                   let p = ConexionesIA.promptRedaccion(instrucciones: "ciudad, grados y consejo",
-                                                       pedido: "clima del Puyo",
-                                                       respuestaAPI: "Puyo: +16°C")
-                  return p.contains("ciudad, grados y consejo") && p.contains("clima del Puyo")
-                      && p.contains("Puyo: +16°C") && p.contains("NO CONFIABLES")
+                                                       pedido: "clima de Quito",
+                                                       respuestaAPI: "Quito: +16°C")
+                  return p.contains("ciudad, grados y consejo") && p.contains("clima de Quito")
+                      && p.contains("Quito: +16°C") && p.contains("NO CONFIABLES")
                       && p.contains("INSTRUCCIONES_INTERNAS_NO_REPRODUCIR")
               }())
 
@@ -557,15 +561,15 @@ enum ConexionesQA {
             conexVuelta.promptRespuesta = "Dime la ciudad, los grados y un consejo corto de abrigo si hace frío."
             var redactado: String??
             ConexionesIA.redactarRespuesta(modo: modoIA, conexion: conexVuelta,
-                                           pedido: "dime el clima del Puyo",
-                                           respuestaAPI: "Puyo: +16°C, humedad 92%") { redactado = $0 }
+                                           pedido: "dime el clima de Quito",
+                                           respuestaAPI: "Quito: +16°C, humedad 92%") { redactado = $0 }
             let limiteR = Date().addingTimeInterval(30)
             while redactado == nil, Date() < limiteR {
                 _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
             }
             let rTexto = (redactado ?? nil) ?? ""
             check("IA real redacta la vuelta con los datos",
-                  rTexto.lowercased().contains("puyo")
+                  rTexto.lowercased().contains("quito")
                   && (rTexto.contains("16") || rTexto.lowercased().contains("dieciséis")
                       || rTexto.lowercased().contains("dieciseis")))
             print("CONEXIONTEST vuelta: \(String(rTexto.prefix(220)))")
