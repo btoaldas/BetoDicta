@@ -270,6 +270,29 @@ enum ConexionesMotor {
         return try? JSONSerialization.data(withJSONObject: final, options: [.sortedKeys])
     }
 
+    /// Versión hablable de una respuesta: sin emojis ni símbolos gráficos (el
+    /// TTS los deletrea o tropieza), espacios colapsados, tope de 400 chars.
+    static func textoParaVoz(_ texto: String) -> String {
+        // Rangos gráficos completos, no solo isEmoji: la flecha ↓ (U+2193) no
+        // es "emoji" para Swift, y el selector VS16 (U+FE0F) queda huérfano si
+        // solo se quita el símbolo base.
+        let graficos: [ClosedRange<UInt32>] = [
+            0x2190...0x21FF,     // flechas
+            0x2300...0x27BF,     // técnicos, misceláneos, dingbats
+            0x2B00...0x2BFF,     // flechas y símbolos suplementarios
+            0x1F000...0x1FAFF,   // emojis y pictogramas
+            0xFE0E...0xFE0F,     // selectores de variación texto/emoji
+            0x200D...0x200D,     // zero-width joiner
+        ]
+        let sinEmoji = texto.unicodeScalars.filter { s in
+            !graficos.contains { $0.contains(s.value) }
+        }
+        let limpio = String(String.UnicodeScalarView(sinEmoji))
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(limpio.prefix(400))
+    }
+
     /// Enmascara secretos en un texto destinado a logs/evidencia. Se aplica a
     /// TODO lo que salga del runner; un token jamás debe llegar a AgenteLog.
     static func enmascarar(_ texto: String, secretos: [String]) -> String {

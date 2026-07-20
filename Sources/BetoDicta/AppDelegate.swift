@@ -5989,9 +5989,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else if contextoAgente, r.ok, id == "rutina",
                       RutinasAgenteStore.devuelveResultado(id: modo.prompt) {
                 responderBreveAgente(r.mensaje, evento: "resultado_rutina")
-            } else if contextoAgente, r.ok, id == "conexion",
-                      modo.conexion?.vozResumen == true {
-                responderBreveAgente(String(r.mensaje.prefix(400)), evento: "resultado_conexion")
+            } else if r.ok, id == "conexion", modo.conexion?.vozResumen == true {
+                // El toggle «Leer resumen por voz» del modo manda: habla el
+                // resultado también fuera del asistente (activación por voz
+                // directa). Sin emojis/símbolos: el TTS los lee o los tropieza.
+                responderBreveAgente(ConexionesMotor.textoParaVoz(r.mensaje),
+                                     evento: "resultado_conexion")
             }
         }
         switch id {

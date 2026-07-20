@@ -104,6 +104,11 @@ enum ConexionesQA {
               ConexionesMotor.validarValores(endpoint: epVars,
                                              valores: ["min": 5, "items": [1, 2]]).isEmpty)
 
+        // 8b. Texto hablable: sin emojis, espacios colapsados, con tope.
+        let hablable = ConexionesMotor.textoParaVoz("Puyo: 🌤️  +16°C\nviento ↓ 5km/h")
+        if hablable != "Puyo: +16°C viento 5km/h" { print("CONEXIONTEST debug voz: «\(hablable)»") }
+        check("texto para voz sin emoji ni saltos", hablable == "Puyo: +16°C viento 5km/h")
+
         // 9. Evidencia sin secretos.
         check("token enmascarado",
               !ConexionesMotor.enmascarar("Bearer abc123xyz falló", secretos: ["abc123xyz"]).contains("abc123xyz"))
