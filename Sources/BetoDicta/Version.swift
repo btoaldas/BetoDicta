@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.47.1"
+    static let numero = "0.48.0"
     static let fecha = "2026-07-19"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.48.0", "2026-07-19", [
+            "REPRODUCTOR INTERNO RESILIENTE: separa Buscar, Favoritos, Historial, Cola y Mis listas; conserva cada fuente, filtra localmente, mezcla la pestaña activa y evita repetir lo recién escuchado",
+            "VIDEOS BLOQUEADOS SIN ROMPER LA MÚSICA: los errores de reproducción embebida 101/150 muestran un aviso y saltan automáticamente al siguiente elemento; el recorrido es acotado y nunca entra en bucle",
+            "CONTROLES VERIFICADOS DE PUNTA A PUNTA: Play, Pausa y Stop esperan el estado real del IFrame; Pantalla muestra solo el video y Compacto conserva visible el tamaño mínimo permitido por YouTube",
+            "CUOTA CON DEGRADACIÓN LOCAL: contabiliza las 100 búsquedas diarias predeterminadas, muestra el saldo estimado y, al agotarse la cuota o fallar la red, busca sin IA en resultados previos, favoritos, cola, historial y listas ya abiertas",
+            "GOOGLE EXPLICADO SIN AMBIGÜEDAD: la interfaz distingue API key para búsqueda pública de OAuth de escritorio para Mis listas, guía la autorización externa y mantiene tokens, historial, cola y caché con permisos privados",
+        ]),
         ("0.47.1", "2026-07-19", [
             "MOTORES NATIVOS ACTUALIZADOS CON EVIDENCIA: incorpora transcribe.cpp 5a5a496 y llama.cpp b10068 tras comprobar procedencia, licencias, API pública, Metal, binarios ARM64 y modelos reales Canary, Nemotron, Voxtral y BGE-M3",
             "VOXTRAL LOCAL CORREGIDO: la instrucción llega antes que el audio al servidor multimodal; evita respuestas de rechazo y recupera la transcripción real con el glosario intacto",
