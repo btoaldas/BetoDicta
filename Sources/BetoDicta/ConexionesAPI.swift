@@ -304,6 +304,48 @@ enum ConexionesMotor {
         return try? JSONSerialization.data(withJSONObject: final, options: [.sortedKeys])
     }
 
+    /// Convierte un JSON en líneas LEGIBLES para el modal del visto bueno:
+    /// «clave: valor» con sangría, arrays numerados, claves técnicas de texto
+    /// gigante (tokens/JWT) omitidas. Determinista a propósito: la propuesta
+    /// que se confirma debe mostrar datos EXACTOS, jamás una redacción de IA.
+    static func lineasLegibles(_ json: Any, sangria: String = "", limite: Int = 40) -> [String] {
+        var out: [String] = []
+        func agregar(_ linea: String) { if out.count < limite { out.append(linea) } }
+        func valorCorto(_ v: Any) -> String? {
+            if let s = v as? String {
+                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                return t.count > 160 ? nil : t   // un JWT/token no aporta al visto bueno
+            }
+            if let b = v as? Bool { return b ? "sí" : "no" }
+            if let n = v as? NSNumber { return "\(n)" }
+            if v is NSNull { return nil }
+            return nil
+        }
+        func caminar(_ nodo: Any, _ sangria: String) {
+            if let d = nodo as? [String: Any] {
+                for (k, v) in d.sorted(by: { $0.key < $1.key }) {
+                    if let plano = valorCorto(v) {
+                        if !plano.isEmpty { agregar("\(sangria)\(k): \(plano)") }
+                    } else if v is [String: Any] || v is [Any] {
+                        agregar("\(sangria)\(k):")
+                        caminar(v, sangria + "   ")
+                    }
+                }
+            } else if let a = nodo as? [Any] {
+                for (i, v) in a.enumerated() {
+                    if let plano = valorCorto(v) { agregar("\(sangria)\(i + 1). \(plano)") }
+                    else {
+                        agregar("\(sangria)\(i + 1).")
+                        caminar(v, sangria + "   ")
+                    }
+                }
+            }
+        }
+        caminar(json, sangria)
+        if out.count >= limite { out.append("…") }
+        return out.isEmpty ? ["(respuesta sin datos legibles)"] : out
+    }
+
     /// Versión hablable de una respuesta: sin emojis ni símbolos gráficos (el
     /// TTS los deletrea o tropieza), espacios colapsados, tope de 400 chars.
     static func textoParaVoz(_ texto: String) -> String {
@@ -533,20 +575,25 @@ enum ConexionesRunner {
                                       valores: [String: Any], resumen: String,
                                       confirmar: @escaping ConfirmadorConexion, intento: Int,
                                       completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        var cuerpoPropuesta = ""
         hacerLlamada(modo: modo, conexion: conexion, endpoint: propuesta,
-                     valores: valores, resumen: resumen) { rPropuesta in
+                     valores: valores, resumen: resumen,
+                     cuerpoCompleto: { cuerpoPropuesta = $0 }) { rPropuesta in
             guard rPropuesta.ok else { completion(rPropuesta); return }
-            // La respuesta del servidor ES la propuesta que se confirma.
+            // La respuesta del servidor ES la propuesta que se confirma. El
+            // merge usa el cuerpo COMPLETO (un previewId JWT no cabe en el
+            // recorte de logs) y el modal la muestra en líneas LEGIBLES.
             var valoresConfirm = valores
-            if let data = rPropuesta.evidencia["salida"]?.data(using: .utf8),
+            var detallesLegibles = [String((rPropuesta.evidencia["salida"] ?? rPropuesta.mensaje).prefix(900))]
+            if let data = cuerpoPropuesta.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 for (k, v) in json where !(v is [String: Any]) && !(v is [Any]) {
                     valoresConfirm[k] = v
                 }
+                detallesLegibles = ConexionesMotor.lineasLegibles(json)
             }
-            let cuerpo = String((rPropuesta.evidencia["salida"] ?? rPropuesta.mensaje).prefix(900))
             confirmar("¿Confirmas \(resumen.isEmpty ? "el envío de \(modo.nombre)" : resumen.lowercased())?",
-                      cuerpo.split(separator: "\n").map(String.init)) { acepta in
+                      detallesLegibles) { acepta in
                 guard acepta else {
                     completion(.init(ok: false, mensaje: "Cancelado. La propuesta no se confirmó.",
                                      evidencia: ["cancelado": "usuario"])); return
@@ -652,6 +699,7 @@ enum ConexionesRunner {
     private static func hacerLlamada(modo: Modo, conexion: ConexionAPI, endpoint: EndpointAPI,
                                      valores: [String: Any], resumen: String,
                                      reintentoAuth: Bool = false,
+                                     cuerpoCompleto: ((String) -> Void)? = nil,
                                      completion: @escaping (ResultadoHerramientaApple) -> Void) {
         guard let url = ConexionesMotor.construirURL(base: conexion.baseURL,
                                                      endpoint: endpoint, valores: valores) else {
@@ -708,10 +756,16 @@ enum ConexionesRunner {
                     ConexionesAuth.invalidar(modo.id)
                     hacerLlamada(modo: modo, conexion: conexion, endpoint: endpoint,
                                  valores: valores, resumen: resumen, reintentoAuth: true,
-                                 completion: completion)
+                                 cuerpoCompleto: cuerpoCompleto, completion: completion)
                     return
                 }
                 let cuerpoCrudo = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                // El cuerpo SIN truncar viaja solo a quien lo pidió (el merge de
+                // dos fases necesita el previewId completo — un JWT puede medir
+                // más de 2000 chars); a logs y evidencia va siempre truncado.
+                if (200..<300).contains(code), let cuerpoCompleto {
+                    cuerpoCompleto(ConexionesMotor.enmascarar(cuerpoCrudo, secretos: secretos))
+                }
                 let cuerpo = ConexionesMotor.enmascarar(String(cuerpoCrudo.prefix(2_000)), secretos: secretos)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 AgenteLog.registrar("conexion_api", [

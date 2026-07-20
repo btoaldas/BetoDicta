@@ -302,6 +302,19 @@ enum ConexionesQA {
         check("confirmador en NO cancela sin llamar",
               rNo?.ok == false && rNo?.evidencia["cancelado"] == "usuario")
 
+        // 15b1. Formateo legible de una respuesta JSON para el visto bueno.
+        let legibles = ConexionesMotor.lineasLegibles([
+            "summary": ["create": [["actividad": "Soporte Quipux", "minutos": 120]],
+                        "totals": ["items": 1]],
+            "previewId": String(repeating: "j", count: 2700),
+            "expiresInSeconds": 600,
+        ] as [String: Any])
+        check("legible: claves y valores en líneas",
+              legibles.contains { $0.contains("actividad: Soporte Quipux") }
+              && legibles.contains { $0.contains("expiresInSeconds: 600") })
+        check("legible: el JWT gigante se omite",
+              !legibles.contains { $0.contains("jjjj") })
+
         // 15b2. Prompt de vuelta (redacción): estructura y datos no confiables.
         check("prompt de vuelta lleva instrucciones, pedido y respuesta",
               {
@@ -382,9 +395,14 @@ enum ConexionesQA {
                                               responder(true)
                                           }, completion: done)
             }, segundos: 12)
-            check("srv: dos fases publica con previewId",
+            check("srv: dos fases publica con previewId LARGO (JWT ~2700 chars)",
                   rDosFases?.ok == true && rDosFases?.mensaje.contains("entryId") == true)
-            check("srv: la propuesta mostrada vino del servidor", propuestaVista.contains("previewId"))
+            check("srv: la propuesta se muestra LEGIBLE (no JSON crudo)",
+                  propuestaVista.contains("actividad: nota de prueba")
+                  && propuestaVista.contains("minutos: 60")
+                  && !propuestaVista.contains("{"))
+            check("srv: el token gigante no ensucia la propuesta",
+                  !propuestaVista.contains("xxxxxxxxxx"))
             check("srv: exactamente una confirmación", confirmaciones == 1)
 
             // Expiración: la 1ª confirmación caduca el preview en el servidor →

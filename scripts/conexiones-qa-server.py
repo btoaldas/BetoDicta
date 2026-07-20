@@ -63,9 +63,14 @@ class H(BaseHTTPRequestHandler):
                 self._json(401, {"error": "sin token"})
                 return
             ESTADO["previews"] += 1
-            ESTADO["preview"] = f"p-{ESTADO['previews']}"
+            # previewId LARGO a propósito (~2700 chars, como un JWT real): el
+            # bug del truncado a 2000 chars en el merge se pinnea aquí.
+            ESTADO["preview"] = f"p-{ESTADO['previews']}-" + ("x" * 2700)
             self._json(200, {"previewId": ESTADO["preview"],
-                             "resumen": f"propuesta {ESTADO['preview']} lista"})
+                             "resumen": f"propuesta {ESTADO['previews']} lista",
+                             "summary": {"create": [{"actividad": "nota de prueba",
+                                                     "estado": "Hecho", "minutos": 60}],
+                                         "totals": {"items": 1, "minutos": 60}}})
         elif self.path == "/confirm":
             if not self._auth_ok():
                 self._json(401, {"error": "sin token"})
