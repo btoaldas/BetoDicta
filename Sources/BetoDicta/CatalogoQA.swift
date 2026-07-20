@@ -22,7 +22,7 @@ enum CatalogoQA {
         if ProcessInfo.processInfo.environment["BETODICTA_ROUTERDEMO"] == "1" {
             let caps = CatalogoCapacidades.todas()
             let frases = ["en el sistema de actividades, registra que trabajé una hora en la universidad",
-                          "hazme una tarea de comprar pan mañana",
+                          "hazme una tarea de comparar pan para mañana",
                           "qué clima hace en el Puyo",
                           "abre Word y escribe el informe",
                           "resume mis tareas pendientes",
@@ -33,7 +33,7 @@ enum CatalogoQA {
             for f in frases {
                 grupo.enter()
                 RouterGlobalIA.decidir(f, catalogo: caps) { d in
-                    salida.append("  «\(f)» → \(d.map { "[\($0.tipo):\($0.clave)] \($0.nombre) · «\($0.contenido.prefix(40))»" } ?? "SIN DECISIÓN")")
+                    salida.append("  «\(f)» → \(d.map { "[\($0.tipo):\($0.clave)] \($0.nombre) conf=\($0.confianza) · «\($0.contenido.prefix(30))»" } ?? "SIN DECISIÓN")")
                     grupo.leave()
                 }
             }
@@ -66,6 +66,39 @@ enum CatalogoQA {
             while resultado == nil, Date() < limite { _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
             print("UEAPLANTEST → \(resultado ?? "SIN RESPUESTA (timeout)")")
             fflush(stdout); exit(0)
+        }
+        // Prueba en vivo del fix del árbitro: en CONTEXTO DE AGENTE, una frase
+        // natural que NO nombra una conexión ("hazme una tarea…") debe caer al
+        // MODO AGENTE (para que decida el router global), no ser secuestrada por
+        // el árbitro de modos hacia la conexión UEA. Reproduce el flujo real.
+        if ProcessInfo.processInfo.environment["BETODICTA_AGENTEROUTETEST"] == "1" {
+            let agente = ModosStore.modo("agente")
+            let frases = ["hazme una tarea de comparar pan para mañana",
+                          "recuérdame comprar leche",
+                          "cuéntame un chiste"]
+            let grupo = DispatchGroup()
+            var lineas: [String] = []
+            for f in frases {
+                grupo.enter()
+                ModoResolver.resolver(texto: f, modoBase: agente, contexto: nil, vivo: nil) { r in
+                    let destino: String
+                    switch r {
+                    case .modo(let m): destino = "modo:\(m.modo.base)/\(m.modo.id)"
+                    case .cadena: destino = "cadena"
+                    case .preguntar(let m): destino = "preguntar:\(m.modo.nombre)"
+                    case .preguntarPlan(let p): destino = "plan:\(p.cadena.acciones.first?.modo.nombre ?? "?")"
+                    case .preguntarCadena(let c, _): destino = "planCadena:\(c.acciones.first?.modo.nombre ?? "?")"
+                    }
+                    lineas.append("  «\(f)» → \(destino)")
+                    grupo.leave()
+                }
+            }
+            grupo.notify(queue: .main) {
+                print("AGENTEROUTETEST (en contexto agente, sin árbitro que secuestre):")
+                lineas.sorted().forEach { print($0) }
+                fflush(stdout); exit(0)
+            }
+            RunLoop.main.run()
         }
         guard ProcessInfo.processInfo.environment["BETODICTA_CATALOGOQA"] == "1" else { return }
         var fallos = 0

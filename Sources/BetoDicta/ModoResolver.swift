@@ -702,6 +702,23 @@ enum ModoResolver {
         // "modo por voz" nunca debe dejar una capa inteligente activa por detrás.
         guard Config.modoPorVoz() else { contextoORespaldo(); return }
 
+        // AUTORIDAD DEL ROUTER EN CONTEXTO DE AGENTE.
+        // Cuando el pedido llegó por "Oye <agente> …" (modoBase = agente), la
+        // decisión de A QUÉ CAPACIDAD cae la toma el router global
+        // (RouterGlobalIA, vía responderAgente): tiene el catálogo cerrado
+        // completo y la regla anti-invención. El árbitro de modos y el desempate
+        // semántico de aquí son la ruta de dictado LEGACY y COMPETÍAN con él —
+        // p. ej. "hazme una tarea…" acababa en la conexión UEA en vez de crear la
+        // tarea. Los cortes deterministas de arriba (cadena/exacto/difuso/natural/
+        // captura/vivo confirmado) ya se aplicaron; lo que quede se resuelve al
+        // modo agente y el router elige. Las conexiones NOMBRADAS ya se atendieron
+        // antes en AppDelegate (ConexionesDeteccion), así que no se pierden.
+        if modoBase.base == "agente" {
+            completion(.modo(ModoResolucion(modo: modoBase, texto: texto,
+                                            fuente: .manual, match: nil)))
+            return
+        }
+
         let explicito = ModosStore.pareceComando(texto)
         let solicitud = ModoPlanificador.parecePedidoParaArbitraje(texto)
 
