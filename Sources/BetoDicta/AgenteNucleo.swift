@@ -661,15 +661,16 @@ enum AgenteNucleo {
         }
 
         // Modos-conexión del usuario ("pon mis actividades …"): sus frases de voz
-        // los activan también DENTRO del asistente. Se pasa el MODO REAL (con su
-        // conexión embebida), nunca uno sintético; la política de riesgo decide.
+        // los activan también DENTRO del asistente, con TOLERANCIA a cortesía y
+        // conectores («por favor, pon EN mis actividades…»). Se pasa el MODO
+        // REAL (con su conexión embebida); la política de riesgo decide.
         if Config.agenteHerramientaConexiones(),
-           let det = ModoResolver.detectarExacto(texto),
-           det.modo.base == "accion", det.modo.accion == "conexion" {
+           let det = ConexionesDeteccion.detectar(texto, modos: catalogo.modos,
+                                                  nombreAsistente: Config.agenteNombre()) {
             return ModoPlanificador.pregunta(
                 para: ModoCadena(transforms: [],
                     acciones: [ModoAccionPlan(modo: det.modo, destinatario: nil)],
-                    contenido: det.textoLimpio),
+                    contenido: det.contenido),
                 fuente: .natural, confianza: 0.97)
         }
 

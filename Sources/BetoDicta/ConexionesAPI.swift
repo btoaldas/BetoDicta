@@ -416,6 +416,70 @@ enum ConexionesMotor {
     }
 }
 
+// MARK: - Detección tolerante de modos-conexión en el pedido al asistente
+//
+// «Oye Jarvis, por favor, pon en mis actividades que…» debe activar el modo
+// aunque lleve cortesía inicial y conectores intercalados. Determinista y puro
+// (QA-able): tokens de la frase EN ORDEN al inicio del pedido, tolerando hasta
+// dos palabras intercaladas; el resto del dictado es el contenido.
+
+enum ConexionesDeteccion {
+    private static let cortesia: Set<String> = [
+        "por", "favor", "porfavor", "porfa", "oye", "me", "puedes", "podrias",
+        "ayudame", "necesito", "quiero", "porfis",
+    ]
+
+    static func detectar(_ texto: String, modos: [Modo],
+                         nombreAsistente: String = "") -> (modo: Modo, contenido: String)? {
+        var toks = PerfilAgente.normalizar(texto).split(separator: " ").map(String.init)
+        let originales = texto.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        var saltados = 0
+        let nombreAsist = PerfilAgente.normalizar(nombreAsistente)
+        while let primero = toks.first, cortesia.contains(primero) || primero == nombreAsist {
+            toks.removeFirst(); saltados += 1
+        }
+        guard !toks.isEmpty else { return nil }
+        let candidatos = modos.filter { $0.accion == "conexion" && $0.conexion != nil && $0.base == "accion" }
+        var mejor: (modo: Modo, consumidos: Int, puntaje: Int)?
+        for m in candidatos {
+            for frase in FrasesConfigurables.parsear(m.palabraVoz) {
+                let ft = PerfilAgente.normalizar(frase).split(separator: " ").map(String.init)
+                    .filter { $0 != "modo" }   // «modo actividades» sirve también como «actividades»
+                guard !ft.isEmpty else { continue }
+                // Tokens de la frase EN ORDEN dentro de una ventana con hasta 2 extras.
+                var i = 0, j = 0, extras = 0
+                while i < toks.count, j < ft.count, extras <= 2 {
+                    if toks[i] == ft[j] { j += 1 } else if j > 0 || toks[i] == "modo" { extras += 1 } else { break }
+                    i += 1
+                }
+                if j == ft.count {
+                    if mejor == nil || ft.count > mejor!.puntaje {
+                        mejor = (m, i + saltados, ft.count)
+                    }
+                }
+            }
+        }
+        guard let mejor else {
+            // Pedido cortito que ES el nombre del modo («actividades» a secas):
+            // se activa sin contenido y la IA repreguntará lo que falte.
+            if toks.count <= 3 {
+                for m in candidatos {
+                    let nombreToks = PerfilAgente.normalizar(m.nombre)
+                        .split(separator: " ").map(String.init)
+                    if let primeroNombre = nombreToks.first, toks.contains(primeroNombre) {
+                        return (m, "")
+                    }
+                }
+            }
+            return nil
+        }
+        let contenido = originales.dropFirst(min(mejor.consumidos, originales.count))
+            .joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;!?¡¿—-"))
+        return (mejor.modo, contenido)
+    }
+}
+
 // MARK: - Delegate de red: sin redirects fuera del host declarado ni https→http
 
 final class ConexionRedDelegate: NSObject, URLSessionTaskDelegate {

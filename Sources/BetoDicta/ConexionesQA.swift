@@ -315,6 +315,31 @@ enum ConexionesQA {
         check("legible: el JWT gigante se omite",
               !legibles.contains { $0.contains("jjjj") })
 
+        // 15a9. Detección tolerante agente→modo-conexión (los casos REALES que
+        // fallaron: cortesía inicial, «en» intercalado, nombre a secas).
+        var modoAct = Modo(id: "qa-det", nombre: "Actividades UEA", icono: "bolt",
+                           base: "accion", esFijo: false,
+                           palabraVoz: "modo actividades, pon mis actividades, registra mis actividades",
+                           accion: "conexion")
+        modoAct.conexion = ConexionAPI(baseURL: "https://x.ejemplo.com")
+        let catalogoDet = [modoAct, ModosStore.base[0]]
+        func det(_ t: String) -> (modo: Modo, contenido: String)? {
+            ConexionesDeteccion.detectar(t, modos: catalogoDet, nombreAsistente: "Jarvis")
+        }
+        check("detecta frase exacta",
+              det("pon mis actividades que hice algo")?.modo.id == "qa-det")
+        check("tolera cortesía inicial y «en» intercalado",
+              det("por favor, pon en mis actividades que estoy haciendo una API nueva")?.modo.id == "qa-det")
+        check("contenido conserva el pedido",
+              det("por favor, pon en mis actividades que estoy haciendo una API nueva")?
+                .contenido.contains("API nueva") == true)
+        check("nombre del modo a secas activa (repreguntará)",
+              det("actividades")?.modo.id == "qa-det" && det("actividades")?.contenido == "")
+        check("«modo actividades» sin más también",
+              det("modo actividades")?.modo.id == "qa-det")
+        check("no roba pedidos ajenos", det("ponme una canción de Julio Jaramillo") == nil)
+        check("no matchea narración sin frase", det("hoy estuve revisando actividades del bloque F") == nil)
+
         // 15b0. Iteración sobre propuesta rechazada («cámbiala, no la rechaces»).
         ConexionesIA.limpiarPendiente(modoId: "qa-iter")
         var modoIter = modo; modoIter.id = "qa-iter"
