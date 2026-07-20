@@ -429,6 +429,15 @@ enum ConexionesDeteccion {
         "ayudame", "necesito", "quiero", "porfis",
     ]
 
+    /// «pongo»~«pon», «registro»~«registra», «actividad»~«actividades»: las
+    /// conjugaciones y mal-escuchas del STT no deben romper el match. Igualdad
+    /// exacta, o prefijo compartido con raíz de al menos 3 letras.
+    private static func coincide(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        guard a.count >= 3, b.count >= 3 else { return false }
+        return a.hasPrefix(b) || b.hasPrefix(a)
+    }
+
     static func detectar(_ texto: String, modos: [Modo],
                          nombreAsistente: String = "") -> (modo: Modo, contenido: String)? {
         var toks = PerfilAgente.normalizar(texto).split(separator: " ").map(String.init)
@@ -449,7 +458,7 @@ enum ConexionesDeteccion {
                 // Tokens de la frase EN ORDEN dentro de una ventana con hasta 2 extras.
                 var i = 0, j = 0, extras = 0
                 while i < toks.count, j < ft.count, extras <= 2 {
-                    if toks[i] == ft[j] { j += 1 } else if j > 0 || toks[i] == "modo" { extras += 1 } else { break }
+                    if coincide(toks[i], ft[j]) { j += 1 } else if j > 0 || toks[i] == "modo" { extras += 1 } else { break }
                     i += 1
                 }
                 if j == ft.count {

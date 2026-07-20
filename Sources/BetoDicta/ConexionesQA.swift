@@ -337,6 +337,10 @@ enum ConexionesQA {
               det("registro")?.modo.id == "qa-det" && det("registro")?.contenido == "")
         check("«modo registro» sin más también",
               det("modo registro")?.modo.id == "qa-det")
+        check("conjugación tolerada: «pongo en mis tareas»",
+              det("pongo en mis tareas que hice pruebas del conector durante 15 minutos")?.modo.id == "qa-det")
+        check("conjugación tolerada: «registro … tareas»",
+              det("registro mis tareas de hoy")?.modo.id == "qa-det")
         check("no roba pedidos ajenos", det("ponme una canción de Julio Jaramillo") == nil)
         check("no matchea narración sin frase", det("hoy estuve revisando tareas del taller") == nil)
 
