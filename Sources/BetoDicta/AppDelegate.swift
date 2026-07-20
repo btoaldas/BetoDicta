@@ -5366,7 +5366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if Config.agenteNucleoActivo(), Config.routerGlobalActivo() {
             RouterGlobalIA.decidir(texto) { [weak self] d in
                 guard let self else { return }
-                if let d, self.ejecutarDecisionRouter(d, crudo: crudo, wav: wav,
+                if let d, self.ejecutarDecisionRouter(d, pedido: texto, crudo: crudo, wav: wav,
                                                       history: history, modoNormal: modoNormal) {
                     return
                 }
@@ -5380,8 +5380,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Ejecuta la decisión del router global. Hoy maneja modos y conexiones (vía
     /// el despacho de modos, que ya trae su política y confirmación); rutinas,
     /// atajos, herramientas y cerebro devuelven false → cae al cerebro/determinista.
-    private func ejecutarDecisionRouter(_ d: DecisionRouter, crudo: String, wav: Data,
-                                        history: HistoryWriter?, modoNormal: Modo?) -> Bool {
+    private func ejecutarDecisionRouter(_ d: DecisionRouter, pedido: String, crudo: String,
+                                        wav: Data, history: HistoryWriter?, modoNormal: Modo?) -> Bool {
         // Freno de confianza: si la IA no está segura, mejor que el cerebro
         // converse a ejecutar una capacidad equivocada. El "cerebro" nunca se
         // ejecuta aquí (siempre cae al conversacional).
@@ -5390,9 +5390,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "modo", "conexion":
             let m = ModosStore.modo(d.clave)
             guard m.id == d.clave, m.id != "dictado" else { return false }
+            // Una conexión hace su PROPIO sub-ruteo por verbo (registrar vs
+            // consultar): necesita el pedido COMPLETO, no el contenido que el
+            // router pudo recortar. Un modo simple recibe el contenido limpio.
+            let payload = d.tipo == "conexion" ? pedido : d.contenido
             AgenteLog.registrar("router_ejecuta", ["tipo": d.tipo, "clave": d.clave,
-                                                    "contenido": d.contenido, "confianza": d.confianza])
-            despacharModo(m, textoFinal: d.contenido, crudo: crudo, wav: wav,
+                                                    "contenido": payload, "confianza": d.confianza])
+            despacharModo(m, textoFinal: payload, crudo: crudo, wav: wav,
                           history: history, modoNormal: modoNormal, contextoAgente: true)
             return true
         default:

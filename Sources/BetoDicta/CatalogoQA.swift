@@ -21,7 +21,7 @@ enum CatalogoQA {
         // catálogo real (necesita IA/red). Solo diagnóstico, no ejecuta.
         if ProcessInfo.processInfo.environment["BETODICTA_ROUTERDEMO"] == "1" {
             let caps = CatalogoCapacidades.todas()
-            let frases = ["registra que trabajé una hora en el sistema de la universidad",
+            let frases = ["en el sistema de actividades, registra que trabajé una hora en la universidad",
                           "hazme una tarea de comprar pan mañana",
                           "qué clima hace en el Puyo",
                           "abre Word y escribe el informe",
