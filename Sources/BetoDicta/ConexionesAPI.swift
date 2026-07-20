@@ -287,7 +287,24 @@ enum ConexionesMotor {
         let sinEmoji = texto.unicodeScalars.filter { s in
             !graficos.contains { $0.contains(s.value) }
         }
-        let limpio = String(String.UnicodeScalarView(sinEmoji))
+        var t = String(String.UnicodeScalarView(sinEmoji))
+        // Símbolos → palabras en español: un TTS multilingüe ante "+16°C" lee
+        // signos sueltos y hasta cambia de idioma. "16 grados" lo ancla.
+        let reemplazos: [(String, String)] = [
+            (#"\+(?=\d)"#, ""),                    // +16 → 16
+            (#"(?<=\s)-(?=\d)"#, "menos "),        // -3 → menos 3 (no el guion de rangos)
+            (#"°\s*C\b"#, " grados"),
+            (#"°\s*F\b"#, " grados fahrenheit"),
+            (#"°(?=\s|$)"#, " grados"),
+            (#"%"#, " por ciento"),
+            (#"km/h\b"#, " kilómetros por hora"),   // sin \b inicial: "5km/h" viene pegado
+            (#"(?<=\d)\s*m/s\b"#, " metros por segundo"),
+            (#"(?<=[\p{L}\)])\s*:"#, ","),         // "Puyo:" → "Puyo," (no toca horas 14:30)
+        ]
+        for (patron, valor) in reemplazos {
+            t = t.replacingOccurrences(of: patron, with: valor, options: .regularExpression)
+        }
+        let limpio = t
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String(limpio.prefix(400))

@@ -106,8 +106,16 @@ enum ConexionesQA {
 
         // 8b. Texto hablable: sin emojis, espacios colapsados, con tope.
         let hablable = ConexionesMotor.textoParaVoz("Puyo: 🌤️  +16°C\nviento ↓ 5km/h")
-        if hablable != "Puyo: +16°C viento 5km/h" { print("CONEXIONTEST debug voz: «\(hablable)»") }
-        check("texto para voz sin emoji ni saltos", hablable == "Puyo: +16°C viento 5km/h")
+        if hablable != "Puyo, 16 grados viento 5 kilómetros por hora" {
+            print("CONEXIONTEST debug voz: «\(hablable)»")
+        }
+        check("texto para voz en español hablado",
+              hablable == "Puyo, 16 grados viento 5 kilómetros por hora")
+        check("voz: negativos y porcentajes",
+              ConexionesMotor.textoParaVoz("Quito: -3°C, humedad 92%")
+              == "Quito, menos 3 grados, humedad 92 por ciento")
+        check("voz: hora intacta",
+              ConexionesMotor.textoParaVoz("actualizado 14:30") == "actualizado 14:30")
 
         // 9. Evidencia sin secretos.
         check("token enmascarado",
