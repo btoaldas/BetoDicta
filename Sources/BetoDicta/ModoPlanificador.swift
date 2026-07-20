@@ -736,6 +736,7 @@ enum ModoPlanificador {
             case "tarea_local": return "Guardar una tarea local"
             case "atajo_apple": return "Ejecutar el Atajo Apple configurado"
             case "rutina": return "Ejecutar la rutina configurada"
+            case "conexion": return "Consultar \(modo.nombre) (conexión API)"
             default: break
             }
             var d = modo.accion == "whatsapp" || modo.accion == "mensajes"

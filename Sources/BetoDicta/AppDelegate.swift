@@ -5989,6 +5989,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else if contextoAgente, r.ok, id == "rutina",
                       RutinasAgenteStore.devuelveResultado(id: modo.prompt) {
                 responderBreveAgente(r.mensaje, evento: "resultado_rutina")
+            } else if contextoAgente, r.ok, id == "conexion",
+                      modo.conexion?.vozResumen == true {
+                responderBreveAgente(String(r.mensaje.prefix(400)), evento: "resultado_conexion")
             }
         }
         switch id {
@@ -6199,6 +6202,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case "rutina":
             esperaAsincrona = true; muestraGenerica = false
             RutinasAgenteRunner.ejecutar(id: modo.prompt, texto: t) { r in
+                mostrarResultado(r); completar()
+            }
+        case "conexion":
+            // Conexión API declarada por el usuario EN este modo. El runner
+            // valida todo (URL segura, endpoint de lectura, variables) y llama;
+            // la escritura con confirmación llega en la fase siguiente.
+            esperaAsincrona = true; muestraGenerica = false
+            ConexionesRunner.ejecutar(modo: modo, texto: t) { r in
                 mostrarResultado(r); completar()
             }
         case "nota_local" where !t.isEmpty:

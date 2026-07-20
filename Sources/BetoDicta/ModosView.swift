@@ -61,6 +61,9 @@ struct ModosView: View {
     @State private var pegarApps = Config.aplicacionPegarAutomatico()
     @State private var nuevoEnEditor = Config.aplicacionNuevoDocumento()
     @State private var appsVer = 0
+    @State private var secretoConexion = ""      // borrador del secreto (jamás persiste aquí)
+    @State private var avisoConexion = ""        // resultado de Guardar secreto / Probar
+    @State private var conexionVer = 0
 
     private func importarContactos() {
         let p = NSOpenPanel()
@@ -367,8 +370,12 @@ struct ModosView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Nota de Apple crea y verifica una nota real; Finder y otras apps sin API dejan el texto respaldado en el portapapeles. Quipux/tu web: pon la URL. Sin IA.")
-                .font(.caption2).foregroundStyle(.secondary)
+            if b.wrappedValue.accion == "conexion" {
+                seccionConexion(b)
+            } else {
+                Text("Dictas y se abre eso con tu texto (usa {q} en tu URL). Nota de Apple crea y verifica una nota real; Finder y otras apps sin API dejan el texto respaldado en el portapapeles. Quipux/tu web: pon la URL. Sin IA.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
         }
         // Aplicación: inventario automático + comportamiento seguro al colocar texto.
         if b.wrappedValue.base == "aplicacion" {
@@ -408,8 +415,10 @@ struct ModosView: View {
                 }.labelsHidden().frame(width: 160)
             }
         }
-        // Prompt (salvo Dictado/Traducir/Buscar/Acción, que no usan prompt libre)
-        if b.wrappedValue.id != "dictado" && !["buscar", "traducir", "accion", "aplicacion"].contains(b.wrappedValue.base) {
+        // Prompt (salvo Dictado/Traducir/Buscar/Acción, que no usan prompt libre).
+        // Excepción: una Conexión API SÍ usa prompt (instrucciones para la IA
+        // sobre cómo usar esa API — el conocimiento del dominio vive AHÍ).
+        if b.wrappedValue.id != "dictado" && (!["buscar", "traducir", "accion", "aplicacion"].contains(b.wrappedValue.base) || b.wrappedValue.accion == "conexion" && b.wrappedValue.base == "accion") {
             Text("Instrucción para la IA (prompt):").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: b.prompt)
                 .font(.callout).frame(height: 70)
@@ -418,8 +427,9 @@ struct ModosView: View {
             Text("El modo Dictado usa la limpieza estándar (puntuación, muletillas, glosario). Su 'estilo' se ajusta en Ajustes → Pulido.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
-        // IA propia del modo (no aplica a Buscar/Acción, que no usan IA)
-        if !["buscar", "accion", "aplicacion"].contains(b.wrappedValue.base) {
+        // IA propia del modo (no aplica a Buscar/Acción, que no usan IA).
+        // Excepción: la Conexión API elegirá su IA para estructurar el plan.
+        if !["buscar", "accion", "aplicacion"].contains(b.wrappedValue.base) || b.wrappedValue.accion == "conexion" && b.wrappedValue.base == "accion" {
             HStack {
                 Text("IA de este modo:").font(.caption).frame(width: 110, alignment: .leading)
                 Picker("", selection: b.proveedorId) {
@@ -444,6 +454,194 @@ struct ModosView: View {
                 expandido = nil; m.borrar(b.wrappedValue.id)
             } label: { Label("Borrar este modo", systemImage: "trash") }
             .controlSize(.small)
+        }
+    }
+
+    // MARK: Conexión API declarada por el usuario (accion == "conexion")
+
+    /// El campo `conexion` del modo es opcional; este binding materializa una
+    /// conexión vacía al primer toque para que la UI edite directo.
+    private func conexionBinding(_ b: Binding<Modo>) -> Binding<ConexionAPI> {
+        Binding(get: { b.wrappedValue.conexion ?? ConexionAPI() },
+                set: { b.wrappedValue.conexion = $0 })
+    }
+
+    /// [String:String] ⇄ "Clave=Valor, Otra=Valor2" para encabezados extra.
+    private func headersTexto(_ h: Binding<[String: String]>) -> Binding<String> {
+        Binding(
+            get: { h.wrappedValue.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ", ") },
+            set: { texto in
+                var out: [String: String] = [:]
+                for par in texto.split(separator: ",") {
+                    let kv = par.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                    if kv.count == 2, !kv[0].isEmpty { out[kv[0]] = kv[1] }
+                }
+                h.wrappedValue = out
+            })
+    }
+
+    @ViewBuilder private func seccionConexion(_ b: Binding<Modo>) -> some View {
+        let conex = conexionBinding(b)
+        let modoId = b.wrappedValue.id
+        let _ = conexionVer
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Text("Conexión API — este modo llama la API que declares aquí. Nada de esto viene en la app: URL, endpoints y credenciales son tuyos. Solo lectura (GET) por ahora; escritura con confirmación en la siguiente fase.")
+                .font(.caption2).foregroundStyle(.secondary)
+            let baseActual = b.wrappedValue.conexion?.baseURL ?? ""
+            HStack {
+                Text("URL base:").font(.caption).frame(width: 90, alignment: .leading)
+                TextField("https://api.ejemplo.com", text: conex.baseURL)
+                    .textFieldStyle(.roundedBorder).frame(width: 280)
+                if !baseActual.isEmpty, !ConexionesMotor.urlSegura(baseActual) {
+                    Text("⚠️ https (o http solo localhost)").font(.caption2).foregroundStyle(.red)
+                }
+            }
+            // Autenticación: la forma se guarda en el modo; el SECRETO va al Llavero.
+            HStack {
+                Text("Autenticación:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: conex.auth.tipo) {
+                    Text("Sin autenticación").tag("ninguna")
+                    Text("API key en encabezado").tag("apikey")
+                }.labelsHidden().frame(width: 200)
+            }
+            if b.wrappedValue.conexion?.auth.tipo == "apikey" {
+                HStack {
+                    Text("Encabezado:").font(.caption).frame(width: 90, alignment: .leading)
+                    TextField("Authorization", text: conex.auth.header)
+                        .textFieldStyle(.roundedBorder).frame(width: 150)
+                    Text("Prefijo:").font(.caption)
+                    TextField("Bearer ", text: conex.auth.prefijo)
+                        .textFieldStyle(.roundedBorder).frame(width: 90)
+                }
+                HStack {
+                    Text("Secreto:").font(.caption).frame(width: 90, alignment: .leading)
+                    SecureField("API key (se guarda en el Llavero)", text: $secretoConexion)
+                        .textFieldStyle(.roundedBorder).frame(width: 200)
+                    Button("Guardar secreto") {
+                        let r = SecretosKeychain.guardar(secretoConexion, cuenta: modoId)
+                        avisoConexion = r.ok
+                            ? "Secreto guardado en \(r.donde.rawValue)."
+                            : "No pude guardar el secreto."
+                        secretoConexion = ""; conexionVer += 1
+                    }.controlSize(.small)
+                    .disabled(secretoConexion.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if let donde = SecretosKeychain.donde(cuenta: modoId) {
+                        Text(donde == .keychain ? "✓ en el Llavero" : "⚠️ en \(donde.rawValue)")
+                            .font(.caption2)
+                            .foregroundStyle(donde == .keychain ? Color.green : Color.orange)
+                        Button("Quitar") {
+                            SecretosKeychain.borrar(cuenta: modoId)
+                            avisoConexion = "Secreto eliminado."; conexionVer += 1
+                        }.controlSize(.small)
+                    }
+                }
+            }
+            HStack {
+                Text("Encabezados:").font(.caption).frame(width: 90, alignment: .leading)
+                TextField("Accept=application/json, X-Cliente=beto", text: headersTexto(conex.headers))
+                    .textFieldStyle(.roundedBorder).frame(width: 280)
+            }
+            // Endpoints declarados
+            HStack {
+                Text("Endpoints:").font(.caption).frame(width: 90, alignment: .leading)
+                Button {
+                    var c = b.wrappedValue.conexion ?? ConexionAPI()
+                    c.endpoints.append(EndpointAPI(clave: "endpoint\(c.endpoints.count + 1)"))
+                    b.wrappedValue.conexion = c
+                } label: { Label("Añadir endpoint", systemImage: "plus") }.controlSize(.small)
+            }
+            ForEach(conex.endpoints) { $ep in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        TextField("clave", text: $ep.clave)
+                            .textFieldStyle(.roundedBorder).frame(width: 110)
+                        Picker("", selection: $ep.metodo) {
+                            ForEach(["GET", "POST", "PUT", "DELETE"], id: \.self) { Text($0).tag($0) }
+                        }.labelsHidden().frame(width: 85)
+                        TextField("/ruta/{variable}", text: $ep.ruta)
+                            .textFieldStyle(.roundedBorder).frame(width: 170)
+                        Button {
+                            var c = b.wrappedValue.conexion ?? ConexionAPI()
+                            c.endpoints.removeAll { $0.id == ep.id }
+                            b.wrappedValue.conexion = c
+                        } label: { Image(systemName: "trash") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        TextField("Descripción (una línea; la verá la IA)", text: $ep.descripcion)
+                            .textFieldStyle(.roundedBorder).frame(width: 260)
+                        Toggle("Escritura", isOn: $ep.esEscritura)
+                            .toggleStyle(.switch).controlSize(.mini)
+                            .help("Los endpoints de escritura (y todo método distinto de GET) exigirán confirmación")
+                    }
+                    HStack {
+                        Text("Query:").font(.caption2).frame(width: 45, alignment: .leading)
+                        TextField("q={texto}&formato=json", text: $ep.query)
+                            .textFieldStyle(.roundedBorder).frame(width: 320)
+                    }
+                    if ep.metodo != "GET" {
+                        Text("Body (JSON con {variables}):").font(.caption2).foregroundStyle(.secondary)
+                        TextEditor(text: $ep.bodyPlantilla)
+                            .font(.caption.monospaced()).frame(height: 50)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(.gray.opacity(0.3)))
+                    }
+                    seccionVariables($ep)
+                }
+                .padding(6)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.25)))
+            }
+            Text("En ruta y query, {texto} es lo que dictes; las demás {variables} las llenará la IA en la siguiente fase. Si el dictado empieza con la clave de un endpoint, se usa ese; si no, el primer GET de lectura.")
+                .font(.caption2).foregroundStyle(.secondary)
+            HStack {
+                Button("Probar conexión") {
+                    avisoConexion = "Probando…"
+                    ConexionesRunner.probar(b.wrappedValue.conexion ?? ConexionAPI(),
+                                            modoId: modoId) { ok, msg in
+                        avisoConexion = (ok ? "✓ " : "⚠️ ") + String(msg.prefix(300))
+                    }
+                }.controlSize(.small)
+                .disabled(!ConexionesMotor.urlSegura(b.wrappedValue.conexion?.baseURL ?? ""))
+                Toggle("Leer resumen por voz", isOn: conex.vozResumen)
+                    .toggleStyle(.switch).controlSize(.mini)
+            }
+            if !avisoConexion.isEmpty {
+                Text(avisoConexion).font(.caption)
+                    .foregroundStyle(avisoConexion.hasPrefix("✓") ? Color.green : Color.secondary)
+                    .textSelection(.enabled)
+            }
+            if !Config.agenteHerramientaConexiones() {
+                Text("⚠️ Las conexiones API están APAGADAS. Enciéndelas en Ajustes → Asistente → Conexiones API para que este modo funcione.")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    @ViewBuilder private func seccionVariables(_ ep: Binding<EndpointAPI>) -> some View {
+        HStack(spacing: 6) {
+            Text("Variables:").font(.caption2).frame(width: 45, alignment: .leading)
+            Button {
+                ep.wrappedValue.variables.append(VariableAPI(nombre: "var\(ep.wrappedValue.variables.count + 1)"))
+            } label: { Image(systemName: "plus.circle") }
+                .buttonStyle(.plain).controlSize(.small)
+            Text("({texto} viene gratis)").font(.caption2).foregroundStyle(.secondary)
+        }
+        ForEach(ep.variables) { $v in
+            HStack(spacing: 6) {
+                TextField("nombre", text: $v.nombre)
+                    .textFieldStyle(.roundedBorder).frame(width: 100)
+                Picker("", selection: $v.tipo) {
+                    Text("texto").tag("texto"); Text("número").tag("numero")
+                    Text("fecha").tag("fecha"); Text("lista").tag("lista")
+                }.labelsHidden().frame(width: 90)
+                Toggle("req.", isOn: $v.requerida).toggleStyle(.switch).controlSize(.mini)
+                TextField("descripción para la IA", text: $v.descripcion)
+                    .textFieldStyle(.roundedBorder).frame(width: 160)
+                Button {
+                    ep.wrappedValue.variables.removeAll { $0.id == v.id }
+                } label: { Image(systemName: "minus.circle") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+            }.padding(.leading, 50)
         }
     }
 }

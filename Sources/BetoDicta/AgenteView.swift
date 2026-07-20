@@ -149,6 +149,7 @@ final class AgenteSettingsModel: ObservableObject {
         didSet { Config.set("agente_volumen_paso", to: Int(volumenPaso)) }
     }
     @Published var toolNotasApple: Bool { didSet { Config.set("agente_tool_notas_apple", to: toolNotasApple) } }
+    @Published var toolConexiones: Bool { didSet { Config.set("agente_tool_conexiones", to: toolConexiones) } }
     @Published var climaUbicacionActual: Bool { didSet { Config.set("clima_ubicacion_actual", to: climaUbicacionActual) } }
     @Published var climaUbicacionPredeterminada: String {
         didSet { Config.set("clima_ubicacion_predeterminada", to: climaUbicacionPredeterminada) }
@@ -236,6 +237,7 @@ final class AgenteSettingsModel: ObservableObject {
         toolVolumen = Config.agenteHerramientaVolumen()
         volumenPaso = Double(Config.agenteVolumenPaso())
         toolNotasApple = Config.agenteHerramientaNotasApple()
+        toolConexiones = Config.agenteHerramientaConexiones()
         climaUbicacionActual = Config.climaUsarUbicacionActual()
         climaUbicacionPredeterminada = Config.climaUbicacionPredeterminada()
         notasAppleCarpeta = Config.notasAppleCarpeta()
@@ -788,6 +790,12 @@ struct AgenteView: View {
                         .controlSize(.small)
                 }.font(.caption)
                 let _ = m.permisosTick
+                Divider()
+                Toggle("Conexiones API (modos con conexión propia)", isOn: $m.toolConexiones)
+                if m.toolConexiones {
+                    Text("Un modo con acción «Conexión API» llama la API que TÚ declares (URL, autenticación, endpoints) en Ajustes → Modos. Solo lectura por ahora; escritura con confirmación en la siguiente fase.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 Divider()
                 Toggle("Notas de Apple (crear y verificar)", isOn: $m.toolNotasApple)
                 if m.toolNotasApple {

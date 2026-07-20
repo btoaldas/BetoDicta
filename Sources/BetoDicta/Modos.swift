@@ -38,6 +38,7 @@ struct Modo: Codable, Identifiable {
     var appRuta: String          // respaldo: ruta .app validada contra el catálogo actual
     var musicaProveedor: String  // solo "musica": auto/apple_music/spotify/…
     var musicaAccion: String     // solo "musica": auto/reproducir/buscar/controles
+    var conexion: ConexionAPI?   // solo accion "conexion": API declarada por el usuario
 
     init(id: String, nombre: String, icono: String, base: String, prompt: String = "",
          proveedorId: String = "", modelo: String = "", idiomaDestino: String = "inglés",
@@ -45,7 +46,7 @@ struct Modo: Codable, Identifiable {
          buscador: String = "google", almacen: String = "", accion: String = "correo",
          ejemplosVoz: [String] = [], color: String = "", appNombre: String = "",
          appBundleId: String = "", appRuta: String = "", musicaProveedor: String = "auto",
-         musicaAccion: String = "auto") {
+         musicaAccion: String = "auto", conexion: ConexionAPI? = nil) {
         self.id = id; self.nombre = nombre; self.icono = icono; self.base = base
         self.prompt = prompt; self.proveedorId = proveedorId; self.modelo = modelo
         self.idiomaDestino = idiomaDestino; self.esFijo = esFijo; self.palabraVoz = palabraVoz
@@ -53,6 +54,7 @@ struct Modo: Codable, Identifiable {
         self.accion = accion; self.ejemplosVoz = ejemplosVoz; self.color = color
         self.appNombre = appNombre; self.appBundleId = appBundleId; self.appRuta = appRuta
         self.musicaProveedor = musicaProveedor; self.musicaAccion = musicaAccion
+        self.conexion = conexion
     }
     // Decodificación tolerante (JSON viejo sin un campo nuevo no revienta).
     init(from d: Decoder) throws {
@@ -79,6 +81,7 @@ struct Modo: Codable, Identifiable {
         appRuta = (try? c.decode(String.self, forKey: .appRuta)) ?? ""
         musicaProveedor = (try? c.decode(String.self, forKey: .musicaProveedor)) ?? "auto"
         musicaAccion = (try? c.decode(String.self, forKey: .musicaAccion)) ?? "auto"
+        conexion = try? c.decode(ConexionAPI.self, forKey: .conexion)
     }
 }
 
@@ -199,6 +202,11 @@ enum ModosStore {
     }
     static func borrar(_ id: String) {
         var lista = todos()
+        // Si el modo tenía una conexión API, su secreto muere con él (Keychain
+        // y respaldo). No dejamos credenciales huérfanas de modos borrados.
+        if lista.contains(where: { $0.id == id && !$0.esFijo && $0.conexion != nil }) {
+            SecretosKeychain.borrar(cuenta: id)
+        }
         lista.removeAll { $0.id == id && !$0.esFijo }   // los base no se borran
         guardar(lista)
         // No dejar modo_activo NI modo_defecto colgando en un id inexistente.
@@ -437,6 +445,7 @@ enum Acciones {
         ("clima",          "Consultar clima actual",          "", ""),
         ("atajo_apple",   "Atajo Apple / Siri",              "", "com.apple.shortcuts"),
         ("rutina",        "Rutina del asistente",            "", ""),
+        ("conexion",      "Conexión API (se configura abajo)", "", ""),
         ("nota_local",    "Nota local de BetoDicta",         "", ""),
         ("tarea_local",   "Tarea local de BetoDicta",        "", ""),
         ("url",           "Abrir web (tu URL con {q})",      "{q}", ""),

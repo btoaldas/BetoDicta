@@ -101,7 +101,10 @@ enum ModoIAEnrutador {
                 }
             } else if e.key.hasPrefix("accion:") {
                 let id = String(e.key.dropFirst("accion:".count))
-                guard Acciones.valido(id) else { return nil }
+                // "conexion" solo existe DENTRO de un modo del usuario (lleva la
+                // API embebida); una acción sintética sin conexión no ejecuta nada
+                // útil y confundiría al árbitro. Se referencia como modo:<id>.
+                guard Acciones.valido(id), id != "conexion" else { return nil }
                 agregarAccion(accion(id), e.destinatario)
             } else if e.key.hasPrefix("buscar:") {
                 let id = String(e.key.dropFirst("buscar:".count))
@@ -165,7 +168,8 @@ enum ModoIAEnrutador {
         let modos = catalogo.modos.filter { $0.id != "dictado" && $0.base != "aplicacion" }.map {
             "modo:\($0.id)|\($0.nombre)|\($0.base)"
         }
-        let acciones = Acciones.base.map { "accion:\($0.id)|\($0.nombre)" }
+        let acciones = Acciones.base.filter { $0.id != "conexion" }
+            .map { "accion:\($0.id)|\($0.nombre)" }
         let buscadores = Buscadores.paraPicker().map { "buscar:\($0.id)|Buscar en \($0.nombre)" }
         let catalogoTexto = (modos + acciones + buscadores).joined(separator: "\n")
         let prompt = """

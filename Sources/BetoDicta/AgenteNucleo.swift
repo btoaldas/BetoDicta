@@ -69,6 +69,10 @@ enum PoliticaAgente {
                     r = .externo
                 case "rutina":
                     r = RutinasAgenteStore.riesgo(id: etapa.modo.prompt)
+                case "conexion":
+                    // Lectura pura = reversible; una conexión con CUALQUIER
+                    // endpoint de escritura se trata completa como externa.
+                    r = ConexionesMotor.riesgo(etapa.modo.conexion)
                 default:
                     r = .reversible
                 }
@@ -435,6 +439,7 @@ enum AgenteNucleo {
             case "atajo_apple": return Config.agenteHerramientaAtajos()
             case "gmail", "correo", "outlook", "whatsapp", "mensajes":
                 return Config.agenteHerramientaComunicaciones()
+            case "conexion": return Config.agenteHerramientaConexiones()
             default: return true
             }
         }
@@ -653,6 +658,19 @@ enum AgenteNucleo {
                 para: ModoCadena(transforms: [], acciones: [ModoAccionPlan(modo: m, destinatario: nil)],
                                   contenido: r.contenido),
                 fuente: .natural, confianza: 0.98)
+        }
+
+        // Modos-conexión del usuario ("pon mis actividades …"): sus frases de voz
+        // los activan también DENTRO del asistente. Se pasa el MODO REAL (con su
+        // conexión embebida), nunca uno sintético; la política de riesgo decide.
+        if Config.agenteHerramientaConexiones(),
+           let det = ModoResolver.detectarExacto(texto),
+           det.modo.base == "accion", det.modo.accion == "conexion" {
+            return ModoPlanificador.pregunta(
+                para: ModoCadena(transforms: [],
+                    acciones: [ModoAccionPlan(modo: det.modo, destinatario: nil)],
+                    contenido: det.textoLimpio),
+                fuente: .natural, confianza: 0.97)
         }
 
         let normal = n(texto)

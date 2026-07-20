@@ -470,6 +470,11 @@ struct Config {
     static func agenteHerramientaNotasApple() -> Bool {
         (json()["agente_tool_notas_apple"] as? Bool) ?? true
     }
+    /// Conexiones API definidas por el usuario (acción "conexion"). Feature
+    /// nueva: APAGADA por defecto hasta que el usuario la encienda.
+    static func agenteHerramientaConexiones() -> Bool {
+        (json()["agente_tool_conexiones"] as? Bool) ?? false
+    }
     /// Cuando una consulta no contiene ciudad, pide una ubicación puntual a
     /// Core Location. Nunca habilita seguimiento continuo ni persiste coordenadas.
     static func climaUsarUbicacionActual() -> Bool {
