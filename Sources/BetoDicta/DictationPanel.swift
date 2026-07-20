@@ -68,6 +68,11 @@ final class DictationPanel {
     private(set) var modoMostradoID = "dictado"                // observable por QA
     private let confirmTitle = NSTextField(labelWithString: "")
     private let confirmBody = NSTextField(wrappingLabelWithString: "")
+    // Detalles LARGOS (propuestas de conexiones API): mismo rect que el body,
+    // pero con scroll — el visto bueno puede leerlo TODO, nada se trunca.
+    private let confirmScroll = NSScrollView()
+    private let confirmTexto = NSTextView()
+    private var confirmTextoCompleto = ""   // lo que mide la geometría (cap 10 líneas)
     private let confirmAlternatives = NSTextField(wrappingLabelWithString: "")
     private let confirmFooter = NSTextField(labelWithString: "")
     private let resultadoFinder = PanelActionButton("Ver en Finder")
@@ -214,6 +219,18 @@ final class DictationPanel {
         confirmBody.lineBreakMode = .byWordWrapping
         confirmBody.isHidden = true
         background.addSubview(confirmBody)
+        confirmTexto.isEditable = false
+        confirmTexto.isSelectable = true
+        confirmTexto.drawsBackground = false
+        confirmTexto.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        confirmTexto.textColor = .white
+        confirmTexto.textContainerInset = NSSize(width: 0, height: 2)
+        confirmScroll.documentView = confirmTexto
+        confirmScroll.hasVerticalScroller = true
+        confirmScroll.autohidesScrollers = true
+        confirmScroll.drawsBackground = false
+        confirmScroll.isHidden = true
+        background.addSubview(confirmScroll)
         confirmAlternatives.font = NSFont.systemFont(ofSize: 9, weight: .regular)
         confirmAlternatives.textColor = NSColor(calibratedWhite: 0.68, alpha: 1)
         confirmAlternatives.maximumNumberOfLines = 4
@@ -308,7 +325,10 @@ final class DictationPanel {
         }
         guard Config.panelVisible(), !capturaPrivadaActiva,
               !resultadoCapturaPersistenteActivo else { return }
-        let visibles = Array(details.prefix(8))
+        // Hasta 8 etapas se muestran como siempre; más (la tabla de una
+        // propuesta de conexión API) van COMPLETAS en un área con scroll.
+        let usarScroll = details.count > 8
+        let visibles = usarScroll ? details : Array(details.prefix(8))
         let sobrantes = max(0, details.count - visibles.count)
         confirmando = true
         presentacionID &+= 1
@@ -321,7 +341,16 @@ final class DictationPanel {
         confirmTitle.stringValue = title
         var lineas = visibles.enumerated().map { "\($0.offset + 1). \($0.element)" }
         if sobrantes > 0 { lineas.append("… y \(sobrantes) etapa\(sobrantes == 1 ? "" : "s") más") }
-        confirmBody.stringValue = lineas.joined(separator: "\n")
+        confirmTextoCompleto = lineas.joined(separator: "\n")
+        if usarScroll {
+            confirmBody.stringValue = ""
+            confirmBody.isHidden = true
+            confirmTexto.string = confirmTextoCompleto
+            confirmScroll.isHidden = false
+        } else {
+            confirmBody.stringValue = confirmTextoCompleto
+            confirmScroll.isHidden = true
+        }
         let compacto = content.replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let extracto = compacto.count > 180 ? String(compacto.prefix(177)) + "…" : compacto
@@ -347,6 +376,8 @@ final class DictationPanel {
         label.isHidden = false
         confirmTitle.isHidden = true
         confirmBody.isHidden = true
+        confirmScroll.isHidden = true
+        confirmTextoCompleto = ""
         confirmAlternatives.isHidden = true
         confirmFooter.isHidden = true
         resultadoFinder.isHidden = true
@@ -503,7 +534,15 @@ final class DictationPanel {
         if confirmando {
             if confirmLayout == nil { recalcularConfirmacion() }
             if let g = confirmLayout {
-                confirmTitle.frame = g.title; confirmBody.frame = g.body
+                confirmTitle.frame = g.title
+                if confirmScroll.isHidden {
+                    confirmBody.frame = g.body; confirmScroll.frame = .zero
+                } else {
+                    confirmScroll.frame = g.body; confirmBody.frame = .zero
+                    confirmTexto.textContainer?.containerSize = NSSize(width: g.body.width - 14,
+                                                                       height: .greatestFiniteMagnitude)
+                    confirmTexto.textContainer?.widthTracksTextView = false
+                }
                 confirmAlternatives.frame = g.context; confirmFooter.frame = g.footer
                 if resultadoCapturaPersistenteActivo {
                     let separacion: CGFloat = 8
@@ -529,7 +568,7 @@ final class DictationPanel {
 
     private func recalcularConfirmacion() {
         let g = Self.geometriaConfirmacion(ancho: width,
-                                           detalles: confirmBody.stringValue,
+                                           detalles: confirmTextoCompleto,
                                            contexto: confirmAlternatives.isHidden ? "" : confirmAlternatives.stringValue,
                                            footerHeight: resultadoCapturaPersistenteActivo ? 26 : 15)
         confirmLayout = g; confirmStrip = g.strip

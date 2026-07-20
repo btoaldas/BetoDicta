@@ -5012,8 +5012,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ModosLog.registrar("confirmacion_presentada", [
             "tipo": "conexion_api", "titulo": titulo, "detalles": detalles.count,
             "confirmar_con": "una_pulsacion"])
-        panel.showConfirmation(title: titulo,
-                               details: Array(detalles.prefix(10)),
+        // Sin recorte: el panel muestra hasta 8 líneas directo y, si hay más
+        // (la tabla de una propuesta), TODAS con barra de desplazamiento.
+        panel.showConfirmation(title: titulo, details: detalles,
                                content: "", alternatives: [],
                                modoNormal: ModosStore.activo().nombre)
         playSound("Tink")

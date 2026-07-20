@@ -320,7 +320,7 @@ enum ConexionesMotor {
     /// «clave: valor» con sangría, arrays numerados, claves técnicas de texto
     /// gigante (tokens/JWT) omitidas. Determinista a propósito: la propuesta
     /// que se confirma debe mostrar datos EXACTOS, jamás una redacción de IA.
-    static func lineasLegibles(_ json: Any, sangria: String = "", limite: Int = 40) -> [String] {
+    static func lineasLegibles(_ json: Any, sangria: String = "", limite: Int = 80) -> [String] {
         var out: [String] = []
         func agregar(_ linea: String) { if out.count < limite { out.append(linea) } }
         func valorCorto(_ v: Any) -> String? {
