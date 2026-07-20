@@ -488,6 +488,10 @@ struct Config {
     static func agenteHerramientaConexiones() -> Bool {
         (json()["agente_tool_conexiones"] as? Bool) ?? false
     }
+    /// Router global por IA: cuando el ruteo determinista del asistente no
+    /// encuentra nada concreto, la IA decide sobre el catálogo completo a qué
+    /// capacidad cae. Degradable: sin IA/red sigue el cerebro de siempre.
+    static func routerGlobalActivo() -> Bool { (json()["router_global_activo"] as? Bool) ?? true }
     /// Segundos para decidir el visto bueno de una conexión. Una propuesta
     /// larga (tabla de actividades) NECESITA lectura: mucho más generoso que
     /// la confirmación normal de modos, y configurable.

@@ -5359,6 +5359,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Router global por IA: el determinista no encontró nada concreto. La IA
+        // decide sobre TODO el catálogo a qué capacidad cae y se ejecuta por el
+        // despacho de modos de siempre (con su política/confirmación). Aditivo y
+        // degradable: sin decisión o sin IA/red, cae al cerebro conversacional.
+        if Config.agenteNucleoActivo(), Config.routerGlobalActivo() {
+            RouterGlobalIA.decidir(texto) { [weak self] d in
+                guard let self else { return }
+                if let d, self.ejecutarDecisionRouter(d, crudo: crudo, wav: wav,
+                                                      history: history, modoNormal: modoNormal) {
+                    return
+                }
+                self.responderAgenteCerebro(texto, modo: modo, crudo: crudo, wav: wav, history: history)
+            }
+            return
+        }
+        responderAgenteCerebro(texto, modo: modo, crudo: crudo, wav: wav, history: history)
+    }
+
+    /// Ejecuta la decisión del router global. Hoy maneja modos y conexiones (vía
+    /// el despacho de modos, que ya trae su política y confirmación); rutinas,
+    /// atajos, herramientas y cerebro devuelven false → cae al cerebro/determinista.
+    private func ejecutarDecisionRouter(_ d: DecisionRouter, crudo: String, wav: Data,
+                                        history: HistoryWriter?, modoNormal: Modo?) -> Bool {
+        // Freno de confianza: si la IA no está segura, mejor que el cerebro
+        // converse a ejecutar una capacidad equivocada. El "cerebro" nunca se
+        // ejecuta aquí (siempre cae al conversacional).
+        guard d.tipo != "cerebro", d.confianza >= 0.45 else { return false }
+        switch d.tipo {
+        case "modo", "conexion":
+            let m = ModosStore.modo(d.clave)
+            guard m.id == d.clave, m.id != "dictado" else { return false }
+            AgenteLog.registrar("router_ejecuta", ["tipo": d.tipo, "clave": d.clave,
+                                                    "contenido": d.contenido, "confianza": d.confianza])
+            despacharModo(m, textoFinal: d.contenido, crudo: crudo, wav: wav,
+                          history: history, modoNormal: modoNormal, contextoAgente: true)
+            return true
+        default:
+            return false   // rutina/atajo/herramienta/cerebro → cerebro conversacional
+        }
+    }
+
+    /// El cerebro conversacional (local → Codex/Hermes/IA). Extraído para que el
+    /// router global pueda caer aquí cuando no elige una capacidad concreta.
+    private func responderAgenteCerebro(_ texto: String, modo: Modo, crudo: String,
+                                        wav: Data, history: HistoryWriter?) {
         let tok = nuevoAgente()
         if let local = AgenteNucleo.respuestaLocal(texto) {
             entregarRespuestaAgente(local, pedido: texto, motor: "Local", token: tok,
