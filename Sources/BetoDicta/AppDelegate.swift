@@ -5021,7 +5021,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         armConfirmX()
         hablarConfirmacionAgente("\(titulo) Pulsa función una vez para confirmar, o equis para cancelar.",
                                  activo: Config.agenteRespuestaConVoz())
-        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
+        // Tiempo de LECTURA real: base configurable (default 2 min) + margen por
+        // el largo de lo que hay que leer o escuchar. El silencio sigue siendo
+        // NO (fail-closed), pero jamás por no alcanzar a leer la tabla.
+        let cuerpoTotal = detalles.reduce(titulo.count) { $0 + $1.count }
+        let espera = Config.conexionConfirmacionSegundos() + Double(cuerpoTotal) * 0.03
+        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: min(600, espera),
                                                   repeats: false) { [weak self] _ in
             self?.resolverConfirmacion(acepta: false, origen: "timeout")
         }

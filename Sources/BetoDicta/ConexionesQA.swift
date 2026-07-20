@@ -315,6 +315,28 @@ enum ConexionesQA {
         check("legible: el JWT gigante se omite",
               !legibles.contains { $0.contains("jjjj") })
 
+        // 15b0. Iteración sobre propuesta rechazada («cámbiala, no la rechaces»).
+        ConexionesIA.limpiarPendiente(modoId: "qa-iter")
+        var modoIter = modo; modoIter.id = "qa-iter"
+        check("sin rechazo previo el prompt va limpio",
+              !ConexionesIA.promptPara(modo: modoIter, conexion: conexIA, texto: "x")
+                .contains("PROPUESTA ANTERIOR"))
+        ConexionesIA.registrarRechazo(modoId: "qa-iter", pedido: "registra 2 horas de soporte",
+                                      tabla: ["actividad: Soporte Quipux", "minutos: 120"])
+        let promptIter = ConexionesIA.promptPara(modo: modoIter, conexion: conexIA,
+                                                 texto: "mejor ponle 90 minutos")
+        check("el rechazo entra al prompt como propuesta anterior",
+              promptIter.contains("PROPUESTA ANTERIOR")
+              && promptIter.contains("minutos: 120")
+              && promptIter.contains("registra 2 horas de soporte"))
+        ConexionesIA.limpiarPendiente(modoId: "qa-iter")
+        check("al limpiar desaparece del prompt",
+              !ConexionesIA.promptPara(modo: modoIter, conexion: conexIA, texto: "x")
+                .contains("PROPUESTA ANTERIOR"))
+        check("timeout de lectura configurable con piso y techo",
+              Config.conexionConfirmacionSegundos() >= 20
+              && Config.conexionConfirmacionSegundos() <= 600)
+
         // 15b1b. Explicación de propuesta: apagada por defecto y sin bloquear.
         var esperaExplicacion: String?? = nil
         ConexionesIA.explicarPropuesta(modo: modo, conexion: conexIA, pedido: "x",

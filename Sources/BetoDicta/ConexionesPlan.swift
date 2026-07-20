@@ -27,6 +27,39 @@ enum ConexionesIA {
         LLMPostProcess.iaDeModo(modo) ?? ChatIA.cadenaPulido().first
     }
 
+    // MARK: Iteración sobre una propuesta rechazada («no la quiero así, cámbiala»)
+    //
+    // Si el usuario cancela el visto bueno y vuelve a dictar al MISMO modo en
+    // pocos minutos, la IA ve la propuesta anterior y el nuevo dictado como un
+    // AJUSTE («cambia los minutos a 90») en vez de empezar de cero. Al
+    // confirmar, o al vencer el plazo, la memoria se limpia sola.
+
+    struct PropuestaRechazada {
+        let fecha: Date
+        let pedido: String
+        let tabla: String
+    }
+    private static let lockPendientes = NSLock()
+    private static var pendientes: [String: PropuestaRechazada] = [:]
+    static let vigenciaPendienteSegundos: TimeInterval = 600
+
+    static func registrarRechazo(modoId: String, pedido: String, tabla: [String]) {
+        lockPendientes.lock(); defer { lockPendientes.unlock() }
+        pendientes[modoId] = PropuestaRechazada(fecha: Date(), pedido: pedido,
+                                                tabla: String(tabla.joined(separator: "\n").prefix(2_000)))
+    }
+    static func propuestaPendiente(modoId: String) -> PropuestaRechazada? {
+        lockPendientes.lock(); defer { lockPendientes.unlock() }
+        guard let p = pendientes[modoId],
+              Date().timeIntervalSince(p.fecha) < vigenciaPendienteSegundos else {
+            pendientes[modoId] = nil; return nil
+        }
+        return p
+    }
+    static func limpiarPendiente(modoId: String) {
+        lockPendientes.lock(); pendientes[modoId] = nil; lockPendientes.unlock()
+    }
+
     /// Catálogo compacto de endpoints para el prompt. La escritura se ofrece
     /// (el runner la lleva SIEMPRE por proponer→confirmar), pero el endpoint de
     /// 2ª fase queda fuera: es un paso automático tras el OK, la IA no lo elige.
@@ -48,10 +81,19 @@ enum ConexionesIA {
     /// anti-inyección idéntico al del resto de la casa.
     static func promptPara(modo: Modo, conexion: ConexionAPI, texto: String) -> String {
         let instrucciones = modo.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var bloquePendiente = ""
+        if let p = propuestaPendiente(modoId: modo.id) {
+            bloquePendiente = """
+            PROPUESTA ANTERIOR (el usuario NO la aprobó; si su dictado actual pide un cambio, genera la versión CORREGIDA COMPLETA en vez de empezar de cero):
+            - Pedido original: \(String(p.pedido.prefix(400)))
+            - Lo que se propuso: \(p.tabla)
+
+            """
+        }
         return """
         <INSTRUCCIONES_INTERNAS_NO_REPRODUCIR>
         Eres el planificador de la conexión API «\(modo.nombre)». Tu ÚNICA salida es un objeto JSON válido, sin Markdown, sin comentarios, sin texto adicional.
-        \(instrucciones.isEmpty ? "" : "INSTRUCCIONES DEL USUARIO SOBRE ESTA API:\n\(instrucciones)\n")
+        \(instrucciones.isEmpty ? "" : "INSTRUCCIONES DEL USUARIO SOBRE ESTA API:\n\(instrucciones)\n")\(bloquePendiente)
         ENDPOINTS DISPONIBLES (usa EXACTAMENTE estas claves):
         \(catalogoTexto(conexion))
 

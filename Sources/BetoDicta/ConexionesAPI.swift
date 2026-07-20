@@ -570,11 +570,14 @@ enum ConexionesRunner {
             confirmar(resumen.isEmpty ? "¿Enviar «\(endpoint.clave)» de \(modo.nombre)?" : "¿\(resumen)?",
                       detalles) { acepta in
                 guard acepta else {
-                    completion(.init(ok: false, mensaje: "Cancelado. No envié nada.",
+                    ConexionesIA.registrarRechazo(modoId: modo.id, pedido: pedido,
+                                                  tabla: detalles)
+                    completion(.init(ok: false, mensaje: "Cancelado. No envié nada. Si quieres ajustarlo, dime solo el cambio.",
                                      evidencia: ["cancelado": "usuario"])); return
                 }
                 hacerLlamada(modo: modo, conexion: conexion, endpoint: endpoint,
                              valores: valores, resumen: resumen) { r in
+                    if r.ok { ConexionesIA.limpiarPendiente(modoId: modo.id) }
                     entregarRedactado(r, modo: modo, conexion: conexion, pedido: pedido,
                                       completion: completion)
                 }
@@ -613,7 +616,13 @@ enum ConexionesRunner {
                 let titulo = explicacion.map { "\($0) ¿Confirmas?" } ?? tituloBase
                 confirmar(titulo, detallesLegibles) { acepta in
                 guard acepta else {
-                    completion(.init(ok: false, mensaje: "Cancelado. La propuesta no se confirmó.",
+                    // El rechazo queda en memoria unos minutos: si el usuario
+                    // vuelve a dictar a este modo pidiendo un cambio, la IA
+                    // corrige la propuesta en vez de empezar de cero.
+                    ConexionesIA.registrarRechazo(modoId: modo.id,
+                                                  pedido: (valores["texto"] as? String) ?? "",
+                                                  tabla: detallesLegibles)
+                    completion(.init(ok: false, mensaje: "Cancelado. La propuesta no se confirmó. Si quieres ajustarla, dime solo el cambio.",
                                      evidencia: ["cancelado": "usuario"])); return
                 }
                 hacerLlamada(modo: modo, conexion: conexion, endpoint: confirmacion,
@@ -627,6 +636,7 @@ enum ConexionesRunner {
                                       resumen: resumen, confirmar: confirmar,
                                       intento: 2, completion: completion)
                     } else {
+                        if rConfirm.ok { ConexionesIA.limpiarPendiente(modoId: modo.id) }
                         entregarRedactado(rConfirm, modo: modo, conexion: conexion,
                                           pedido: (valores["texto"] as? String) ?? "",
                                           completion: completion)

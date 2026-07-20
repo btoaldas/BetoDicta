@@ -475,6 +475,13 @@ struct Config {
     static func agenteHerramientaConexiones() -> Bool {
         (json()["agente_tool_conexiones"] as? Bool) ?? false
     }
+    /// Segundos para decidir el visto bueno de una conexión. Una propuesta
+    /// larga (tabla de actividades) NECESITA lectura: mucho más generoso que
+    /// la confirmación normal de modos, y configurable.
+    static func conexionConfirmacionSegundos() -> Double {
+        min(600, max(20, (json()["conexion_confirmacion_segundos"] as? Double)
+            ?? (json()["conexion_confirmacion_segundos"] as? Int).map(Double.init) ?? 120))
+    }
     /// Cuando una consulta no contiene ciudad, pide una ubicación puntual a
     /// Core Location. Nunca habilita seguimiento continuo ni persiste coordenadas.
     static func climaUsarUbicacionActual() -> Bool {

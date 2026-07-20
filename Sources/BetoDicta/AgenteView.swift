@@ -150,6 +150,9 @@ final class AgenteSettingsModel: ObservableObject {
     }
     @Published var toolNotasApple: Bool { didSet { Config.set("agente_tool_notas_apple", to: toolNotasApple) } }
     @Published var toolConexiones: Bool { didSet { Config.set("agente_tool_conexiones", to: toolConexiones) } }
+    @Published var conexionSegundos: Double {
+        didSet { Config.set("conexion_confirmacion_segundos", to: min(600, max(20, conexionSegundos))) }
+    }
     @Published var climaUbicacionActual: Bool { didSet { Config.set("clima_ubicacion_actual", to: climaUbicacionActual) } }
     @Published var climaUbicacionPredeterminada: String {
         didSet { Config.set("clima_ubicacion_predeterminada", to: climaUbicacionPredeterminada) }
@@ -238,6 +241,7 @@ final class AgenteSettingsModel: ObservableObject {
         volumenPaso = Double(Config.agenteVolumenPaso())
         toolNotasApple = Config.agenteHerramientaNotasApple()
         toolConexiones = Config.agenteHerramientaConexiones()
+        conexionSegundos = Config.conexionConfirmacionSegundos()
         climaUbicacionActual = Config.climaUsarUbicacionActual()
         climaUbicacionPredeterminada = Config.climaUbicacionPredeterminada()
         notasAppleCarpeta = Config.notasAppleCarpeta()
@@ -793,8 +797,15 @@ struct AgenteView: View {
                 Divider()
                 Toggle("Conexiones API (modos con conexión propia)", isOn: $m.toolConexiones)
                 if m.toolConexiones {
-                    Text("Un modo con acción «Conexión API» llama la API que TÚ declares (URL, autenticación, endpoints) en Ajustes → Modos. Solo lectura por ahora; escritura con confirmación en la siguiente fase.")
+                    Text("Un modo con acción «Conexión API» llama la API que TÚ declares (URL, autenticación, endpoints) en Ajustes → Modos. La escritura siempre pide tu visto bueno.")
                         .font(.caption2).foregroundStyle(.secondary)
+                    HStack {
+                        Text("Tiempo para decidir el visto bueno:").font(.caption)
+                        TextField("120", value: $m.conexionSegundos, format: .number)
+                            .textFieldStyle(.roundedBorder).frame(width: 55)
+                        Text("segundos (se estira solo si la propuesta es larga; el silencio cancela)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
                 Divider()
                 Toggle("Notas de Apple (crear y verificar)", isOn: $m.toolNotasApple)
