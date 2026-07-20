@@ -142,6 +142,12 @@ struct ConexionAPI: Codable, Equatable {
     /// llama este endpoint (las claves de primer nivel de la respuesta de la
     /// propuesta quedan disponibles como {variables}, p. ej. {previewId}).
     var confirmEndpointId: String
+    /// Clave del endpoint de PROPUESTA (1ª fase, dry-run del servidor). El flujo
+    /// de dos fases SOLO se activa cuando la IA elige EXACTAMENTE este endpoint;
+    /// cualquier otra escritura pasa por confirmación local ANTES de ejecutarse
+    /// (nunca se dispara un POST/DELETE mutante sin tu visto bueno). Vacío ⇒ no
+    /// hay dos fases; toda escritura se confirma localmente antes de enviar.
+    var previewEndpointId: String
     /// PROMPT DE VUELTA: cómo contarte el resultado. Si no está vacío (y hay
     /// IA), la respuesta cruda de la API se redacta con estas instrucciones
     /// («dame ciudad, grados y un consejo de abrigo») antes de mostrarse y
@@ -158,12 +164,14 @@ struct ConexionAPI: Codable, Equatable {
     init(baseURL: String = "", auth: AuthConexion = AuthConexion(),
          headers: [String: String] = [:], endpoints: [EndpointAPI] = [],
          timeoutSegundos: Int = 15, vozResumen: Bool = false, usarIA: Bool = true,
-         confirmEndpointId: String = "", promptRespuesta: String = "",
+         confirmEndpointId: String = "", previewEndpointId: String = "",
+         promptRespuesta: String = "",
          propuestaConIA: Bool = false, promptPropuesta: String = "") {
         self.baseURL = baseURL; self.auth = auth; self.headers = headers
         self.endpoints = endpoints; self.timeoutSegundos = timeoutSegundos
         self.vozResumen = vozResumen; self.usarIA = usarIA
         self.confirmEndpointId = confirmEndpointId
+        self.previewEndpointId = previewEndpointId
         self.promptRespuesta = promptRespuesta
         self.propuestaConIA = propuestaConIA
         self.promptPropuesta = promptPropuesta
@@ -179,6 +187,7 @@ struct ConexionAPI: Codable, Equatable {
         vozResumen = (try? c.decode(Bool.self, forKey: .vozResumen)) ?? false
         usarIA = (try? c.decode(Bool.self, forKey: .usarIA)) ?? true
         confirmEndpointId = (try? c.decode(String.self, forKey: .confirmEndpointId)) ?? ""
+        previewEndpointId = (try? c.decode(String.self, forKey: .previewEndpointId)) ?? ""
         promptRespuesta = (try? c.decode(String.self, forKey: .promptRespuesta)) ?? ""
         propuestaConIA = (try? c.decode(Bool.self, forKey: .propuestaConIA)) ?? false
         promptPropuesta = (try? c.decode(String.self, forKey: .promptPropuesta)) ?? ""
@@ -441,8 +450,11 @@ enum ConexionesDeteccion {
 
     static func detectar(_ texto: String, modos: [Modo],
                          nombreAsistente: String = "") -> (modo: Modo, contenido: String)? {
-        var toks = PerfilAgente.normalizar(texto).split(separator: " ").map(String.init)
+        // Normalizar POR TOKEN mantiene alineación 1:1 con los originales, para
+        // que el índice consumido recorte el contenido sin perder palabras
+        // (normalizar el texto entero podía cambiar el conteo de tokens).
         let originales = texto.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        var toks = originales.map { PerfilAgente.normalizar($0) }
         var saltados = 0
         let nombreAsist = PerfilAgente.normalizar(nombreAsistente)
         while let primero = toks.first, cortesia.contains(primero) || primero == nombreAsist {
@@ -633,15 +645,20 @@ enum ConexionesRunner {
         let confirmEp = conexion.endpoints.first {
             !conexion.confirmEndpointId.isEmpty && $0.clave == conexion.confirmEndpointId
         }
-        if let confirmEp, confirmEp.clave != endpoint.clave {
-            // Dos fases: el endpoint elegido ES la propuesta (dry-run del
-            // servidor). Su respuesta se muestra para el OK; tras el OK, la
-            // confirmación va al 2º endpoint con las claves de primer nivel de
-            // esa respuesta disponibles como {variables} (p. ej. {previewId}).
+        let esPropuestaDesignada = !conexion.previewEndpointId.isEmpty
+            && endpoint.clave == conexion.previewEndpointId
+        if let confirmEp, confirmEp.clave != endpoint.clave, esPropuestaDesignada {
+            // Dos fases: SOLO si el endpoint elegido es el de propuesta
+            // designado (dry-run del servidor). Su respuesta se muestra para el
+            // OK; tras el OK, la confirmación va al 2º endpoint con las claves de
+            // primer nivel de esa respuesta como {variables} (p. ej. {previewId}).
             flujoDosFases(modo: modo, conexion: conexion, propuesta: endpoint,
                           confirmacion: confirmEp, valores: valores, resumen: resumen,
                           confirmar: confirmar, intento: 1, completion: completion)
         } else {
+            // Cualquier OTRA escritura (incluida una que la IA eligiera y NO sea
+            // la propuesta designada): confirmación LOCAL del request ANTES de
+            // ejecutar. Jamás se dispara un POST/DELETE mutante sin visto bueno.
             // Una fase: resumen LOCAL del request → OK → ejecutar.
             var detalles = ["\(endpoint.metodo) \(endpoint.clave) — \(endpoint.descripcion)"]
             let legibles = valores.filter { $0.key != "texto" }
@@ -853,18 +870,29 @@ enum ConexionesRunner {
             var req = URLRequest(url: url)
             req.httpMethod = metodo
             req.timeoutInterval = TimeInterval(min(120, max(3, conexion.timeoutSegundos)))
+            // Los encabezados del usuario van PRIMERO; los reservados (auth,
+            // Content-Type, Connection) después, para que estos siempre ganen y
+            // el usuario no pueda pisar la credencial ni el tipo de contenido.
+            for (h, v) in conexion.headers { req.setValue(v, forHTTPHeaderField: h) }
             req.setValue("close", forHTTPHeaderField: "Connection")
             var secretos: [String] = []
             if let credencialValor {
                 let h = conexion.auth.header.isEmpty ? "Authorization" : conexion.auth.header
                 req.setValue(credencialValor, forHTTPHeaderField: h)
+                // Enmascarar el header COMPLETO y también el secreto pelado: si
+                // el servidor devuelve el token sin el prefijo «Bearer », igual
+                // no debe aparecer en evidencia ni llegar a la IA de vuelta.
                 secretos.append(credencialValor.trimmingCharacters(in: .whitespaces))
+                let pelado = credencialValor.hasPrefix(conexion.auth.prefijo) && !conexion.auth.prefijo.isEmpty
+                    ? String(credencialValor.dropFirst(conexion.auth.prefijo.count))
+                    : credencialValor
+                let peladoT = pelado.trimmingCharacters(in: .whitespaces)
+                if peladoT.count >= 4 { secretos.append(peladoT) }
             }
             if let body {
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 req.httpBody = body
             }
-            for (h, v) in conexion.headers { req.setValue(v, forHTTPHeaderField: h) }
             let delegado = ConexionRedDelegate(url: url)
             let sesion = URLSession(configuration: .ephemeral, delegate: delegado, delegateQueue: nil)
             let inicio = Date()

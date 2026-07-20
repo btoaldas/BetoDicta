@@ -429,6 +429,7 @@ enum ConexionesQA {
             epConfirm.bodyPlantilla = #"{"previewId":"{previewId}"}"#
             conexSrv.endpoints = [epSaldo, epPreview, epConfirm]
             conexSrv.confirmEndpointId = "confirmar"
+            conexSrv.previewEndpointId = "registrar"   // «registrar» = propuesta dry-run designada
             var modoSrv = Modo(id: modoSrvId, nombre: "QA Server", icono: "bolt",
                                base: "accion", esFijo: false, accion: "conexion")
             modoSrv.conexion = conexSrv
@@ -483,6 +484,24 @@ enum ConexionesQA {
             check("srv: el token gigante no ensucia la propuesta",
                   !propuestaVista.contains("xxxxxxxxxx"))
             check("srv: exactamente una confirmación", confirmaciones == 1)
+
+            // #2 post-review: una escritura que NO es la propuesta designada se
+            // confirma LOCALMENTE antes de ejecutar (jamás dispara sin visto bueno).
+            var conexPeligro = conexSrv
+            conexPeligro.previewEndpointId = "registrar"   // solo «registrar» es dry-run
+            conexPeligro.endpoints.append(EndpointAPI(clave: "borrar", metodo: "DELETE", ruta: "/preview",
+                                                      descripcion: "borra algo", esEscritura: true))
+            var modoPeligro = modoSrv; modoPeligro.conexion = conexPeligro
+            var vioModal = false, ejecutoSinModal = true
+            let rPeligro = esperar({ done in
+                // forzamos la elección de «borrar» (no la propuesta) por clave dictada
+                ConexionesRunner.ejecutar(modo: modoPeligro, texto: "borrar algo",
+                                          ignorarInterruptor: true,
+                                          confirmar: { _, _, responder in vioModal = true; responder(false) },
+                                          completion: { r in ejecutoSinModal = r.ok; done(r) })
+            }, segundos: 8)
+            check("un DELETE que no es la propuesta pide confirmación local (no se ejecuta solo)",
+                  vioModal && rPeligro?.ok == false && !ejecutoSinModal)
 
             // Expiración: la 1ª confirmación caduca el preview en el servidor →
             // el confirm devuelve 410 → re-propuesta → 2ª confirmación → publica.
@@ -668,6 +687,24 @@ enum ConexionesQA {
         check("import: archivo basura da error claro",
               ModosPortables.importar(Data("no soy json".utf8), existentes: []).errores.isEmpty == false)
         _ = errores
+        // Post-review: fixes de seguridad pinneados.
+        // #1 path traversal: id importado SIEMPRE se regenera (no solo en colisión).
+        var modoEvil = modoExp; modoEvil.id = "../../../../tmp/pwn"
+        let paqEvil = ModosPortables.exportar([modoEvil])
+        let (vEvil, _) = ModosPortables.importar(paqEvil ?? Data(), existentes: [])
+        check("import: id malicioso se regenera (no path traversal)",
+              vEvil.first?.id.hasPrefix("propio-") == true && !(vEvil.first?.id.contains("..") ?? true))
+        // #7 export scrub: un secreto en un header NO viaja.
+        var modoHdr = modoExp; modoHdr.id = "hdr"
+        modoHdr.conexion?.headers = ["Authorization": "Bearer FUGA_SECRETA_999", "Accept": "application/json"]
+        modoHdr.apps = ["Quipux"]; modoHdr.sitios = ["intranet.interna"]
+        let paqHdr = ModosPortables.exportar([modoHdr])
+        let textoHdr = paqHdr.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        check("export: secreto en header NO viaja",
+              !textoHdr.contains("FUGA_SECRETA_999"))
+        check("export: header no sensible se conserva", textoHdr.contains("Accept"))
+        check("export: apps/sitios del entorno se vacían",
+              !textoHdr.contains("Quipux") && !textoHdr.contains("intranet.interna"))
         SecretosKeychain.borrar(cuenta: "modo-exp-qa")
 
         print(fallos == 0 ? "CONEXIONTEST TODO OK" : "CONEXIONTEST ✗ \(fallos) FALLOS")

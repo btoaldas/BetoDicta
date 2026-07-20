@@ -18,17 +18,28 @@ struct PaqueteModos: Codable {
 enum ModosPortables {
     static let tamanoMaximo = 2 * 1024 * 1024   // un paquete de modos jamás pesa MB
 
-    /// Copia LIMPIA para regalar: sin usuario de login (dato personal del
-    /// exportador), sin IA local (ids que no existen en otra máquina), nunca
-    /// fija, y con id nuevo para no chocar con los del receptor.
+    /// Encabezados cuyo VALOR puede llevar un secreto: se vacían al exportar.
+    private static let headersSensibles: Set<String> = [
+        "authorization", "x-api-key", "api-key", "apikey", "x-auth-token",
+        "token", "cookie", "x-access-token", "proxy-authorization", "x-secret",
+    ]
+
+    /// Copia LIMPIA para regalar: sin usuario de login ni IA local (datos del
+    /// exportador), sin apps/sitios (entorno del exportador), sin secretos que
+    /// alguien haya podido pegar en un encabezado, nunca fija.
     static func sanearParaExportar(_ m: Modo) -> Modo {
         var out = m
         out.esFijo = false
         out.proveedorId = ""
         out.modelo = ""
         out.appNombre = ""; out.appBundleId = ""; out.appRuta = ""
-        if out.conexion != nil {
-            out.conexion?.auth.usuario = ""
+        out.apps = []; out.sitios = []          // triggers de contexto = entorno del exportador
+        if var cx = out.conexion {
+            cx.auth.usuario = ""
+            // Un secreto pegado a mano en el VALOR de un encabezado no debe
+            // viajar; se conservan los encabezados no sensibles (Accept, etc.).
+            cx.headers = cx.headers.filter { !headersSensibles.contains($0.key.lowercased()) }
+            out.conexion = cx
         }
         return out
     }
@@ -83,9 +94,10 @@ enum ModosPortables {
                     errores.append("«\(nombre)»: su URL no es segura"); continue
                 }
             }
-            if idsExistentes.contains(m.id) || validos.contains(where: { $0.id == m.id }) {
-                m.id = "propio-\(UUID().uuidString.prefix(8))"
-            }
+            // SIEMPRE id nuevo para TODO modo importado: el id del paquete es
+            // dato no confiable y se usa como nombre de archivo (cache de token)
+            // y cuenta de Keychain — un id con «../» sería path traversal.
+            m.id = "propio-\(UUID().uuidString.prefix(8))"
             validos.append(m)
         }
         return (validos, errores)

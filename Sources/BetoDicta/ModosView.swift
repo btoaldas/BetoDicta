@@ -751,6 +751,16 @@ struct ModosView: View {
             // Flujo proponer→confirmar: el endpoint de escritura elegido actúa
             // de propuesta y, tras tu OK, corre este segundo endpoint.
             HStack {
+                Text("Propuesta:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: conex.previewEndpointId) {
+                    Text("Ninguna (cada escritura se confirma localmente)").tag("")
+                    ForEach((b.wrappedValue.conexion?.endpoints ?? []).filter { !$0.clave.isEmpty && $0.efectivamenteEscritura }, id: \.clave) { ep in
+                        Text("1ª fase (dry-run): \(ep.clave)").tag(ep.clave)
+                    }
+                }.labelsHidden().frame(width: 300)
+                    .help("El endpoint que el servidor trata como PREVIEW: se llama, ves su respuesta y solo tras tu OK se confirma. Cualquier OTRA escritura se confirma localmente antes de enviar.")
+            }
+            HStack {
                 Text("Confirmación:").font(.caption).frame(width: 90, alignment: .leading)
                 Picker("", selection: conex.confirmEndpointId) {
                     Text("Sin 2ª fase (confirma y envía el mismo endpoint)").tag("")

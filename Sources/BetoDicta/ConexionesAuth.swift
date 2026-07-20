@@ -23,7 +23,14 @@ enum ConexionesAuth {
         Config.dir.appendingPathComponent(".cache/conexiones")
     }
     private static func urlCache(_ modoId: String) -> URL {
-        dirCache.appendingPathComponent("\(modoId).token.json")
+        // Defensa en profundidad: el id NUNCA debe escapar de dirCache (aunque
+        // ModosPortables ya fuerza ids limpios al importar). Solo alfanuméricos,
+        // guion y guion bajo; cualquier otra cosa (incluido «..» y «/») a "_".
+        let seguro = modoId.map { c -> Character in
+            c.isLetter || c.isNumber || c == "-" || c == "_" ? c : "_"
+        }
+        let nombre = String(String(seguro).prefix(80))
+        return dirCache.appendingPathComponent("\(nombre.isEmpty ? "modo" : nombre).token.json")
     }
 
     /// Navega un dot-path ("data.access_token") por un JSON ya parseado.
