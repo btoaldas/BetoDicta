@@ -4307,6 +4307,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 history?.finish(wav: wav, finalText: "")
                 return
             }
+            // Un pedido al asistente que nombra un modo-conexión va DIRECTO a
+            // esa conexión (con su política de riesgo y su visto bueno), ANTES
+            // del resolver general: el árbitro o la cadena por defecto
+            // («Preguntar al agente») convertían «pon en mis actividades…» en
+            // charla del cerebro. La conexión nombrada siempre gana al chat.
+            if Config.agenteHerramientaConexiones(),
+               let det = ConexionesDeteccion.detectar(inv.contenido,
+                                                      modos: ModosStore.todos(),
+                                                      nombreAsistente: Config.agenteNombre()) {
+                let cadena = ModoCadena(transforms: [],
+                    acciones: [ModoAccionPlan(modo: det.modo, destinatario: nil)],
+                    contenido: det.contenido)
+                if procesarPlanDelAgente(cadena, crudo: crudoFlujo,
+                                         textoNormal: inv.contenido,
+                                         modoNormal: modoNormal, wav: wav,
+                                         history: history, confianza: 0.97,
+                                         contextoAgente: true) { return }
+            }
         }
 
         // Segundo turno de una pregunta “¿pantalla o ventana?”. La respuesta
