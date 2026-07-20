@@ -44,6 +44,39 @@ enum ComandoMusica: String {
     }
 }
 
+/// Foto mínima de una sesión musical. Mantiene la decisión de enrutamiento
+/// separada de AppKit/MediaRemote para poder probarla sin abrir reproductores.
+struct EstadoControlMusica: Equatable {
+    let reproduciendo: Bool
+    let tieneContenido: Bool
+    let tieneCola: Bool
+    let interfazVisible: Bool
+
+    static let vacio = EstadoControlMusica(reproduciendo: false,
+                                           tieneContenido: false,
+                                           tieneCola: false,
+                                           interfazVisible: false)
+}
+
+extension ComandoMusica {
+    /// Un control solo es una acción cuando existe algo real sobre lo cual actuar.
+    /// Reproducir/buscar crean una sesión nueva y por eso no pasan por esta puerta.
+    func esAplicable(en estado: EstadoControlMusica) -> Bool {
+        switch self {
+        case .pausar, .detener:
+            return estado.reproduciendo
+        case .reanudar:
+            return estado.tieneContenido && !estado.reproduciendo
+        case .siguiente, .anterior:
+            return estado.tieneCola
+        case .cerrar, .pantallaCompleta, .compacto:
+            return estado.interfazVisible
+        case .reproducir, .buscar:
+            return true
+        }
+    }
+}
+
 enum Musica {
     static let base: [ProveedorMusica] = [
         ProveedorMusica(id: "apple_music", nombre: "Apple Music", bundle: "com.apple.Music",
@@ -195,6 +228,50 @@ enum Musica {
         return intencion(texto) == .buscar ? .buscar : .reproducir
     }
 
+    /// Extrae únicamente planes que son UN control musical puro. Una cadena que
+    /// además traduce, redacta o envía no se descarta silenciosamente por esta regla.
+    static func controlExclusivo(en cadena: ModoCadena) -> ComandoMusica? {
+        guard cadena.transforms.isEmpty, cadena.acciones.count == 1,
+              let modo = cadena.acciones.first?.modo, modo.base == "musica",
+              let comando = ComandoMusica(rawValue: modo.musicaAccion),
+              comando.intencion == nil else { return nil }
+        return comando
+    }
+
+    /// Comprueba el reproductor propio al instante y consulta MediaRemote solo si
+    /// la frase YA fue reconocida como control. No hay red, embeddings ni IA.
+    static func controlDisponible(_ comando: ComandoMusica,
+                                  completion: @escaping (Bool) -> Void) {
+        DispatchQueue.main.async {
+            let interno = ReproductorYouTubeInterno.shared.estadoControl
+            if comando.esAplicable(en: interno) {
+                completion(true)
+                return
+            }
+            // Estas tres operaciones pertenecen exclusivamente a la ventana propia.
+            guard ![ComandoMusica.cerrar, .pantallaCompleta, .compacto].contains(comando) else {
+                completion(false)
+                return
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let actual = MediaControl.estadoActual(timeout: 0.55)
+                let contenido = actual.map {
+                    $0.reproduciendo || !$0.titulo.isEmpty || !$0.artista.isEmpty || $0.id != nil
+                } ?? false
+                let externo = EstadoControlMusica(
+                    reproduciendo: actual?.reproduciendo ?? false,
+                    tieneContenido: contenido,
+                    // MediaRemote no publica la longitud de la cola. Una sesión
+                    // identificada permite intentarlo; el ejecutor verifica después
+                    // que realmente haya cambiado la pista.
+                    tieneCola: contenido,
+                    interfazVisible: false)
+                let disponible = comando.esAplicable(en: externo)
+                DispatchQueue.main.async { completion(disponible) }
+            }
+        }
+    }
+
     static func controlar(_ comando: ComandoMusica,
                           completion: @escaping (ResultadoMusica) -> Void) {
         func terminar(_ resultado: ResultadoMusica) {
@@ -208,19 +285,19 @@ enum Musica {
         DispatchQueue.main.async {
             let player = ReproductorYouTubeInterno.shared
             switch comando {
-            case .pausar where player.tieneContenido:
+            case .pausar where comando.esAplicable(en: player.estadoControl):
                 player.pausar(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
                     mensaje: "Pausé la reproducción.", estado: .pausado)); return
-            case .reanudar where player.tieneContenido:
+            case .reanudar where comando.esAplicable(en: player.estadoControl):
                 player.reanudar(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
                     mensaje: "Reanudé la reproducción.", estado: .reproduciendo)); return
-            case .detener where player.tieneContenido:
+            case .detener where comando.esAplicable(en: player.estadoControl):
                 player.detener(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
                     mensaje: "Detuve la reproducción.", estado: .detenido)); return
-            case .siguiente where player.tieneCola:
+            case .siguiente where comando.esAplicable(en: player.estadoControl):
                 player.siguiente(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
                     mensaje: "Pasé al resultado siguiente.", estado: .reproduciendo)); return
-            case .anterior where player.tieneCola:
+            case .anterior where comando.esAplicable(en: player.estadoControl):
                 player.anterior(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
                     mensaje: "Volví al resultado anterior.", estado: .reproduciendo)); return
             case .cerrar:
@@ -232,9 +309,9 @@ enum Musica {
                 terminar(.init(ok: true, proveedor: "betodicta_youtube",
                     mensaje: "Cambié la vista de pantalla completa.", estado: .abierto)); return
             case .compacto:
-                player.alternarCompacto()
+                player.configurarCompacto(true)
                 terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Cambié la vista compacta del reproductor.", estado: .abierto)); return
+                    mensaje: "Oculté el video y dejé los controles de audio.", estado: .abierto)); return
             case .reproducir, .buscar:
                 terminar(.init(ok: false, proveedor: "",
                     mensaje: "La orden necesita una consulta.", estado: .fallo)); return

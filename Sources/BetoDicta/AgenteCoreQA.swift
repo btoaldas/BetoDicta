@@ -900,6 +900,38 @@ enum AgenteCoreQA {
                       plan?.cadena.acciones.first?.modo.musicaAccion == esperado.rawValue,
                       "\(frase) → \(plan?.cadena.acciones.first?.modo.musicaAccion ?? "nil")")
         }
+        let vacio = EstadoControlMusica.vacio
+        let sonando = EstadoControlMusica(reproduciendo: true, tieneContenido: true,
+                                          tieneCola: true, interfazVisible: true)
+        let pausado = EstadoControlMusica(reproduciendo: false, tieneContenido: true,
+                                          tieneCola: true, interfazVisible: true)
+        comprobar("control sin sesión vuelve al dictado",
+                  !ComandoMusica.pausar.esAplicable(en: vacio)
+                    && !ComandoMusica.detener.esAplicable(en: vacio)
+                    && !ComandoMusica.siguiente.esAplicable(en: vacio)
+                    && !ComandoMusica.anterior.esAplicable(en: vacio))
+        comprobar("pausa y stop exigen audio reproduciéndose",
+                  ComandoMusica.pausar.esAplicable(en: sonando)
+                    && ComandoMusica.detener.esAplicable(en: sonando)
+                    && !ComandoMusica.pausar.esAplicable(en: pausado)
+                    && !ComandoMusica.detener.esAplicable(en: pausado))
+        comprobar("reanudar exige contenido pausado",
+                  ComandoMusica.reanudar.esAplicable(en: pausado)
+                    && !ComandoMusica.reanudar.esAplicable(en: sonando)
+                    && !ComandoMusica.reanudar.esAplicable(en: vacio))
+        comprobar("anterior/siguiente exigen cola",
+                  ComandoMusica.siguiente.esAplicable(en: sonando)
+                    && ComandoMusica.anterior.esAplicable(en: sonando)
+                    && !ComandoMusica.siguiente.esAplicable(en: .init(
+                        reproduciendo: true, tieneContenido: true,
+                        tieneCola: false, interfazVisible: true)))
+        let planControl = ModoPlanificador.detectarNatural("Detén la música", catalogo: catalogo)
+        comprobar("compuerta reconoce solo control musical puro",
+                  planControl.flatMap { Musica.controlExclusivo(en: $0.cadena) } == .detener)
+        comprobar("compacto oculta video sin borrar la sesión lógica",
+                  !ReproductorYouTubeModel.debeMostrarVideo(compacto: true))
+        comprobar("vista amplia vuelve a mostrar video",
+                  ReproductorYouTubeModel.debeMostrarVideo(compacto: false))
         comprobar("continúa el informe no controla música",
                   ModoPlanificador.detectarNatural("Continúa el informe para rectorado",
                                                     catalogo: catalogo) == nil)

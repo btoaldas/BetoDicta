@@ -484,12 +484,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // QA visual/real del reproductor interno. `cue` prepara el video oficial
         // de prueba sin sonido; `play` exige estado 1; `controls` verifica además
-        // pausa/reanudación/stop y navegación anterior-siguiente.
+        // pausa/reanudación/stop y navegación anterior-siguiente; `compact`
+        // comprueba que el video desaparece sin desmontar ni pausar la sesión.
         if let modo = ProcessInfo.processInfo.environment["BETODICTA_YTPLAYERTEST"],
-           ["cue", "play", "controls"].contains(modo) {
+           ["cue", "play", "controls", "compact"].contains(modo) {
             let player = ReproductorYouTubeInterno.shared
+            let compactoOriginal = player.model.compacto
+            if modo == "compact" { player.configurarCompacto(false) }
             player.mostrar(); player.model.consulta = "M7lc1UVf-VE"
             player.model.buscar(reproducir: modo != "cue") { r in
+                if modo == "compact", r.reproduciendo {
+                    player.configurarCompacto(true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        let oculto = player.model.compacto && !player.model.videoVisible
+                        let audioVivo = player.model.reproduciendo
+                            && player.estadoControl.tieneContenido
+                        player.configurarCompacto(compactoOriginal)
+                        let ok = oculto && audioVivo
+                        print("YTPLAYERTEST \(ok ? "TODO OK" : "FALLA") compacto=\(oculto) audio=\(audioVivo)")
+                        fflush(stdout); exit(ok ? 0 : 6)
+                    }
+                    return
+                }
                 if modo == "controls", r.reproduciendo {
                     player.model.alternar()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
@@ -4331,12 +4347,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ModoResolver.resolver(texto: textoResolver, modoBase: modoBase,
                               contexto: contexto, vivo: vivo) { [weak self] resultado in
             DispatchQueue.main.async {
-                self?.registrarResolucionModo(resultado, crudo: crudoFlujo,
-                                              modoBase: modoBase)
-                self?.aplicarResultadoModo(resultado, crudo: crudoFlujo, textoNormal: textoResolver,
-                                           modoNormal: modoNormal, contextoAgente: contextoAgente,
-                                           wav: wav, history: history)
+                self?.aplicarResultadoModoConContextoMusical(
+                    resultado, crudo: crudoFlujo, textoNormal: textoResolver,
+                    modoBase: modoBase, modoNormal: modoNormal,
+                    contextoAgente: contextoAgente, wav: wav, history: history)
             }
+        }
+    }
+
+    /// “Detén/pausa/siguiente…” solo es una orden si hay una sesión musical real.
+    /// Si no existe, recupera el modo congelado de este dictado: no abre modal,
+    /// no inicia reproductores y, sobre todo, no consulta embeddings ni una IA.
+    private func aplicarResultadoModoConContextoMusical(
+        _ resultado: ResultadoModo, crudo: String, textoNormal: String,
+        modoBase: Modo, modoNormal: Modo, contextoAgente: Bool,
+        wav: Data, history: HistoryWriter?
+    ) {
+        let comando: ComandoMusica? = {
+            switch resultado {
+            case .cadena(let cadena), .preguntarCadena(let cadena, _):
+                return Musica.controlExclusivo(en: cadena)
+            case .preguntarPlan(let plan):
+                return Musica.controlExclusivo(en: plan.cadena)
+            case .modo(let resolucion):
+                guard resolucion.modo.base == "musica" else { return nil }
+                let c = Musica.comando(resolucion.texto,
+                                       accionConfigurada: resolucion.modo.musicaAccion)
+                return c.intencion == nil ? c : nil
+            case .preguntar(let match):
+                guard match.modo.base == "musica" else { return nil }
+                let c = Musica.comando(match.textoLimpio,
+                                       accionConfigurada: match.modo.musicaAccion)
+                return c.intencion == nil ? c : nil
+            }
+        }()
+
+        let continuar: (ResultadoModo, Bool) -> Void = { [weak self] resuelto, usarContextoAgente in
+            guard let self else { return }
+            self.registrarResolucionModo(resuelto, crudo: crudo, modoBase: modoBase)
+            self.aplicarResultadoModo(resuelto, crudo: crudo, textoNormal: textoNormal,
+                                      modoNormal: modoNormal, contextoAgente: usarContextoAgente,
+                                      wav: wav, history: history)
+        }
+        guard let comando else { continuar(resultado, contextoAgente); return }
+
+        Musica.controlDisponible(comando) { disponible in
+            if disponible {
+                continuar(resultado, contextoAgente)
+                return
+            }
+            let evento: [String: Any] = [
+                "comando": comando.rawValue,
+                "motivo": "sin_sesion_musical",
+                "texto": textoNormal,
+                "modo_retorno": modoNormal.id,
+            ]
+            ModosLog.registrar("musica_control_ignorado", evento)
+            if contextoAgente { AgenteLog.registrar("musica_control_ignorado", evento) }
+            Log.write("  🎵 control \(comando.rawValue) ignorado: no hay sesión musical → \(modoNormal.nombre)")
+            let normal = ResultadoModo.modo(ModoResolucion(
+                modo: modoNormal, texto: textoNormal, fuente: .manual, match: nil))
+            // La frase vuelve al flujo congelado del dictado, no al contexto de
+            // agente que pudo haber interpretado erróneamente el verbo musical.
+            continuar(normal, false)
         }
     }
 

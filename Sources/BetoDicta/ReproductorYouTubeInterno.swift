@@ -41,6 +41,11 @@ final class ReproductorYouTubeModel: ObservableObject {
         didSet { Config.set("musica_interna_compacta", to: compacto) }
     }
 
+    /// El video se conserva montado aun en compacto para que WebKit no corte el
+    /// audio. La vista usa este estado para hacerlo imperceptible, no `.hidden()`.
+    nonisolated static func debeMostrarVideo(compacto: Bool) -> Bool { !compacto }
+    var videoVisible: Bool { Self.debeMostrarVideo(compacto: compacto) }
+
     var ejecutarJavaScript: ((String) -> Void)?
     var pedirPantallaCompleta: (() -> Void)?
     var pedirCompacto: ((Bool) -> Void)?
@@ -382,6 +387,7 @@ private struct ReproductorYouTubeView: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            if !model.compacto {
             HStack(spacing: 10) {
                 Picker("Biblioteca", selection: $model.seccion) {
                     ForEach(SeccionReproductorYouTube.allCases) { s in Text(s.nombre).tag(s) }
@@ -424,21 +430,33 @@ private struct ReproductorYouTubeView: View {
                     Spacer()
                 }
             }
-
-            Group {
-                if model.compacto {
-                    HStack {
-                        Spacer()
-                        ReproductorWebYouTube(model: model)
-                            .frame(width: 356, height: 200)
-                        Spacer()
+            } else {
+                HStack(spacing: 12) {
+                    Image(systemName: model.reproduciendo
+                          ? "speaker.wave.2.circle.fill" : "music.note.house.fill")
+                        .font(.title2).foregroundStyle(model.reproduciendo ? Color.green : violeta)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.tituloActual.isEmpty ? "Reproductor interno" : model.tituloActual)
+                            .font(.headline).lineLimit(1)
+                        Text(model.reproduciendo ? "Reproduciendo solo audio" : model.estado)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                } else {
-                    ReproductorWebYouTube(model: model)
-                        .aspectRatio(16 / 9, contentMode: .fit)
+                    Spacer()
+                    Text("VIDEO OCULTO")
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 }
             }
-            .background(Color.black)
+
+            // SIEMPRE es la misma instancia de WKWebView. En compacto conserva
+            // 1 px y una opacidad imperceptible: el iframe continúa reproduciendo
+            // audio, pero no queda video visible ni se reconstruye el reproductor.
+            ReproductorWebYouTube(model: model)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .frame(maxHeight: model.compacto ? 1 : 386)
+                .opacity(model.compacto ? 0.001 : 1)
+                .allowsHitTesting(!model.compacto)
+                .accessibilityHidden(model.compacto)
+            .background(model.compacto ? Color.clear : Color.black)
             .clipShape(RoundedRectangle(cornerRadius: 10))
 
             HStack(spacing: 18) {
@@ -463,11 +481,17 @@ private struct ReproductorYouTubeView: View {
                     Label(model.compacto ? "Vista amplia" : "Compacto",
                           systemImage: model.compacto ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
                 }.controlSize(.small)
-                    .help("Reduce la ventana manteniendo visible el reproductor oficial de YouTube")
+                    .help(model.compacto
+                          ? "Volver a mostrar el video, buscador y resultados"
+                          : "Ocultar completamente el video y conservar el audio con controles compactos")
                 Button { model.pedirPantallaCompleta?() } label: {
-                    Label("Pantalla", systemImage: "arrow.up.left.and.arrow.down.right")
+                    if model.compacto {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    } else {
+                        Label("Pantalla", systemImage: "arrow.up.left.and.arrow.down.right")
+                    }
                 }.controlSize(.small).help("Mostrar el video y los controles a pantalla completa")
-                if !model.videoID.isEmpty {
+                if !model.compacto, !model.videoID.isEmpty {
                     Button {
                         if let u = URL(string: "https://music.youtube.com/watch?v=\(model.videoID)") {
                             NSWorkspace.shared.open(u)
@@ -488,7 +512,8 @@ private struct ReproductorYouTubeView: View {
                 }.controlSize(.small).help("Abrir la configuración del reproductor interno")
             }
 
-            if model.seccion == .listas, model.listaActual == nil, !model.listas.isEmpty {
+            if !model.compacto, model.seccion == .listas,
+               model.listaActual == nil, !model.listas.isEmpty {
                 ScrollView {
                     LazyVStack(spacing: 5) {
                         ForEach(model.listas) { lista in
@@ -509,7 +534,9 @@ private struct ReproductorYouTubeView: View {
                         }
                     }
                 }.frame(maxHeight: 245)
-            } else if (model.seccion != .listas || model.listaActual != nil), !model.resultados.isEmpty {
+            } else if !model.compacto,
+                      (model.seccion != .listas || model.listaActual != nil),
+                      !model.resultados.isEmpty {
                 ScrollView {
                     LazyVStack(spacing: 5) {
                         ForEach(Array(model.resultados.enumerated()), id: \.element.id) { indice, video in
@@ -544,9 +571,10 @@ private struct ReproductorYouTubeView: View {
             }
         }
         .padding(16)
-        .frame(minWidth: 660, idealWidth: 720,
-               minHeight: model.compacto ? 460 : 600,
-               idealHeight: model.compacto ? 520 : 690)
+        .frame(minWidth: model.compacto ? 500 : 660,
+               idealWidth: model.compacto ? 560 : 720,
+               minHeight: model.compacto ? 150 : 600,
+               idealHeight: model.compacto ? 185 : 690)
     }
 }
 
@@ -557,6 +585,12 @@ final class ReproductorYouTubeInterno: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     var tieneContenido: Bool { !model.videoID.isEmpty }
     var tieneCola: Bool { !model.resultados.isEmpty }
+    var estadoControl: EstadoControlMusica {
+        EstadoControlMusica(reproduciendo: model.reproduciendo,
+                            tieneContenido: tieneContenido,
+                            tieneCola: tieneContenido && model.resultados.count > 1,
+                            interfazVisible: window?.isVisible == true)
+    }
 
     override private init() { super.init() }
 
@@ -578,7 +612,16 @@ final class ReproductorYouTubeInterno: NSObject, NSWindowDelegate {
     func anterior() { mostrar(); model.anterior() }
     func siguiente() { mostrar(); model.siguiente() }
     func cerrar() { model.detener(); window?.orderOut(nil) }
-    func alternarPantallaCompleta() { crearSiHaceFalta(); window?.toggleFullScreen(nil) }
+    func alternarPantallaCompleta() {
+        crearSiHaceFalta()
+        if model.compacto {
+            model.compacto = false
+            model.pedirCompacto?(false)
+            DispatchQueue.main.async { [weak self] in self?.window?.toggleFullScreen(nil) }
+        } else {
+            window?.toggleFullScreen(nil)
+        }
+    }
     func alternarCompacto() {
         mostrar(); model.compacto.toggle(); model.pedirCompacto?(model.compacto)
     }
@@ -597,16 +640,20 @@ final class ReproductorYouTubeInterno: NSObject, NSWindowDelegate {
         let w = NSWindow(contentViewController: hosting)
         w.title = "Música · BetoDicta"
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        w.setContentSize(.init(width: 720, height: model.compacto ? 520 : 690))
-        w.minSize = .init(width: 660, height: model.compacto ? 450 : 600)
+        w.setContentSize(model.compacto ? .init(width: 560, height: 185)
+                                       : .init(width: 720, height: 690))
+        w.minSize = model.compacto ? .init(width: 500, height: 150)
+                                  : .init(width: 660, height: 600)
         w.level = model.compacto ? .floating : .normal
         w.isReleasedWhenClosed = false; w.delegate = self
         model.pedirPantallaCompleta = { [weak self] in self?.alternarPantallaCompleta() }
         model.pedirCompacto = { [weak w] compacto in
             guard let w, !w.styleMask.contains(.fullScreen) else { return }
             w.level = compacto ? .floating : .normal
-            w.minSize = .init(width: 660, height: compacto ? 450 : 600)
-            w.setContentSize(.init(width: 720, height: compacto ? 520 : 690))
+            w.minSize = compacto ? .init(width: 500, height: 150)
+                                  : .init(width: 660, height: 600)
+            w.setContentSize(compacto ? .init(width: 560, height: 185)
+                                      : .init(width: 720, height: 690))
         }
         w.center(); window = w
     }
