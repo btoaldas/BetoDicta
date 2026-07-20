@@ -22,9 +22,15 @@ enum ResultadoPlanConexion {
 
 enum ConexionesIA {
 
-    /// ¿Hay una IA utilizable para este modo? (la propia, o la cascada global)
+    /// ¿Hay una IA utilizable para este modo? La propia del modo manda; si usa
+    /// la global, se prefiere una IA HTTP directa: la cuenta Codex arranca un
+    /// proceso y su envoltorio degrada la obediencia al contrato JSON del plan
+    /// (mismo criterio que el árbitro de modos, que también la excluye salvo
+    /// elección expresa).
     static func iaDisponible(_ modo: Modo) -> ChatIA? {
-        LLMPostProcess.iaDeModo(modo) ?? ChatIA.cadenaPulido().first
+        if let propia = LLMPostProcess.iaDeModo(modo) { return propia }
+        let cadena = ChatIA.cadenaPulido()
+        return cadena.first { !$0.esCuentaCodex } ?? cadena.first
     }
 
     // MARK: Iteración sobre una propuesta rechazada («no la quiero así, cámbiala»)
@@ -175,6 +181,17 @@ enum ConexionesIA {
                     return
                 }
                 let r = interpretar(contenido, conexion: conexion, textoDictado: texto)
+                switch r {
+                case .plan(let p):
+                    AgenteLog.registrar("conexion_plan", ["modo": modo.id, "endpoint": p.endpoint.clave,
+                                                          "ia": ia.etiqueta, "intento": n])
+                case .faltan(let f):
+                    AgenteLog.registrar("conexion_plan", ["modo": modo.id, "faltan": f.joined(separator: ","),
+                                                          "ia": ia.etiqueta, "intento": n])
+                case .invalido(let motivo):
+                    AgenteLog.registrar("conexion_plan", ["modo": modo.id, "invalido": String(motivo.prefix(120)),
+                                                          "ia": ia.etiqueta, "intento": n])
+                }
                 if case .invalido = r, n < 2 { intentar(n + 1); return }
                 completion(r)
             }

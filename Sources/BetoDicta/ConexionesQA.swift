@@ -569,6 +569,31 @@ enum ConexionesQA {
                   && ((p?.valores["ciudad"] as? String)?.lowercased().contains("baños") ?? false))
             print("CONEXIONTEST ia: \(p.map { "\($0.endpoint.clave) \($0.valores["ciudad"] ?? "-") · \($0.resumen)" } ?? "sin plan")")
 
+            // El caso REAL que falló en producción: narración con duración debe
+            // ir a ESCRITURA, jamás a la consulta.
+            var conexReg = conexIA
+            var epRegistrar = EndpointAPI(clave: "registrar", metodo: "POST", ruta: "/reg",
+                                          descripcion: "registrar el trabajo narrado", esEscritura: true)
+            epRegistrar.bodyPlantilla = #"{"items":"{items}"}"#
+            epRegistrar.variables = [VariableAPI(nombre: "items", tipo: "lista", requerida: true,
+                                                 descripcion: "trabajos narrados con minutos")]
+            var epHoy = EndpointAPI(clave: "hoy", metodo: "GET", ruta: "/entries",
+                                    descripcion: "consultar lo ya registrado hoy", query: "date={hoy}")
+            conexReg.endpoints = [epHoy, epRegistrar, epLista]
+            var modoReg = modo; modoReg.conexion = conexReg
+            modoReg.prompt = "Estructura el trabajo narrado como items para registrar."
+            var rReg: ResultadoPlanConexion?
+            ConexionesIA.resolver(modo: modoReg, conexion: conexReg,
+                                  texto: "pon en mis tareas que hice pruebas del conector 15 minutos") { rReg = $0 }
+            let limiteReg = Date().addingTimeInterval(30)
+            while rReg == nil, Date() < limiteReg {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            let pReg = rReg.flatMap(esPlan)
+            check("IA real: narración con duración elige ESCRITURA (no la consulta)",
+                  pReg?.endpoint.clave == "registrar")
+            print("CONEXIONTEST plan-real: \(pReg?.endpoint.clave ?? "sin plan / \(rReg.map { String(describing: $0) } ?? "-")")")
+
             // Prompt de vuelta con IA real: redacción con datos, sin inventos.
             var conexVuelta = conexIA
             conexVuelta.promptRespuesta = "Dime la ciudad, los grados y un consejo corto de abrigo si hace frío."
