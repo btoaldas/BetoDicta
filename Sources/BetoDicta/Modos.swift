@@ -739,6 +739,9 @@ extension ModosStore {
                 case "calendario": e += ["abrir el calendario", "ver mi agenda"]
                 case "mapas": e += ["abrir mapas", "buscar en el mapa"]
                 case "url": e += ["abrir la página web", "abrir mi sitio"]
+                case "conexion": e += ["consulta \(m.nombre.lowercased())",
+                                       "usa la conexión \(m.nombre.lowercased())",
+                                       "pregúntale a \(m.nombre.lowercased())"]
                 default: e += ["abrir \(Acciones.nombre(m.accion))"]
                 }
             } else if m.base == "traducir" {

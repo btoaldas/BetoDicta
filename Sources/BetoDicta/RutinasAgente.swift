@@ -286,6 +286,11 @@ enum RutinasAgenteStore {
             case "tarea", "nota", "nota_apple", "recordatorio", "calendario", "captura", "grabacion",
                  "captura_inteligente", "seleccion_tarea", "seleccion_nota_apple": x = .cambioLocal
             case "atajo": x = AppleAtajosCatalogo.riesgo(nombre: p.valor)
+            case "conexion":
+                // El riesgo real es el de la conexión del modo referenciado:
+                // solo lectura = reversible; con escritura (o modo ausente) = externo.
+                x = ConexionesMotor.riesgo(ModosStore.todos()
+                    .first { $0.id == p.valor && $0.accion == "conexion" }?.conexion)
             case "cerrar_apps": x = .destructivo
             default: x = .externo
             }
@@ -415,6 +420,29 @@ enum RutinasAgenteRunner {
                 }
                 AppleAtajos.ejecutarVerificado(nombre: valor, texto: texto,
                                                 simular: simular, completion: listo)
+            case "conexion":
+                // El paso referencia un modo-conexión por su id; el texto de la
+                // rutina viaja como dictado. La escritura pedirá SU visto bueno
+                // (modal de conexión) además del riesgo externo de la rutina.
+                guard Config.agenteHerramientaConexiones() else {
+                    listo(.init(ok: false, mensaje: "Las conexiones API están apagadas.")); break
+                }
+                guard let modoConexion = ModosStore.todos()
+                    .first(where: { $0.id == paso.valor && $0.accion == "conexion" && $0.conexion != nil }) else {
+                    listo(.init(ok: false, mensaje: "El paso apunta a un modo-conexión que ya no existe.")); break
+                }
+                if simular {
+                    listo(.init(ok: true, mensaje: "Llamaría la conexión «\(modoConexion.nombre)».",
+                                evidencia: ["conexion": modoConexion.id, "simulado": "true"])); break
+                }
+                // NSApp puede no existir (QA corre antes de crear NSApplication):
+                // sin app no hay modal — la escritura fallará con mensaje claro.
+                let confirmador: ConfirmadorConexion? = {
+                    guard let app = NSApp, let d = app.delegate as? AppDelegate else { return nil }
+                    return d.confirmadorConexionUI()
+                }()
+                ConexionesRunner.ejecutar(modo: modoConexion, texto: valor == paso.valor ? texto : valor,
+                                          confirmar: confirmador, completion: listo)
             case "tarea":
                 if !simular { NotasStore.agregar(tipo: "tarea", texto: valor) }
                 listo(.init(ok: true, mensaje: "Agregué una tarea local."))

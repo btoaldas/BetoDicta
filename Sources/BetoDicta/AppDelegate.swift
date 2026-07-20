@@ -4982,6 +4982,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Confirmador de conexiones para llamadores externos al AppDelegate (el
+    /// paso "conexion" de las rutinas). Siempre pregunta en main.
+    func confirmadorConexionUI() -> ConfirmadorConexion {
+        { [weak self] titulo, detalles, responder in
+            DispatchQueue.main.async {
+                guard let self else { responder(false); return }
+                self.presentarConfirmacionConexion(titulo: titulo, detalles: detalles,
+                                                   responder: responder)
+            }
+        }
+    }
+
     /// Visto bueno del flujo proponer→confirmar de una conexión API. Reusa el
     /// modal fn/X (fn = sí, X/clic/timeout = no, fail-closed) con semántica
     /// propia: rechazar solo cancela. Si no se puede preguntar (grabando, panel

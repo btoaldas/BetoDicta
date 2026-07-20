@@ -1155,15 +1155,32 @@ struct AgenteView: View {
                                 Text("Audio a correo").tag("audio_correo")
                                 Text("Audio a oficio").tag("audio_oficio")
                                 Text("Cerrar aplicaciones (confirmar)").tag("cerrar_apps")
+                                Divider()
+                                Text("Conexión API (modo)").tag("conexion")
                             }.labelsHidden().frame(width: 190)
-                            TextField("Valor o {texto}", text: $paso.valor)
-                                .textFieldStyle(.roundedBorder)
+                            if paso.tipo == "conexion" {
+                                // El valor es el ID del modo-conexión; se elige por nombre.
+                                Picker("", selection: $paso.valor) {
+                                    Text("Elige un modo-conexión…").tag("")
+                                    ForEach(ModosStore.todos().filter { $0.accion == "conexion" && $0.conexion != nil }) { mc in
+                                        Text(mc.nombre).tag(mc.id)
+                                    }
+                                }.labelsHidden().frame(minWidth: 160)
+                            } else {
+                                TextField("Valor o {texto}", text: $paso.valor)
+                                    .textFieldStyle(.roundedBorder)
+                            }
                             Toggle("Opcional", isOn: $paso.opcional).font(.caption)
                             Button { rutina.pasos.removeAll { $0.id == paso.id } } label: { Image(systemName: "minus.circle") }
                                 .buttonStyle(.plain).help("Quitar este paso de la rutina")
                         }
                     }
-                    Button("Agregar paso") { rutina.pasos.append(PasoRutinaAgente()) }.controlSize(.small)
+                    HStack {
+                        Button("Agregar paso") { rutina.pasos.append(PasoRutinaAgente()) }.controlSize(.small)
+                        Toggle("Mostrar/hablar el resultado", isOn: $rutina.devuelveResultado)
+                            .font(.caption).toggleStyle(.switch).controlSize(.mini)
+                            .help("La respuesta consolidada de la rutina se muestra y se lee en voz alta (útil con pasos de conexión API o resúmenes)")
+                    }
                 }
                 .padding(10).background(Color(nsColor: .windowBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 8))

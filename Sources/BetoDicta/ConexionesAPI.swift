@@ -614,6 +614,8 @@ enum ConexionesRunner {
             guard let redactado else { completion(r); return }
             var evidencia = r.evidencia
             evidencia["redactado"] = "true"
+            evidencia["salida_cruda"] = evidencia["salida"] ?? ""
+            evidencia["salida"] = redactado   // lo consolidable (rutinas) es el texto útil
             completion(.init(ok: true, mensaje: redactado, evidencia: evidencia))
         }
     }

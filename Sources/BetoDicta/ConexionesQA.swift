@@ -406,6 +406,49 @@ enum ConexionesQA {
             check("srv: preview vencido re-propone y re-confirma",
                   rExpira?.ok == true && confirmaciones == 2)
 
+            // FASE 4 — paso de rutina "conexion" de punta a punta: el modo QA
+            // se registra de verdad en ModosStore (y se limpia al final).
+            var lista = ModosStore.todos()
+            lista.removeAll { $0.id == modoSrvId }
+            lista.append(modoSrv)
+            ModosStore.guardar(lista)
+            var rutinaConexion = RutinaAgente(nombre: "QA conexión")
+            rutinaConexion.pasos = [PasoRutinaAgente(tipo: "conexion", valor: modoSrvId)]
+            rutinaConexion.devuelveResultado = true
+            // El modo QA tiene escritura ⇒ la rutina que lo usa es externa.
+            check("rutina con conexión de escritura = riesgo externo",
+                  RutinasAgenteStore.riesgo(rutinaConexion) == .externo)
+            // Una conexión SOLO lectura referenciada = reversible.
+            var soloLectura = modoSrv
+            soloLectura.id = "qa-srv-lectura"
+            soloLectura.conexion?.endpoints = [epSaldo]
+            var listaLect = ModosStore.todos()
+            listaLect.removeAll { $0.id == soloLectura.id }
+            listaLect.append(soloLectura); ModosStore.guardar(listaLect)
+            var rutinaLectura = RutinaAgente(nombre: "QA lectura")
+            rutinaLectura.pasos = [PasoRutinaAgente(tipo: "conexion", valor: soloLectura.id)]
+            check("rutina con conexión de solo lectura = riesgo reversible",
+                  RutinasAgenteStore.riesgo(rutinaLectura) == .reversible)
+            listaLect = ModosStore.todos(); listaLect.removeAll { $0.id == soloLectura.id }
+            ModosStore.guardar(listaLect)
+            let rSim = esperar { RutinasAgenteRunner.ejecutar(rutina: rutinaConexion, texto: "saldo",
+                                                              simular: true, completion: $0) }
+            check("paso conexión simulado no llama la red",
+                  rSim?.ok == true && rSim?.mensaje.contains("Llamaría") == true)
+            let rPaso = esperar({ RutinasAgenteRunner.ejecutar(rutina: rutinaConexion, texto: "saldo",
+                                                               simular: false, completion: $0) },
+                                segundos: 12)
+            check("rutina ejecuta la conexión real y consolida la salida",
+                  rPaso?.ok == true && rPaso?.mensaje.contains("42") == true)
+            var rutinaRota = RutinaAgente(nombre: "QA rota")
+            rutinaRota.pasos = [PasoRutinaAgente(tipo: "conexion", valor: "modo-inexistente")]
+            let rRota = esperar { RutinasAgenteRunner.ejecutar(rutina: rutinaRota, texto: "x",
+                                                               simular: false, completion: $0) }
+            check("paso con modo inexistente falla claro",
+                  rRota?.ok == false && rRota?.mensaje.contains("ya no existe") == true)
+            lista = ModosStore.todos(); lista.removeAll { $0.id == modoSrvId }
+            ModosStore.guardar(lista)
+
             SecretosKeychain.borrar(cuenta: modoSrvId)
             ConexionesAuth.invalidar(modoSrvId)
         }
