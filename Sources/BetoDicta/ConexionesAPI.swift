@@ -142,15 +142,21 @@ struct ConexionAPI: Codable, Equatable {
     /// llama este endpoint (las claves de primer nivel de la respuesta de la
     /// propuesta quedan disponibles como {variables}, p. ej. {previewId}).
     var confirmEndpointId: String
+    /// PROMPT DE VUELTA: cómo contarte el resultado. Si no está vacío (y hay
+    /// IA), la respuesta cruda de la API se redacta con estas instrucciones
+    /// («dame ciudad, grados y un consejo de abrigo») antes de mostrarse y
+    /// hablarse. Vacío = respuesta cruda tal cual.
+    var promptRespuesta: String
 
     init(baseURL: String = "", auth: AuthConexion = AuthConexion(),
          headers: [String: String] = [:], endpoints: [EndpointAPI] = [],
          timeoutSegundos: Int = 15, vozResumen: Bool = false, usarIA: Bool = true,
-         confirmEndpointId: String = "") {
+         confirmEndpointId: String = "", promptRespuesta: String = "") {
         self.baseURL = baseURL; self.auth = auth; self.headers = headers
         self.endpoints = endpoints; self.timeoutSegundos = timeoutSegundos
         self.vozResumen = vozResumen; self.usarIA = usarIA
         self.confirmEndpointId = confirmEndpointId
+        self.promptRespuesta = promptRespuesta
     }
 
     init(from d: Decoder) throws {
@@ -163,6 +169,7 @@ struct ConexionAPI: Codable, Equatable {
         vozResumen = (try? c.decode(Bool.self, forKey: .vozResumen)) ?? false
         usarIA = (try? c.decode(Bool.self, forKey: .usarIA)) ?? true
         confirmEndpointId = (try? c.decode(String.self, forKey: .confirmEndpointId)) ?? ""
+        promptRespuesta = (try? c.decode(String.self, forKey: .promptRespuesta)) ?? ""
     }
 
     var tieneEscritura: Bool { endpoints.contains { $0.efectivamenteEscritura } }
@@ -471,9 +478,13 @@ enum ConexionesRunner {
         guard problemas.isEmpty else {
             completion(.init(ok: false, mensaje: "No puedo llamar «\(endpoint.clave)»: " + problemas.joined(separator: "; ") + ".")); return
         }
+        let pedido = (valores["texto"] as? String) ?? ""
         guard endpoint.efectivamenteEscritura else {
             hacerLlamada(modo: modo, conexion: conexion, endpoint: endpoint,
-                         valores: valores, resumen: resumen, completion: completion)
+                         valores: valores, resumen: resumen) { r in
+                entregarRedactado(r, modo: modo, conexion: conexion, pedido: pedido,
+                                  completion: completion)
+            }
             return
         }
         // ESCRITURA: sin confirmador no hay cómo pedir el visto bueno → no se ejecuta.
@@ -504,7 +515,10 @@ enum ConexionesRunner {
                                      evidencia: ["cancelado": "usuario"])); return
                 }
                 hacerLlamada(modo: modo, conexion: conexion, endpoint: endpoint,
-                             valores: valores, resumen: resumen, completion: completion)
+                             valores: valores, resumen: resumen) { r in
+                    entregarRedactado(r, modo: modo, conexion: conexion, pedido: pedido,
+                                      completion: completion)
+                }
             }
         }
     }
@@ -543,7 +557,9 @@ enum ConexionesRunner {
                                       resumen: resumen, confirmar: confirmar,
                                       intento: 2, completion: completion)
                     } else {
-                        completion(rConfirm)
+                        entregarRedactado(rConfirm, modo: modo, conexion: conexion,
+                                          pedido: (valores["texto"] as? String) ?? "",
+                                          completion: completion)
                     }
                 }
             }
@@ -579,6 +595,26 @@ enum ConexionesRunner {
             }
         } else {
             probarLectura()
+        }
+    }
+
+    /// Entrega el resultado FINAL: si la conexión tiene prompt de vuelta y hay
+    /// IA, la respuesta cruda se redacta («ciudad, grados y consejo»); ante
+    /// cualquier fallo de la IA se entrega la cruda — jamás se pierde un dato.
+    /// Las propuestas intermedias del flujo de dos fases NO pasan por aquí.
+    private static func entregarRedactado(_ r: ResultadoHerramientaApple, modo: Modo,
+                                          conexion: ConexionAPI, pedido: String,
+                                          completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        guard r.ok,
+              !conexion.promptRespuesta.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            completion(r); return
+        }
+        ConexionesIA.redactarRespuesta(modo: modo, conexion: conexion, pedido: pedido,
+                                       respuestaAPI: r.evidencia["salida"] ?? r.mensaje) { redactado in
+            guard let redactado else { completion(r); return }
+            var evidencia = r.evidencia
+            evidencia["redactado"] = "true"
+            completion(.init(ok: true, mensaje: redactado, evidencia: evidencia))
         }
     }
 

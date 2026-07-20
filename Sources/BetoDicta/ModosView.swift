@@ -673,6 +673,13 @@ struct ModosView: View {
                     .toggleStyle(.switch).controlSize(.mini)
                     .help("Encendido: la IA de este modo elige el endpoint y llena sus variables desde lo dictado (usa el Prompt de abajo como instrucciones). Apagado: se usa la clave dictada o el primer GET, con {texto} solamente.")
             }
+            // PROMPT DE VUELTA: cómo contarte el resultado (vacío = crudo).
+            Text("Respuesta (prompt de vuelta) — cómo contarte el resultado:").font(.caption).foregroundStyle(.secondary)
+            TextEditor(text: conex.promptRespuesta)
+                .font(.callout).frame(height: 48)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.3)))
+            Text("Ej.: «Dime la ciudad, los grados y un consejo de abrigo según el frío». La IA redacta la respuesta con los datos reales de la API; vacío = se muestra la respuesta cruda.")
+                .font(.caption2).foregroundStyle(.secondary)
             if !avisoConexion.isEmpty {
                 Text(avisoConexion).font(.caption)
                     .foregroundStyle(avisoConexion.hasPrefix("✓") ? Color.green : Color.secondary)

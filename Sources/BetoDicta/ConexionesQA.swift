@@ -299,6 +299,17 @@ enum ConexionesQA {
         check("confirmador en NO cancela sin llamar",
               rNo?.ok == false && rNo?.evidencia["cancelado"] == "usuario")
 
+        // 15b2. Prompt de vuelta (redacción): estructura y datos no confiables.
+        check("prompt de vuelta lleva instrucciones, pedido y respuesta",
+              {
+                  let p = ConexionesIA.promptRedaccion(instrucciones: "ciudad, grados y consejo",
+                                                       pedido: "clima del Puyo",
+                                                       respuestaAPI: "Puyo: +16°C")
+                  return p.contains("ciudad, grados y consejo") && p.contains("clima del Puyo")
+                      && p.contains("Puyo: +16°C") && p.contains("NO CONFIABLES")
+                      && p.contains("INSTRUCCIONES_INTERNAS_NO_REPRODUCIR")
+              }())
+
         // 15c. (Opcional) E2E contra el servidor LOCAL de prueba (login→token,
         // re-auth 401, proponer→confirmar con {previewId}, expiración). Lo
         // levanta el harness externo en 127.0.0.1:8765 (scripts/conexiones-qa-server.py).
@@ -414,6 +425,24 @@ enum ConexionesQA {
                   p?.endpoint.clave == "clima"
                   && ((p?.valores["ciudad"] as? String)?.lowercased().contains("baños") ?? false))
             print("CONEXIONTEST ia: \(p.map { "\($0.endpoint.clave) \($0.valores["ciudad"] ?? "-") · \($0.resumen)" } ?? "sin plan")")
+
+            // Prompt de vuelta con IA real: redacción con datos, sin inventos.
+            var conexVuelta = conexIA
+            conexVuelta.promptRespuesta = "Dime la ciudad, los grados y un consejo corto de abrigo si hace frío."
+            var redactado: String??
+            ConexionesIA.redactarRespuesta(modo: modoIA, conexion: conexVuelta,
+                                           pedido: "dime el clima del Puyo",
+                                           respuestaAPI: "Puyo: +16°C, humedad 92%") { redactado = $0 }
+            let limiteR = Date().addingTimeInterval(30)
+            while redactado == nil, Date() < limiteR {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            let rTexto = (redactado ?? nil) ?? ""
+            check("IA real redacta la vuelta con los datos",
+                  rTexto.lowercased().contains("puyo")
+                  && (rTexto.contains("16") || rTexto.lowercased().contains("dieciséis")
+                      || rTexto.lowercased().contains("dieciseis")))
+            print("CONEXIONTEST vuelta: \(String(rTexto.prefix(220)))")
         }
 
         // 17. (Opcional) GET real a una API pública — exige internet.
