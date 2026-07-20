@@ -34,6 +34,7 @@ final class TareasRecordatorios: NSObject, UNUserNotificationCenterDelegate {
         let cuerpo: String
         let hablar: Bool
         let id: String
+        var sonido: Bool = true   // false en horas quietas (notificación muda)
     }
 
     struct Conteos {
@@ -285,6 +286,34 @@ final class TareasRecordatorios: NSObject, UNUserNotificationCenterDelegate {
         return ejemplos.isEmpty ? "Tienes \(conteo)." : "Tienes \(conteo). \(ejemplos)"
     }
 
+    /// Resumen hablado/escrito filtrado por alcance (hoy / semana / pendientes).
+    /// "hoy" = pendientes vencidas o que vencen hoy (+ sin fecha si se incluye);
+    /// "semana" = las de los próximos 7 días (+ vencidas); "pendientes" = todas.
+    static func resumenAlcance(_ alcance: AlcanceResumen, items: [Pendiente],
+                               ahora: Date, incluirSinFecha: Bool) -> String {
+        let cal = Calendar.current
+        let finSemana = cal.date(byAdding: .day, value: 7, to: ahora)?.timeIntervalSince1970
+            ?? ahora.timeIntervalSince1970 + 7 * 86_400
+        func enAlcance(_ p: Pendiente) -> Bool {
+            guard let e = p.fechaObjetivo else { return incluirSinFecha && alcance == .pendientes }
+            switch alcance {
+            case .pendientes: return true
+            case .hoy: return e <= ahora.timeIntervalSince1970
+                || cal.isDateInToday(Date(timeIntervalSince1970: e))
+            case .semana: return e <= finSemana
+            }
+        }
+        let filtradas = items.filter { $0.tipo == "tarea" && !$0.hecho && enAlcance($0) }
+        guard !filtradas.isEmpty else {
+            switch alcance {
+            case .hoy: return "No tienes tareas para hoy."
+            case .semana: return "No tienes tareas para esta semana."
+            case .pendientes: return "No tienes tareas pendientes."
+            }
+        }
+        return resumenTexto(items: filtradas, ahora: ahora, incluirSinFecha: incluirSinFecha)
+    }
+
     static func vencidos(items: [Pendiente], ahora: Date,
                          incluirNotas: Bool) -> [Pendiente] {
         items.filter { item in
@@ -316,6 +345,57 @@ final class TareasRecordatorios: NSObject, UNUserNotificationCenterDelegate {
                            id: "pendientes.\(Int(ahora.timeIntervalSince1970))"))
         }
         revisarResumen(ahora: ahora)
+        revisarResumenPeriodico(ahora: ahora)
+    }
+
+    /// ¿`ahora` cae dentro de la ventana de silencio? La ventana puede cruzar
+    /// medianoche (ej. 22:00→07:00). Puro y testeable.
+    static func enHorasQuietas(minutosAhora: Int, desde: Int, hasta: Int) -> Bool {
+        if desde == hasta { return false }
+        return desde < hasta
+            ? (minutosAhora >= desde && minutosAhora < hasta)          // ventana normal
+            : (minutosAhora >= desde || minutosAhora < hasta)          // cruza medianoche
+    }
+
+    /// ¿Toca el resumen periódico? Puro: separa la política del reloj real.
+    static func tocaResumenPeriodico(activo: Bool, horas: Int,
+                                     ultimo: Double, ahora: Date) -> Bool {
+        guard activo, horas >= 1 else { return false }
+        let transcurrido = ahora.timeIntervalSince1970 - ultimo
+        return transcurrido >= Double(horas) * 3_600 - 30   // -30s: tolerancia del reloj
+    }
+
+    /// Recordatorio cada N horas de lo que falta. En horas quietas entrega la
+    /// notificación escrita pero SIN sonido ni voz. Nunca dispara si no hay
+    /// pendientes. Avanza el marcador aunque calle, para no acumular al amanecer.
+    private func revisarResumenPeriodico(ahora: Date) {
+        guard Config.tareasResumenPeriodico() else { return }
+        // Primera vez (o tras encenderlo): fija la línea base sin disparar, para
+        // que el primer recordatorio llegue tras un intervalo completo y no en
+        // cada arranque o cambio de ajuste.
+        if Config.tareasResumenPeriodicoUltimo() <= 0 {
+            Config.set("tareas_resumen_periodico_ultimo", to: ahora.timeIntervalSince1970)
+            return
+        }
+        guard Self.tocaResumenPeriodico(activo: true,
+                                        horas: Config.tareasResumenPeriodicoHoras(),
+                                        ultimo: Config.tareasResumenPeriodicoUltimo(),
+                                        ahora: ahora) else { return }
+        Config.set("tareas_resumen_periodico_ultimo", to: ahora.timeIntervalSince1970)
+        let items = NotasStore.todos()
+        guard items.contains(where: { $0.tipo == "tarea" && !$0.hecho }) else { return }  // nada que recordar
+        let c = Calendar.current.dateComponents([.hour, .minute], from: ahora)
+        let minutos = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+        let quietas = Config.tareasQuietasActivo()
+            && Self.enHorasQuietas(minutosAhora: minutos,
+                                   desde: Config.tareasQuietasDesde(),
+                                   hasta: Config.tareasQuietasHasta())
+        let texto = Self.resumenTexto(items: items, ahora: ahora,
+                                      incluirSinFecha: Config.tareasResumenIncluirSinFecha())
+        publicar(.init(titulo: "Tareas pendientes", cuerpo: texto,
+                       hablar: !quietas && Config.tareasResumenPeriodicoVoz(),
+                       id: "periodico.\(Int(ahora.timeIntervalSince1970))",
+                       sonido: !quietas))
     }
 
     private func revisarResumen(ahora: Date) {
@@ -397,7 +477,7 @@ final class TareasRecordatorios: NSObject, UNUserNotificationCenterDelegate {
         centro.getNotificationSettings { [weak self] ajustes in
             guard [.authorized, .provisional].contains(ajustes.authorizationStatus) else { return }
             let c = UNMutableNotificationContent(); c.title = aviso.titulo; c.body = aviso.cuerpo
-            if Config.tareasAvisosSonido() { c.sound = .default }
+            if Config.tareasAvisosSonido(), aviso.sonido { c.sound = .default }
             let req = UNNotificationRequest(identifier: "ec.bto.betodicta.\(aviso.id)",
                                             content: c, trigger: nil)
             self?.centro?.add(req) { error in

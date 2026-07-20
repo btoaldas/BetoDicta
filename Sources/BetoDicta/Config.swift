@@ -249,6 +249,19 @@ struct Config {
     static func tareasResumenUltimo(_ periodo: String) -> String {
         (json()["tareas_resumen_ultimo_\(periodo)"] as? String) ?? ""
     }
+    // Recordatorio PERIÓDICO de pendientes (cada N horas): resume solo lo que
+    // falta, con notificación + voz. Reutiliza la triple salida existente.
+    static func tareasResumenPeriodico() -> Bool { (json()["tareas_resumen_periodico"] as? Bool) ?? true }
+    static func tareasResumenPeriodicoHoras() -> Int {
+        min(24, max(1, (json()["tareas_resumen_periodico_horas"] as? Int) ?? 1))
+    }
+    static func tareasResumenPeriodicoVoz() -> Bool { (json()["tareas_resumen_periodico_voz"] as? Bool) ?? true }
+    static func tareasResumenPeriodicoUltimo() -> Double { (json()["tareas_resumen_periodico_ultimo"] as? Double) ?? 0 }
+    // Horas quietas: durante la ventana no suena ni habla (la notificación
+    // escrita sí queda). Minutos del día; la ventana puede cruzar medianoche.
+    static func tareasQuietasActivo() -> Bool { (json()["tareas_quietas_activo"] as? Bool) ?? true }
+    static func tareasQuietasDesde() -> Int { min(1439, max(0, (json()["tareas_quietas_desde"] as? Int) ?? 1320)) } // 22:00
+    static func tareasQuietasHasta() -> Int { min(1439, max(0, (json()["tareas_quietas_hasta"] as? Int) ?? 420)) }  // 07:00
     /// Cerebro del Modo Agente: "local" (IA configurada en BetoDicta) | "hermes" |
     /// "codex" (cuenta ChatGPT delegada al cliente oficial Codex). Parametrizable.
     static func agenteMotor() -> String { (json()["agente_motor"] as? String) ?? "local" }

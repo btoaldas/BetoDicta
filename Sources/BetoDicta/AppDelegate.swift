@@ -5269,6 +5269,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             } else { seguir(textoFinal) }
         } else {
+            // Modo Tarea multi-sección: si el dictado no es "crear" (sino tachar,
+            // modificar o pedir un resumen), se resuelve local sin pulir ni guardar.
+            if modo.almacen == "tarea" {
+                let comando = TareasComando.interpretar(textoFinal)
+                if comando != .crear {
+                    manejarComandoTarea(comando, crudo: crudo, wav: wav, history: history)
+                    return
+                }
+            }
             if !recorder.isRecording { panel.update("✨ \(modo.nombre)…") }
             let almacen = modo.almacen
             LLMPostProcess.procesarModo(textoFinal, modo: modo) { [weak self] resultado in
@@ -5282,6 +5291,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 Log.write("  ✓ entregado:  \(resultado)")
                 self?.finishDelivery(resultado, rawText: crudo, wav: wav, history: history)
             }
+        }
+    }
+
+    /// Ejecuta un comando del Modo Tarea (completar/modificar/resumen) sin salir
+    /// a la nube: actúa sobre las tareas locales y responde en el notch + voz.
+    private func manejarComandoTarea(_ comando: ComandoTarea, crudo: String,
+                                     wav: Data, history: HistoryWriter?) {
+        func responder(_ texto: String) {
+            Log.write("  ✓ tarea (comando): \(texto)")
+            AgenteLog.registrar("comando_tarea", ["respuesta": texto])
+            if !recorder.isRecording {
+                panel.flash("✓ \(texto)", segundos: 5)
+                panel.hide(after: 5.2)
+            }
+            if Config.ttsActivo() { Voz.decir(texto) }
+            history?.finish(wav: wav, finalText: "▶︎ \(texto)")
+            restaurarModoVisualSiLibre(origen: "comando_tarea")
+        }
+        switch comando {
+        case .crear:
+            responder("Nada que hacer.")   // no debería llegar aquí
+        case .completar(let q):
+            let r = NotasStore.buscarTareaPendiente(q)
+            if let t = r.tarea, !r.ambiguo {
+                NotasStore.alternar(t.id)
+                responder("Tarea completada: \(t.texto).")
+            } else if r.ambiguo {
+                responder("Hay varias tareas parecidas a «\(q)». Sé más específico.")
+            } else {
+                responder("No encontré una tarea pendiente que diga «\(q)».")
+            }
+        case .modificar(let q, let nuevo):
+            if let t = NotasStore.modificarPorTexto(q, nuevo: nuevo) {
+                responder("Tarea actualizada: \(t.texto).")
+            } else {
+                responder("No pude encontrar una sola tarea clara para «\(q)».")
+            }
+        case .resumen(let alcance):
+            let texto = TareasRecordatorios.resumenAlcance(
+                alcance, items: NotasStore.todos(), ahora: Date(),
+                incluirSinFecha: Config.tareasResumenIncluirSinFecha())
+            responder(texto)
         }
     }
 

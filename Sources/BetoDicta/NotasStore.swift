@@ -171,6 +171,65 @@ enum NotasStore {
         }
         return resultado
     }
+    // MARK: Buscar/actuar por TEXTO (para "quita la tarea de X" por voz)
+
+    /// Puntúa cuánto se parece `consulta` al texto de una tarea: cobertura de las
+    /// palabras fuertes de la consulta contra las de la tarea (fuzzy por palabra).
+    /// Puro y testeable; sin disco.
+    static func puntuar(consulta: String, contra texto: String) -> Double {
+        let q = PerfilAgente.normalizar(consulta).split(separator: " ").map(String.init)
+            .filter { $0.count >= 3 }
+        let t = PerfilAgente.normalizar(texto).split(separator: " ").map(String.init)
+        guard !q.isEmpty, !t.isEmpty else { return 0 }
+        var suma = 0.0
+        for palabra in q {
+            let mejor = t.map { ModoFuzzy.similitud(palabra, $0) }.max() ?? 0
+            suma += mejor
+        }
+        return suma / Double(q.count)   // 0..1: 1 = todas las palabras de la consulta calzan
+    }
+
+    /// Núcleo PURO (sin disco): rankea una lista dada. Testeable sin tocar la
+    /// biblioteca real del usuario.
+    static func rankearPendientes(_ consulta: String, pendientes: [Pendiente])
+        -> (tarea: Pendiente?, ambiguo: Bool, candidatas: [Pendiente]) {
+        let vivas = pendientes.filter { $0.tipo == "tarea" && !$0.hecho }
+        guard !vivas.isEmpty else { return (nil, false, []) }
+        let rankeadas = vivas.map { ($0, puntuar(consulta: consulta, contra: $0.texto)) }
+            .sorted { $0.1 > $1.1 }
+        guard let mejor = rankeadas.first, mejor.1 >= 0.62 else { return (nil, false, []) }
+        let segundo = rankeadas.dropFirst().first?.1 ?? 0
+        let ambiguo = segundo >= 0.62 && (mejor.1 - segundo) < 0.12
+        return (mejor.0, ambiguo, rankeadas.prefix(3).map(\.0))
+    }
+
+    /// La tarea PENDIENTE real que más se parece a la consulta (umbral 0.62).
+    static func buscarTareaPendiente(_ consulta: String)
+        -> (tarea: Pendiente?, ambiguo: Bool, candidatas: [Pendiente]) {
+        rankearPendientes(consulta, pendientes: tareas())
+    }
+
+    /// Marca como HECHA (tacha) la tarea pendiente que más se parece. Devuelve la
+    /// tarea tachada, o nil si no encontró una coincidencia clara.
+    @discardableResult static func completarPorTexto(_ consulta: String) -> Pendiente? {
+        let r = buscarTareaPendiente(consulta)
+        guard let t = r.tarea, !r.ambiguo else { return nil }
+        alternar(t.id)
+        Log.log(.config, "tarea completada por voz: \(t.texto.prefix(40))")
+        return t
+    }
+
+    /// Reemplaza el texto de la tarea pendiente que más se parece. Devuelve la
+    /// tarea modificada con su nuevo texto (o nil si no hubo match claro).
+    @discardableResult static func modificarPorTexto(_ consulta: String, nuevo: String) -> Pendiente? {
+        let r = buscarTareaPendiente(consulta)
+        guard let t = r.tarea, !r.ambiguo,
+              !nuevo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        editar(t.id, texto: nuevo.trimmingCharacters(in: .whitespacesAndNewlines))
+        Log.log(.config, "tarea modificada por voz: \(t.texto.prefix(30)) → \(nuevo.prefix(30))")
+        return NotasStore.todos().first { $0.id == t.id }
+    }
+
     /// Borra las tareas marcadas como hechas.
     static func limpiarHechas() {
         mutar { items in

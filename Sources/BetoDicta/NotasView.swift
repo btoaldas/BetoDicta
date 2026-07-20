@@ -30,6 +30,12 @@ struct NotasView: View {
     @State private var resumenIA = Config.tareasResumenIA()
     @State private var horaManana = Self.hoy(minutos: Config.tareasResumenMananaMinutos())
     @State private var horaTarde = Self.hoy(minutos: Config.tareasResumenTardeMinutos())
+    @State private var recordatorioPeriodico = Config.tareasResumenPeriodico()
+    @State private var periodicoHoras = Config.tareasResumenPeriodicoHoras()
+    @State private var periodicoVoz = Config.tareasResumenPeriodicoVoz()
+    @State private var quietasActivo = Config.tareasQuietasActivo()
+    @State private var horaQuietaDesde = Self.hoy(minutos: Config.tareasQuietasDesde())
+    @State private var horaQuietaHasta = Self.hoy(minutos: Config.tareasQuietasHasta())
 
     private static func hoy(minutos: Int) -> Date {
         Calendar.current.date(bySettingHour: minutos / 60, minute: minutos % 60,
@@ -78,6 +84,12 @@ struct NotasView: View {
         Config.set("tareas_resumen_ia", to: resumenIA)
         Config.set("tareas_resumen_manana_min", to: Self.minutos(horaManana))
         Config.set("tareas_resumen_tarde_min", to: Self.minutos(horaTarde))
+        Config.set("tareas_resumen_periodico", to: recordatorioPeriodico)
+        Config.set("tareas_resumen_periodico_horas", to: periodicoHoras)
+        Config.set("tareas_resumen_periodico_voz", to: periodicoVoz)
+        Config.set("tareas_quietas_activo", to: quietasActivo)
+        Config.set("tareas_quietas_desde", to: Self.minutos(horaQuietaDesde))
+        Config.set("tareas_quietas_hasta", to: Self.minutos(horaQuietaHasta))
         TareasRecordatorios.shared.solicitarPermisoSiHaceFalta()
         TareasRecordatorios.shared.revisarAhora()
         recargar()
@@ -141,6 +153,34 @@ struct NotasView: View {
                         DatePicker("", selection: $horaTarde, displayedComponents: .hourAndMinute)
                             .labelsHidden().controlSize(.small).disabled(!resumenTarde)
                     }
+                    Divider()
+                    Toggle("Recordarme las tareas pendientes cada cierto tiempo", isOn: $recordatorioPeriodico)
+                        .toggleStyle(.checkbox)
+                    if recordatorioPeriodico {
+                        HStack {
+                            Text("Cada").font(.caption)
+                            Picker("", selection: $periodicoHoras) {
+                                Text("1 hora").tag(1); Text("2 horas").tag(2)
+                                Text("3 horas").tag(3); Text("8 horas").tag(8)
+                            }.labelsHidden().frame(width: 110)
+                            Toggle("Leerlo en voz alta", isOn: $periodicoVoz).toggleStyle(.checkbox)
+                        }
+                        Text("Te resume solo lo que falta (con su hora); las tareas tachadas no aparecen.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Toggle("No molestar de noche (sin sonido ni voz)", isOn: $quietasActivo)
+                            .toggleStyle(.checkbox)
+                        if quietasActivo {
+                            HStack {
+                                Text("Desde").font(.caption)
+                                DatePicker("", selection: $horaQuietaDesde, displayedComponents: .hourAndMinute)
+                                    .labelsHidden()
+                                Text("hasta").font(.caption)
+                                DatePicker("", selection: $horaQuietaHasta, displayedComponents: .hourAndMinute)
+                                    .labelsHidden()
+                            }
+                        }
+                    }
+                    Divider()
                     Toggle("Incluir tareas sin fecha en los resúmenes", isOn: $incluirSinFecha)
                         .toggleStyle(.checkbox)
                     Toggle("Dar forma al resumen con IA (opcional)", isOn: $resumenIA)
@@ -188,6 +228,12 @@ struct NotasView: View {
                 .onChange(of: resumenIA) { _, _ in guardarConfiguracion() }
                 .onChange(of: horaManana) { _, _ in guardarConfiguracion() }
                 .onChange(of: horaTarde) { _, _ in guardarConfiguracion() }
+                .onChange(of: recordatorioPeriodico) { _, _ in guardarConfiguracion() }
+                .onChange(of: periodicoHoras) { _, _ in guardarConfiguracion() }
+                .onChange(of: periodicoVoz) { _, _ in guardarConfiguracion() }
+                .onChange(of: quietasActivo) { _, _ in guardarConfiguracion() }
+                .onChange(of: horaQuietaDesde) { _, _ in guardarConfiguracion() }
+                .onChange(of: horaQuietaHasta) { _, _ in guardarConfiguracion() }
             } label: {
                 Label("Avisos y resúmenes", systemImage: "bell.badge")
                     .font(.subheadline).bold().foregroundStyle(acentoNo)
