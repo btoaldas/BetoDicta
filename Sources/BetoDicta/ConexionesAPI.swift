@@ -89,15 +89,27 @@ struct EndpointAPI: Codable, Identifiable, Equatable {
 /// Autenticación de la conexión. El SECRETO jamás se guarda aquí (va a
 /// SecretosKeychain, cuenta = id del modo); solo la forma de presentarlo.
 struct AuthConexion: Codable, Equatable {
-    var tipo: String          // "ninguna" | "apikey"  ("login" llega en fase 3)
+    var tipo: String          // "ninguna" | "apikey" | "login" (usuario+clave → token)
     var header: String        // ej. "Authorization" / "X-Api-Key"
     var prefijo: String       // ej. "Bearer " o "" (una API key pelada va sin prefijo)
-    var usuario: String       // solo "login" (fase 3); visible, nunca es el secreto
+    var usuario: String       // solo "login"; visible, nunca es el secreto
+    var loginRuta: String     // solo "login": ej. "/login"
+    var loginFormato: String  // "json" | "form" (x-www-form-urlencoded)
+    var campoUsuario: String  // nombre del campo de usuario en el body de login
+    var campoClave: String    // nombre del campo de la clave
+    var campoToken: String    // DOT-PATH del token en la respuesta ("token" o "data.access_token")
+    var ttlMinutos: Int       // vida del token en cache (re-login al vencer)
 
     init(tipo: String = "ninguna", header: String = "Authorization",
-         prefijo: String = "Bearer ", usuario: String = "") {
+         prefijo: String = "Bearer ", usuario: String = "",
+         loginRuta: String = "/login", loginFormato: String = "json",
+         campoUsuario: String = "email", campoClave: String = "password",
+         campoToken: String = "token", ttlMinutos: Int = 45) {
         self.tipo = tipo; self.header = header; self.prefijo = prefijo
-        self.usuario = usuario
+        self.usuario = usuario; self.loginRuta = loginRuta
+        self.loginFormato = loginFormato; self.campoUsuario = campoUsuario
+        self.campoClave = campoClave; self.campoToken = campoToken
+        self.ttlMinutos = ttlMinutos
     }
 
     init(from d: Decoder) throws {
@@ -106,6 +118,12 @@ struct AuthConexion: Codable, Equatable {
         header = (try? c.decode(String.self, forKey: .header)) ?? "Authorization"
         prefijo = (try? c.decode(String.self, forKey: .prefijo)) ?? "Bearer "
         usuario = (try? c.decode(String.self, forKey: .usuario)) ?? ""
+        loginRuta = (try? c.decode(String.self, forKey: .loginRuta)) ?? "/login"
+        loginFormato = (try? c.decode(String.self, forKey: .loginFormato)) ?? "json"
+        campoUsuario = (try? c.decode(String.self, forKey: .campoUsuario)) ?? "email"
+        campoClave = (try? c.decode(String.self, forKey: .campoClave)) ?? "password"
+        campoToken = (try? c.decode(String.self, forKey: .campoToken)) ?? "token"
+        ttlMinutos = (try? c.decode(Int.self, forKey: .ttlMinutos)) ?? 45
     }
 }
 
@@ -118,13 +136,21 @@ struct ConexionAPI: Codable, Equatable {
     var timeoutSegundos: Int
     var vozResumen: Bool            // leer un resumen del resultado por TTS
     var usarIA: Bool                // la IA arma el plan (endpoint+variables) desde lo dictado
+    /// Clave del endpoint de 2ª fase del flujo proponer→confirmar. Si existe,
+    /// el endpoint de escritura elegido actúa como PROPUESTA (dry-run del
+    /// servidor), su respuesta se muestra para el visto bueno, y tras el OK se
+    /// llama este endpoint (las claves de primer nivel de la respuesta de la
+    /// propuesta quedan disponibles como {variables}, p. ej. {previewId}).
+    var confirmEndpointId: String
 
     init(baseURL: String = "", auth: AuthConexion = AuthConexion(),
          headers: [String: String] = [:], endpoints: [EndpointAPI] = [],
-         timeoutSegundos: Int = 15, vozResumen: Bool = false, usarIA: Bool = true) {
+         timeoutSegundos: Int = 15, vozResumen: Bool = false, usarIA: Bool = true,
+         confirmEndpointId: String = "") {
         self.baseURL = baseURL; self.auth = auth; self.headers = headers
         self.endpoints = endpoints; self.timeoutSegundos = timeoutSegundos
         self.vozResumen = vozResumen; self.usarIA = usarIA
+        self.confirmEndpointId = confirmEndpointId
     }
 
     init(from d: Decoder) throws {
@@ -136,6 +162,7 @@ struct ConexionAPI: Codable, Equatable {
         timeoutSegundos = (try? c.decode(Int.self, forKey: .timeoutSegundos)) ?? 15
         vozResumen = (try? c.decode(Bool.self, forKey: .vozResumen)) ?? false
         usarIA = (try? c.decode(Bool.self, forKey: .usarIA)) ?? true
+        confirmEndpointId = (try? c.decode(String.self, forKey: .confirmEndpointId)) ?? ""
     }
 
     var tieneEscritura: Bool { endpoints.contains { $0.efectivamenteEscritura } }
@@ -349,25 +376,33 @@ final class ConexionRedDelegate: NSObject, URLSessionTaskDelegate {
     }
 }
 
-// MARK: - Runner (fase 1): GET directo de lectura, con evidencia sin secretos
+// MARK: - Runner: lectura directa + escritura vía proponer→confirmar (fase 3)
+
+/// El runner pide el visto bueno a través de este closure (el AppDelegate pone
+/// el modal fn/X; el QA pone una respuesta programática). `responder` DEBE
+/// llamarse exactamente una vez; sin confirmador no hay escritura posible.
+typealias ConfirmadorConexion = (_ titulo: String, _ detalles: [String],
+                                 _ responder: @escaping (Bool) -> Void) -> Void
 
 enum ConexionesRunner {
 
-    /// Elige el endpoint a ejecutar sin IA (fase 1): si el dictado empieza con
-    /// la clave de un endpoint la usa; si no, el primer GET de lectura.
+    /// Elige el endpoint a ejecutar sin IA: si el dictado empieza con la clave
+    /// de un endpoint la usa (también de escritura — la confirmación protege);
+    /// si no, el primer GET de lectura. El endpoint de 2ª fase nunca se elige.
     static func endpointPara(_ conexion: ConexionAPI, texto: String) -> EndpointAPI? {
-        let lecturas = conexion.endpoints.filter { !$0.efectivamenteEscritura }
+        let elegibles = conexion.endpoints.filter {
+            conexion.confirmEndpointId.isEmpty || $0.clave != conexion.confirmEndpointId
+        }
         let n = texto.lowercased().trimmingCharacters(in: .whitespaces)
-        if let porClave = lecturas.first(where: { !$0.clave.isEmpty && n.hasPrefix($0.clave.lowercased()) }) {
+        if let porClave = elegibles.first(where: { !$0.clave.isEmpty && n.hasPrefix($0.clave.lowercased()) }) {
             return porClave
         }
-        return lecturas.first
+        return elegibles.first { !$0.efectivamenteEscritura }
     }
 
-    /// Ejecuta la conexión de un modo para el texto dictado. Fase 1: llena solo
-    /// {texto}; el resto de variables requeridas produce un error claro (la IA
-    /// las llenará en la fase siguiente, no las inventamos aquí).
+    /// Ejecuta la conexión de un modo para el texto dictado.
     static func ejecutar(modo: Modo, texto: String, ignorarInterruptor: Bool = false,
+                         confirmar: ConfirmadorConexion? = nil,
                          completion: @escaping (ResultadoHerramientaApple) -> Void) {
         guard ignorarInterruptor || Config.agenteHerramientaConexiones() else {
             completion(.init(ok: false, mensaje: "Las conexiones API están apagadas en Ajustes → Asistente.")); return
@@ -378,35 +413,32 @@ enum ConexionesRunner {
         guard ConexionesMotor.urlSegura(conexion.baseURL) else {
             completion(.init(ok: false, mensaje: "La URL base no es segura. Usa HTTPS, o HTTP únicamente para localhost.")); return
         }
-        guard conexion.endpoints.contains(where: { !$0.efectivamenteEscritura }) else {
-            completion(.init(ok: false, mensaje: conexion.tieneEscritura
-                ? "Esta conexión solo tiene endpoints de escritura; la propuesta con confirmación llega en la siguiente fase."
-                : "La conexión «\(modo.nombre)» no tiene endpoints configurados.")); return
+        guard !conexion.endpoints.isEmpty else {
+            completion(.init(ok: false, mensaje: "La conexión «\(modo.nombre)» no tiene endpoints configurados.")); return
         }
-        // FASE 2: si el usuario lo quiere y hay una IA, ELLA arma el plan
-        // (endpoint + variables desde el dictado libre). El plan vuelve como
-        // texto y se valida estricto; ante fallo se cae al camino determinista.
+        // Con IA: ella arma el plan (endpoint + variables) desde el dictado.
         if conexion.usarIA, ConexionesIA.iaDisponible(modo) != nil {
             ConexionesIA.resolver(modo: modo, conexion: conexion, texto: texto) { r in
                 switch r {
                 case .plan(let plan):
                     ejecutarEndpoint(modo: modo, conexion: conexion, endpoint: plan.endpoint,
-                                     valores: plan.valores, resumen: plan.resumen, completion: completion)
+                                     valores: plan.valores, resumen: plan.resumen,
+                                     confirmar: confirmar, completion: completion)
                 case .faltan(let nombres):
                     let lista = nombres.joined(separator: ", ")
                     completion(.init(ok: false,
                         mensaje: "Me falta saber: \(lista). Dímelo de nuevo incluyendo ese dato.",
                         evidencia: ["faltan": lista]))
                 case .invalido(let motivo):
-                    // Fallback determinista (fase 1) SOLO si es viable sin IA;
-                    // si no, el motivo real — jamás un endpoint adivinado.
+                    // Fallback determinista SOLO si es viable sin inventar valores.
                     if let ep = endpointPara(conexion, texto: texto),
                        ep.variables.allSatisfy({ !$0.requerida }) {
                         var valores: [String: Any] = [:]
                         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !t.isEmpty { valores["texto"] = t }
                         ejecutarEndpoint(modo: modo, conexion: conexion, endpoint: ep,
-                                         valores: valores, resumen: "", completion: completion)
+                                         valores: valores, resumen: "",
+                                         confirmar: confirmar, completion: completion)
                     } else {
                         completion(.init(ok: false, mensaje: "No pude armar el plan: \(motivo)."))
                     }
@@ -414,115 +446,251 @@ enum ConexionesRunner {
             }
             return
         }
-        // Camino determinista (fase 1): clave dictada o primer GET, solo {texto}.
+        // Camino determinista: clave dictada o primer GET, solo {texto}.
         guard let endpoint = endpointPara(conexion, texto: texto) else {
-            completion(.init(ok: false, mensaje: "La conexión «\(modo.nombre)» no tiene endpoints de lectura.")); return
+            completion(.init(ok: false, mensaje: conexion.tieneEscritura
+                ? "Esta conexión solo tiene endpoints de escritura y sin IA no puedo armar su plan."
+                : "La conexión «\(modo.nombre)» no tiene endpoints de lectura.")); return
         }
         var valores: [String: Any] = [:]
         let contenido = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         if !contenido.isEmpty { valores["texto"] = contenido }
         ejecutarEndpoint(modo: modo, conexion: conexion, endpoint: endpoint,
-                         valores: valores, resumen: "", completion: completion)
+                         valores: valores, resumen: "", confirmar: confirmar,
+                         completion: completion)
     }
 
-    /// Tramo común validar→construir→llamar. `valores` ya viene del plan de la
-    /// IA (tipados) o del camino determinista ({texto}); la validación contra
-    /// el esquema se repite aquí SIEMPRE — nadie salta el validador.
+    /// Tramo común. La validación contra el esquema se repite SIEMPRE — nadie
+    /// salta el validador. La escritura entra al flujo proponer→confirmar.
     private static func ejecutarEndpoint(modo: Modo, conexion: ConexionAPI,
                                          endpoint: EndpointAPI, valores: [String: Any],
                                          resumen: String,
+                                         confirmar: ConfirmadorConexion?,
                                          completion: @escaping (ResultadoHerramientaApple) -> Void) {
-        guard !endpoint.efectivamenteEscritura else {
-            completion(.init(ok: false, mensaje: "El endpoint «\(endpoint.clave)» es de escritura y requiere confirmación (disponible en la siguiente fase).")); return
-        }
         let problemas = ConexionesMotor.validarValores(endpoint: endpoint, valores: valores)
         guard problemas.isEmpty else {
             completion(.init(ok: false, mensaje: "No puedo llamar «\(endpoint.clave)»: " + problemas.joined(separator: "; ") + ".")); return
         }
-        guard let url = ConexionesMotor.construirURL(base: conexion.baseURL,
-                                                     endpoint: endpoint, valores: valores) else {
-            completion(.init(ok: false, mensaje: "No pude armar una URL segura para «\(endpoint.clave)». Revisa la ruta y las variables.")); return
+        guard endpoint.efectivamenteEscritura else {
+            hacerLlamada(modo: modo, conexion: conexion, endpoint: endpoint,
+                         valores: valores, resumen: resumen, completion: completion)
+            return
         }
-        llamar(url: url, conexion: conexion, modoId: modo.id, endpoint: endpoint,
-               resumen: resumen) { r in
-            DispatchQueue.main.async { completion(r) }
+        // ESCRITURA: sin confirmador no hay cómo pedir el visto bueno → no se ejecuta.
+        guard let confirmar else {
+            completion(.init(ok: false, mensaje: "«\(endpoint.clave)» es de escritura y este camino no puede pedir tu confirmación.")); return
+        }
+        let confirmEp = conexion.endpoints.first {
+            !conexion.confirmEndpointId.isEmpty && $0.clave == conexion.confirmEndpointId
+        }
+        if let confirmEp, confirmEp.clave != endpoint.clave {
+            // Dos fases: el endpoint elegido ES la propuesta (dry-run del
+            // servidor). Su respuesta se muestra para el OK; tras el OK, la
+            // confirmación va al 2º endpoint con las claves de primer nivel de
+            // esa respuesta disponibles como {variables} (p. ej. {previewId}).
+            flujoDosFases(modo: modo, conexion: conexion, propuesta: endpoint,
+                          confirmacion: confirmEp, valores: valores, resumen: resumen,
+                          confirmar: confirmar, intento: 1, completion: completion)
+        } else {
+            // Una fase: resumen LOCAL del request → OK → ejecutar.
+            var detalles = ["\(endpoint.metodo) \(endpoint.clave) — \(endpoint.descripcion)"]
+            let legibles = valores.filter { $0.key != "texto" }
+                .map { "\($0.key): \(String(describing: $0.value).prefix(120))" }.sorted()
+            detalles.append(contentsOf: legibles)
+            confirmar(resumen.isEmpty ? "¿Enviar «\(endpoint.clave)» de \(modo.nombre)?" : "¿\(resumen)?",
+                      detalles) { acepta in
+                guard acepta else {
+                    completion(.init(ok: false, mensaje: "Cancelado. No envié nada.",
+                                     evidencia: ["cancelado": "usuario"])); return
+                }
+                hacerLlamada(modo: modo, conexion: conexion, endpoint: endpoint,
+                             valores: valores, resumen: resumen, completion: completion)
+            }
         }
     }
 
-    /// «Probar conexión» del editor: llama el primer GET de lectura (o solo la
-    /// base) y reporta el estado. JAMÁS toca un endpoint de escritura.
+    private static func flujoDosFases(modo: Modo, conexion: ConexionAPI,
+                                      propuesta: EndpointAPI, confirmacion: EndpointAPI,
+                                      valores: [String: Any], resumen: String,
+                                      confirmar: @escaping ConfirmadorConexion, intento: Int,
+                                      completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        hacerLlamada(modo: modo, conexion: conexion, endpoint: propuesta,
+                     valores: valores, resumen: resumen) { rPropuesta in
+            guard rPropuesta.ok else { completion(rPropuesta); return }
+            // La respuesta del servidor ES la propuesta que se confirma.
+            var valoresConfirm = valores
+            if let data = rPropuesta.evidencia["salida"]?.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                for (k, v) in json where !(v is [String: Any]) && !(v is [Any]) {
+                    valoresConfirm[k] = v
+                }
+            }
+            let cuerpo = String((rPropuesta.evidencia["salida"] ?? rPropuesta.mensaje).prefix(900))
+            confirmar("¿Confirmas \(resumen.isEmpty ? "el envío de \(modo.nombre)" : resumen.lowercased())?",
+                      cuerpo.split(separator: "\n").map(String.init)) { acepta in
+                guard acepta else {
+                    completion(.init(ok: false, mensaje: "Cancelado. La propuesta no se confirmó.",
+                                     evidencia: ["cancelado": "usuario"])); return
+                }
+                hacerLlamada(modo: modo, conexion: conexion, endpoint: confirmacion,
+                             valores: valoresConfirm, resumen: resumen) { rConfirm in
+                    // Propuesta vencida (el servidor la caducó entre el OK y el
+                    // envío): se rehace UNA vez y se vuelve a pedir el OK.
+                    let estado = Int(rConfirm.evidencia["estado"] ?? "") ?? 0
+                    if !rConfirm.ok, (400..<500).contains(estado), intento == 1 {
+                        flujoDosFases(modo: modo, conexion: conexion, propuesta: propuesta,
+                                      confirmacion: confirmacion, valores: valores,
+                                      resumen: resumen, confirmar: confirmar,
+                                      intento: 2, completion: completion)
+                    } else {
+                        completion(rConfirm)
+                    }
+                }
+            }
+        }
+    }
+
+    /// «Probar conexión» del editor: auth (si es login, hace login real) y el
+    /// primer GET de lectura. JAMÁS toca un endpoint de escritura.
     static func probar(_ conexion: ConexionAPI, modoId: String,
                        _ done: @escaping (Bool, String) -> Void) {
         guard ConexionesMotor.urlSegura(conexion.baseURL) else {
             done(false, "URL base no segura (usa https, o http solo en localhost)"); return
         }
-        let endpoint = conexion.endpoints.first { !$0.efectivamenteEscritura }
-            ?? EndpointAPI(clave: "base", metodo: "GET", ruta: "/")
-        var valores: [String: Any] = [:]
-        // Una prueba no tiene dictado: las variables van con su nombre visible,
-        // suficiente para ver si el servidor responde y cómo.
-        for v in endpoint.variables { valores[v.nombre] = v.nombre }
-        valores["texto"] = "prueba"
-        guard let url = ConexionesMotor.construirURL(base: conexion.baseURL,
-                                                     endpoint: endpoint, valores: valores) else {
-            done(false, "no pude armar la URL de prueba (revisa ruta/variables)"); return
+        func probarLectura() {
+            let endpoint = conexion.endpoints.first { !$0.efectivamenteEscritura }
+                ?? EndpointAPI(clave: "base", metodo: "GET", ruta: "/")
+            var valores: [String: Any] = [:]
+            for v in endpoint.variables { valores[v.nombre] = v.nombre }
+            valores["texto"] = "prueba"
+            let modoFicticio = Modo(id: modoId, nombre: "Prueba", icono: "bolt",
+                                    base: "accion", accion: "conexion", conexion: conexion)
+            hacerLlamada(modo: modoFicticio, conexion: conexion, endpoint: endpoint,
+                         valores: valores, resumen: "") { r in
+                DispatchQueue.main.async { done(r.ok, r.mensaje) }
+            }
         }
-        llamar(url: url, conexion: conexion, modoId: modoId, endpoint: endpoint) { r in
-            DispatchQueue.main.async { done(r.ok, r.mensaje) }
+        if conexion.auth.tipo == "login" {
+            ConexionesAuth.obtenerToken(conexion: conexion, modoId: modoId, forzar: true) { token, error in
+                DispatchQueue.main.async {
+                    if token != nil { done(true, "login correcto — token recibido") }
+                    else { done(false, error ?? "login falló") }
+                }
+            }
+        } else {
+            probarLectura()
         }
     }
 
-    // El HTTP común de fase 1. Sesión propia por llamada con delegate anti-
-    // redirect; se invalida al terminar (patrón de la casa para no fugar).
-    private static func llamar(url: URL, conexion: ConexionAPI, modoId: String,
-                               endpoint: EndpointAPI, resumen: String = "",
-                               _ completion: @escaping (ResultadoHerramientaApple) -> Void) {
-        var req = URLRequest(url: url)
-        req.httpMethod = "GET"
-        req.timeoutInterval = TimeInterval(min(120, max(3, conexion.timeoutSegundos)))
-        req.setValue("close", forHTTPHeaderField: "Connection")
-        var secretos: [String] = []
-        // Fail-closed: el secreto solo viaja si la URL final cifra (o loopback).
-        if conexion.auth.tipo == "apikey",
-           let secreto = SecretosKeychain.leer(cuenta: modoId), !secreto.isEmpty {
-            let h = conexion.auth.header.isEmpty ? "Authorization" : conexion.auth.header
-            req.setValue(conexion.auth.prefijo + secreto, forHTTPHeaderField: h)
-            secretos.append(secreto)
+    // MARK: HTTP
+
+    /// Resuelve el valor del header de auth: API key del Llavero, o token de
+    /// login (cache/login). `nil, nil` = conexión sin autenticación.
+    private static func credencial(conexion: ConexionAPI, modoId: String, forzar: Bool,
+                                   _ done: @escaping (_ valor: String?, _ error: String?) -> Void) {
+        switch conexion.auth.tipo {
+        case "apikey":
+            guard let s = SecretosKeychain.leer(cuenta: modoId), !s.isEmpty else {
+                done(nil, "no hay API key guardada para esta conexión"); return
+            }
+            done(conexion.auth.prefijo + s, nil)
+        case "login":
+            ConexionesAuth.obtenerToken(conexion: conexion, modoId: modoId, forzar: forzar) { token, error in
+                done(token.map { conexion.auth.prefijo + $0 }, error)
+            }
+        default:
+            done(nil, nil)
         }
-        for (h, v) in conexion.headers { req.setValue(v, forHTTPHeaderField: h) }
-        let delegado = ConexionRedDelegate(url: url)
-        let sesion = URLSession(configuration: .ephemeral, delegate: delegado, delegateQueue: nil)
-        let inicio = Date()
-        let tarea = sesion.dataTask(with: req) { data, resp, error in
-            defer { sesion.finishTasksAndInvalidate() }
-            let ms = Int(Date().timeIntervalSince(inicio) * 1000)
-            if let error {
-                let msg = ConexionesMotor.enmascarar(error.localizedDescription, secretos: secretos)
-                completion(.init(ok: false, mensaje: "La conexión falló: \(msg)",
-                                 evidencia: ["endpoint": endpoint.clave, "ms": "\(ms)"]))
+    }
+
+    /// La llamada HTTP con todo: método, query/ruta/body sustituidos, auth,
+    /// anti-redirect, timeout, evidencia sin secretos y UN reintento con
+    /// re-login si el servidor devuelve 401/403 a una conexión con login.
+    private static func hacerLlamada(modo: Modo, conexion: ConexionAPI, endpoint: EndpointAPI,
+                                     valores: [String: Any], resumen: String,
+                                     reintentoAuth: Bool = false,
+                                     completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        guard let url = ConexionesMotor.construirURL(base: conexion.baseURL,
+                                                     endpoint: endpoint, valores: valores) else {
+            completion(.init(ok: false, mensaje: "No pude armar una URL segura para «\(endpoint.clave)». Revisa la ruta y las variables.")); return
+        }
+        let metodo = endpoint.metodo.uppercased()
+        var body: Data?
+        if metodo != "GET", !endpoint.bodyPlantilla.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let b = ConexionesMotor.sustituirBody(endpoint.bodyPlantilla, valores: valores) else {
+                completion(.init(ok: false, mensaje: "La plantilla de body de «\(endpoint.clave)» no es JSON válido.")); return
+            }
+            body = b
+        }
+        credencial(conexion: conexion, modoId: modo.id, forzar: reintentoAuth) { credencialValor, credencialError in
+            if let credencialError {
+                DispatchQueue.main.async {
+                    completion(.init(ok: false, mensaje: "Autenticación: \(credencialError)."))
+                }
                 return
             }
-            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            let cuerpoCrudo = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-            let cuerpo = ConexionesMotor.enmascarar(String(cuerpoCrudo.prefix(2_000)), secretos: secretos)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            AgenteLog.registrar("conexion_api", [
-                "modo": modoId, "endpoint": endpoint.clave, "metodo": "GET",
-                "host": url.host ?? "", "estado": code, "ms": ms,
-            ])   // deliberadamente SIN url completa ni headers: cero secretos en logs
-            guard (200..<300).contains(code) else {
-                completion(.init(ok: false,
-                    mensaje: "El servidor respondió HTTP \(code)." + (cuerpo.isEmpty ? "" : " \(String(cuerpo.prefix(200)))"),
-                    evidencia: ["endpoint": endpoint.clave, "estado": "\(code)", "ms": "\(ms)"]))
-                return
+            var req = URLRequest(url: url)
+            req.httpMethod = metodo
+            req.timeoutInterval = TimeInterval(min(120, max(3, conexion.timeoutSegundos)))
+            req.setValue("close", forHTTPHeaderField: "Connection")
+            var secretos: [String] = []
+            if let credencialValor {
+                let h = conexion.auth.header.isEmpty ? "Authorization" : conexion.auth.header
+                req.setValue(credencialValor, forHTTPHeaderField: h)
+                secretos.append(credencialValor.trimmingCharacters(in: .whitespaces))
             }
-            var evidencia = ["endpoint": endpoint.clave, "estado": "\(code)", "ms": "\(ms)",
-                             "salida": cuerpo]
-            if !resumen.isEmpty { evidencia["plan"] = resumen }
-            completion(.init(ok: true,
-                mensaje: cuerpo.isEmpty ? "«\(endpoint.clave)» respondió sin contenido (HTTP \(code))." : cuerpo,
-                evidencia: evidencia))
+            if let body {
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                req.httpBody = body
+            }
+            for (h, v) in conexion.headers { req.setValue(v, forHTTPHeaderField: h) }
+            let delegado = ConexionRedDelegate(url: url)
+            let sesion = URLSession(configuration: .ephemeral, delegate: delegado, delegateQueue: nil)
+            let inicio = Date()
+            let tarea = sesion.dataTask(with: req) { data, resp, error in
+                defer { sesion.finishTasksAndInvalidate() }
+                let ms = Int(Date().timeIntervalSince(inicio) * 1000)
+                if let error {
+                    let msg = ConexionesMotor.enmascarar(error.localizedDescription, secretos: secretos)
+                    DispatchQueue.main.async {
+                        completion(.init(ok: false, mensaje: "La conexión falló: \(msg)",
+                                         evidencia: ["endpoint": endpoint.clave, "ms": "\(ms)"]))
+                    }
+                    return
+                }
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                // Token vencido en el servidor antes que en el cache local:
+                // re-login UNA vez y repetir la misma llamada.
+                if [401, 403].contains(code), conexion.auth.tipo == "login", !reintentoAuth {
+                    ConexionesAuth.invalidar(modo.id)
+                    hacerLlamada(modo: modo, conexion: conexion, endpoint: endpoint,
+                                 valores: valores, resumen: resumen, reintentoAuth: true,
+                                 completion: completion)
+                    return
+                }
+                let cuerpoCrudo = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                let cuerpo = ConexionesMotor.enmascarar(String(cuerpoCrudo.prefix(2_000)), secretos: secretos)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                AgenteLog.registrar("conexion_api", [
+                    "modo": modo.id, "endpoint": endpoint.clave, "metodo": metodo,
+                    "host": url.host ?? "", "estado": code, "ms": ms,
+                ])   // deliberadamente SIN url completa ni headers: cero secretos en logs
+                DispatchQueue.main.async {
+                    guard (200..<300).contains(code) else {
+                        completion(.init(ok: false,
+                            mensaje: "El servidor respondió HTTP \(code)." + (cuerpo.isEmpty ? "" : " \(String(cuerpo.prefix(200)))"),
+                            evidencia: ["endpoint": endpoint.clave, "estado": "\(code)", "ms": "\(ms)"]))
+                        return
+                    }
+                    var evidencia = ["endpoint": endpoint.clave, "estado": "\(code)", "ms": "\(ms)",
+                                     "salida": cuerpo]
+                    if !resumen.isEmpty { evidencia["plan"] = resumen }
+                    completion(.init(ok: true,
+                        mensaje: cuerpo.isEmpty ? "«\(endpoint.clave)» respondió sin contenido (HTTP \(code))." : cuerpo,
+                        evidencia: evidencia))
+                }
+            }
+            tarea.resume()
         }
-        tarea.resume()
     }
 }

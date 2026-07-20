@@ -503,7 +503,61 @@ struct ModosView: View {
                 Picker("", selection: conex.auth.tipo) {
                     Text("Sin autenticación").tag("ninguna")
                     Text("API key en encabezado").tag("apikey")
-                }.labelsHidden().frame(width: 200)
+                    Text("Usuario y clave (login → token)").tag("login")
+                }.labelsHidden().frame(width: 220)
+            }
+            if b.wrappedValue.conexion?.auth.tipo == "login" {
+                HStack {
+                    Text("Login:").font(.caption).frame(width: 90, alignment: .leading)
+                    TextField("/login", text: conex.auth.loginRuta)
+                        .textFieldStyle(.roundedBorder).frame(width: 120)
+                    Picker("", selection: conex.auth.loginFormato) {
+                        Text("JSON").tag("json"); Text("Formulario").tag("form")
+                    }.labelsHidden().frame(width: 110)
+                }
+                HStack {
+                    Text("Campos:").font(.caption).frame(width: 90, alignment: .leading)
+                    TextField("email", text: conex.auth.campoUsuario)
+                        .textFieldStyle(.roundedBorder).frame(width: 100)
+                        .help("Nombre del campo de usuario en el body del login")
+                    TextField("password", text: conex.auth.campoClave)
+                        .textFieldStyle(.roundedBorder).frame(width: 100)
+                        .help("Nombre del campo de la clave")
+                    TextField("token (o data.access_token)", text: conex.auth.campoToken)
+                        .textFieldStyle(.roundedBorder).frame(width: 170)
+                        .help("Dónde viene el token en la respuesta (admite rutas con punto)")
+                }
+                HStack {
+                    Text("Usuario:").font(.caption).frame(width: 90, alignment: .leading)
+                    TextField("usuario@dominio", text: conex.auth.usuario)
+                        .textFieldStyle(.roundedBorder).frame(width: 170)
+                    Text("Vence (min):").font(.caption)
+                    TextField("45", value: conex.auth.ttlMinutos, format: .number)
+                        .textFieldStyle(.roundedBorder).frame(width: 50)
+                }
+                HStack {
+                    Text("Clave:").font(.caption).frame(width: 90, alignment: .leading)
+                    SecureField("clave (se guarda en el Llavero)", text: $secretoConexion)
+                        .textFieldStyle(.roundedBorder).frame(width: 200)
+                    Button("Guardar clave") {
+                        let r = SecretosKeychain.guardar(secretoConexion, cuenta: modoId)
+                        ConexionesAuth.invalidar(modoId)   // clave nueva ⇒ token viejo fuera
+                        avisoConexion = r.ok ? "Clave guardada en \(r.donde.rawValue)."
+                                             : "No pude guardar la clave."
+                        secretoConexion = ""; conexionVer += 1
+                    }.controlSize(.small)
+                    .disabled(secretoConexion.trimmingCharacters(in: .whitespaces).isEmpty)
+                    if let donde = SecretosKeychain.donde(cuenta: modoId) {
+                        Text(donde == .keychain ? "✓ en el Llavero" : "⚠️ en \(donde.rawValue)")
+                            .font(.caption2)
+                            .foregroundStyle(donde == .keychain ? Color.green : Color.orange)
+                        Button("Quitar") {
+                            SecretosKeychain.borrar(cuenta: modoId)
+                            ConexionesAuth.invalidar(modoId)
+                            avisoConexion = "Clave eliminada."; conexionVer += 1
+                        }.controlSize(.small)
+                    }
+                }
             }
             if b.wrappedValue.conexion?.auth.tipo == "apikey" {
                 HStack {
@@ -591,7 +645,18 @@ struct ModosView: View {
                 .padding(6)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.25)))
             }
-            Text("En ruta y query, {texto} es lo que dictes; las demás {variables} las llenará la IA en la siguiente fase. Si el dictado empieza con la clave de un endpoint, se usa ese; si no, el primer GET de lectura.")
+            // Flujo proponer→confirmar: el endpoint de escritura elegido actúa
+            // de propuesta y, tras tu OK, corre este segundo endpoint.
+            HStack {
+                Text("Confirmación:").font(.caption).frame(width: 90, alignment: .leading)
+                Picker("", selection: conex.confirmEndpointId) {
+                    Text("Sin 2ª fase (confirma y envía el mismo endpoint)").tag("")
+                    ForEach((b.wrappedValue.conexion?.endpoints ?? []).filter { !$0.clave.isEmpty }, id: \.clave) { ep in
+                        Text("2ª fase: \(ep.clave)").tag(ep.clave)
+                    }
+                }.labelsHidden().frame(width: 300)
+            }
+            Text("En ruta y query, {texto} es lo que dictes; las demás {variables} las llena la IA. Escritura (o método ≠ GET) SIEMPRE pide tu visto bueno: función = sí, equis o silencio = no. Si eliges un endpoint de 2ª fase, el de escritura actúa como propuesta (su respuesta se muestra para el OK y sus campos quedan como {variables}, ej. {previewId}).")
                 .font(.caption2).foregroundStyle(.secondary)
             HStack {
                 Button("Probar conexión") {

@@ -4606,6 +4606,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private enum ConfirmacionPendiente {
         case modo(ModoMatch, EntregaConfirmacion)
         case plan(ModoPreguntaPlan, EntregaConfirmacion)
+        /// Visto bueno de una conexión API: «no» solo cancela — nunca entrega
+        /// el dictado como texto (semántica distinta a .modo/.plan).
+        case conexionAPI(titulo: String, responder: (Bool) -> Void)
     }
     private var confirmacion: ConfirmacionPendiente?
     private var confirmacionTimer: Timer?
@@ -4900,6 +4903,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             diagnostico = ["tipo": "modo", "crudo": entrega.crudo,
                            "fuente": match.fuente.rawValue,
                            "modo": match.modo.id]
+        case .conexionAPI(let titulo, _):
+            diagnostico = ["tipo": "conexion_api", "titulo": titulo]
         }
         ModosLog.registrar("confirmacion_respuesta", diagnostico.merging([
             "aceptado": acepta, "origen": origen,
@@ -4969,6 +4974,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                          confianza: match.confianza, aceptado: false)
                 continuarSinPlan(entrega)
             }
+
+        case .conexionAPI(_, let responder):
+            // «no»/timeout = cancelar, nada más. El runner recibe la decisión
+            // y responde por su propio canal; aquí no hay texto que entregar.
+            responder(acepta)
+        }
+    }
+
+    /// Visto bueno del flujo proponer→confirmar de una conexión API. Reusa el
+    /// modal fn/X (fn = sí, X/clic/timeout = no, fail-closed) con semántica
+    /// propia: rechazar solo cancela. Si no se puede preguntar (grabando, panel
+    /// oculto o modal ocupado), la respuesta es NO — jamás un envío a ciegas.
+    private func presentarConfirmacionConexion(titulo: String, detalles: [String],
+                                               responder: @escaping (Bool) -> Void) {
+        guard !recorder.isRecording, Config.panelVisible(), confirmacion == nil else {
+            ModosLog.registrar("conexion_confirmacion_omitida", [
+                "motivo": recorder.isRecording ? "grabando"
+                    : (confirmacion != nil ? "modal_ocupado" : "panel_oculto")])
+            responder(false); return
+        }
+        confirmacionTimer?.invalidate()
+        doblePulsacion.reiniciar()
+        confirmacion = .conexionAPI(titulo: titulo, responder: responder)
+        ModosLog.registrar("confirmacion_presentada", [
+            "tipo": "conexion_api", "titulo": titulo, "detalles": detalles.count,
+            "confirmar_con": "una_pulsacion"])
+        panel.showConfirmation(title: titulo,
+                               details: Array(detalles.prefix(10)),
+                               content: "", alternatives: [],
+                               modoNormal: ModosStore.activo().nombre)
+        playSound("Tink")
+        armConfirmX()
+        hablarConfirmacionAgente("\(titulo) Pulsa función una vez para confirmar, o equis para cancelar.",
+                                 activo: Config.agenteRespuestaConVoz())
+        confirmacionTimer = Timer.scheduledTimer(withTimeInterval: Config.modoConfirmacionSegundos(),
+                                                  repeats: false) { [weak self] _ in
+            self?.resolverConfirmacion(acepta: false, origen: "timeout")
         }
     }
 
@@ -6209,10 +6251,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         case "conexion":
             // Conexión API declarada por el usuario EN este modo. El runner
-            // valida todo (URL segura, endpoint de lectura, variables) y llama;
-            // la escritura con confirmación llega en la fase siguiente.
+            // valida todo y llama; la escritura pasa por proponer→confirmar
+            // con el modal fn/X (para una conexión, «no» = cancelar, jamás
+            // entregar el dictado como texto).
             esperaAsincrona = true; muestraGenerica = false
-            ConexionesRunner.ejecutar(modo: modo, texto: t) { r in
+            ConexionesRunner.ejecutar(modo: modo, texto: t, confirmar: { [weak self] titulo, detalles, responder in
+                DispatchQueue.main.async {
+                    self?.presentarConfirmacionConexion(titulo: titulo, detalles: detalles,
+                                                        responder: responder)
+                }
+            }) { r in
                 mostrarResultado(r); completar()
             }
         case "nota_local" where !t.isEmpty:

@@ -206,6 +206,7 @@ enum ModosStore {
         // y respaldo). No dejamos credenciales huérfanas de modos borrados.
         if lista.contains(where: { $0.id == id && !$0.esFijo && $0.conexion != nil }) {
             SecretosKeychain.borrar(cuenta: id)
+            ConexionesAuth.invalidar(id)   // el token cacheado muere con el modo
         }
         lista.removeAll { $0.id == id && !$0.esFijo }   // los base no se borran
         guardar(lista)

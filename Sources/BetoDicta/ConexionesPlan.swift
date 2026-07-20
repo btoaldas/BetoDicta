@@ -27,11 +27,12 @@ enum ConexionesIA {
         LLMPostProcess.iaDeModo(modo) ?? ChatIA.cadenaPulido().first
     }
 
-    /// Catálogo compacto de endpoints de LECTURA para el prompt. La escritura
-    /// no se ofrece todavía: llegará con el flujo proponer→confirmar.
+    /// Catálogo compacto de endpoints para el prompt. La escritura se ofrece
+    /// (el runner la lleva SIEMPRE por proponer→confirmar), pero el endpoint de
+    /// 2ª fase queda fuera: es un paso automático tras el OK, la IA no lo elige.
     static func catalogoTexto(_ conexion: ConexionAPI) -> String {
-        conexion.endpoints.filter { !$0.efectivamenteEscritura }.map { ep in
-            var linea = "- \(ep.clave) (\(ep.metodo)): \(ep.descripcion.isEmpty ? "sin descripción" : ep.descripcion)"
+        conexion.endpoints.filter { $0.clave != conexion.confirmEndpointId || conexion.confirmEndpointId.isEmpty }.map { ep in
+            var linea = "- \(ep.clave) (\(ep.metodo)\(ep.efectivamenteEscritura ? ", escritura: se pedirá confirmación" : "")): \(ep.descripcion.isEmpty ? "sin descripción" : ep.descripcion)"
             if !ep.variables.isEmpty {
                 let vars = ep.variables.map { v in
                     "\(v.nombre) (\(v.tipo)\(v.requerida ? ", requerida" : "")): \(v.descripcion)"
@@ -91,8 +92,9 @@ enum ConexionesIA {
         guard let endpoint = conexion.endpoints.first(where: { $0.clave == clave }) else {
             return .invalido("la IA propuso un endpoint inexistente («\(clave)»)")
         }
-        guard !endpoint.efectivamenteEscritura else {
-            return .invalido("«\(clave)» es de escritura y requiere confirmación (disponible en la siguiente fase)")
+        // El endpoint de 2ª fase jamás se elige directo: solo corre tras el OK.
+        if !conexion.confirmEndpointId.isEmpty, clave == conexion.confirmEndpointId {
+            return .invalido("«\(clave)» es el paso de confirmación; la IA debe elegir el endpoint de propuesta")
         }
         var valores = (json["variables"] as? [String: Any]) ?? [:]
         // {texto} siempre disponible para plantillas, sin pedírselo a la IA.

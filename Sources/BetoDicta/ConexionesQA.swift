@@ -145,11 +145,12 @@ enum ConexionesQA {
                                           catalogo: ModoCatalogo(modos: ModosStore.base)) == nil)
 
         // 13. Runner fail-closed sin red: cada camino de error responde claro.
-        func esperar(_ arranca: (@escaping (ResultadoHerramientaApple) -> Void) -> Void)
+        func esperar(_ arranca: (@escaping (ResultadoHerramientaApple) -> Void) -> Void,
+                     segundos: TimeInterval = 5)
             -> ResultadoHerramientaApple? {
             var r: ResultadoHerramientaApple?
             arranca { r = $0 }
-            let limite = Date().addingTimeInterval(5)
+            let limite = Date().addingTimeInterval(segundos)
             while r == nil, Date() < limite {
                 _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
             }
@@ -167,9 +168,10 @@ enum ConexionesQA {
               r2?.ok == false && r2?.mensaje.lowercased().contains("segura") == true)
         var soloEscritura = modo
         soloEscritura.conexion?.endpoints = [EndpointAPI(clave: "pub", metodo: "POST", ruta: "/p")]
+        soloEscritura.conexion?.usarIA = false
         let r3 = esperar { ConexionesRunner.ejecutar(modo: soloEscritura, texto: "hola",
                                                      ignorarInterruptor: true, completion: $0) }
-        check("runner nunca ejecuta escritura en fase 1",
+        check("solo-escritura sin IA ni clave dictada falla claro",
               r3?.ok == false && r3?.mensaje.lowercased().contains("escritura") == true)
         // Con el interruptor RESPETADO y apagado, el gate responde apagado.
         if !Config.agenteHerramientaConexiones() {
@@ -224,9 +226,17 @@ enum ConexionesQA {
         check("endpoint inexistente rechazado",
               esInvalido(ConexionesIA.interpretar(#"{"endpoint":"otro","variables":{}}"#,
                                                   conexion: conexIA, textoDictado: "x")))
-        check("endpoint de escritura rechazado en el plan",
+        // Fase 3: la IA SÍ puede proponer escritura (irá a confirmación)…
+        check("escritura aceptada como plan (irá a confirmación)",
+              esPlan(ConexionesIA.interpretar(#"{"endpoint":"registrar","variables":{"items":[]}}"#,
+                                              conexion: conexIA, textoDictado: "x"))?.endpoint.clave == "registrar")
+        // …pero jamás el endpoint de 2ª fase directo.
+        var conexConfirm = conexIA; conexConfirm.confirmEndpointId = "registrar"
+        check("endpoint de 2ª fase no se elige directo",
               esInvalido(ConexionesIA.interpretar(#"{"endpoint":"registrar","variables":{"items":[]}}"#,
-                                                  conexion: conexIA, textoDictado: "x")))
+                                                  conexion: conexConfirm, textoDictado: "x")))
+        check("catálogo del prompt excluye la 2ª fase",
+              !ConexionesIA.catalogoTexto(conexConfirm).contains("registrar"))
         check("JSON roto → inválido",
               esInvalido(ConexionesIA.interpretar("no hay json aquí", conexion: conexIA, textoDictado: "x")))
         check("faltan declarado se respeta",
@@ -245,8 +255,149 @@ enum ConexionesQA {
               {
                   let p = ConexionesIA.promptPara(modo: modo, conexion: conexIA, texto: "hola")
                   return p.contains("clima (GET)") && p.contains("INSTRUCCIONES_INTERNAS_NO_REPRODUCIR")
-                      && p.contains("ciudad (texto, requerida)") && !p.contains("registrar (POST)")
+                      && p.contains("ciudad (texto, requerida)")
+                      && p.contains("registrar (POST, escritura: se pedirá confirmación)")
               }())
+
+        // FASE 3 — auth y flujo proponer→confirmar (parte pura, sin red)
+        check("dot-path plano", ConexionesAuth.valorDotPath(["token": "abc"], ruta: "token") as? String == "abc")
+        check("dot-path anidado",
+              ConexionesAuth.valorDotPath(["data": ["access_token": "xyz"]], ruta: "data.access_token") as? String == "xyz")
+        check("dot-path ausente",
+              ConexionesAuth.valorDotPath(["data": [:]], ruta: "data.token") == nil)
+        check("form-encode escapa y ordena",
+              String(data: ConexionesAuth.formEncode([("user", "a b&c"), ("pass", "ñ=1")]), encoding: .utf8)
+              == "user=a%20b%26c&pass=%C3%B1%3D1")
+        ConexionesAuth.invalidar("qa-cache")
+        ConexionesAuth.cachear("tok-qa", modoId: "qa-cache", ttlMinutos: 5)
+        check("token cacheado se recupera", ConexionesAuth.tokenCacheado("qa-cache") == "tok-qa")
+        ConexionesAuth.invalidar("qa-cache")
+        check("token invalidado desaparece", ConexionesAuth.tokenCacheado("qa-cache") == nil)
+        // Endpoint de escritura elegible por clave dictada; 2ª fase jamás.
+        var conexEscritura = conexIA; conexEscritura.confirmEndpointId = ""
+        check("clave dictada puede elegir escritura",
+              ConexionesRunner.endpointPara(conexEscritura, texto: "registrar dos horas")?.clave == "registrar")
+        check("2ª fase nunca elegible por clave",
+              ConexionesRunner.endpointPara(conexConfirm, texto: "registrar dos horas")?.clave != "registrar")
+        // Escritura sin confirmador: jamás se ejecuta (fail-closed, sin red).
+        var modoEscritura = modo
+        modoEscritura.conexion = conexEscritura
+        modoEscritura.conexion?.usarIA = false
+        let rSinConf = esperar { ConexionesRunner.ejecutar(modo: modoEscritura, texto: "registrar algo",
+                                                           ignorarInterruptor: true, completion: $0) }
+        check("escritura sin confirmador se niega",
+              rSinConf?.ok == false && rSinConf?.mensaje.contains("confirmación") == true)
+        // Confirmador que dice NO: cancela sin tocar la red (URL inalcanzable a propósito).
+        var modoCancela = modoEscritura
+        modoCancela.conexion?.baseURL = "https://jamas-resuelve.invalido"
+        let rNo = esperar { done in
+            ConexionesRunner.ejecutar(modo: modoCancela, texto: "registrar algo",
+                                      ignorarInterruptor: true,
+                                      confirmar: { _, _, responder in responder(false) },
+                                      completion: done)
+        }
+        check("confirmador en NO cancela sin llamar",
+              rNo?.ok == false && rNo?.evidencia["cancelado"] == "usuario")
+
+        // 15c. (Opcional) E2E contra el servidor LOCAL de prueba (login→token,
+        // re-auth 401, proponer→confirmar con {previewId}, expiración). Lo
+        // levanta el harness externo en 127.0.0.1:8765 (scripts/conexiones-qa-server.py).
+        if ProcessInfo.processInfo.environment["BETODICTA_CONEXIONTEST_SRV"] == "1" {
+            let modoSrvId = "qa-srv-modo"
+            SecretosKeychain.guardar("clave-qa-123", cuenta: modoSrvId)
+            ConexionesAuth.invalidar(modoSrvId)
+            var conexSrv = ConexionAPI(
+                baseURL: "http://127.0.0.1:8765",
+                auth: AuthConexion(tipo: "login", usuario: "beto",
+                                   loginRuta: "/login", loginFormato: "json",
+                                   campoUsuario: "user", campoClave: "pass",
+                                   campoToken: "data.access_token", ttlMinutos: 45),
+                timeoutSegundos: 8, usarIA: false)
+            var epSaldo = EndpointAPI(clave: "saldo", metodo: "GET", ruta: "/saldo",
+                                      descripcion: "saldo actual")
+            var epPreview = EndpointAPI(clave: "registrar", metodo: "POST", ruta: "/preview",
+                                        descripcion: "propone un registro", esEscritura: true)
+            epPreview.bodyPlantilla = #"{"nota":"{texto}"}"#
+            var epConfirm = EndpointAPI(clave: "confirmar", metodo: "POST", ruta: "/confirm",
+                                        descripcion: "confirma la propuesta", esEscritura: true)
+            epConfirm.bodyPlantilla = #"{"previewId":"{previewId}"}"#
+            conexSrv.endpoints = [epSaldo, epPreview, epConfirm]
+            conexSrv.confirmEndpointId = "confirmar"
+            var modoSrv = Modo(id: modoSrvId, nombre: "QA Server", icono: "bolt",
+                               base: "accion", esFijo: false, accion: "conexion")
+            modoSrv.conexion = conexSrv
+
+            var okProbar: (Bool, String)?
+            ConexionesRunner.probar(conexSrv, modoId: modoSrvId) { okProbar = ($0, $1) }
+            var limite = Date().addingTimeInterval(10)
+            while okProbar == nil, Date() < limite {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+            }
+            check("srv: login real correcto", okProbar?.0 == true)
+
+            let rSaldo = esperar({ ConexionesRunner.ejecutar(modo: modoSrv, texto: "saldo",
+                                                             ignorarInterruptor: true, completion: $0) },
+                                 segundos: 10)
+            check("srv: GET protegido con token", rSaldo?.ok == true && rSaldo?.mensaje.contains("42") == true)
+
+            // El servidor caduca el token → la siguiente llamada debe re-loguear sola.
+            var req = URLRequest(url: URL(string: "http://127.0.0.1:8765/caducar-token")!)
+            req.httpMethod = "POST"
+            var caducado = false
+            URLSession.shared.dataTask(with: req) { _, r, _ in
+                caducado = ((r as? HTTPURLResponse)?.statusCode ?? 0) == 200
+            }.resume()
+            limite = Date().addingTimeInterval(5)
+            while !caducado, Date() < limite {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+            }
+            let rReauth = esperar({ ConexionesRunner.ejecutar(modo: modoSrv, texto: "saldo",
+                                                              ignorarInterruptor: true, completion: $0) },
+                                  segundos: 10)
+            check("srv: re-login transparente tras 401", rReauth?.ok == true && rReauth?.mensaje.contains("42") == true)
+
+            // Dos fases feliz: propuesta del servidor → OK → confirmación con {previewId}.
+            var confirmaciones = 0
+            var propuestaVista = ""
+            let rDosFases = esperar({ done in
+                ConexionesRunner.ejecutar(modo: modoSrv, texto: "registrar la nota de hoy",
+                                          ignorarInterruptor: true,
+                                          confirmar: { _, detalles, responder in
+                                              confirmaciones += 1
+                                              propuestaVista = detalles.joined(separator: " ")
+                                              responder(true)
+                                          }, completion: done)
+            }, segundos: 12)
+            check("srv: dos fases publica con previewId",
+                  rDosFases?.ok == true && rDosFases?.mensaje.contains("entryId") == true)
+            check("srv: la propuesta mostrada vino del servidor", propuestaVista.contains("previewId"))
+            check("srv: exactamente una confirmación", confirmaciones == 1)
+
+            // Expiración: la 1ª confirmación caduca el preview en el servidor →
+            // el confirm devuelve 410 → re-propuesta → 2ª confirmación → publica.
+            confirmaciones = 0
+            let rExpira = esperar({ done in
+                ConexionesRunner.ejecutar(modo: modoSrv, texto: "registrar otra nota",
+                                          ignorarInterruptor: true,
+                                          confirmar: { _, _, responder in
+                                              confirmaciones += 1
+                                              if confirmaciones == 1 {
+                                                  var rq = URLRequest(url: URL(string: "http://127.0.0.1:8765/caducar-preview")!)
+                                                  rq.httpMethod = "POST"
+                                                  URLSession.shared.dataTask(with: rq) { _, _, _ in
+                                                      DispatchQueue.main.async { responder(true) }
+                                                  }.resume()
+                                              } else {
+                                                  responder(true)
+                                              }
+                                          }, completion: done)
+            }, segundos: 15)
+            check("srv: preview vencido re-propone y re-confirma",
+                  rExpira?.ok == true && confirmaciones == 2)
+
+            SecretosKeychain.borrar(cuenta: modoSrvId)
+            ConexionesAuth.invalidar(modoSrvId)
+        }
 
         // 16. (Opcional) plan con IA REAL configurada — exige red + proveedor.
         if ProcessInfo.processInfo.environment["BETODICTA_CONEXIONTEST_IA"] == "1" {
