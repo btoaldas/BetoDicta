@@ -304,22 +304,22 @@ enum ConexionesQA {
 
         // 15b1. Formateo legible de una respuesta JSON para el visto bueno.
         let legibles = ConexionesMotor.lineasLegibles([
-            "summary": ["create": [["actividad": "Soporte Quipux", "minutos": 120]],
+            "summary": ["create": [["tarea": "Revisión de impresoras", "minutos": 120]],
                         "totals": ["items": 1]],
             "previewId": String(repeating: "j", count: 2700),
             "expiresInSeconds": 600,
         ] as [String: Any])
         check("legible: claves y valores en líneas",
-              legibles.contains { $0.contains("actividad: Soporte Quipux") }
+              legibles.contains { $0.contains("tarea: Revisión de impresoras") }
               && legibles.contains { $0.contains("expiresInSeconds: 600") })
         check("legible: el JWT gigante se omite",
               !legibles.contains { $0.contains("jjjj") })
 
         // 15a9. Detección tolerante agente→modo-conexión (los casos REALES que
         // fallaron: cortesía inicial, «en» intercalado, nombre a secas).
-        var modoAct = Modo(id: "qa-det", nombre: "Actividades UEA", icono: "bolt",
+        var modoAct = Modo(id: "qa-det", nombre: "Registro de Tareas", icono: "bolt",
                            base: "accion", esFijo: false,
-                           palabraVoz: "modo actividades, pon mis actividades, registra mis actividades",
+                           palabraVoz: "modo registro, pon mis tareas, registra mis tareas",
                            accion: "conexion")
         modoAct.conexion = ConexionAPI(baseURL: "https://x.ejemplo.com")
         let catalogoDet = [modoAct, ModosStore.base[0]]
@@ -327,18 +327,18 @@ enum ConexionesQA {
             ConexionesDeteccion.detectar(t, modos: catalogoDet, nombreAsistente: "Jarvis")
         }
         check("detecta frase exacta",
-              det("pon mis actividades que hice algo")?.modo.id == "qa-det")
+              det("pon mis tareas que hice algo")?.modo.id == "qa-det")
         check("tolera cortesía inicial y «en» intercalado",
-              det("por favor, pon en mis actividades que estoy haciendo una API nueva")?.modo.id == "qa-det")
+              det("por favor, pon en mis tareas que estoy haciendo una API nueva")?.modo.id == "qa-det")
         check("contenido conserva el pedido",
-              det("por favor, pon en mis actividades que estoy haciendo una API nueva")?
+              det("por favor, pon en mis tareas que estoy haciendo una API nueva")?
                 .contenido.contains("API nueva") == true)
         check("nombre del modo a secas activa (repreguntará)",
-              det("actividades")?.modo.id == "qa-det" && det("actividades")?.contenido == "")
-        check("«modo actividades» sin más también",
-              det("modo actividades")?.modo.id == "qa-det")
+              det("registro")?.modo.id == "qa-det" && det("registro")?.contenido == "")
+        check("«modo registro» sin más también",
+              det("modo registro")?.modo.id == "qa-det")
         check("no roba pedidos ajenos", det("ponme una canción de Julio Jaramillo") == nil)
-        check("no matchea narración sin frase", det("hoy estuve revisando actividades del bloque F") == nil)
+        check("no matchea narración sin frase", det("hoy estuve revisando tareas del taller") == nil)
 
         // 15b0. Iteración sobre propuesta rechazada («cámbiala, no la rechaces»).
         ConexionesIA.limpiarPendiente(modoId: "qa-iter")
@@ -347,7 +347,7 @@ enum ConexionesQA {
               !ConexionesIA.promptPara(modo: modoIter, conexion: conexIA, texto: "x")
                 .contains("PROPUESTA ANTERIOR"))
         ConexionesIA.registrarRechazo(modoId: "qa-iter", pedido: "registra 2 horas de soporte",
-                                      tabla: ["actividad: Soporte Quipux", "minutos: 120"])
+                                      tabla: ["tarea: Revisión de impresoras", "minutos: 120"])
         let promptIter = ConexionesIA.promptPara(modo: modoIter, conexion: conexIA,
                                                  texto: "mejor ponle 90 minutos")
         check("el rechazo entra al prompt como propuesta anterior",
