@@ -69,6 +69,8 @@ final class ReproductorYouTubeModel: ObservableObject {
     private var resultadosBusqueda: [VideoYouTubeInterno] = []
     private var ultimoHistorialID = ""
     private var noDisponibles = Set<String>()
+    private var comandoSecuencia = 0
+    private var reintentosAutoplay = 0
 
     var videoActual: VideoYouTubeInterno? {
         guard let indiceActual, cola.indices.contains(indiceActual) else { return nil }
@@ -242,28 +244,34 @@ final class ReproductorYouTubeModel: ObservableObject {
         let video = cola[indice]
         videoID = video.id; tituloActual = video.titulo
         reproduciendo = false; reproducirAlCargar = reproducir
+        reintentosAutoplay = 0
         estado = reproducir ? "Cargando «\(video.titulo)»…" : "Preparé «\(video.titulo)»."
         secuenciaCarga += 1
         notificarCambio()
     }
 
-    func alternar() { ejecutarJavaScript?("bdCommand('toggle')") }
+    func alternar() { enviarComando("toggle") }
     func pausar() {
-        ejecutarJavaScript?("bdCommand('pause')")
+        enviarComando("pause")
         if !tituloActual.isEmpty { estado = "Pausando «\(tituloActual)»…" }
         notificarCambio()
     }
     func reanudar() {
         guard !videoID.isEmpty else { return }
-        ejecutarJavaScript?("bdCommand('play')")
+        enviarComando("play")
         estado = "Reanudando «\(tituloActual)»…"
         notificarCambio()
     }
     func detener() {
         detencionSolicitada = true
-        ejecutarJavaScript?("bdCommand('stop')")
+        enviarComando("stop")
         estado = "Deteniendo la reproducción…"
         notificarCambio()
+    }
+
+    private func enviarComando(_ comando: String) {
+        comandoSecuencia &+= 1
+        ejecutarJavaScript?("bdCommand('\(comando)', \(comandoSecuencia))")
     }
     func anterior() {
         guard !cola.isEmpty else { return }
@@ -480,10 +488,28 @@ final class ReproductorYouTubeModel: ObservableObject {
             saltarNoDisponible(codigo: codigo)
         case "autoplayBlocked":
             reproduciendo = false
-            estado = "macOS bloqueó el inicio automático. Pulsa Play una vez en el reproductor."
-            resolverPendiente(.init(encontro: true, reproduciendo: false, mensaje: estado))
+            if reproducirAlCargar, reintentosAutoplay == 0, !detencionSolicitada {
+                // Tras omitir un video 101/150, el IFrame puede terminar de
+                // cargar el siguiente después de la primera orden de Play. Un
+                // único reintento ya con el reproductor listo resuelve ese caso
+                // sin crear un bucle si el navegador exige un gesto real.
+                reintentosAutoplay = 1
+                estado = "Reintentando iniciar «\(tituloActual)»…"
+                notificarCambio()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    self?.enviarComando("play")
+                }
+            } else {
+                estado = "macOS bloqueó el inicio automático. Pulsa Play una vez en el reproductor."
+                resolverPendiente(.init(encontro: true, reproduciendo: false, mensaje: estado))
+            }
         case "command":
             let comando = d["command"] as? String ?? ""
+            let secuencia = (d["sequence"] as? NSNumber)?.intValue ?? -1
+            // Una confirmación de Play/Pausa puede llegar después de que el
+            // usuario ya pulsó Stop. Solo el comando más reciente puede cambiar
+            // el estado visible o resolver una orden hablada.
+            guard secuencia == comandoSecuencia else { return }
             let valor = (d["value"] as? NSNumber)?.intValue ?? -99
             if comando == "pause", valor != 2 {
                 estado = "YouTube no confirmó la pausa; inténtalo otra vez."
@@ -521,6 +547,15 @@ final class ReproductorYouTubeModel: ObservableObject {
     private func cancelarPendiente(mensaje: String) {
         guard pendiente != nil else { return }
         resolverPendiente(.init(encontro: false, reproduciendo: false, mensaje: mensaje))
+    }
+
+    func cerrarSesion() {
+        cancelarPendiente(mensaje: "Cerraste el reproductor.")
+        ejecutarJavaScript = nil; reproduciendo = false; listo = false
+        videoID = ""; tituloActual = ""; indiceActual = nil
+        reproducirAlCargar = false; detencionSolicitada = false
+        estado = "Reproductor cerrado."
+        notificarCambio()
     }
 
     private func saltarNoDisponible(codigo: Int) {
@@ -637,14 +672,14 @@ private struct ReproductorWebYouTube: NSViewRepresentable {
       if(!player||!player.loadVideoById){pending={id:id,play:play};return;}
       if(play){player.loadVideoById(id);}else{player.cueVideoById(id);}
     }
-    function bdCommand(cmd){
-      if(!player){window.webkit.messageHandlers.beto.postMessage({type:'command',value:-99,command:cmd});return;}
+    function bdCommand(cmd,sequence){
+      if(!player){window.webkit.messageHandlers.beto.postMessage({type:'command',value:-99,command:cmd,sequence:sequence});return;}
       if(cmd==='toggle'){if(player.getPlayerState()===1)player.pauseVideo();else player.playVideo();}
       else if(cmd==='play')player.playVideo();else if(cmd==='pause')player.pauseVideo();
       else if(cmd==='stop')player.stopVideo();
       setTimeout(function(){
         var s=-99;try{s=player.getPlayerState();}catch(e){}
-        window.webkit.messageHandlers.beto.postMessage({type:'command',value:s,command:cmd});
+        window.webkit.messageHandlers.beto.postMessage({type:'command',value:s,command:cmd,sequence:sequence});
       },350);
     }
     var tag=document.createElement('script');tag.src='https://www.youtube.com/iframe_api';
@@ -959,7 +994,57 @@ final class ReproductorYouTubeInterno: NSObject, NSWindowDelegate {
     func anterior() { mostrar(); model.anterior() }
     func siguiente() { mostrar(); model.siguiente() }
     func aleatorio() { mostrar(); model.aleatorio() }
-    func cerrar() { model.detener(); window?.orderOut(nil) }
+
+    /// Ejecuta un control y no responde “listo” hasta que el IFrame confirme el
+    /// estado esperado. La espera es breve y acotada; nunca bloquea AppKit.
+    func controlarVerificado(_ comando: ComandoMusica,
+                             completion: @escaping (Bool) -> Void) {
+        let idAnterior = model.videoID
+        switch comando {
+        case .pausar: model.pausar()
+        case .reanudar: mostrar(); model.reanudar()
+        case .detener: model.detener()
+        case .siguiente: mostrar(); model.siguiente()
+        case .anterior: mostrar(); model.anterior()
+        case .aleatorio: mostrar(); model.aleatorio()
+        default: completion(false); return
+        }
+        esperarControl(comando, idAnterior: idAnterior,
+                       limite: Date().addingTimeInterval(5), completion: completion)
+    }
+
+    private func esperarControl(_ comando: ComandoMusica, idAnterior: String,
+                                limite: Date, completion: @escaping (Bool) -> Void) {
+        let confirmado: Bool
+        switch comando {
+        case .pausar:
+            confirmado = !model.reproduciendo && model.estado.hasPrefix("En pausa:")
+        case .reanudar:
+            confirmado = model.reproduciendo
+        case .detener:
+            confirmado = !model.reproduciendo && model.estado == "Reproducción detenida."
+        case .siguiente, .anterior, .aleatorio:
+            confirmado = model.videoID != idAnterior && model.reproduciendo
+        default:
+            completion(false); return
+        }
+        if confirmado { completion(true); return }
+        if model.estado.contains("no confirmó") || model.estado.contains("bloqueó")
+            || Date() >= limite {
+            completion(false); return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { [weak self] in
+            self?.esperarControl(comando, idAnterior: idAnterior,
+                                 limite: limite, completion: completion)
+        }
+    }
+
+    func cerrar() {
+        model.detener()
+        // Desmontar WebKit garantiza silencio aunque YouTube no confirme Stop;
+        // nunca dejamos un reproductor oculto sonando en segundo plano.
+        desmontarVentana()
+    }
     func alternarPantallaCompleta() {
         crearSiHaceFalta()
         guard let window else { return }
@@ -984,13 +1069,29 @@ final class ReproductorYouTubeInterno: NSObject, NSWindowDelegate {
         if window != nil { model.pedirCompacto?(valor) }
     }
 
-    func windowWillClose(_ notification: Notification) { model.detener() }
-    func windowWillMiniaturize(_ notification: Notification) { model.pausar() }
+    func windowWillClose(_ notification: Notification) {
+        model.detener()
+        DispatchQueue.main.async { [weak self] in self?.desmontarVentana() }
+    }
+    func windowWillMiniaturize(_ notification: Notification) {
+        model.pausar()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, self.model.reproduciendo else { return }
+            // Si Pausa no fue confirmada, desmontar es el fail-closed seguro.
+            self.desmontarVentana()
+        }
+    }
     func windowDidExitFullScreen(_ notification: Notification) {
         model.pantallaCompletaVideo = false
     }
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
         model.pantallaCompletaVideo = false
+    }
+
+    private func desmontarVentana() {
+        guard let w = window else { model.cerrarSesion(); return }
+        w.delegate = nil; w.orderOut(nil); w.contentViewController = nil
+        window = nil; model.cerrarSesion()
     }
 
     private func crearSiHaceFalta() {

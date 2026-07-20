@@ -297,25 +297,35 @@ enum Musica {
         }
         DispatchQueue.main.async {
             let player = ReproductorYouTubeInterno.shared
+            let controlesVerificables: Set<ComandoMusica> = [
+                .pausar, .reanudar, .detener, .siguiente, .anterior, .aleatorio,
+            ]
+            if controlesVerificables.contains(comando),
+               comando.esAplicable(en: player.estadoControl) {
+                let detalle: (String, String, EstadoMusica)
+                switch comando {
+                case .pausar: detalle = ("Pausé la reproducción.",
+                                         "YouTube no confirmó la pausa.", .pausado)
+                case .reanudar: detalle = ("Reanudé la reproducción.",
+                                           "YouTube no confirmó la reproducción.", .reproduciendo)
+                case .detener: detalle = ("Detuve la reproducción.",
+                                          "YouTube no confirmó que se detuvo.", .detenido)
+                case .siguiente: detalle = ("Pasé al resultado siguiente.",
+                                            "YouTube no confirmó el siguiente resultado.", .reproduciendo)
+                case .anterior: detalle = ("Volví al resultado anterior.",
+                                           "YouTube no confirmó el resultado anterior.", .reproduciendo)
+                case .aleatorio: detalle = ("Elegí otra pista de la cola al azar.",
+                                            "YouTube no confirmó otra pista de la cola.", .reproduciendo)
+                default: return
+                }
+                player.controlarVerificado(comando) { ok in
+                    terminar(.init(ok: ok, proveedor: "betodicta_youtube",
+                                   mensaje: ok ? detalle.0 : detalle.1,
+                                   estado: ok ? detalle.2 : .fallo))
+                }
+                return
+            }
             switch comando {
-            case .pausar where comando.esAplicable(en: player.estadoControl):
-                player.pausar(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Pausé la reproducción.", estado: .pausado)); return
-            case .reanudar where comando.esAplicable(en: player.estadoControl):
-                player.reanudar(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Reanudé la reproducción.", estado: .reproduciendo)); return
-            case .detener where comando.esAplicable(en: player.estadoControl):
-                player.detener(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Detuve la reproducción.", estado: .detenido)); return
-            case .siguiente where comando.esAplicable(en: player.estadoControl):
-                player.siguiente(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Pasé al resultado siguiente.", estado: .reproduciendo)); return
-            case .anterior where comando.esAplicable(en: player.estadoControl):
-                player.anterior(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Volví al resultado anterior.", estado: .reproduciendo)); return
-            case .aleatorio where comando.esAplicable(en: player.estadoControl):
-                player.aleatorio(); terminar(.init(ok: true, proveedor: "betodicta_youtube",
-                    mensaje: "Elegí otra pista de la cola al azar.", estado: .reproduciendo)); return
             case .cerrar:
                 player.cerrar()
                 terminar(.init(ok: true, proveedor: "betodicta_youtube",
@@ -358,6 +368,8 @@ enum Musica {
                     ok = MediaControl.anteriorActual(); exito = "Volví a la canción anterior."
                     fallo = "No hay una cola musical disponible."; estado = .reproduciendo
                 case .aleatorio:
+                    terminar(.init(ok: false, proveedor: "",
+                                   mensaje: "No hay una cola interna para mezclar.", estado: .fallo))
                     return
                 default: return
                 }

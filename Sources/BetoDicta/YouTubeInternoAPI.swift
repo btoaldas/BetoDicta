@@ -171,7 +171,6 @@ enum YouTubeDataAPI {
                 let cuota = (razones + [detalle]).contains {
                     let s = $0.lowercased()
                     return s.contains("quota") || s.contains("dailylimit")
-                        || s.contains("rate limit")
                 }
                 if cuota {
                     YouTubeCuotaBusqueda.marcarAgotadaPorServidor()

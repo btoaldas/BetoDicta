@@ -565,16 +565,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     return
                 }
                 if modo == "controls", r.reproduciendo {
-                    player.model.alternar()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                        let pausa = !player.model.reproduciendo
-                        player.model.alternar()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                            let reanuda = player.model.reproduciendo
-                            player.model.detener()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                                let stop = !player.model.reproduciendo
-                                    && player.model.estado == "Reproducción detenida."
+                    player.controlarVerificado(.pausar) { pausa in
+                        player.controlarVerificado(.reanudar) { reanuda in
+                            player.controlarVerificado(.detener) { stop in
                                 player.model.resultados = [
                                     .init(id: "M7lc1UVf-VE", titulo: "Uno", canal: "QA", miniatura: nil),
                                     .init(id: "dQw4w9WgXcQ", titulo: "Dos", canal: "QA", miniatura: nil),
