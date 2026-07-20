@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.48.1"
-    static let fecha = "2026-07-19"
+    static let numero = "0.49.0"
+    static let fecha = "2026-07-20"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.49.0", "2026-07-20", [
+            "MODO CONEXIÓN API: un modo puede hablar con cualquier API REST que declares (URL, autenticación, endpoints con variables tipadas y un prompt que le enseña a la IA a usarla). Dictas en lenguaje natural, la IA arma el llamado y te cuenta el resultado hablado con el estilo que pidas. Nada del sistema concreto vive en la app: todo es configuración tuya",
+            "AUTENTICACIÓN Y SEGURIDAD: sin auth, API key o usuario+clave→token (con re-login automático). La clave vive en el Llavero, jamás en el archivo ni en los registros. La IA nunca ejecuta HTTP ni ve credenciales: solo propone un plan JSON que Swift valida. Fail-closed en https, sin redirecciones fuera del host declarado",
+            "ESCRITURA CON VISTO BUENO: los endpoints que modifican datos siempre piden tu confirmación (proponer → ves la tabla del servidor con scroll → función confirma), con tiempo generoso para leer y la opción de ajustar la propuesta por voz sin empezar de cero; ninguna escritura se dispara sin tu OK",
+            "COMPARTIR MODOS: exporta tus modos propios —conexiones completas incluidas— a un paquete JSON SIN ninguna clave ni dato de entorno; tu compañero importa con casillas los que elija y solo pone la suya",
+        ]),
         ("0.48.1", "2026-07-19", [
             "TRANSCRIBE.CPP 0.2.0 ACTUALIZADO: incorpora la revisión 8c7ae67 con las nuevas bases de diarización de MOSS y Granite sin activar funciones no configuradas por el usuario",
             "PUENTE LOCAL RECONSTRUIDO: beto-stream se volvió a enlazar contra la ABI nueva y conserva el protocolo READY, parciales y resultado final que usa el notch",
