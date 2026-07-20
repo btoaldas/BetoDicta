@@ -4,6 +4,7 @@ build-agent/
 *.pcm
 .env
 config.local.json
+PLAN-conexiones-api.md
 
 # Artefactos de compilación (no versionar)
 .build/
