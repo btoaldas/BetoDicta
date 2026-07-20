@@ -224,7 +224,7 @@ enum ConexionesMotor {
         for v in endpoint.variables where v.requerida && valores[v.nombre] == nil {
             errores.append("falta la variable requerida «\(v.nombre)»")
         }
-        let declaradas = Set(endpoint.variables.map(\.nombre) + ["texto"])
+        let declaradas = Set(endpoint.variables.map(\.nombre) + ["texto", "hoy"])
         for (k, valor) in valores {
             guard declaradas.contains(k) else {
                 errores.append("variable no declarada «\(k)»"); continue
@@ -474,6 +474,11 @@ enum ConexionesRunner {
                                          resumen: String,
                                          confirmar: ConfirmadorConexion?,
                                          completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        var valores = valores
+        if valores["hoy"] == nil {   // {hoy} SIEMPRE disponible (la IA no sabe la fecha)
+            let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = "yyyy-MM-dd"; valores["hoy"] = f.string(from: Date())
+        }
         let problemas = ConexionesMotor.validarValores(endpoint: endpoint, valores: valores)
         guard problemas.isEmpty else {
             completion(.init(ok: false, mensaje: "No puedo llamar «\(endpoint.clave)»: " + problemas.joined(separator: "; ") + ".")); return

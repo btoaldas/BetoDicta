@@ -103,6 +103,9 @@ enum ConexionesQA {
         check("valores correctos pasan",
               ConexionesMotor.validarValores(endpoint: epVars,
                                              valores: ["min": 5, "items": [1, 2]]).isEmpty)
+        check("{hoy} es variable implícita (no exige declaración)",
+              ConexionesMotor.validarValores(endpoint: epVars,
+                                             valores: ["min": 5, "hoy": "2026-07-20"]).isEmpty)
 
         // 8b. Texto hablable: sin emojis, espacios colapsados, con tope.
         let hablable = ConexionesMotor.textoParaVoz("Puyo: 🌤️  +16°C\nviento ↓ 5km/h")
