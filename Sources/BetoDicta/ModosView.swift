@@ -673,6 +673,17 @@ struct ModosView: View {
                     .toggleStyle(.switch).controlSize(.mini)
                     .help("Encendido: la IA de este modo elige el endpoint y llena sus variables desde lo dictado (usa el Prompt de abajo como instrucciones). Apagado: se usa la clave dictada o el primer GET, con {texto} solamente.")
             }
+            // Explicación de la PROPUESTA del visto bueno (opcional, con IA).
+            Toggle("La IA explica la propuesta antes de confirmar", isOn: conex.propuestaConIA)
+                .toggleStyle(.switch).controlSize(.mini)
+                .help("Encendido: el modal (y la voz) explican en lenguaje natural qué se va a enviar, leyendo exactamente la propuesta del servidor sin inventar. Los datos exactos se muestran siempre debajo. Apagado: solo el formato legible línea por línea.")
+            if b.wrappedValue.conexion?.propuestaConIA == true {
+                TextEditor(text: conex.promptPropuesta)
+                    .font(.callout).frame(height: 40)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.3)))
+                Text("Instrucciones de esa explicación (opcional). Ej.: «di cuántas actividades, estado, minutos y con quién».")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
             // PROMPT DE VUELTA: cómo contarte el resultado (vacío = crudo).
             Text("Respuesta (prompt de vuelta) — cómo contarte el resultado:").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: conex.promptRespuesta)

@@ -315,6 +315,17 @@ enum ConexionesQA {
         check("legible: el JWT gigante se omite",
               !legibles.contains { $0.contains("jjjj") })
 
+        // 15b1b. Explicación de propuesta: apagada por defecto y sin bloquear.
+        var esperaExplicacion: String?? = nil
+        ConexionesIA.explicarPropuesta(modo: modo, conexion: conexIA, pedido: "x",
+                                       cuerpo: #"{"a":1}"#) { esperaExplicacion = $0 }
+        let limiteExp = Date().addingTimeInterval(2)
+        while esperaExplicacion == nil, Date() < limiteExp {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+        check("propuesta con IA apagada por defecto → sin explicación",
+              (esperaExplicacion ?? "no llegó") == nil)
+
         // 15b2. Prompt de vuelta (redacción): estructura y datos no confiables.
         check("prompt de vuelta lleva instrucciones, pedido y respuesta",
               {

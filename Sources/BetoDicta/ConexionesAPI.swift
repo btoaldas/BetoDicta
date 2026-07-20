@@ -147,16 +147,26 @@ struct ConexionAPI: Codable, Equatable {
     /// («dame ciudad, grados y un consejo de abrigo») antes de mostrarse y
     /// hablarse. Vacío = respuesta cruda tal cual.
     var promptRespuesta: String
+    /// La IA EXPLICA la propuesta del visto bueno en lenguaje natural (sin
+    /// inventar). Apagado = solo el formato legible determinista. Los datos
+    /// exactos del servidor SIEMPRE se muestran debajo, con o sin explicación.
+    var propuestaConIA: Bool
+    /// Instrucciones extra para esa explicación («di cuántas actividades, con
+    /// qué estado, minutos y con quién»). Vacío = explicación genérica.
+    var promptPropuesta: String
 
     init(baseURL: String = "", auth: AuthConexion = AuthConexion(),
          headers: [String: String] = [:], endpoints: [EndpointAPI] = [],
          timeoutSegundos: Int = 15, vozResumen: Bool = false, usarIA: Bool = true,
-         confirmEndpointId: String = "", promptRespuesta: String = "") {
+         confirmEndpointId: String = "", promptRespuesta: String = "",
+         propuestaConIA: Bool = false, promptPropuesta: String = "") {
         self.baseURL = baseURL; self.auth = auth; self.headers = headers
         self.endpoints = endpoints; self.timeoutSegundos = timeoutSegundos
         self.vozResumen = vozResumen; self.usarIA = usarIA
         self.confirmEndpointId = confirmEndpointId
         self.promptRespuesta = promptRespuesta
+        self.propuestaConIA = propuestaConIA
+        self.promptPropuesta = promptPropuesta
     }
 
     init(from d: Decoder) throws {
@@ -170,6 +180,8 @@ struct ConexionAPI: Codable, Equatable {
         usarIA = (try? c.decode(Bool.self, forKey: .usarIA)) ?? true
         confirmEndpointId = (try? c.decode(String.self, forKey: .confirmEndpointId)) ?? ""
         promptRespuesta = (try? c.decode(String.self, forKey: .promptRespuesta)) ?? ""
+        propuestaConIA = (try? c.decode(Bool.self, forKey: .propuestaConIA)) ?? false
+        promptPropuesta = (try? c.decode(String.self, forKey: .promptPropuesta)) ?? ""
     }
 
     var tieneEscritura: Bool { endpoints.contains { $0.efectivamenteEscritura } }
@@ -592,8 +604,14 @@ enum ConexionesRunner {
                 }
                 detallesLegibles = ConexionesMotor.lineasLegibles(json)
             }
-            confirmar("¿Confirmas \(resumen.isEmpty ? "el envío de \(modo.nombre)" : resumen.lowercased())?",
-                      detallesLegibles) { acepta in
+            let tituloBase = "¿Confirmas \(resumen.isEmpty ? "el envío de \(modo.nombre)" : resumen.lowercased())?"
+            // Explicación por IA (opcional): el TÍTULO (que también se habla)
+            // lleva la explicación; los datos exactos SIEMPRE quedan debajo.
+            ConexionesIA.explicarPropuesta(modo: modo, conexion: conexion,
+                                           pedido: (valores["texto"] as? String) ?? "",
+                                           cuerpo: cuerpoPropuesta) { explicacion in
+                let titulo = explicacion.map { "\($0) ¿Confirmas?" } ?? tituloBase
+                confirmar(titulo, detallesLegibles) { acepta in
                 guard acepta else {
                     completion(.init(ok: false, mensaje: "Cancelado. La propuesta no se confirmó.",
                                      evidencia: ["cancelado": "usuario"])); return
@@ -613,6 +631,7 @@ enum ConexionesRunner {
                                           pedido: (valores["texto"] as? String) ?? "",
                                           completion: completion)
                     }
+                }
                 }
             }
         }
