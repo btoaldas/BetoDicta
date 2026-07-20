@@ -145,17 +145,7 @@ enum VoxtralServer {
         let glosario = Config.glosarioPrompt()
         if !glosario.isEmpty { instruccion += " \(glosario)" }
 
-        let cuerpo: [String: Any] = [
-            "temperature": 0,
-            "messages": [[
-                "role": "user",
-                "content": [
-                    ["type": "input_audio",
-                     "input_audio": ["data": wav.base64EncodedString(), "format": "wav"]],
-                    ["type": "text", "text": instruccion],
-                ],
-            ]],
-        ]
+        let cuerpo = cuerpoPeticion(wav: wav, instruccion: instruccion)
 
         var req = URLRequest(url: URL(string: "http://\(host):\(port)/v1/chat/completions")!)
         req.httpMethod = "POST"
@@ -165,6 +155,45 @@ enum VoxtralServer {
         req.httpBody = try? JSONSerialization.data(withJSONObject: cuerpo)
 
         postear(req, deadline: Date().addingTimeInterval(60), completion: completion)
+    }
+
+    /// llama.cpp/Voxtral necesita recibir primero la instrucción y después el
+    /// audio. Con el orden inverso el modelo interpreta el texto como una tarea
+    /// posterior al audio y puede responder "No puedo realizar esa tarea".
+    static func cuerpoPeticion(wav: Data, instruccion: String) -> [String: Any] {
+        [
+            "temperature": 0,
+            "messages": [[
+                "role": "user",
+                "content": [
+                    ["type": "text", "text": instruccion],
+                    ["type": "input_audio",
+                     "input_audio": ["data": wav.base64EncodedString(), "format": "wav"]],
+                ],
+            ]],
+        ]
+    }
+
+    /// QA puro: no arranca llama.cpp ni toca modelos/configuración.
+    static func problemaPayloadQA() -> String? {
+        let wav = Data([0, 1, 2, 3, 254, 255])
+        let instruccion = "Transcribe esta prueba"
+        let cuerpo = cuerpoPeticion(wav: wav, instruccion: instruccion)
+        guard let mensajes = cuerpo["messages"] as? [[String: Any]], mensajes.count == 1,
+              let contenido = mensajes[0]["content"] as? [[String: Any]], contenido.count == 2 else {
+            return "estructura messages/content inválida"
+        }
+        guard contenido[0]["type"] as? String == "text",
+              contenido[0]["text"] as? String == instruccion else {
+            return "la instrucción no está primero"
+        }
+        guard contenido[1]["type"] as? String == "input_audio",
+              let audio = contenido[1]["input_audio"] as? [String: String],
+              audio["format"] == "wav",
+              let base64 = audio["data"], Data(base64Encoded: base64) == wav else {
+            return "el audio WAV no está segundo o perdió bytes"
+        }
+        return nil
     }
 
     /// POST con reintentos mientras el server carga (conexión rechazada o 503).

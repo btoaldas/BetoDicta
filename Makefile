@@ -1,5 +1,7 @@
 APP = BetoDicta
 BUNDLE = build/$(APP).app
+TRANSCRIBE_DIR ?= $(HOME)/transcribe.cpp
+TRANSCRIBE_BUILD ?= $(TRANSCRIBE_DIR)/build
 
 all: bundle
 
@@ -7,6 +9,37 @@ SOURCES := $(wildcard Sources/BetoDicta/*.swift)
 
 build/release/$(APP): $(SOURCES) Package.swift
 	swift build -c release --build-path build
+
+# Puente C de streaming local. Es un target explícito: `make bundle` sigue
+# funcionando para quien no haya clonado transcribe.cpp, pero una actualización
+# del motor puede reconstruirse de forma reproducible con `make beto-stream`.
+.PHONY: beto-stream
+beto-stream:
+	@test -f "$(TRANSCRIBE_DIR)/include/transcribe.h" || \
+		(echo "Falta $(TRANSCRIBE_DIR)"; exit 1)
+	@test -f "$(TRANSCRIBE_BUILD)/src/libtranscribe.a" || \
+		(echo "Primero compila transcribe.cpp estático en $(TRANSCRIBE_BUILD)"; exit 1)
+	@test -f "$(TRANSCRIBE_BUILD)/ggml/src/libggml.a" \
+		-a -f "$(TRANSCRIBE_BUILD)/ggml/src/libggml-cpu.a" \
+		-a -f "$(TRANSCRIBE_BUILD)/ggml/src/ggml-metal/libggml-metal.a" \
+		-a -f "$(TRANSCRIBE_BUILD)/ggml/src/libggml-base.a" || \
+		(echo "Faltan bibliotecas estáticas de GGML en $(TRANSCRIBE_BUILD)"; exit 1)
+	mkdir -p build/native
+	/usr/bin/clang -O3 -DNDEBUG -std=c11 \
+		-I"$(TRANSCRIBE_DIR)/include" -I"$(TRANSCRIBE_DIR)/ggml/include" \
+		-c native/beto-stream.c -o build/native/beto-stream.o
+	/usr/bin/c++ -O3 -DNDEBUG build/native/beto-stream.o \
+		"$(TRANSCRIBE_BUILD)/src/libtranscribe.a" \
+		"$(TRANSCRIBE_BUILD)/ggml/src/libggml.a" \
+		"$(TRANSCRIBE_BUILD)/ggml/src/libggml-cpu.a" \
+		-framework Accelerate \
+		"$(TRANSCRIBE_BUILD)/ggml/src/ggml-metal/libggml-metal.a" \
+		"$(TRANSCRIBE_BUILD)/ggml/src/libggml-base.a" \
+		-lm -framework Foundation -framework Metal -framework MetalKit \
+		-o build/native/beto-stream.nuevo
+	@test -x build/native/beto-stream.nuevo
+	mv build/native/beto-stream.nuevo native/beto-stream
+	@echo "Puente listo: native/beto-stream"
 
 bundle: build/release/$(APP)
 	rm -rf $(BUNDLE)

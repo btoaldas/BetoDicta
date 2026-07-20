@@ -81,6 +81,14 @@ DocumentosMac.ejecutarPruebaSiSePidio()
 NotasApple.ejecutarPruebaSiSePidio()
 VozLocalQA.ejecutarSiSePidio()
 TareasNotasQA.ejecutarSiSePidio()
+if ProcessInfo.processInfo.environment["BETODICTA_VOXTRALPAYLOADTEST"] == "1" {
+    if let problema = VoxtralServer.problemaPayloadQA() {
+        print("VOXTRALPAYLOADTEST FALLA: \(problema)")
+        fflush(stdout); exit(1)
+    }
+    print("VOXTRALPAYLOADTEST TODO OK — texto primero, WAV íntegro después")
+    fflush(stdout); exit(0)
+}
 if ProcessInfo.processInfo.environment["BETODICTA_WAKEWORDTEST"] == "1" {
     let (ok, lineas) = ActivacionVoz.ejecutarQA()
     lineas.forEach { print("WAKETEST \($0)") }

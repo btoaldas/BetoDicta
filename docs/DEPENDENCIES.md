@@ -10,6 +10,33 @@ motores externos** compilados aparte (y un adaptador para pausar multimedia):
 | **llama.cpp** | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | Voxtral Mini 3B local (`llama-server`) | `~/llama.cpp-static` |
 | **mediaremote-adapter** | [ungive/mediaremote-adapter](https://github.com/ungive/mediaremote-adapter) (BSD-3) | Pausar/reanudar música y video al dictar | embarcado |
 
+## Versiones nativas verificadas
+
+Estas son las revisiones exactas incorporadas y probadas en Apple Silicon. Los
+tags de ambos proyectos son ligeros (no llevan firma propia), por lo que además
+se verificó el objeto Git, el commit validado por GitHub, la licencia y que el
+binario final solo enlace frameworks del sistema.
+
+| Motor | Revisión verificada | Contratos de BetoDicta comprobados |
+|---|---|---|
+| **transcribe.cpp** | `5a5a49664a8ea1f0e5b3be1dfc544730d1b62561` (v0.1.3 + Parakeet multitalker/MOSS) | API pública sin cambios; `transcribe-cli`; streaming `beto-stream`; Canary y Nemotron |
+| **llama.cpp** | `b10068` — `571d0d540df04f25298d0e159e520d9fc62ed121` | `llama-server`; `--mmproj`; chat con audio Voxtral; `/v1/embeddings`; Metal y Accelerate |
+
+QA del 19-07-2026: `transcribe.cpp` pasó **31/31** pruebas upstream. `llama.cpp`
+pasó **51/53**; las dos restantes son auxiliares y no prueban el servidor: una
+requiere el módulo de desarrollo Python `jinja2` y la otra Git LFS para descargar
+vocabularios de prueba. Además se probaron con modelos reales los cuatro caminos
+que sí usa la app: Canary batch, Nemotron streaming, Voxtral multimodal y BGE-M3
+embeddings.
+
+Para reconstruir el puente después de compilar `~/transcribe.cpp` estático:
+
+```bash
+make beto-stream
+```
+
+El target valida que existan cabecera y librerías antes de sustituir el binario.
+
 ## Avisar de actualizaciones (sin romper nada)
 
 Actualizar un motor de terceros puede **romper la build o el runtime**, así que
