@@ -604,6 +604,9 @@ struct ModosView: View {
                 .disabled(!ConexionesMotor.urlSegura(b.wrappedValue.conexion?.baseURL ?? ""))
                 Toggle("Leer resumen por voz", isOn: conex.vozResumen)
                     .toggleStyle(.switch).controlSize(.mini)
+                Toggle("La IA arma el plan", isOn: conex.usarIA)
+                    .toggleStyle(.switch).controlSize(.mini)
+                    .help("Encendido: la IA de este modo elige el endpoint y llena sus variables desde lo dictado (usa el Prompt de abajo como instrucciones). Apagado: se usa la clave dictada o el primer GET, con {texto} solamente.")
             }
             if !avisoConexion.isEmpty {
                 Text(avisoConexion).font(.caption)

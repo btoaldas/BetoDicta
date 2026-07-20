@@ -117,13 +117,14 @@ struct ConexionAPI: Codable, Equatable {
     var endpoints: [EndpointAPI]
     var timeoutSegundos: Int
     var vozResumen: Bool            // leer un resumen del resultado por TTS
+    var usarIA: Bool                // la IA arma el plan (endpoint+variables) desde lo dictado
 
     init(baseURL: String = "", auth: AuthConexion = AuthConexion(),
          headers: [String: String] = [:], endpoints: [EndpointAPI] = [],
-         timeoutSegundos: Int = 15, vozResumen: Bool = false) {
+         timeoutSegundos: Int = 15, vozResumen: Bool = false, usarIA: Bool = true) {
         self.baseURL = baseURL; self.auth = auth; self.headers = headers
         self.endpoints = endpoints; self.timeoutSegundos = timeoutSegundos
-        self.vozResumen = vozResumen
+        self.vozResumen = vozResumen; self.usarIA = usarIA
     }
 
     init(from d: Decoder) throws {
@@ -134,6 +135,7 @@ struct ConexionAPI: Codable, Equatable {
         endpoints = (try? c.decode([EndpointAPI].self, forKey: .endpoints)) ?? []
         timeoutSegundos = (try? c.decode(Int.self, forKey: .timeoutSegundos)) ?? 15
         vozResumen = (try? c.decode(Bool.self, forKey: .vozResumen)) ?? false
+        usarIA = (try? c.decode(Bool.self, forKey: .usarIA)) ?? true
     }
 
     var tieneEscritura: Bool { endpoints.contains { $0.efectivamenteEscritura } }
@@ -336,18 +338,63 @@ enum ConexionesRunner {
         guard ConexionesMotor.urlSegura(conexion.baseURL) else {
             completion(.init(ok: false, mensaje: "La URL base no es segura. Usa HTTPS, o HTTP únicamente para localhost.")); return
         }
-        guard let endpoint = endpointPara(conexion, texto: texto) else {
+        guard conexion.endpoints.contains(where: { !$0.efectivamenteEscritura }) else {
             completion(.init(ok: false, mensaje: conexion.tieneEscritura
                 ? "Esta conexión solo tiene endpoints de escritura; la propuesta con confirmación llega en la siguiente fase."
                 : "La conexión «\(modo.nombre)» no tiene endpoints configurados.")); return
         }
-        // Techo duro de fase 1: nada de escritura sin el flujo proponer→confirmar.
-        guard !endpoint.efectivamenteEscritura else {
-            completion(.init(ok: false, mensaje: "El endpoint «\(endpoint.clave)» es de escritura y requiere confirmación (disponible en la siguiente fase).")); return
+        // FASE 2: si el usuario lo quiere y hay una IA, ELLA arma el plan
+        // (endpoint + variables desde el dictado libre). El plan vuelve como
+        // texto y se valida estricto; ante fallo se cae al camino determinista.
+        if conexion.usarIA, ConexionesIA.iaDisponible(modo) != nil {
+            ConexionesIA.resolver(modo: modo, conexion: conexion, texto: texto) { r in
+                switch r {
+                case .plan(let plan):
+                    ejecutarEndpoint(modo: modo, conexion: conexion, endpoint: plan.endpoint,
+                                     valores: plan.valores, resumen: plan.resumen, completion: completion)
+                case .faltan(let nombres):
+                    let lista = nombres.joined(separator: ", ")
+                    completion(.init(ok: false,
+                        mensaje: "Me falta saber: \(lista). Dímelo de nuevo incluyendo ese dato.",
+                        evidencia: ["faltan": lista]))
+                case .invalido(let motivo):
+                    // Fallback determinista (fase 1) SOLO si es viable sin IA;
+                    // si no, el motivo real — jamás un endpoint adivinado.
+                    if let ep = endpointPara(conexion, texto: texto),
+                       ep.variables.allSatisfy({ !$0.requerida }) {
+                        var valores: [String: Any] = [:]
+                        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !t.isEmpty { valores["texto"] = t }
+                        ejecutarEndpoint(modo: modo, conexion: conexion, endpoint: ep,
+                                         valores: valores, resumen: "", completion: completion)
+                    } else {
+                        completion(.init(ok: false, mensaje: "No pude armar el plan: \(motivo)."))
+                    }
+                }
+            }
+            return
+        }
+        // Camino determinista (fase 1): clave dictada o primer GET, solo {texto}.
+        guard let endpoint = endpointPara(conexion, texto: texto) else {
+            completion(.init(ok: false, mensaje: "La conexión «\(modo.nombre)» no tiene endpoints de lectura.")); return
         }
         var valores: [String: Any] = [:]
         let contenido = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         if !contenido.isEmpty { valores["texto"] = contenido }
+        ejecutarEndpoint(modo: modo, conexion: conexion, endpoint: endpoint,
+                         valores: valores, resumen: "", completion: completion)
+    }
+
+    /// Tramo común validar→construir→llamar. `valores` ya viene del plan de la
+    /// IA (tipados) o del camino determinista ({texto}); la validación contra
+    /// el esquema se repite aquí SIEMPRE — nadie salta el validador.
+    private static func ejecutarEndpoint(modo: Modo, conexion: ConexionAPI,
+                                         endpoint: EndpointAPI, valores: [String: Any],
+                                         resumen: String,
+                                         completion: @escaping (ResultadoHerramientaApple) -> Void) {
+        guard !endpoint.efectivamenteEscritura else {
+            completion(.init(ok: false, mensaje: "El endpoint «\(endpoint.clave)» es de escritura y requiere confirmación (disponible en la siguiente fase).")); return
+        }
         let problemas = ConexionesMotor.validarValores(endpoint: endpoint, valores: valores)
         guard problemas.isEmpty else {
             completion(.init(ok: false, mensaje: "No puedo llamar «\(endpoint.clave)»: " + problemas.joined(separator: "; ") + ".")); return
@@ -356,7 +403,8 @@ enum ConexionesRunner {
                                                      endpoint: endpoint, valores: valores) else {
             completion(.init(ok: false, mensaje: "No pude armar una URL segura para «\(endpoint.clave)». Revisa la ruta y las variables.")); return
         }
-        llamar(url: url, conexion: conexion, modoId: modo.id, endpoint: endpoint) { r in
+        llamar(url: url, conexion: conexion, modoId: modo.id, endpoint: endpoint,
+               resumen: resumen) { r in
             DispatchQueue.main.async { completion(r) }
         }
     }
@@ -387,7 +435,7 @@ enum ConexionesRunner {
     // El HTTP común de fase 1. Sesión propia por llamada con delegate anti-
     // redirect; se invalida al terminar (patrón de la casa para no fugar).
     private static func llamar(url: URL, conexion: ConexionAPI, modoId: String,
-                               endpoint: EndpointAPI,
+                               endpoint: EndpointAPI, resumen: String = "",
                                _ completion: @escaping (ResultadoHerramientaApple) -> Void) {
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
@@ -428,10 +476,12 @@ enum ConexionesRunner {
                     evidencia: ["endpoint": endpoint.clave, "estado": "\(code)", "ms": "\(ms)"]))
                 return
             }
+            var evidencia = ["endpoint": endpoint.clave, "estado": "\(code)", "ms": "\(ms)",
+                             "salida": cuerpo]
+            if !resumen.isEmpty { evidencia["plan"] = resumen }
             completion(.init(ok: true,
                 mensaje: cuerpo.isEmpty ? "«\(endpoint.clave)» respondió sin contenido (HTTP \(code))." : cuerpo,
-                evidencia: ["endpoint": endpoint.clave, "estado": "\(code)", "ms": "\(ms)",
-                            "salida": cuerpo]))
+                evidencia: evidencia))
         }
         tarea.resume()
     }

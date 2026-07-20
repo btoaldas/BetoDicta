@@ -175,7 +175,84 @@ enum ConexionesQA {
         check("sin clave usa el primer GET",
               ConexionesRunner.endpointPara(multi, texto: "cualquier cosa")?.clave == "clima")
 
-        // 15. (Opcional) GET real a una API pública — exige internet.
+        // 15. FASE 2 — interpretar: la respuesta de la IA se valida ESTRICTA.
+        var conexIA = ConexionAPI(baseURL: "https://wttr.in")
+        var epCiudad = EndpointAPI(clave: "clima", metodo: "GET", ruta: "/{ciudad}",
+                                   descripcion: "clima de una ciudad", query: "format=3")
+        epCiudad.variables = [VariableAPI(nombre: "ciudad", tipo: "texto", requerida: true,
+                                          descripcion: "nombre de la ciudad")]
+        var epLista = EndpointAPI(clave: "registrar", metodo: "POST", ruta: "/reg", esEscritura: true)
+        epLista.variables = [VariableAPI(nombre: "items", tipo: "lista")]
+        conexIA.endpoints = [epCiudad, epLista]
+
+        func esPlan(_ r: ResultadoPlanConexion) -> PlanConexion? {
+            if case .plan(let p) = r { return p }; return nil
+        }
+        func esFaltan(_ r: ResultadoPlanConexion) -> [String]? {
+            if case .faltan(let f) = r { return f }; return nil
+        }
+        func esInvalido(_ r: ResultadoPlanConexion) -> Bool {
+            if case .invalido = r { return true }; return false
+        }
+
+        let planOK = ConexionesIA.interpretar(
+            #"{"endpoint":"clima","variables":{"ciudad":"Puyo"},"resumen":"Clima de Puyo","faltan":[]}"#,
+            conexion: conexIA, textoDictado: "qué clima hace en el Puyo")
+        check("plan válido aceptado con valores",
+              esPlan(planOK)?.endpoint.clave == "clima"
+              && (esPlan(planOK)?.valores["ciudad"] as? String) == "Puyo"
+              && esPlan(planOK)?.resumen == "Clima de Puyo")
+        check("plan añade {texto} automático",
+              (esPlan(planOK)?.valores["texto"] as? String) == "qué clima hace en el Puyo")
+        let fence = ConexionesIA.interpretar(
+            "```json\n{\"endpoint\":\"clima\",\"variables\":{\"ciudad\":\"Tena\"},\"resumen\":\"ok\",\"faltan\":[]}\n```",
+            conexion: conexIA, textoDictado: "x")
+        check("plan dentro de fence markdown se extrae", esPlan(fence)?.endpoint.clave == "clima")
+        check("endpoint inexistente rechazado",
+              esInvalido(ConexionesIA.interpretar(#"{"endpoint":"otro","variables":{}}"#,
+                                                  conexion: conexIA, textoDictado: "x")))
+        check("endpoint de escritura rechazado en el plan",
+              esInvalido(ConexionesIA.interpretar(#"{"endpoint":"registrar","variables":{"items":[]}}"#,
+                                                  conexion: conexIA, textoDictado: "x")))
+        check("JSON roto → inválido",
+              esInvalido(ConexionesIA.interpretar("no hay json aquí", conexion: conexIA, textoDictado: "x")))
+        check("faltan declarado se respeta",
+              esFaltan(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{},"faltan":["ciudad"]}"#,
+                                                conexion: conexIA, textoDictado: "x")) == ["ciudad"])
+        check("requerida ausente se detecta aunque la IA no la liste",
+              esFaltan(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{},"faltan":[]}"#,
+                                                conexion: conexIA, textoDictado: "x")) == ["ciudad"])
+        check("faltan inventadas se filtran",
+              esFaltan(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{"ciudad":"Puyo"},"faltan":["inventada"]}"#,
+                                                conexion: conexIA, textoDictado: "x")) == nil)
+        check("variable no declarada en plan rechazada",
+              esInvalido(ConexionesIA.interpretar(#"{"endpoint":"clima","variables":{"ciudad":"Puyo","extra":1}}"#,
+                                                  conexion: conexIA, textoDictado: "x")))
+        check("prompt lleva catálogo y sobre anti-inyección",
+              {
+                  let p = ConexionesIA.promptPara(modo: modo, conexion: conexIA, texto: "hola")
+                  return p.contains("clima (GET)") && p.contains("INSTRUCCIONES_INTERNAS_NO_REPRODUCIR")
+                      && p.contains("ciudad (texto, requerida)") && !p.contains("registrar (POST)")
+              }())
+
+        // 16. (Opcional) plan con IA REAL configurada — exige red + proveedor.
+        if ProcessInfo.processInfo.environment["BETODICTA_CONEXIONTEST_IA"] == "1" {
+            var modoIA = modo; modoIA.conexion = conexIA
+            var rIA: ResultadoPlanConexion?
+            ConexionesIA.resolver(modo: modoIA, conexion: conexIA,
+                                  texto: "dime el clima que hace en Baños de Agua Santa") { rIA = $0 }
+            let limite = Date().addingTimeInterval(30)
+            while rIA == nil, Date() < limite {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            let p = rIA.flatMap(esPlan)
+            check("IA real arma el plan (endpoint clima + ciudad)",
+                  p?.endpoint.clave == "clima"
+                  && ((p?.valores["ciudad"] as? String)?.lowercased().contains("baños") ?? false))
+            print("CONEXIONTEST ia: \(p.map { "\($0.endpoint.clave) \($0.valores["ciudad"] ?? "-") · \($0.resumen)" } ?? "sin plan")")
+        }
+
+        // 17. (Opcional) GET real a una API pública — exige internet.
         if ProcessInfo.processInfo.environment["BETODICTA_CONEXIONTEST_RED"] == "1" {
             let rReal = esperar { done in
                 ConexionesRunner.probar(modo.conexion!, modoId: "qa-red") { ok, msg in
