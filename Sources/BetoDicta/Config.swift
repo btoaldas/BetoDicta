@@ -1016,6 +1016,13 @@ struct Config {
         (json()["continuo_pantalla_apps_excluidas"] as? [String]) ?? []
     }
 
+    /// Guardar con cada captura qué aplicaciones estaban a la vista (la activa
+    /// ya se guarda aparte). Contexto para el resumen: «activa Claude; también
+    /// visibles Edge, Finder».
+    static func continuoPantallaAppsVisibles() -> Bool {
+        (json()["continuo_pantalla_apps_visibles"] as? Bool) ?? true
+    }
+
     /// Monitores a capturar por identificador. Vacío = el principal.
     static func continuoPantallaMonitores() -> [Int] {
         (json()["continuo_pantalla_monitores"] as? [Int]) ?? []
@@ -1124,10 +1131,26 @@ struct Config {
 
     static func continuoResumenActivo() -> Bool { (json()["continuo_resumen_activo"] as? Bool) ?? false }
 
-    /// Cuántos caracteres del día se mandan al modelo. Acotarlo evita facturas
-    /// sorpresa y respuestas truncadas. 2000…60000.
+    /// Cuántos caracteres caben en UN envío al modelo (prompt e instrucción
+    /// aparte). Es la ventana de contexto práctica de la IA elegida, no un
+    /// límite de cuánto se procesa: lo que no quepa va en más envíos.
+    /// 2000…400000.
     static func continuoResumenMaxCaracteres() -> Int {
-        min(60_000, max(2_000, (json()["continuo_resumen_max_caracteres"] as? Int) ?? 18_000))
+        min(400_000, max(2_000, (json()["continuo_resumen_max_caracteres"] as? Int) ?? 18_000))
+    }
+
+    /// Si el día no cabe en un envío, trocearlo y enviarlo TODO en varias
+    /// pasadas, y unir al final. Nada se descarta: diez envíos si hacen falta.
+    /// Apagado, se vuelve al recorte por prioridad (con pérdida).
+    static func continuoResumenTrocear() -> Bool {
+        (json()["continuo_resumen_trocear"] as? Bool) ?? true
+    }
+
+    /// Tope cuerdo de envíos por documento. Si el material pide más partes que
+    /// esto, las partes se agrandan para caber en el tope — no se pierde nada,
+    /// solo se aprieta más por envío. 2…50.
+    static func continuoResumenMaxPartes() -> Int {
+        min(50, max(2, (json()["continuo_resumen_max_partes"] as? Int) ?? 20))
     }
 
     /// Prompt de la biblioteca que se usa al ejecutar a mano y en la
@@ -1152,6 +1175,20 @@ struct Config {
     /// Incluir el texto leído de las capturas, además de lo hablado.
     static func continuoResumenIncluirPantalla() -> Bool {
         (json()["continuo_resumen_incluir_pantalla"] as? Bool) ?? true
+    }
+
+    /// La voz del micrófono manda. Cuando el día no cabe en el tope de
+    /// caracteres, se recorta primero la pantalla, luego el audio del sistema,
+    /// y lo hablado al micrófono solo en último extremo. Un videotutorial es
+    /// contexto; la voz de la persona es el contenido.
+    static func continuoResumenPrioridadMicrofono() -> Bool {
+        (json()["continuo_resumen_prioridad_microfono"] as? Bool) ?? true
+    }
+
+    /// Cierra el material con el tiempo aproximado en primer plano por
+    /// aplicación, deducido de las capturas.
+    static func continuoResumenTiemposApp() -> Bool {
+        (json()["continuo_resumen_tiempos_app"] as? Bool) ?? true
     }
 
     // ---- Diccionario propio ----

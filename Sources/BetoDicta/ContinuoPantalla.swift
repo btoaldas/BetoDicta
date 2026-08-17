@@ -153,11 +153,15 @@ final class ContinuoPantalla {
         let frente = NSWorkspace.shared.frontmostApplication
         let app = frente?.localizedName
         let ventana = Self.tituloVentanaAlFrente()
+        let visibles = Config.continuoPantallaAppsVisibles()
+            ? Self.appsALaVista(excluyendo: app)
+            : []
 
         escribir.async { [weak self] in
             guard let self, let url = self.guardar(imagen, instante: ahora) else { return }
             ContinuoIndice.shared.registrarPantalla(ruta: url, instante: ahora,
-                                                    app: app, ventana: ventana, monitor: monitor)
+                                                    app: app, ventana: ventana,
+                                                    monitor: monitor, visibles: visibles)
         }
     }
 
@@ -232,6 +236,25 @@ final class ContinuoPantalla {
             return Array(contenido.displays.prefix(1))
         }
         return contenido.displays.filter { pedidos.contains(Int($0.displayID)) }
+    }
+
+    /// Aplicaciones con ventanas a la vista, de delante hacia atrás, sin la
+    /// activa (que ya va en su propio campo). Es el «qué más había abierto»
+    /// que da contexto a la captura.
+    private static func appsALaVista(excluyendo activa: String?) -> [String] {
+        guard let lista = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                     kCGNullWindowID) as? [[String: Any]] else { return [] }
+        var vistas: [String] = []
+        for v in lista {
+            // Solo la capa normal de ventanas: fuera menús, Dock y adornos.
+            guard let capa = v[kCGWindowLayer as String] as? Int, capa == 0,
+                  let nombre = v[kCGWindowOwnerName as String] as? String,
+                  !nombre.isEmpty, nombre != activa,
+                  !vistas.contains(nombre) else { continue }
+            vistas.append(nombre)
+            if vistas.count >= 6 { break }   // el contexto útil se agota pronto
+        }
+        return vistas
     }
 
     /// Título de la ventana al frente, si el permiso de accesibilidad lo permite.

@@ -723,6 +723,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba determinista del troceo del resumen: nada puede perderse y
+        // ninguna parte puede exceder el tamaño de envío.
+        if ProcessInfo.processInfo.environment["BETODICTA_TROCEOTEST"] == "1" {
+            var lineas: [String] = []
+            for i in 0..<5_000 { lineas.append("[00:\(String(format: "%02d", i % 60)):00] (micrófono) entrada número \(i) de la jornada de prueba") }
+            let texto = lineas.joined(separator: "\n")
+            let partes = ContinuoResumen.trocear(texto, tamano: 9_000)
+            let reunido = partes.joined(separator: "\n")
+            let sinPerdida = reunido == texto
+            let tamanoOK = partes.allSatisfy { $0.count <= 9_000 }
+            let lineasEnteras = partes.allSatisfy { !$0.hasPrefix(" ") && !$0.isEmpty }
+            print("TROCEOTEST partes=\(partes.count) sinPerdida=\(sinPerdida) tamano=\(tamanoOK) lineas=\(lineasEnteras)")
+            fflush(stdout)
+            exit(sinPerdida && tamanoOK && lineasEnteras ? 0 : 3)
+        }
         // Prueba real de convivencia: bitácora encendida → cesión → un Recorder
         // de verdad graba mientras suena una voz por los parlantes. Si el
         // Recorder recibe señal, el dictado funcionaría; si recibe silencio, el

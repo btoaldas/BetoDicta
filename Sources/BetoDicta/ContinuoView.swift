@@ -60,7 +60,12 @@ final class ContinuoModel: ObservableObject {
     @Published var ocrPreciso: Bool { didSet { Config.set("continuo_ocr_preciso", to: ocrPreciso) } }
     @Published var resumenActivo: Bool { didSet { Config.set("continuo_resumen_activo", to: resumenActivo) } }
     @Published var resumenPantalla: Bool { didSet { Config.set("continuo_resumen_incluir_pantalla", to: resumenPantalla) } }
+    @Published var resumenPrioridadMic: Bool { didSet { Config.set("continuo_resumen_prioridad_microfono", to: resumenPrioridadMic) } }
+    @Published var resumenTiempos: Bool { didSet { Config.set("continuo_resumen_tiempos_app", to: resumenTiempos) } }
+    @Published var pantallaVisibles: Bool { didSet { Config.set("continuo_pantalla_apps_visibles", to: pantallaVisibles) } }
     @Published var resumenMax: Double { didSet { Config.set("continuo_resumen_max_caracteres", to: Int(resumenMax)) } }
+    @Published var resumenTrocear: Bool { didSet { Config.set("continuo_resumen_trocear", to: resumenTrocear) } }
+    @Published var resumenMaxPartes: Double { didSet { Config.set("continuo_resumen_max_partes", to: Int(resumenMaxPartes)) } }
     @Published var resumenInstruccion: String { didSet { Config.set("continuo_resumen_instruccion", to: resumenInstruccion) } }
     @Published var diccAudio: Bool { didSet { Config.set("continuo_diccionario_audio", to: diccAudio) } }
     @Published var diccOcr: Bool { didSet { Config.set("continuo_diccionario_ocr", to: diccOcr) } }
@@ -116,10 +121,15 @@ final class ContinuoModel: ObservableObject {
         ocrPreciso = Config.continuoOcrPreciso()
         resumenActivo = Config.continuoResumenActivo()
         resumenPantalla = Config.continuoResumenIncluirPantalla()
+        resumenPrioridadMic = Config.continuoResumenPrioridadMicrofono()
+        resumenTiempos = Config.continuoResumenTiemposApp()
+        pantallaVisibles = Config.continuoPantallaAppsVisibles()
         diccAudio = Config.continuoDiccionarioAudio()
         diccOcr = Config.continuoDiccionarioOcr()
         glosarioPrompt = Config.continuoGlosarioEnPrompt()
         resumenMax = Double(Config.continuoResumenMaxCaracteres())
+        resumenTrocear = Config.continuoResumenTrocear()
+        resumenMaxPartes = Double(Config.continuoResumenMaxPartes())
         resumenInstruccion = Config.continuoResumenInstruccion()
         let p0 = ContinuoPrompts.activo()
         promptTexto = p0.texto
@@ -385,6 +395,8 @@ struct ContinuoView: View {
                     }
 
                     Toggle("Pausar con la pantalla bloqueada o dormida", isOn: $m.pantallaPausar)
+                    Toggle("Anotar qué aplicaciones estaban a la vista", isOn: $m.pantallaVisibles)
+                        .help("Con cada captura se guarda la app activa y las demás visibles: «activa Claude; también a la vista Edge, Finder».")
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Apps excluidas (identificadores separados por comas)").font(.caption)
@@ -484,11 +496,33 @@ struct ContinuoView: View {
 
                     Toggle("Redactar un resumen del día", isOn: $m.resumenActivo)
                     Toggle("Incluir también el texto de las capturas", isOn: $m.resumenPantalla)
+                    Toggle("Tu voz manda sobre el resto", isOn: $m.resumenPrioridadMic)
+                        .help("Si el día no cabe en el tope, se recortan primero las capturas y el audio del sistema. Lo que dijiste tú entra entero: un videotutorial es contexto, tu voz es el contenido.")
+                    Toggle("Cerrar con el tiempo por aplicación", isOn: $m.resumenTiempos)
+                        .help("Minutos aproximados en primer plano por app, deducidos de las capturas.")
 
                     HStack {
-                        Text("Enviar como máximo")
-                        Slider(value: $m.resumenMax, in: 2000...60000, step: 2000).frame(width: 180)
+                        Text("Capacidad por envío")
+                        Slider(value: $m.resumenMax, in: 2000...400000, step: 2000).frame(width: 180)
                         Text("\(Int(m.resumenMax)) caracteres").monospacedDigit().font(.caption)
+                    }
+                    Text("Ajústalo a la ventana de contexto de la IA elegida. No limita cuánto se procesa: es cuánto cabe en CADA envío.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle("Si el día no cabe, enviarlo en partes y unirlas (sin perder nada)", isOn: $m.resumenTrocear)
+                        .help("El día se trocea en envíos del tamaño de arriba, cada parte se procesa con la misma instrucción, y una pasada final las une en un solo documento. Diez envíos si hacen falta.")
+                    if m.resumenTrocear {
+                        HStack {
+                            Text("Máximo de envíos")
+                            Slider(value: $m.resumenMaxPartes, in: 2...50, step: 1).frame(width: 160)
+                            Text("\(Int(m.resumenMaxPartes))").monospacedDigit().font(.caption)
+                        }
+                        Text("Si el material pidiera más, las partes se agrandan para caber: se aprieta, no se pierde.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("⚠️ Apagado: lo que no quepa se recorta (primero capturas, luego audio del sistema, tu voz al final).")
+                            .font(.caption).foregroundStyle(.orange)
                     }
 
                     Picker("Cerebro", selection: $m.resumenIA) {

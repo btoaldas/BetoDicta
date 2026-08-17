@@ -123,6 +123,10 @@ final class ContinuoIndice {
         );
         """)
         ejecutar("CREATE INDEX IF NOT EXISTS pantalla_instante ON pantalla(instante);")
+        // Migración suave: bases creadas antes de que existiera la columna.
+        if !columnaExiste("pantalla", "visibles") {
+            ejecutar("ALTER TABLE pantalla ADD COLUMN visibles TEXT;")
+        }
         ejecutar("CREATE INDEX IF NOT EXISTS pantalla_pendiente ON pantalla(procesado, instante);")
 
         ejecutar("""
@@ -163,14 +167,15 @@ final class ContinuoIndice {
 
     /// Registra una captura de pantalla ya escrita en disco.
     @discardableResult
-    func registrarPantalla(ruta: URL, instante: Date, app: String?, ventana: String?, monitor: Int) -> Int64? {
+    func registrarPantalla(ruta: URL, instante: Date, app: String?, ventana: String?,
+                           monitor: Int, visibles: [String] = []) -> Int64? {
         let bytes = tamano(de: ruta)
         return cola.sync {
             guard let d = db else { return nil }
             var st: OpaquePointer?
             let sql = """
-            INSERT OR IGNORE INTO pantalla (instante, ruta, bytes, app, ventana, monitor)
-            VALUES (?, ?, ?, ?, ?, ?);
+            INSERT OR IGNORE INTO pantalla (instante, ruta, bytes, app, ventana, monitor, visibles)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
             """
             guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { return nil }
             defer { sqlite3_finalize(st) }
@@ -180,6 +185,7 @@ final class ContinuoIndice {
             bindTexto(st, 4, app ?? "")
             bindTexto(st, 5, ventana ?? "")
             sqlite3_bind_int(st, 6, Int32(monitor))
+            bindTexto(st, 7, visibles.joined(separator: ", "))
             guard sqlite3_step(st) == SQLITE_DONE else { return nil }
             return sqlite3_last_insert_rowid(d)
         }
@@ -247,21 +253,33 @@ final class ContinuoIndice {
         }
     }
 
-    /// Todo lo registrado de un día, en orden, para armar el resumen. Devuelve
-    /// tuplas (instante, material, app, texto) ya filtradas de vacíos.
-    func materialDelDia(_ dia: Date, incluirPantalla: Bool) -> [(Date, MaterialContinuo, String, String)] {
+    /// Una pieza del día para armar el resumen.
+    struct PiezaDia {
+        let instante: Date
+        let material: MaterialContinuo
+        /// Audio: origen (continuo/dictado/sistema). Pantalla: app activa.
+        let fuente: String
+        /// Solo pantalla: las demás aplicaciones a la vista en ese momento.
+        let visibles: String
+        let texto: String
+    }
+
+    /// Todo lo registrado de un día, en orden, ya filtrado de vacíos.
+    func materialDelDia(_ dia: Date, incluirPantalla: Bool) -> [PiezaDia] {
         let cal = Calendar.current
         let desde = cal.startOfDay(for: dia).timeIntervalSince1970
         let hasta = desde + 86_400
         return cola.sync {
             guard let d = db else { return [] }
-            var salida: [(Date, MaterialContinuo, String, String)] = []
+            var salida: [PiezaDia] = []
             var tablas: [(String, MaterialContinuo)] = [("audio", .audio)]
             if incluirPantalla { tablas.append(("pantalla", .pantalla)) }
             for (tabla, material) in tablas {
-                let campoApp = tabla == "pantalla" ? "COALESCE(app,'')" : "origen"
+                let campos = tabla == "pantalla"
+                    ? "COALESCE(app,''), COALESCE(visibles,'')"
+                    : "origen, ''"
                 let sql = """
-                SELECT instante, \(campoApp), texto FROM \(tabla)
+                SELECT instante, \(campos), texto FROM \(tabla)
                 WHERE instante >= ? AND instante < ?
                   AND texto IS NOT NULL AND length(trim(texto)) > 0
                 ORDER BY instante ASC;
@@ -271,15 +289,29 @@ final class ContinuoIndice {
                 sqlite3_bind_double(st, 1, desde)
                 sqlite3_bind_double(st, 2, hasta)
                 while sqlite3_step(st) == SQLITE_ROW {
-                    let t = sqlite3_column_double(st, 0)
-                    let app = sqlite3_column_text(st, 1).map { String(cString: $0) } ?? ""
-                    let texto = sqlite3_column_text(st, 2).map { String(cString: $0) } ?? ""
-                    salida.append((Date(timeIntervalSince1970: t), material, app, texto))
+                    salida.append(PiezaDia(
+                        instante: Date(timeIntervalSince1970: sqlite3_column_double(st, 0)),
+                        material: material,
+                        fuente: sqlite3_column_text(st, 1).map { String(cString: $0) } ?? "",
+                        visibles: sqlite3_column_text(st, 2).map { String(cString: $0) } ?? "",
+                        texto: sqlite3_column_text(st, 3).map { String(cString: $0) } ?? ""
+                    ))
                 }
                 sqlite3_finalize(st)
             }
-            return salida.sorted { $0.0 < $1.0 }
+            return salida.sorted { $0.instante < $1.instante }
         }
+    }
+
+    private func columnaExiste(_ tabla: String, _ columna: String) -> Bool {
+        guard let d = db else { return true }
+        var st: OpaquePointer?
+        guard sqlite3_prepare_v2(d, "PRAGMA table_info(\(tabla));", -1, &st, nil) == SQLITE_OK else { return true }
+        defer { sqlite3_finalize(st) }
+        while sqlite3_step(st) == SQLITE_ROW {
+            if let c = sqlite3_column_text(st, 1), String(cString: c) == columna { return true }
+        }
+        return false
     }
 
     /// Registra los archivos que están en disco pero no en el índice.

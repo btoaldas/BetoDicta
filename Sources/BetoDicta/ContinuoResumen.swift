@@ -31,20 +31,139 @@ enum ContinuoResumen {
 
         let plantilla = promptId.flatMap { ContinuoPrompts.porId($0) } ?? ContinuoPrompts.activo()
         let cuerpo = armarCuerpo(material)
-        let prompt = armarPrompt(dia: dia, cuerpo: cuerpo, plantilla: plantilla)
+        let tope = Config.continuoResumenMaxCaracteres()
 
-        llamar(ia, prompt: prompt, textLen: cuerpo.count) { texto in
-            guard let texto, !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                completion(.failure(ErrorResumen.sinRespuesta)); return
+        // Camino corto: el día entero cabe en un envío.
+        if cuerpo.count <= tope || !Config.continuoResumenTrocear() {
+            let prompt = armarPrompt(dia: dia, cuerpo: cuerpo, plantilla: plantilla)
+            llamar(ia, prompt: prompt, textLen: cuerpo.count) { texto in
+                guard let texto, !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    completion(.failure(ErrorResumen.sinRespuesta)); return
+                }
+                do {
+                    let url = try guardar(texto, dia: dia, piezas: material.count, prefijo: plantilla.id)
+                    Log.log(.sistema, "bitácora: documento del día escrito en \(url.lastPathComponent)")
+                    completion(.success(url))
+                } catch { completion(.failure(error)) }
             }
-            do {
-                let url = try guardar(texto, dia: dia, piezas: material.count, prefijo: plantilla.id)
-                Log.log(.sistema, "bitácora: resumen del día escrito en \(url.lastPathComponent)")
-                completion(.success(url))
-            } catch {
-                completion(.failure(error))
-            }
+            return
         }
+
+        // El día NO cabe: se trocea y se envía TODO, parte por parte, y una
+        // pasada final lo une. Nada se descarta — diez envíos si hacen falta.
+        DispatchQueue.global(qos: .utility).async {
+            let resultado = generarPorPartes(dia: dia, ia: ia, plantilla: plantilla,
+                                             cuerpo: cuerpo, piezas: material.count, tope: tope)
+            DispatchQueue.main.async { completion(resultado) }
+        }
+    }
+
+    // MARK: Troceo sin pérdida
+
+    /// Divide la línea de tiempo en partes que quepan en un envío, respetando
+    /// los saltos de línea (una entrada nunca se corta por la mitad), procesa
+    /// cada parte con la misma instrucción, y une los resultados en un
+    /// documento final. Si hasta los parciales exceden un envío, la unión se
+    /// hace en cascada por grupos.
+    private static func generarPorPartes(dia: Date, ia: ChatIA, plantilla: PromptContinuo,
+                                         cuerpo: String, piezas: Int, tope: Int) -> Result<URL, Error> {
+        // Partes lo más grandes posible; si salen más que el tope de envíos,
+        // se agrandan hasta caber en él (se aprieta, no se pierde).
+        var partes = trocear(cuerpo, tamano: tope)
+        let maxPartes = Config.continuoResumenMaxPartes()
+        if partes.count > maxPartes {
+            let agrandado = Int(ceil(Double(cuerpo.count) / Double(maxPartes))) + 512
+            partes = trocear(cuerpo, tamano: agrandado)
+            Log.log(.sistema, "bitácora: el día pide \(partes.count) envíos con partes agrandadas (tope \(maxPartes))")
+        }
+        Log.log(.sistema, "bitácora: día de \(cuerpo.count) caracteres → \(partes.count) envíos de hasta \(tope)")
+
+        var parciales: [String] = []
+        for (i, parte) in partes.enumerated() {
+            let aviso = """
+            ESTA ES LA PARTE \(i + 1) DE \(partes.count) del material del día; las demás             van en otros envíos. Aplica la instrucción SOLO a este tramo. No             redactes conclusiones globales ni cierres el documento: eso se hace             al unir todas las partes.
+            """
+            let prompt = armarPrompt(dia: dia, cuerpo: aviso + "\n\n" + parte, plantilla: plantilla)
+            guard let r = llamarYEsperar(ia, prompt: prompt, textLen: parte.count) else {
+                // Sin respuesta en una parte: mejor fallar entero que entregar
+                // un documento al que le falta un tramo en silencio.
+                Log.log(.sistema, "bitácora: la parte \(i + 1)/\(partes.count) no obtuvo respuesta — abandono")
+                return .failure(ErrorResumen.sinRespuesta)
+            }
+            parciales.append(r)
+            Log.log(.sistema, "bitácora: parte \(i + 1)/\(partes.count) procesada")
+        }
+
+        // Unión, en cascada si hace falta.
+        var nivel = parciales
+        while nivel.count > 1 {
+            var siguiente: [String] = []
+            var grupo: [String] = []
+            var tam = 0
+            func cerrarGrupo() -> Bool {
+                guard !grupo.isEmpty else { return true }
+                if grupo.count == 1 { siguiente.append(grupo[0]); grupo = []; tam = 0; return true }
+                let union = """
+                \(plantilla.texto)
+
+                Los bloques de abajo son resultados PARCIALES de la misma jornada,                 en orden cronológico, producidos con esa instrucción sobre tramos                 distintos del día. Únelos en UN solo documento final coherente:                 funde lo repetido, conserva todo lo distinto y respeta el orden                 temporal. No inventes nada que no esté en los bloques.
+
+                \(grupo.enumerated().map { "— BLOQUE \($0.offset + 1) —\n\($0.element)" }.joined(separator: "\n\n"))
+                """
+                guard let unido = llamarYEsperar(ia, prompt: union, textLen: union.count) else { return false }
+                siguiente.append(unido)
+                grupo = []; tam = 0
+                return true
+            }
+            for parcial in nivel {
+                if tam + parcial.count > tope, !grupo.isEmpty {
+                    guard cerrarGrupo() else { return .failure(ErrorResumen.sinRespuesta) }
+                }
+                grupo.append(parcial)
+                tam += parcial.count
+            }
+            guard cerrarGrupo() else { return .failure(ErrorResumen.sinRespuesta) }
+            // Salvaguarda: si no se redujo nada (un solo grupo gigante), salir.
+            if siguiente.count >= nivel.count { break }
+            nivel = siguiente
+        }
+
+        let final = nivel.count == 1 ? nivel[0] : nivel.joined(separator: "\n\n---\n\n")
+        do {
+            let url = try guardar(final, dia: dia, piezas: piezas, prefijo: plantilla.id, partes: partes.count)
+            Log.log(.sistema, "bitácora: documento del día escrito en \(url.lastPathComponent) (\(partes.count) envíos)")
+            return .success(url)
+        } catch { return .failure(error) }
+    }
+
+    /// Corta por líneas completas: una entrada de la cronología jamás queda
+    /// partida entre dos envíos.
+    static func trocear(_ texto: String, tamano: Int) -> [String] {
+        var partes: [String] = []
+        var actual = ""
+        for linea in texto.split(separator: "\n", omittingEmptySubsequences: false) {
+            if actual.count + linea.count + 1 > tamano, !actual.isEmpty {
+                partes.append(actual)
+                actual = ""
+            }
+            actual += (actual.isEmpty ? "" : "\n") + linea
+        }
+        if !actual.isEmpty { partes.append(actual) }
+        return partes
+    }
+
+    /// Variante síncrona de `llamar` para el pipeline por partes (que ya corre
+    /// en cola de fondo). nil si no hubo respuesta útil.
+    private static func llamarYEsperar(_ ia: ChatIA, prompt: String, textLen: Int) -> String? {
+        let semaforo = DispatchSemaphore(value: 0)
+        var salida: String?
+        llamar(ia, prompt: prompt, textLen: textLen) { texto in
+            salida = texto
+            semaforo.signal()
+        }
+        if semaforo.wait(timeout: .now() + 300) == .timedOut { return nil }
+        guard let s = salida, !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return s
     }
 
     /// Cerebro elegido para redactar. `seleccionada` sigue al resto de la app;
@@ -59,42 +178,100 @@ enum ContinuoResumen {
 
     // MARK: Preparación
 
-    /// Compone la línea de tiempo del día, recortada al tope configurado. Se
-    /// recorta por el PRINCIPIO: lo último de la jornada suele ser lo que más
-    /// interesa recordar.
-    private static func armarCuerpo(_ material: [(Date, MaterialContinuo, String, String)]) -> String {
+    /// Compone la línea de tiempo del día, recortada al tope configurado.
+    ///
+    /// La PRIORIDAD es semántica, no de volumen: si el día no cabe, se
+    /// sacrifican primero las capturas de pantalla, después el audio del
+    /// sistema, y la voz de la persona solo en último extremo. Un videotutorial
+    /// sonando es contexto; lo que dijo la persona es el contenido.
+    private static func armarCuerpo(_ material: [ContinuoIndice.PiezaDia]) -> String {
         let hora = DateFormatter()
         hora.dateFormat = "HH:mm:ss"
-        var lineas: [String] = []
-        for (instante, tipo, fuente, texto) in material {
-            let limpio = texto.replacingOccurrences(of: "\n", with: " · ")
+
+        // (línea, prioridad): 0 = voz propia, 1 = audio del sistema, 2 = pantalla.
+        var piezas: [(linea: String, prioridad: Int)] = []
+        for pieza in material {
+            let limpio = pieza.texto.replacingOccurrences(of: "\n", with: " · ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard limpio.count > 3 else { continue }
-            let t = hora.string(from: instante)
-            switch tipo {
+            let t = hora.string(from: pieza.instante)
+            switch pieza.material {
             case .audio:
-                // De dónde salió la voz: el micrófono continuo, un dictado o el
-                // audio del propio equipo.
-                let canal: String
-                switch fuente {
-                case "dictado": canal = "dictado"
-                case "sistema": canal = "audio del sistema"
-                default: canal = "micrófono"
+                switch pieza.fuente {
+                case "sistema":
+                    piezas.append(("[\(t)] (audio del sistema) \(limpio)", 1))
+                case "dictado":
+                    piezas.append(("[\(t)] (dictado) \(limpio)", 0))
+                default:
+                    piezas.append(("[\(t)] (micrófono) \(limpio)", 0))
                 }
-                lineas.append("[\(t)] (\(canal)) \(limpio)")
             case .pantalla:
-                // Anotación de contexto, no habla: va entre paréntesis para que
-                // el modelo no la confunda con algo que alguien dijo.
-                let app = fuente.isEmpty ? "" : " en \(fuente)"
-                lineas.append("[\(t)] (en pantalla\(app) se ve: \(limpio))")
+                // Anotación de contexto, no habla. Lleva la app ACTIVA y las
+                // demás a la vista, para que el modelo sepa qué se estaba
+                // mirando y qué más había abierto.
+                var donde = pieza.fuente.isEmpty ? "" : " — activa \(pieza.fuente)"
+                if !pieza.visibles.isEmpty {
+                    donde += "; también a la vista: \(pieza.visibles)"
+                }
+                piezas.append(("[\(t)] (en pantalla\(donde) — se ve: \(limpio))", 2))
             }
         }
-        var cuerpo = lineas.joined(separator: "\n")
+
+        // Recorte por prioridad conservando la cronología: se eliminan piezas
+        // de menor prioridad (las más viejas primero) hasta caber en el tope.
         let tope = Config.continuoResumenMaxCaracteres()
-        if cuerpo.count > tope {
-            cuerpo = "[…recorte del principio…]\n" + String(cuerpo.suffix(tope))
+        func total(_ xs: [(linea: String, prioridad: Int)]) -> Int {
+            xs.reduce(0) { $0 + $1.linea.count + 1 }
+        }
+        var recortadas = [0, 0, 0]
+        if Config.continuoResumenPrioridadMicrofono() {
+            for nivel in [2, 1, 0] {
+                while total(piezas) > tope, let idx = piezas.firstIndex(where: { $0.prioridad == nivel }) {
+                    piezas.remove(at: idx)
+                    recortadas[nivel] += 1
+                }
+            }
+        } else {
+            while total(piezas) > tope, !piezas.isEmpty {
+                piezas.removeFirst()
+                recortadas[0] += 1
+            }
+        }
+
+        var cuerpo = piezas.map(\.linea).joined(separator: "\n")
+        let fuera = recortadas.reduce(0, +)
+        if fuera > 0 {
+            cuerpo = "[Nota: por espacio se omitieron \(recortadas[2]) capturas, \(recortadas[1]) fragmentos del audio del sistema y \(recortadas[0]) de voz, los más antiguos primero.]\n" + cuerpo
+        }
+
+        // Cierre con el tiempo aproximado por aplicación activa, deducido de
+        // las capturas: «en qué se fue la pantalla», en minutos.
+        if Config.continuoResumenTiemposApp() {
+            let bloques = tiemposPorApp(material)
+            if !bloques.isEmpty {
+                cuerpo += "\n\nTiempo aproximado en primer plano por aplicación: " + bloques
+            }
         }
         return cuerpo
+    }
+
+    /// Minutos por app activa: la distancia entre capturas consecutivas se
+    /// atribuye a la app de la primera, acotada para que un hueco largo
+    /// (pantalla bloqueada) no infle a nadie.
+    private static func tiemposPorApp(_ material: [ContinuoIndice.PiezaDia]) -> String {
+        let capturas = material.filter { $0.material == .pantalla && !$0.fuente.isEmpty }
+        guard capturas.count > 1 else { return "" }
+        let topeHueco = Double(max(60, Config.continuoPantallaIntervaloSegundos() * 4))
+        var acumulado: [String: TimeInterval] = [:]
+        for i in 0..<(capturas.count - 1) {
+            let delta = min(capturas[i + 1].instante.timeIntervalSince(capturas[i].instante), topeHueco)
+            acumulado[capturas[i].fuente, default: 0] += delta
+        }
+        let orden = acumulado.sorted { $0.value > $1.value }
+        return orden.compactMap { app, seg in
+            let min = Int(seg / 60)
+            return min >= 1 ? "\(app) ~\(min) min" : nil
+        }.joined(separator: ", ")
     }
 
     private static func armarPrompt(dia: Date, cuerpo: String, plantilla: PromptContinuo) -> String {
@@ -178,7 +355,7 @@ enum ContinuoResumen {
     // MARK: Escritura
 
     private static func guardar(_ texto: String, dia: Date, piezas: Int,
-                                prefijo: String = "resumen") throws -> URL {
+                                prefijo: String = "resumen", partes: Int = 1) throws -> URL {
         let carpeta = ContinuoAudio.carpetaDelDia(dia, sub: "")
             .deletingLastPathComponent()
         try FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
@@ -192,6 +369,7 @@ enum ContinuoResumen {
         fecha: \(f.string(from: dia))
         generado: \(sello.string(from: Date()))
         piezas: \(piezas)
+        envios: \(partes)
         ---
 
         """
