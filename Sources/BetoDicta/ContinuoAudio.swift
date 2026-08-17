@@ -138,7 +138,18 @@ final class ContinuoAudio {
         guard arrancado else { reintentar(); return }
         intentos = 0
         activo = true
+        let marcaBuffers = buffersVistos
         Log.log(.sistema, "bitácora: audio en marcha (modo \(Config.continuoAudioModo()), eco \(Config.continuoAudioCancelacionEco() ? "sí" : "no"))")
+        // Vigía del arranque mudo: un engine puede arrancar sin error y no
+        // entregar jamás un buffer (pasó con el montaje en cola de fondo y
+        // puede pasar si el dispositivo quedó en mal estado). Si en 8 s no
+        // llegó nada, se desmonta y se reintenta desde cero.
+        cola.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.activo, self.buffersVistos == marcaBuffers else { return }
+            Log.log(.sistema, "bitácora: el motor arrancó pero no entrega audio — reinicio")
+            self.detenerEnCola(cerrandoTrozo: true)
+            self.reintentar()
+        }
     }
 
     /// El dispositivo de entrada puede estar ocupado al arrancar la app: la
@@ -252,6 +263,7 @@ final class ContinuoAudio {
             try motor.start()
         } catch {
             entrada.removeTap(onBus: 0)
+            try? entrada.setVoiceProcessingEnabled(false)
             Log.log(.sistema, "bitácora: el motor de audio no arrancó (\(error.localizedDescription))")
 
             return false
@@ -261,16 +273,30 @@ final class ContinuoAudio {
     }
 
     private func detenerEnCola(cerrandoTrozo: Bool) {
-        guard activo || engine != nil else { return }
-        if let motor = engine {
-            motor.inputNode.removeTap(onBus: 0)
-            motor.stop()
+        guard activo || engine != nil else {
+            if cerrandoTrozo { cerrarTrozo() }
+            return
         }
+        let motor = engine
         engine = nil
         conversor = nil
         activo = false
         colchon.removeAll()
         hablando = false
+        if let motor {
+            // Desmontar en MAIN, simétrico al montaje: el nodo de entrada no se
+            // toca desde colas de fondo. Y APAGAR el procesamiento de voz al
+            // soltar — la AUVoiceIO aplica cancelación de eco a nivel de
+            // dispositivo, y dejarla puesta puede seguir tratando como "eco"
+            // (silenciando) lo que capture el siguiente motor que lo abra.
+            DispatchQueue.main.sync {
+                let entrada = motor.inputNode
+                entrada.removeTap(onBus: 0)
+                motor.stop()
+                try? entrada.setVoiceProcessingEnabled(false)
+            }
+            Log.log(.sistema, "bitácora: micrófono liberado")
+        }
         if cerrandoTrozo { cerrarTrozo() }
     }
 
@@ -284,7 +310,14 @@ final class ContinuoAudio {
             // la señal ya tratada por la cancelación de eco). Con colchón previo
             // para no comerse el arranque de la frase, y cola de 1,5 s para no
             // cortar en cada pausa.
-            let umbral = Config.continuoAudioUmbralVoz()
+            var umbral = Config.continuoAudioUmbralVoz()
+            // Puerta anti-eco: si por los parlantes está sonando algo (lo sabe
+            // la pista del sistema), lo que capte el micrófono es en parte ese
+            // sonido. Exigir más nivel evita registrar como «dicho» lo que en
+            // realidad se estaba reproduciendo.
+            if ContinuoAudioSistema.nivelActual > Config.continuoSistemaUmbral() {
+                umbral *= Config.continuoAudioFactorAntiEco()
+            }
             if rms >= umbral {
                 if !hablando {
                     hablando = true

@@ -38,6 +38,18 @@ final class ContinuoAudioSistema: NSObject {
     private var montando = false
     private var avisadoDeFormato = false
 
+    /// Último nivel medido de la salida, legible desde cualquier hilo. Es la
+    /// señal que usa el micrófono para su puerta anti-eco.
+    private static let candadoNivel = NSLock()
+    private static var _nivelActual: Double = 0
+    static var nivelActual: Double {
+        candadoNivel.lock(); defer { candadoNivel.unlock() }
+        return _nivelActual
+    }
+    private static func publicarNivel(_ v: Double) {
+        candadoNivel.lock(); _nivelActual = v; candadoNivel.unlock()
+    }
+
     private override init() { super.init() }
 
     // MARK: Ciclo de vida
@@ -105,6 +117,7 @@ final class ContinuoAudioSistema: NSObject {
     }
 
     private func detenerEnCola() {
+        Self.publicarNivel(0)
         guard let s = flujo else { cerrarTrozo(); return }
         flujo = nil
         activo = false
@@ -119,10 +132,12 @@ final class ContinuoAudioSistema: NSObject {
         guard activo, Config.continuoSistemaActivo() else { return }
         guard let pcm = convertir(muestra) else { return }
 
+        let n = nivel(pcm)
+        Self.publicarNivel(n)
         // Puerta de silencio: casi todo el día el equipo no suena, y guardar
         // ceros llenaría el disco sin aportar nada.
         if Config.continuoSistemaSoloConSonido() {
-            guard nivel(pcm) >= Config.continuoSistemaUmbral() else { return }
+            guard n >= Config.continuoSistemaUmbral() else { return }
         }
         escribir(pcm)
     }

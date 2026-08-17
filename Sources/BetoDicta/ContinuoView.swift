@@ -16,7 +16,7 @@ final class ContinuoModel: ObservableObject {
     @Published var carpeta: String { didSet { Config.set("continuo_carpeta", to: carpeta) } }
 
     @Published var audioModo: String { didSet { Config.set("continuo_audio_modo", to: audioModo); aplicar() } }
-    @Published var audioEco: Bool { didSet { Config.set("continuo_audio_cancelacion_eco", to: audioEco); aplicar() } }
+    @Published var audioAntiEco: Double { didSet { Config.set("continuo_audio_factor_antieco", to: audioAntiEco) } }
     @Published var audioSegmento: Double { didSet { Config.set("continuo_audio_segmento_segundos", to: Int(audioSegmento)) } }
     @Published var audioAdoptar: Bool { didSet { Config.set("continuo_audio_adoptar_dictado", to: audioAdoptar) } }
     @Published var audioUmbral: Double { didSet { Config.set("continuo_audio_umbral_voz", to: audioUmbral) } }
@@ -78,7 +78,7 @@ final class ContinuoModel: ObservableObject {
         let casa = FileManager.default.homeDirectoryForCurrentUser.path
         carpeta = raiz.hasPrefix(casa) ? "~" + raiz.dropFirst(casa.count) : raiz
         audioModo = Config.continuoAudioModo()
-        audioEco = Config.continuoAudioCancelacionEco()
+        audioAntiEco = Config.continuoAudioFactorAntiEco()
         audioSegmento = Double(Config.continuoAudioSegmentoSegundos())
         audioAdoptar = Config.continuoAudioAdoptarDictado()
         audioUmbral = Config.continuoAudioUmbralVoz()
@@ -282,8 +282,14 @@ struct ContinuoView: View {
                         Text("Solo al dictar").tag("manual")
                     }.pickerStyle(.radioGroup)
 
-                    Toggle("Cancelación de eco de macOS", isOn: $m.audioEco)
-                        .help("Sin esto el micrófono integrado entrega una señal tan baja que se descarta como silencio. Déjalo activado salvo que sepas lo que haces.")
+                    HStack {
+                        Text("Puerta anti-eco")
+                        Slider(value: $m.audioAntiEco, in: 1...10, step: 0.5).frame(width: 160)
+                        Text(m.audioAntiEco <= 1 ? "apagada" : String(format: "×%.1f", m.audioAntiEco)).monospacedDigit().font(.caption)
+                    }
+                    Text("Mientras suena algo por los parlantes, el micrófono exige ese factor más de nivel para considerar que hablas tú y no el altavoz. Con auriculares no hace falta.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     HStack {
                         Text("Cerrar un trozo cada")

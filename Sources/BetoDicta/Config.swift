@@ -927,19 +927,29 @@ struct Config {
         return ["siempre", "voz", "manual"].contains(s) ? s : "voz"
     }
 
-    /// Cancelación de eco de Apple (VoiceProcessingIO). Sin esto el micrófono
-    /// integrado entrega una señal tan baja que el detector de voz la descarta
-    /// como silencio: medido, RMS 0,0018 frente a 0,0066 con ella activa.
-    static func continuoAudioCancelacionEco() -> Bool {
-        (json()["continuo_audio_cancelacion_eco"] as? Bool) ?? true
+    /// RETIRADO, no configurable a propósito. La AUVoiceIO de Apple deja MUDAS
+    /// las demás capturas del mismo proceso incluso tras desactivarla: con esto
+    /// encendido, el dictado por doble Fn grababa silencio (verificado con
+    /// prueba A/B: 0 bytes con VPIO, 181 912 sin él). El dictado manda, así que
+    /// la cancelación de eco por hardware no se ofrece; el solape con el audio
+    /// del sistema se mitiga con la puerta anti-eco de abajo.
+    static func continuoAudioCancelacionEco() -> Bool { false }
+
+    /// Puerta anti-eco por software: mientras el audio del SISTEMA suena, el
+    /// umbral de voz del micrófono se multiplica por este factor, para no
+    /// guardar como «dicho» lo que en realidad salió por los parlantes.
+    /// 1 = desactivada. 1…10.
+    static func continuoAudioFactorAntiEco() -> Double {
+        min(10.0, max(1.0, (json()["continuo_audio_factor_antieco"] as? Double) ?? 3.0))
     }
 
     /// Umbral de la puerta de voz en modo `voz`: por debajo de este nivel el
     /// audio se considera ruido y no se guarda. Subirlo evita transcripciones
     /// inventadas sobre fragmentos que son casi silencio; bajarlo captura habla
-    /// más lejana. 0,001…0,05 (medido: una voz normal a un metro ronda 0,004).
+    /// más lejana. 0,0005…0,05. Sin la cancelación por hardware, la señal cruda
+    /// del micrófono integrado es baja: una voz normal ronda 0,002…0,004.
     static func continuoAudioUmbralVoz() -> Double {
-        min(0.05, max(0.001, (json()["continuo_audio_umbral_voz"] as? Double) ?? 0.006))
+        min(0.05, max(0.0005, (json()["continuo_audio_umbral_voz"] as? Double) ?? 0.0025))
     }
 
     /// Trozos cerrados periódicamente para que un corte de luz no arruine la

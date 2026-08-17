@@ -723,6 +723,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba real de convivencia: bitácora encendida → cesión → un Recorder
+        // de verdad graba mientras suena una voz por los parlantes. Si el
+        // Recorder recibe señal, el dictado funcionaría; si recibe silencio, el
+        // bug está reproducido sin necesidad de nadie delante.
+        if ProcessInfo.processInfo.environment["BETODICTA_CONVIVENCIATEST"] == "1" {
+            ContinuoBitacora.arrancar()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+                ContinuoBitacora.cederMicrofono {
+                    ActivacionVoz.shared.suspender {
+                        let rec = Recorder()
+                        var bytes = 0
+                        var nivelMax: Float = 0
+                        rec.onChunk = { bytes += $0.count }
+                        rec.onLevel = { nivelMax = max(nivelMax, $0) }
+                        do { try rec.start() } catch {
+                            print("CONVIVENCIATEST FALLA start: \(error.localizedDescription)")
+                            fflush(stdout); exit(2)
+                        }
+                        let voz = Process()
+                        voz.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+                        voz.arguments = ["-v", "Paulina",
+                                         "Probando la convivencia del dictado con la bitácora, uno dos tres cuatro cinco"]
+                        try? voz.run()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
+                            _ = rec.stop()
+                            ContinuoBitacora.recuperarMicrofono()
+                            // ~5,5 s a 16 kHz PCM16 ≈ 176 kB si el tap fluyó.
+                            let ok = bytes > 80_000 && nivelMax > 0.05
+                            print("CONVIVENCIATEST bytes=\(bytes) nivelMax=\(nivelMax) → \(ok ? "OK" : "FALLA silencio")")
+                            fflush(stdout)
+                            // Segundo acto: ¿la bitácora vuelve a grabar tras la cesión?
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                                exit(ok ? 0 : 3)
+                            }
+                        }
+                    }
+                }
+            }
+            return
+        }
         // Prueba real de la tanda diferida de la bitácora: transcribe lo que haya
         // pendiente y reporta. No toca la interfaz ni el dictado.
         if ProcessInfo.processInfo.environment["BETODICTA_LOTETEST"] == "1" {
