@@ -78,6 +78,11 @@ final class ContinuoModel: ObservableObject {
             ContinuoPlanificador.reconfigurar()
         }
     }
+    /// Material de la ejecución manual: hoy / últimas N horas / rango exacto.
+    @Published var manualMaterial: String { didSet { Config.set("continuo_manual_material", to: manualMaterial) } }
+    @Published var manualHoras: Double { didSet { Config.set("continuo_manual_horas", to: Int(manualHoras)) } }
+    @Published var manualDesde: Date = Calendar.current.startOfDay(for: Date())
+    @Published var manualHasta: Date = Date()
     @Published var resumenEstado: String = "—"
     @Published var loteEstado: String = "—"
     @Published var loteCorriendo = false
@@ -131,6 +136,8 @@ final class ContinuoModel: ObservableObject {
         resumenPantalla = Config.continuoResumenIncluirPantalla()
         resumenPrioridadMic = Config.continuoResumenPrioridadMicrofono()
         resumenTiempos = Config.continuoResumenTiemposApp()
+        manualMaterial = (Config.json0("continuo_manual_material") as? String) ?? "dia"
+        manualHoras = Double((Config.json0("continuo_manual_horas") as? Int) ?? 1)
         pantallaVisibles = Config.continuoPantallaAppsVisibles()
         diccAudio = Config.continuoDiccionarioAudio()
         diccOcr = Config.continuoDiccionarioOcr()
@@ -208,11 +215,28 @@ final class ContinuoModel: ObservableObject {
         resumenEstado = "Prompt «\(base.nombre)» restaurado al original."
     }
 
-    /// Pide el resumen del día a la IA configurada.
+    /// Ejecuta el prompt activo sobre el material elegido. Por defecto, el día
+    /// hasta ahora; o las últimas N horas; o un rango exacto con fecha.
     func resumirAhora() {
         resumenEstado = "Redactando…"
-        ContinuoLote.resumirDia { [weak self] r in
-            self?.resumenEstado = r
+        var desde: Date? = nil
+        var hasta: Date? = nil
+        switch manualMaterial {
+        case "horas":
+            desde = Date().addingTimeInterval(-manualHoras * 3600)
+        case "rango":
+            desde = manualDesde
+            hasta = manualHasta
+        default:
+            break   // día natural hasta ahora
+        }
+        ContinuoResumen.generar(promptId: Config.continuoPromptActivo(),
+                                desde: desde, hasta: hasta) { [weak self] r in
+            switch r {
+            case .success(let url): self?.resumenEstado = "Escrito: \(url.lastPathComponent)"
+            case .failure(let e): self?.resumenEstado = "No pude: \(e.localizedDescription)"
+            }
+            self?.refrescar()
         }
     }
 
@@ -636,8 +660,26 @@ struct ContinuoView: View {
                         m.rutinas.append(RutinaResumen.nueva())
                     } label: { Label("Añadir rutina", systemImage: "plus") }
 
+                    Text("Material de la ejecución manual").font(.caption)
+                    Picker("", selection: $m.manualMaterial) {
+                        Text("Hoy hasta ahora").tag("dia")
+                        Text("Últimas horas").tag("horas")
+                        Text("Rango exacto").tag("rango")
+                    }.pickerStyle(.segmented).labelsHidden().frame(width: 340)
+                    if m.manualMaterial == "horas" {
+                        HStack {
+                            Slider(value: $m.manualHoras, in: 1...24, step: 1).frame(width: 180)
+                            Text("última\(Int(m.manualHoras) == 1 ? "" : "s") \(Int(m.manualHoras)) h").monospacedDigit().font(.caption)
+                        }
+                    } else if m.manualMaterial == "rango" {
+                        HStack {
+                            DatePicker("De", selection: $m.manualDesde).frame(width: 220)
+                            DatePicker("a", selection: $m.manualHasta).frame(width: 220)
+                        }.font(.caption)
+                    }
+
                     HStack {
-                        Button("Ejecutar sobre hoy") { m.resumirAhora() }
+                        Button("Ejecutar") { m.resumirAhora() }
                         Text(m.resumenEstado).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }

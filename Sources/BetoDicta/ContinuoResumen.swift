@@ -15,19 +15,20 @@ enum ContinuoResumen {
     /// Genera un documento del día con el prompt indicado (o el activo).
     /// `completion` siempre se llama una vez.
     static func generar(dia: Date = Date(), promptId: String? = nil,
-                        desde: Date? = nil,
+                        desde: Date? = nil, hasta: Date? = nil,
                         completion: @escaping (Result<URL, Error>) -> Void) {
         guard Config.continuoActivo() else {
             completion(.failure(ErrorResumen.apagado)); return
         }
         ContinuoIndice.shared.abrir()
-        // Con `desde`, el material es un rango (últimas N horas, aunque crucen
-        // la medianoche); sin él, el día natural completo.
-        let material = desde.map {
-            ContinuoIndice.shared.materialEntre(desde: $0, hasta: Date(),
-                                                incluirPantalla: Config.continuoResumenIncluirPantalla())
-        } ?? ContinuoIndice.shared.materialDelDia(dia,
-                                                  incluirPantalla: Config.continuoResumenIncluirPantalla())
+        // Con `desde`/`hasta`, el material es un rango arbitrario (últimas N
+        // horas, o «de 15:00 a 17:00 de tal fecha»); sin ellos, el día natural
+        // hasta este momento.
+        let inicioDia = Calendar.current.startOfDay(for: dia)
+        let rangoDesde = desde ?? inicioDia
+        let rangoHasta = hasta ?? min(Date(), inicioDia.addingTimeInterval(86_400))
+        let material = ContinuoIndice.shared.materialEntre(desde: rangoDesde, hasta: rangoHasta,
+                                                           incluirPantalla: Config.continuoResumenIncluirPantalla())
         guard !material.isEmpty else {
             completion(.failure(ErrorResumen.sinMaterial)); return
         }
@@ -39,15 +40,22 @@ enum ContinuoResumen {
         let cuerpo = armarCuerpo(material)
         let tope = Config.continuoResumenMaxCaracteres()
 
-        // Camino corto: el día entero cabe en un envío.
+        // El rango EFECTIVO es el del material real (primera y última pieza):
+        // más honesto que el pedido, porque dice qué había de verdad.
+        let efectivoDesde = material.first?.instante ?? rangoDesde
+        let efectivoHasta = material.last?.instante ?? rangoHasta
+
+        // Camino corto: el material entero cabe en un envío.
         if cuerpo.count <= tope || !Config.continuoResumenTrocear() {
-            let prompt = armarPrompt(dia: dia, cuerpo: cuerpo, plantilla: plantilla)
+            let prompt = armarPrompt(dia: dia, cuerpo: cuerpo, plantilla: plantilla,
+                                     desde: efectivoDesde, hasta: efectivoHasta)
             llamar(ia, prompt: prompt, textLen: cuerpo.count) { texto in
                 guard let texto, !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     completion(.failure(ErrorResumen.sinRespuesta)); return
                 }
                 do {
-                    let url = try guardar(texto, dia: dia, piezas: material.count, prefijo: plantilla.id)
+                    let url = try guardar(texto, dia: dia, piezas: material.count, prefijo: plantilla.id,
+                                          desde: efectivoDesde, hasta: efectivoHasta)
                     Log.log(.sistema, "bitácora: documento del día escrito en \(url.lastPathComponent)")
                     completion(.success(url))
                 } catch { completion(.failure(error)) }
@@ -55,11 +63,12 @@ enum ContinuoResumen {
             return
         }
 
-        // El día NO cabe: se trocea y se envía TODO, parte por parte, y una
-        // pasada final lo une. Nada se descarta — diez envíos si hacen falta.
+        // El material NO cabe: se trocea y se envía TODO, parte por parte, y
+        // una pasada final lo une. Nada se descarta.
         DispatchQueue.global(qos: .utility).async {
             let resultado = generarPorPartes(dia: dia, ia: ia, plantilla: plantilla,
-                                             cuerpo: cuerpo, piezas: material.count, tope: tope)
+                                             cuerpo: cuerpo, piezas: material.count, tope: tope,
+                                             desde: efectivoDesde, hasta: efectivoHasta)
             DispatchQueue.main.async { completion(resultado) }
         }
     }
@@ -72,7 +81,8 @@ enum ContinuoResumen {
     /// documento final. Si hasta los parciales exceden un envío, la unión se
     /// hace en cascada por grupos.
     private static func generarPorPartes(dia: Date, ia: ChatIA, plantilla: PromptContinuo,
-                                         cuerpo: String, piezas: Int, tope: Int) -> Result<URL, Error> {
+                                         cuerpo: String, piezas: Int, tope: Int,
+                                         desde: Date, hasta: Date) -> Result<URL, Error> {
         // Partes lo más grandes posible; si salen más que el tope de envíos,
         // se agrandan hasta caber en él (se aprieta, no se pierde).
         var partes = trocear(cuerpo, tamano: tope)
@@ -89,7 +99,8 @@ enum ContinuoResumen {
             let aviso = """
             ESTA ES LA PARTE \(i + 1) DE \(partes.count) del material del día; las demás             van en otros envíos. Aplica la instrucción SOLO a este tramo. No             redactes conclusiones globales ni cierres el documento: eso se hace             al unir todas las partes.
             """
-            let prompt = armarPrompt(dia: dia, cuerpo: aviso + "\n\n" + parte, plantilla: plantilla)
+            let prompt = armarPrompt(dia: dia, cuerpo: aviso + "\n\n" + parte, plantilla: plantilla,
+                                     desde: desde, hasta: hasta)
             guard let r = llamarYEsperar(ia, prompt: prompt, textLen: parte.count) else {
                 // Sin respuesta en una parte: mejor fallar entero que entregar
                 // un documento al que le falta un tramo en silencio.
@@ -136,7 +147,8 @@ enum ContinuoResumen {
 
         let final = nivel.count == 1 ? nivel[0] : nivel.joined(separator: "\n\n---\n\n")
         do {
-            let url = try guardar(final, dia: dia, piezas: piezas, prefijo: plantilla.id, partes: partes.count)
+            let url = try guardar(final, dia: dia, piezas: piezas, prefijo: plantilla.id,
+                                  partes: partes.count, desde: desde, hasta: hasta)
             Log.log(.sistema, "bitácora: documento del día escrito en \(url.lastPathComponent) (\(partes.count) envíos)")
             return .success(url)
         } catch { return .failure(error) }
@@ -280,10 +292,13 @@ enum ContinuoResumen {
         }.joined(separator: ", ")
     }
 
-    private static func armarPrompt(dia: Date, cuerpo: String, plantilla: PromptContinuo) -> String {
+    private static func armarPrompt(dia: Date, cuerpo: String, plantilla: PromptContinuo,
+                                    desde: Date, hasta: Date) -> String {
         let fecha = DateFormatter()
         fecha.dateFormat = "EEEE d 'de' MMMM 'de' yyyy"
         fecha.locale = Locale(identifier: "es_ES")
+        let hf = DateFormatter(); hf.dateFormat = "HH:mm"
+        let rangoTexto = "El material cubre desde las \(hf.string(from: desde)) hasta las \(hf.string(from: hasta))."
 
         // La instrucción suelta de los ajustes, si existe, manda sobre la
         // plantilla: es el atajo para una pasada puntual sin tocar la biblioteca.
@@ -311,7 +326,7 @@ enum ContinuoResumen {
         return """
         \(instruccion)
 
-        Fecha: \(fecha.string(from: dia))\(glosario)
+        Fecha: \(fecha.string(from: dia)). \(rangoTexto)\(glosario)
 
         A continuación va la línea de tiempo cruda del día, con la hora entre
         corchetes al inicio de cada línea.
@@ -361,7 +376,8 @@ enum ContinuoResumen {
     // MARK: Escritura
 
     private static func guardar(_ texto: String, dia: Date, piezas: Int,
-                                prefijo: String = "resumen", partes: Int = 1) throws -> URL {
+                                prefijo: String = "resumen", partes: Int = 1,
+                                desde: Date? = nil, hasta: Date? = nil) throws -> URL {
         let carpeta = ContinuoAudio.carpetaDelDia(dia, sub: "")
             .deletingLastPathComponent()
         try FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
@@ -380,6 +396,13 @@ enum ContinuoResumen {
         }
 
         let sello = DateFormatter(); sello.dateFormat = "yyyy-MM-dd HH:mm"
+        // La línea del rango la escribe el CÓDIGO, no la IA: un modelo puede
+        // olvidar instrucciones de formato, pero esta cabecera no puede faltar.
+        var rango = ""
+        if let desde, let hasta {
+            let rf = DateFormatter(); rf.dateFormat = "yyyy-MM-dd HH:mm"
+            rango = "\n> Documento generado el \(sello.string(from: Date())) · contexto tomado desde las \(rf.string(from: desde)) hasta las \(rf.string(from: hasta)) · \(piezas) piezas\(partes > 1 ? " · \(partes) envíos" : "")\n"
+        }
         let encabezado = """
         ---
         fecha: \(f.string(from: dia))
@@ -387,7 +410,7 @@ enum ContinuoResumen {
         piezas: \(piezas)
         envios: \(partes)
         ---
-
+        \(rango)
         """
         try (encabezado + texto + "\n").write(to: url, atomically: true, encoding: .utf8)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

@@ -20,6 +20,10 @@ struct Config {
         return obj
     }
 
+    /// Lectura cruda de una clave, para los pocos sitios que guardan valores
+    /// sin getter propio (estado de interfaz, no comportamiento).
+    static func json0(_ clave: String) -> Any? { json()[clave] }
+
     static func hotkey() -> String { (json()["tecla"] as? String) ?? "fn" }
     static func maxSilence() -> TimeInterval { (json()["silencio_max_seg"] as? Double) ?? 120 }
     static func sounds() -> Bool { (json()["sonidos"] as? Bool) ?? true }
