@@ -48,6 +48,13 @@ final class ContinuoModel: ObservableObject {
     @Published var loteMotor: String { didSet { Config.set("continuo_lote_motor", to: loteMotor) } }
     @Published var loteComprimir: Bool { didSet { Config.set("continuo_lote_comprimir", to: loteComprimir) } }
     @Published var loteCorriente: Bool { didSet { Config.set("continuo_lote_solo_con_corriente", to: loteCorriente) } }
+    @Published var ocrActivo: Bool { didSet { Config.set("continuo_ocr_activo", to: ocrActivo) } }
+    @Published var ocrPreciso: Bool { didSet { Config.set("continuo_ocr_preciso", to: ocrPreciso) } }
+    @Published var resumenActivo: Bool { didSet { Config.set("continuo_resumen_activo", to: resumenActivo) } }
+    @Published var resumenPantalla: Bool { didSet { Config.set("continuo_resumen_incluir_pantalla", to: resumenPantalla) } }
+    @Published var resumenMax: Double { didSet { Config.set("continuo_resumen_max_caracteres", to: Int(resumenMax)) } }
+    @Published var resumenInstruccion: String { didSet { Config.set("continuo_resumen_instruccion", to: resumenInstruccion) } }
+    @Published var resumenEstado: String = "—"
     @Published var loteEstado: String = "—"
     @Published var loteCorriendo = false
 
@@ -88,6 +95,12 @@ final class ContinuoModel: ObservableObject {
         loteMotor = Config.continuoLoteMotor()
         loteComprimir = Config.continuoLoteComprimir()
         loteCorriente = Config.continuoLoteSoloConCorriente()
+        ocrActivo = Config.continuoOcrActivo()
+        ocrPreciso = Config.continuoOcrPreciso()
+        resumenActivo = Config.continuoResumenActivo()
+        resumenPantalla = Config.continuoResumenIncluirPantalla()
+        resumenMax = Double(Config.continuoResumenMaxCaracteres())
+        resumenInstruccion = Config.continuoResumenInstruccion()
         refrescar()
         loteEstado = ContinuoPlanificador.descripcion()
     }
@@ -113,6 +126,14 @@ final class ContinuoModel: ObservableObject {
             self?.loteCorriendo = false
             self?.loteEstado = resultado
             self?.refrescar()
+        }
+    }
+
+    /// Pide el resumen del día a la IA configurada.
+    func resumirAhora() {
+        resumenEstado = "Redactando…"
+        ContinuoLote.resumirDia { [weak self] r in
+            self?.resumenEstado = r
         }
     }
 
@@ -328,6 +349,51 @@ struct ContinuoView: View {
                         Text(m.loteEstado).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+            }
+
+            SeccionPlegable("Texto de las capturas", icono: "text.viewfinder") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle("Leer el texto de las capturas", isOn: $m.ocrActivo)
+                        .help("Reconocimiento en el dispositivo, con Vision. No sale nada del equipo y no consume cuota.")
+                    Toggle("Modo preciso", isOn: $m.ocrPreciso)
+                        .help("Preciso reconoce mejor y tarda más. Rápido basta para buscar por palabras sueltas.")
+                    Text("Se ejecuta en la misma pasada que la transcripción.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            SeccionPlegable("Resumen del día con IA", icono: "sparkles") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Esto es lo ÚNICO del módulo que puede salir del equipo: si el cerebro elegido es de nube, se le manda el texto del día. Apagado de fábrica a propósito.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle("Redactar un resumen del día", isOn: $m.resumenActivo)
+                    Toggle("Incluir también el texto de las capturas", isOn: $m.resumenPantalla)
+
+                    HStack {
+                        Text("Enviar como máximo")
+                        Slider(value: $m.resumenMax, in: 2000...60000, step: 2000).frame(width: 180)
+                        Text("\(Int(m.resumenMax)) caracteres").monospacedDigit().font(.caption)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Instrucción para la IA (vacío = la de fábrica)").font(.caption)
+                        TextEditor(text: $m.resumenInstruccion)
+                            .font(.system(size: 11, design: .monospaced))
+                            .frame(height: 70)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
+                    }
+
+                    HStack {
+                        Button("Resumir hoy") { m.resumirAhora() }
+                        Text(m.resumenEstado).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text("El resumen se guarda como resumen-AAAA-MM-DD.md dentro de la carpeta del día.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
 

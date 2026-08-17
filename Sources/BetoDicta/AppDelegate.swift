@@ -723,10 +723,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // pendiente y reporta. No toca la interfaz ni el dictado.
         if ProcessInfo.processInfo.environment["BETODICTA_LOTETEST"] == "1" {
             ContinuoLote.dictadoOcupado = { false }
+            let conResumen = ProcessInfo.processInfo.environment["BETODICTA_LOTETEST_RESUMEN"] == "1"
             ContinuoLote.ejecutar(manual: true) { resumen in
                 print("LOTETEST \(resumen)")
                 fflush(stdout)
-                exit(resumen.contains("transcritos") ? 0 : 3)
+                guard conResumen else { exit((resumen.contains("transcritos") || resumen.contains("capturas leídas")) ? 0 : 3) }
+                ContinuoLote.resumirDia { r in
+                    print("LOTETEST RESUMEN \(r)")
+                    fflush(stdout)
+                    exit(r.hasPrefix("resumen escrito") ? 0 : 3)
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 600) {
                 print("LOTETEST FALLA timeout"); fflush(stdout); exit(4)

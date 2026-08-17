@@ -247,6 +247,41 @@ final class ContinuoIndice {
         }
     }
 
+    /// Todo lo registrado de un día, en orden, para armar el resumen. Devuelve
+    /// tuplas (instante, material, app, texto) ya filtradas de vacíos.
+    func materialDelDia(_ dia: Date, incluirPantalla: Bool) -> [(Date, MaterialContinuo, String, String)] {
+        let cal = Calendar.current
+        let desde = cal.startOfDay(for: dia).timeIntervalSince1970
+        let hasta = desde + 86_400
+        return cola.sync {
+            guard let d = db else { return [] }
+            var salida: [(Date, MaterialContinuo, String, String)] = []
+            var tablas: [(String, MaterialContinuo)] = [("audio", .audio)]
+            if incluirPantalla { tablas.append(("pantalla", .pantalla)) }
+            for (tabla, material) in tablas {
+                let campoApp = tabla == "pantalla" ? "COALESCE(app,'')" : "origen"
+                let sql = """
+                SELECT instante, \(campoApp), texto FROM \(tabla)
+                WHERE instante >= ? AND instante < ?
+                  AND texto IS NOT NULL AND length(trim(texto)) > 0
+                ORDER BY instante ASC;
+                """
+                var st: OpaquePointer?
+                guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { continue }
+                sqlite3_bind_double(st, 1, desde)
+                sqlite3_bind_double(st, 2, hasta)
+                while sqlite3_step(st) == SQLITE_ROW {
+                    let t = sqlite3_column_double(st, 0)
+                    let app = sqlite3_column_text(st, 1).map { String(cString: $0) } ?? ""
+                    let texto = sqlite3_column_text(st, 2).map { String(cString: $0) } ?? ""
+                    salida.append((Date(timeIntervalSince1970: t), material, app, texto))
+                }
+                sqlite3_finalize(st)
+            }
+            return salida.sorted { $0.0 < $1.0 }
+        }
+    }
+
     // MARK: Retención
 
     /// Qué se llevaría por delante una purga anterior a `limite`, y cuánto de

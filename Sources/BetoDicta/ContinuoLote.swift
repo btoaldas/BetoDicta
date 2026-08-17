@@ -62,7 +62,11 @@ enum ContinuoLote {
         ContinuoIndice.shared.abrir()
         let pendientes = ContinuoIndice.shared.pendientes(material: .audio,
                                                           limite: Config.continuoLoteMaximoPorTanda())
-        guard !pendientes.isEmpty else { return "no había audio pendiente" }
+        // Sin audio pendiente NO se sale: puede quedar pantalla por leer, y
+        // saltarse el OCR por eso era un error de cableado.
+        if pendientes.isEmpty {
+            return leerPantallas(prefijo: "no había audio pendiente")
+        }
 
         Log.log(.sistema, "bitácora: tanda con \(pendientes.count) fragmentos pendientes")
         var hechos = 0, fallos = 0, saltados = 0
@@ -101,7 +105,35 @@ enum ContinuoLote {
         if fallos > 0 { partes.append("\(fallos) con error") }
         if saltados > 0 { partes.append("\(saltados) sin archivo") }
         if comprimidos > 0 { partes.append("\(ContinuoBitacora.tamanoLegible(comprimidos)) liberados") }
-        return partes.joined(separator: ", ")
+
+        return leerPantallas(prefijo: partes.joined(separator: ", "))
+    }
+
+    /// Texto de las capturas, en la MISMA pasada que el audio: si ya pagamos el
+    /// coste de despertar el equipo para transcribir, leer la pantalla sale
+    /// prácticamente gratis.
+    private static func leerPantallas(prefijo: String) -> String {
+        guard Config.continuoOcrActivo() else { return prefijo }
+        let ocr = ContinuoOCR.procesarPendientes(limite: Config.continuoLoteMaximoPorTanda()) {
+            dictadoOcupado?() == true
+        }
+        guard ocr.hechas > 0 else { return prefijo }
+        return prefijo + ", \(ocr.hechas) capturas leídas (\(ocr.conTexto) con texto)"
+    }
+
+    /// Lanza el resumen del día tras la tanda, si está activado. Separado del
+    /// trabajo principal porque es lo único del módulo que puede salir del
+    /// equipo: falla sin arrastrar al resto.
+    static func resumirDia(_ dia: Date = Date(), alTerminar: ((String) -> Void)? = nil) {
+        guard Config.continuoResumenActivo() else {
+            alTerminar?("el resumen con IA está desactivado"); return
+        }
+        ContinuoResumen.generar(dia: dia) { r in
+            switch r {
+            case .success(let url): alTerminar?("resumen escrito en \(url.lastPathComponent)")
+            case .failure(let e): alTerminar?("no pude resumir: \(e.localizedDescription)")
+            }
+        }
     }
 
     // MARK: Transcripción

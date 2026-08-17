@@ -1082,4 +1082,49 @@ struct Config {
     static func continuoLoteSoloConCorriente() -> Bool {
         (json()["continuo_lote_solo_con_corriente"] as? Bool) ?? true
     }
+
+    // ---- Texto de las capturas (OCR) ----
+
+    static func continuoOcrActivo() -> Bool { (json()["continuo_ocr_activo"] as? Bool) ?? true }
+
+    /// Preciso reconoce mejor y tarda más; rápido va bien para buscar por
+    /// palabras sueltas.
+    static func continuoOcrPreciso() -> Bool { (json()["continuo_ocr_preciso"] as? Bool) ?? true }
+
+    /// Sin fijar idioma, Vision lee el español como inglés mal escrito.
+    static func continuoOcrIdiomas() -> [String] {
+        let s = (json()["continuo_ocr_idiomas"] as? [String]) ?? ["es-ES", "en-US"]
+        return s.isEmpty ? ["es-ES"] : s
+    }
+
+    /// Descarta lecturas dudosas. 0,0…1,0.
+    static func continuoOcrConfianzaMinima() -> Double {
+        min(1.0, max(0.0, (json()["continuo_ocr_confianza_minima"] as? Double) ?? 0.4))
+    }
+
+    /// Altura mínima del texto como fracción de la imagen: ignora el ruido de
+    /// un píxel. 0,0…0,1.
+    static func continuoOcrAlturaMinima() -> Double {
+        min(0.1, max(0.0, (json()["continuo_ocr_altura_minima"] as? Double) ?? 0.008))
+    }
+
+    // ---- Resumen del día ----
+
+    static func continuoResumenActivo() -> Bool { (json()["continuo_resumen_activo"] as? Bool) ?? false }
+
+    /// Cuántos caracteres del día se mandan al modelo. Acotarlo evita facturas
+    /// sorpresa y respuestas truncadas. 2000…60000.
+    static func continuoResumenMaxCaracteres() -> Int {
+        min(60_000, max(2_000, (json()["continuo_resumen_max_caracteres"] as? Int) ?? 18_000))
+    }
+
+    /// Instrucción que recibe el modelo. Vacío = la de fábrica.
+    static func continuoResumenInstruccion() -> String {
+        (json()["continuo_resumen_instruccion"] as? String) ?? ""
+    }
+
+    /// Incluir el texto leído de las capturas, además de lo hablado.
+    static func continuoResumenIncluirPantalla() -> Bool {
+        (json()["continuo_resumen_incluir_pantalla"] as? Bool) ?? true
+    }
 }
