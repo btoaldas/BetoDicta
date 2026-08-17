@@ -1060,12 +1060,14 @@ struct Config {
         min(1_439, max(0, (json()["continuo_lote_minuto_del_dia"] as? Int) ?? 1_140))
     }
 
-    /// Motor de transcripción de la tanda. `apple_speech` va en el dispositivo
-    /// y no manda el audio a ningún sitio: es el que conviene para grabaciones
-    /// de jornada completa.
+    /// Motor de transcripción de la tanda. `cadena` usa los proveedores activos
+    /// en el orden configurado, con failover — lo mismo que el dictado. Un id
+    /// concreto (`apple_speech`, `elevenlabs`, `groq`, `ollama_stt`…) fija ese
+    /// y solo ese. No se valida contra una lista cerrada a propósito: el
+    /// catálogo de proveedores crece y esto no debe quedarse atrás.
     static func continuoLoteMotor() -> String {
-        let s = (json()["continuo_lote_motor"] as? String) ?? "apple_speech"
-        return ["apple_speech", "whisper_local"].contains(s) ? s : "apple_speech"
+        let s = (json()["continuo_lote_motor"] as? String) ?? "cadena"
+        return s.isEmpty ? "cadena" : s
     }
 
     /// Comprimir el PCM crudo a m4a una vez transcrito.
@@ -1118,7 +1120,21 @@ struct Config {
         min(60_000, max(2_000, (json()["continuo_resumen_max_caracteres"] as? Int) ?? 18_000))
     }
 
-    /// Instrucción que recibe el modelo. Vacío = la de fábrica.
+    /// Prompt de la biblioteca que se usa al ejecutar a mano y en la
+    /// programación. Ver `ContinuoPrompts`.
+    static func continuoPromptActivo() -> String {
+        (json()["continuo_prompt_activo"] as? String) ?? "resumen_diario"
+    }
+
+    /// Cerebro que redacta. `seleccionada` usa el mismo que el resto de la app;
+    /// un id concreto (`groq`, `ollama`, `lmstudio`, `openai`…) fija ese. Sin
+    /// lista cerrada: vale cualquiera que aparezca en `ChatIA.conectadas`.
+    static func continuoResumenIA() -> String {
+        let s = (json()["continuo_resumen_ia"] as? String) ?? "seleccionada"
+        return s.isEmpty ? "seleccionada" : s
+    }
+
+    /// Instrucción que recibe el modelo. Vacío = la del prompt elegido.
     static func continuoResumenInstruccion() -> String {
         (json()["continuo_resumen_instruccion"] as? String) ?? ""
     }

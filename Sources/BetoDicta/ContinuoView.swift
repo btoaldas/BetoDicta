@@ -46,6 +46,10 @@ final class ContinuoModel: ObservableObject {
     @Published var loteIntervalo: Double { didSet { Config.set("continuo_lote_intervalo_minutos", to: Int(loteIntervalo)); ContinuoPlanificador.reconfigurar() } }
     @Published var loteMinutoDia: Double { didSet { Config.set("continuo_lote_minuto_del_dia", to: Int(loteMinutoDia)); ContinuoPlanificador.reconfigurar() } }
     @Published var loteMotor: String { didSet { Config.set("continuo_lote_motor", to: loteMotor) } }
+    @Published var resumenIA: String { didSet { Config.set("continuo_resumen_ia", to: resumenIA) } }
+    @Published var promptActivo: String { didSet { Config.set("continuo_prompt_activo", to: promptActivo); cargarPrompt() } }
+    @Published var promptTexto: String = ""
+    @Published var promptNombre: String = ""
     @Published var loteComprimir: Bool { didSet { Config.set("continuo_lote_comprimir", to: loteComprimir) } }
     @Published var loteCorriente: Bool { didSet { Config.set("continuo_lote_solo_con_corriente", to: loteCorriente) } }
     @Published var ocrActivo: Bool { didSet { Config.set("continuo_ocr_activo", to: ocrActivo) } }
@@ -93,6 +97,8 @@ final class ContinuoModel: ObservableObject {
         loteIntervalo = Double(Config.continuoLoteIntervaloMinutos())
         loteMinutoDia = Double(Config.continuoLoteMinutoDelDia())
         loteMotor = Config.continuoLoteMotor()
+        resumenIA = Config.continuoResumenIA()
+        promptActivo = Config.continuoPromptActivo()
         loteComprimir = Config.continuoLoteComprimir()
         loteCorriente = Config.continuoLoteSoloConCorriente()
         ocrActivo = Config.continuoOcrActivo()
@@ -101,6 +107,9 @@ final class ContinuoModel: ObservableObject {
         resumenPantalla = Config.continuoResumenIncluirPantalla()
         resumenMax = Double(Config.continuoResumenMaxCaracteres())
         resumenInstruccion = Config.continuoResumenInstruccion()
+        let p0 = ContinuoPrompts.activo()
+        promptTexto = p0.texto
+        promptNombre = p0.nombre
         refrescar()
         loteEstado = ContinuoPlanificador.descripcion()
     }
@@ -127,6 +136,44 @@ final class ContinuoModel: ObservableObject {
             self?.loteEstado = resultado
             self?.refrescar()
         }
+    }
+
+    /// Motores de transcripción que el usuario tiene activos, más la cadena.
+    var motoresSTT: [(String, String)] {
+        [("cadena", "Cadena configurada (con failover)")]
+            + Providers.cadena().map { ($0.id, $0.nombre) }
+    }
+
+    /// Cerebros de chat conectados: nube con clave, cuenta de sesión o local.
+    var cerebros: [(String, String)] {
+        [("seleccionada", "El del resto de la app")]
+            + ChatIA.conectadas.map { ($0.id, $0.nombre) }
+    }
+
+    var prompts: [PromptContinuo] { ContinuoPrompts.todos() }
+
+    func cargarPrompt() {
+        let p = ContinuoPrompts.activo()
+        promptTexto = p.texto
+        promptNombre = p.nombre
+    }
+
+    func guardarPrompt() {
+        guard var p = ContinuoPrompts.porId(promptActivo) else { return }
+        p.texto = promptTexto
+        p.nombre = promptNombre
+        ContinuoPrompts.guardar(p)
+        resumenEstado = "Prompt «\(p.nombre)» guardado."
+    }
+
+    func restaurarPrompt() {
+        guard let base = ContinuoPrompts.restaurar(id: promptActivo) else {
+            resumenEstado = "Ese prompt es tuyo: no tiene original al que volver."
+            return
+        }
+        promptTexto = base.texto
+        promptNombre = base.nombre
+        resumenEstado = "Prompt «\(base.nombre)» restaurado al original."
     }
 
     /// Pide el resumen del día a la IA configurada.
@@ -331,11 +378,12 @@ struct ContinuoView: View {
 
                     Divider()
 
-                    Picker("Motor", selection: $m.loteMotor) {
-                        Text("Apple, en el dispositivo").tag("apple_speech")
-                        Text("Whisper local").tag("whisper_local")
-                    }.pickerStyle(.radioGroup)
-                    Text("Apple transcribe sin que el audio salga del equipo. Recomendado para grabaciones de jornada completa.")
+                    Picker("Motor de transcripción", selection: $m.loteMotor) {
+                        ForEach(m.motoresSTT, id: \.0) { par in
+                            Text(par.1).tag(par.0)
+                        }
+                    }
+                    Text("Se listan los proveedores que tengas activos en Modelos: nube con clave, cuenta de sesión o local. La cadena respeta tu orden y salta al siguiente si uno cae.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -379,20 +427,52 @@ struct ContinuoView: View {
                         Text("\(Int(m.resumenMax)) caracteres").monospacedDigit().font(.caption)
                     }
 
+                    Picker("Cerebro", selection: $m.resumenIA) {
+                        ForEach(m.cerebros, id: \.0) { par in
+                            Text(par.1).tag(par.0)
+                        }
+                    }
+                    Text("Cualquiera de las que tengas conectadas. Si eliges una local (Ollama, LM Studio), nada sale del equipo.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Divider()
+
+                    Picker("Qué hacer con el día", selection: $m.promptActivo) {
+                        ForEach(m.prompts) { p in
+                            Text(p.nombre).tag(p.id)
+                        }
+                    }
+                    if let d = m.prompts.first(where: { $0.id == m.promptActivo })?.descripcion {
+                        Text(d).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Instrucción para la IA (vacío = la de fábrica)").font(.caption)
-                        TextEditor(text: $m.resumenInstruccion)
+                        HStack {
+                            Text("Instrucción").font(.caption)
+                            Spacer()
+                            if m.prompts.first(where: { $0.id == m.promptActivo })?.modificado == true {
+                                Text("modificado").font(.caption2).foregroundStyle(.orange)
+                            }
+                        }
+                        TextEditor(text: $m.promptTexto)
                             .font(.system(size: 11, design: .monospaced))
-                            .frame(height: 70)
+                            .frame(height: 130)
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
+                        HStack {
+                            Button("Guardar prompt") { m.guardarPrompt() }
+                            Button("Restaurar el original") { m.restaurarPrompt() }
+                                .help("Vuelve al texto que trae la aplicación. Lo tuyo se descarta.")
+                        }
                     }
 
                     HStack {
-                        Button("Resumir hoy") { m.resumirAhora() }
+                        Button("Ejecutar sobre hoy") { m.resumirAhora() }
                         Text(m.resumenEstado).font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text("El resumen se guarda como resumen-AAAA-MM-DD.md dentro de la carpeta del día.")
+                    Text("El resultado se guarda como <prompt>-AAAA-MM-DD.md dentro de la carpeta del día, así que puedes tener varios del mismo día sin pisarse.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

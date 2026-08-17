@@ -715,6 +715,13 @@ enum Failover {
         intentar(wav: wav, cadena: cadena, idx: 0, ultimoError: nil, completion: completion)
     }
 
+    /// Igual, pero sobre una cadena dada: sirve para fijar un único proveedor
+    /// sin perder su configuración de modelo y credenciales.
+    static func transcribe(wav: Data, cadena: [Provider],
+                           completion: @escaping (Result<(String, String, String), Error>) -> Void) {
+        intentar(wav: wav, cadena: cadena, idx: 0, ultimoError: nil, completion: completion)
+    }
+
     private static func intentar(wav: Data, cadena: [Provider], idx: Int,
                                  ultimoError: Error?, completion: @escaping (Result<(String, String, String), Error>) -> Void) {
         guard idx < cadena.count else {

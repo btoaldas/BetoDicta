@@ -12,8 +12,10 @@ import Foundation
 
 enum ContinuoResumen {
 
-    /// Genera el resumen de un día. `completion` siempre se llama una vez.
-    static func generar(dia: Date = Date(), completion: @escaping (Result<URL, Error>) -> Void) {
+    /// Genera un documento del día con el prompt indicado (o el activo).
+    /// `completion` siempre se llama una vez.
+    static func generar(dia: Date = Date(), promptId: String? = nil,
+                        completion: @escaping (Result<URL, Error>) -> Void) {
         guard Config.continuoActivo() else {
             completion(.failure(ErrorResumen.apagado)); return
         }
@@ -23,25 +25,36 @@ enum ContinuoResumen {
         guard !material.isEmpty else {
             completion(.failure(ErrorResumen.sinMaterial)); return
         }
-        guard let ia = ChatIA.seleccionada() else {
+        guard let ia = cerebro() else {
             completion(.failure(ErrorResumen.sinCerebro)); return
         }
 
+        let plantilla = promptId.flatMap { ContinuoPrompts.porId($0) } ?? ContinuoPrompts.activo()
         let cuerpo = armarCuerpo(material)
-        let prompt = armarPrompt(dia: dia, cuerpo: cuerpo)
+        let prompt = armarPrompt(dia: dia, cuerpo: cuerpo, plantilla: plantilla)
 
         llamar(ia, prompt: prompt, textLen: cuerpo.count) { texto in
             guard let texto, !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 completion(.failure(ErrorResumen.sinRespuesta)); return
             }
             do {
-                let url = try guardar(texto, dia: dia, piezas: material.count)
+                let url = try guardar(texto, dia: dia, piezas: material.count, prefijo: plantilla.id)
                 Log.log(.sistema, "bitácora: resumen del día escrito en \(url.lastPathComponent)")
                 completion(.success(url))
             } catch {
                 completion(.failure(error))
             }
         }
+    }
+
+    /// Cerebro elegido para redactar. `seleccionada` sigue al resto de la app;
+    /// cualquier otro id fija esa IA entre las conectadas — nube con clave,
+    /// cuenta de sesión o local (Ollama, LM Studio) da igual.
+    private static func cerebro() -> ChatIA? {
+        let elegido = Config.continuoResumenIA()
+        if elegido != "seleccionada",
+           let c = ChatIA.conectadas.first(where: { $0.id == elegido }) { return c }
+        return ChatIA.seleccionada()
     }
 
     // MARK: Preparación
@@ -51,15 +64,30 @@ enum ContinuoResumen {
     /// interesa recordar.
     private static func armarCuerpo(_ material: [(Date, MaterialContinuo, String, String)]) -> String {
         let hora = DateFormatter()
-        hora.dateFormat = "HH:mm"
+        hora.dateFormat = "HH:mm:ss"
         var lineas: [String] = []
-        for (instante, tipo, app, texto) in material {
-            let limpio = texto.replacingOccurrences(of: "\n", with: " ")
+        for (instante, tipo, fuente, texto) in material {
+            let limpio = texto.replacingOccurrences(of: "\n", with: " · ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard limpio.count > 3 else { continue }
-            let etiqueta = tipo == .audio ? "dicho" : "en pantalla"
-            let donde = app.isEmpty || app == "continuo" ? "" : " [\(app)]"
-            lineas.append("\(hora.string(from: instante)) · \(etiqueta)\(donde): \(limpio)")
+            let t = hora.string(from: instante)
+            switch tipo {
+            case .audio:
+                // De dónde salió la voz: el micrófono continuo, un dictado o el
+                // audio del propio equipo.
+                let canal: String
+                switch fuente {
+                case "dictado": canal = "dictado"
+                case "sistema": canal = "audio del sistema"
+                default: canal = "micrófono"
+                }
+                lineas.append("[\(t)] (\(canal)) \(limpio)")
+            case .pantalla:
+                // Anotación de contexto, no habla: va entre paréntesis para que
+                // el modelo no la confunda con algo que alguien dijo.
+                let app = fuente.isEmpty ? "" : " en \(fuente)"
+                lineas.append("[\(t)] (en pantalla\(app) se ve: \(limpio))")
+            }
         }
         var cuerpo = lineas.joined(separator: "\n")
         let tope = Config.continuoResumenMaxCaracteres()
@@ -69,52 +97,38 @@ enum ContinuoResumen {
         return cuerpo
     }
 
-    private static func armarPrompt(dia: Date, cuerpo: String) -> String {
+    private static func armarPrompt(dia: Date, cuerpo: String, plantilla: PromptContinuo) -> String {
         let fecha = DateFormatter()
         fecha.dateFormat = "EEEE d 'de' MMMM 'de' yyyy"
         fecha.locale = Locale(identifier: "es_ES")
 
-        let personalizada = Config.continuoResumenInstruccion()
+        // La instrucción suelta de los ajustes, si existe, manda sobre la
+        // plantilla: es el atajo para una pasada puntual sin tocar la biblioteca.
+        let suelta = Config.continuoResumenInstruccion()
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let instruccion = personalizada.isEmpty ? instruccionDeFabrica : personalizada
+        let instruccion = suelta.isEmpty ? plantilla.texto : suelta
 
         return """
         \(instruccion)
 
         Fecha: \(fecha.string(from: dia))
 
-        A continuación va la línea de tiempo cruda del día. Las líneas marcadas
-        «dicho» son transcripciones automáticas de voz y pueden traer errores de
-        reconocimiento; las marcadas «en pantalla» son texto leído de capturas y
-        pueden venir cortadas o desordenadas. Interpreta con criterio y no cites
-        literalmente lo que parezca un error de transcripción.
+        A continuación va la línea de tiempo cruda del día, con la hora entre
+        corchetes al inicio de cada línea.
+
+        - `(micrófono)`, `(dictado)` y `(audio del sistema)` marcan de dónde
+          salió la voz. Son transcripciones automáticas: pueden traer errores de
+          reconocimiento, así que no cites como literal lo que parezca uno.
+        - Las líneas del tipo `(en pantalla … se ve: …)` NO son habla. Son texto
+          leído de una captura, como contexto de qué se estaba mirando en ese
+          momento. Puede venir cortado o desordenado; úsalo para situar, no para
+          citar.
 
         ---
         \(cuerpo)
         ---
         """
     }
-
-    private static let instruccionDeFabrica = """
-    Eres el cronista del día de trabajo de una persona. Con el material de
-    abajo, redacta un resumen en español, en Markdown, con esta estructura:
-
-    ## Resumen
-    Dos o tres frases sobre en qué se fue la jornada.
-
-    ## En qué se trabajó
-    Lista de los temas o proyectos reales, con lo que se avanzó en cada uno.
-
-    ## Decisiones
-    Qué se decidió y por qué, si se decidió algo.
-
-    ## Pendientes
-    Lo que quedó a medias o se mencionó como siguiente paso.
-
-    Reglas: no inventes nada que no esté en el material. Si algo no se puede
-    determinar, omítelo en vez de rellenar. Sé concreto y breve; nombra
-    proyectos, archivos y personas solo si aparecen con claridad.
-    """
 
     // MARK: Llamada a la IA
 
@@ -146,13 +160,14 @@ enum ContinuoResumen {
 
     // MARK: Escritura
 
-    private static func guardar(_ texto: String, dia: Date, piezas: Int) throws -> URL {
+    private static func guardar(_ texto: String, dia: Date, piezas: Int,
+                                prefijo: String = "resumen") throws -> URL {
         let carpeta = ContinuoAudio.carpetaDelDia(dia, sub: "")
             .deletingLastPathComponent()
         try FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
 
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        let url = carpeta.appendingPathComponent("resumen-\(f.string(from: dia)).md")
+        let url = carpeta.appendingPathComponent("\(prefijo)-\(f.string(from: dia)).md")
 
         let sello = DateFormatter(); sello.dateFormat = "yyyy-MM-dd HH:mm"
         let encabezado = """

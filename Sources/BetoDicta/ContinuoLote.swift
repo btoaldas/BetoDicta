@@ -151,13 +151,31 @@ enum ContinuoLote {
         let semaforo = DispatchSemaphore(value: 0)
         var salida: Result<String, Error> = .failure(ErrorLote.sinRespuesta)
 
-        switch Config.continuoLoteMotor() {
-        case "apple_speech":
+        let motor = Config.continuoLoteMotor()
+        if motor == "cadena" {
+            // La misma cascada que el dictado: respeta los proveedores activos,
+            // su orden y su failover. Así, conectar un motor nuevo en Modelos
+            // lo pone a disposición de la bitácora sin tocar nada aquí.
+            Failover.transcribe(wav: wav) { r in
+                salida = r.map { $0.0 }
+                semaforo.signal()
+            }
+        } else if motor == "apple_speech" {
             AppleSpeechSTT.run(wav: wav) { r in salida = r; semaforo.signal() }
-        case "whisper_local":
+        } else if motor == "whisper_local" {
             WhisperServer.transcribe(wav: wav) { r in salida = r; semaforo.signal() }
-        default:
-            AppleSpeechSTT.run(wav: wav) { r in salida = r; semaforo.signal() }
+        } else {
+            // Cualquier otro id del catálogo: se fija ese proveedor como cadena
+            // de uno solo, para no perder su configuración de modelo y clave.
+            let uno = Providers.cadena().filter { $0.id == motor }
+            if uno.isEmpty {
+                Failover.transcribe(wav: wav) { r in salida = r.map { $0.0 }; semaforo.signal() }
+            } else {
+                Failover.transcribe(wav: wav, cadena: uno) { r in
+                    salida = r.map { $0.0 }
+                    semaforo.signal()
+                }
+            }
         }
 
         // Tope generoso: un fragmento de dos minutos en local puede tardar.
