@@ -719,6 +719,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             return
         }
+        // Prueba real de la tanda diferida de la bitácora: transcribe lo que haya
+        // pendiente y reporta. No toca la interfaz ni el dictado.
+        if ProcessInfo.processInfo.environment["BETODICTA_LOTETEST"] == "1" {
+            ContinuoLote.dictadoOcupado = { false }
+            ContinuoLote.ejecutar(manual: true) { resumen in
+                print("LOTETEST \(resumen)")
+                fflush(stdout)
+                exit(resumen.contains("transcritos") ? 0 : 3)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 600) {
+                print("LOTETEST FALLA timeout"); fflush(stdout); exit(4)
+            }
+            return
+        }
         // Prueba pura del detector de doble pulsación (sin abrir micrófono/UI).
         if ProcessInfo.processInfo.environment["BETODICTA_DOBLEFNTEST"] == "1" {
             var g = DoublePressGate()
@@ -2299,6 +2313,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // arranque del dictado, que es lo que el usuario nota.
         // 6 s, no 2: la app monta su propio audio en los primeros segundos y
         // CoreAudio devuelve -10875 si le pedimos la entrada en ese momento.
+        // La tanda diferida consulta este cierre antes de cada fragmento: si hay
+        // dictado en curso, se detiene y sigue en la próxima. Se usa el estado
+        // completo de ocupación del micrófono, no solo `recorder.isRecording`,
+        // porque la escucha de manos libres también cuenta.
+        ContinuoLote.dictadoOcupado = { [weak self] in self?.activacionVozOcupada ?? true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
             ContinuoBitacora.arrancar()
             ContinuoBitacora.purgaAutomaticaSiCorresponde()

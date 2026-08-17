@@ -19,6 +19,7 @@ final class ContinuoModel: ObservableObject {
     @Published var audioEco: Bool { didSet { Config.set("continuo_audio_cancelacion_eco", to: audioEco); aplicar() } }
     @Published var audioSegmento: Double { didSet { Config.set("continuo_audio_segmento_segundos", to: Int(audioSegmento)) } }
     @Published var audioAdoptar: Bool { didSet { Config.set("continuo_audio_adoptar_dictado", to: audioAdoptar) } }
+    @Published var audioUmbral: Double { didSet { Config.set("continuo_audio_umbral_voz", to: audioUmbral) } }
 
     @Published var pantallaActiva: Bool { didSet { Config.set("continuo_pantalla_activa", to: pantallaActiva); aplicar() } }
     @Published var pantallaIntervalo: Double { didSet { Config.set("continuo_pantalla_intervalo_segundos", to: Int(pantallaIntervalo)); aplicar() } }
@@ -37,6 +38,19 @@ final class ContinuoModel: ObservableObject {
     @Published var retencionAuto: Bool { didSet { Config.set("continuo_retencion_automatica", to: retencionAuto) } }
     @Published var retencionAvisar: Bool { didSet { Config.set("continuo_retencion_avisar_sin_procesar", to: retencionAvisar) } }
 
+    // ---- Tanda diferida ----
+    @Published var dispIntervalo: Bool { didSet { guardarDisparadores() } }
+    @Published var dispHora: Bool { didSet { guardarDisparadores() } }
+    @Published var dispArranque: Bool { didSet { guardarDisparadores() } }
+    @Published var dispApagado: Bool { didSet { guardarDisparadores() } }
+    @Published var loteIntervalo: Double { didSet { Config.set("continuo_lote_intervalo_minutos", to: Int(loteIntervalo)); ContinuoPlanificador.reconfigurar() } }
+    @Published var loteMinutoDia: Double { didSet { Config.set("continuo_lote_minuto_del_dia", to: Int(loteMinutoDia)); ContinuoPlanificador.reconfigurar() } }
+    @Published var loteMotor: String { didSet { Config.set("continuo_lote_motor", to: loteMotor) } }
+    @Published var loteComprimir: Bool { didSet { Config.set("continuo_lote_comprimir", to: loteComprimir) } }
+    @Published var loteCorriente: Bool { didSet { Config.set("continuo_lote_solo_con_corriente", to: loteCorriente) } }
+    @Published var loteEstado: String = "—"
+    @Published var loteCorriendo = false
+
     @Published var resumen: String = "—"
     @Published var aviso: String?
 
@@ -49,6 +63,7 @@ final class ContinuoModel: ObservableObject {
         audioEco = Config.continuoAudioCancelacionEco()
         audioSegmento = Double(Config.continuoAudioSegmentoSegundos())
         audioAdoptar = Config.continuoAudioAdoptarDictado()
+        audioUmbral = Config.continuoAudioUmbralVoz()
         pantallaActiva = Config.continuoPantallaActiva()
         pantallaIntervalo = Double(Config.continuoPantallaIntervaloSegundos())
         pantallaFormato = Config.continuoPantallaFormato()
@@ -63,7 +78,42 @@ final class ContinuoModel: ObservableObject {
         retencionDias = Double(Config.continuoRetencionDias())
         retencionAuto = Config.continuoRetencionAutomatica()
         retencionAvisar = Config.continuoRetencionAvisarSinProcesar()
+        let disp = Config.continuoLoteDisparadores()
+        dispIntervalo = disp.contains("intervalo")
+        dispHora = disp.contains("hora")
+        dispArranque = disp.contains("arranque")
+        dispApagado = disp.contains("apagado")
+        loteIntervalo = Double(Config.continuoLoteIntervaloMinutos())
+        loteMinutoDia = Double(Config.continuoLoteMinutoDelDia())
+        loteMotor = Config.continuoLoteMotor()
+        loteComprimir = Config.continuoLoteComprimir()
+        loteCorriente = Config.continuoLoteSoloConCorriente()
         refrescar()
+        loteEstado = ContinuoPlanificador.descripcion()
+    }
+
+    private func guardarDisparadores() {
+        var d: [String] = []
+        if dispIntervalo { d.append("intervalo") }
+        if dispHora { d.append("hora") }
+        if dispArranque { d.append("arranque") }
+        if dispApagado { d.append("apagado") }
+        Config.set("continuo_lote_disparadores", to: d)
+        ContinuoPlanificador.reconfigurar()
+        loteEstado = ContinuoPlanificador.descripcion()
+    }
+
+    /// Lanza una tanda a mano. Salta la condición de energía: lo pidió alguien
+    /// que está mirando la pantalla.
+    func transcribirAhora() {
+        guard !loteCorriendo else { return }
+        loteCorriendo = true
+        loteEstado = "Transcribiendo…"
+        ContinuoLote.ejecutar(manual: true) { [weak self] resultado in
+            self?.loteCorriendo = false
+            self?.loteEstado = resultado
+            self?.refrescar()
+        }
     }
 
     private func listaDe(_ s: String) -> [String] {
@@ -159,6 +209,17 @@ struct ContinuoView: View {
                         Text("\(Int(m.audioSegmento)) s").monospacedDigit()
                     }
 
+                    if m.audioModo == "voz" {
+                        HStack {
+                            Text("Sensibilidad")
+                            Slider(value: $m.audioUmbral, in: 0.001...0.05).frame(width: 180)
+                            Text(String(format: "%.4f", m.audioUmbral)).monospacedDigit().font(.caption)
+                        }
+                        Text("Más bajo capta voces lejanas; más alto evita que se transcriba ruido como si fuera habla.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
                     Toggle("Incorporar también el audio de los dictados", isOn: $m.audioAdoptar)
                         .help("Mientras dictas, la bitácora cede el micrófono. Con esto, el audio que graba el dictado se suma a la línea de tiempo y no queda hueco.")
 
@@ -215,6 +276,57 @@ struct ContinuoView: View {
                         Text("Apps excluidas (identificadores separados por comas)").font(.caption)
                         TextField("com.ejemplo.banca, com.ejemplo.claves", text: $m.appsExcluidas)
                             .textFieldStyle(.roundedBorder)
+                    }
+                }
+            }
+
+            SeccionPlegable("Procesamiento diferido", icono: "text.badge.checkmark", abierto: true) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Transcribir mientras grabas mantendría un modelo de voz ocupando el procesador todo el día. Se hace en una sola pasada, cuando tú digas.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Cuándo").font(.caption).foregroundStyle(.secondary)
+                    Toggle("Cada cierto tiempo", isOn: $m.dispIntervalo)
+                    if m.dispIntervalo {
+                        HStack {
+                            Slider(value: $m.loteIntervalo, in: 15...1440, step: 15).frame(width: 200)
+                            Text(m.loteIntervalo < 60
+                                 ? "\(Int(m.loteIntervalo)) min"
+                                 : String(format: "%.1f h", m.loteIntervalo / 60)).monospacedDigit()
+                        }
+                    }
+                    Toggle("A una hora fija", isOn: $m.dispHora)
+                    if m.dispHora {
+                        HStack {
+                            Slider(value: $m.loteMinutoDia, in: 0...1439, step: 15).frame(width: 200)
+                            Text(String(format: "%02d:%02d", Int(m.loteMinutoDia) / 60, Int(m.loteMinutoDia) % 60))
+                                .monospacedDigit()
+                        }
+                    }
+                    Toggle("Al abrir la aplicación", isOn: $m.dispArranque)
+                    Toggle("Al apagar el equipo", isOn: $m.dispApagado)
+                        .help("macOS da un margen corto al apagar. Se transcribe lo que alcance; el resto queda pendiente para la próxima.")
+
+                    Divider()
+
+                    Picker("Motor", selection: $m.loteMotor) {
+                        Text("Apple, en el dispositivo").tag("apple_speech")
+                        Text("Whisper local").tag("whisper_local")
+                    }.pickerStyle(.radioGroup)
+                    Text("Apple transcribe sin que el audio salga del equipo. Recomendado para grabaciones de jornada completa.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle("Comprimir el audio al transcribirlo", isOn: $m.loteComprimir)
+                        .help("El crudo se guarda sin comprimir para sobrevivir a un corte. Ya transcrito, se comprime y se libera espacio.")
+                    Toggle("Solo con el equipo enchufado", isOn: $m.loteCorriente)
+
+                    HStack {
+                        Button(m.loteCorriendo ? "Transcribiendo…" : "Transcribir ahora") { m.transcribirAhora() }
+                            .disabled(m.loteCorriendo)
+                        Text(m.loteEstado).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }

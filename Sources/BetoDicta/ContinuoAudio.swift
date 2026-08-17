@@ -253,7 +253,7 @@ final class ContinuoAudio {
             // la señal ya tratada por la cancelación de eco). Con colchón previo
             // para no comerse el arranque de la frase, y cola de 1,5 s para no
             // cortar en cada pausa.
-            let umbral = 0.004
+            let umbral = Config.continuoAudioUmbralVoz()
             if rms >= umbral {
                 if !hablando {
                     hablando = true

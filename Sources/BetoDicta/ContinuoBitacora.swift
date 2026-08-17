@@ -20,12 +20,14 @@ enum ContinuoBitacora {
         ContinuoIndice.shared.abrir()
         ContinuoAudio.shared.arrancar()
         if #available(macOS 14.0, *) { ContinuoPantalla.shared.arrancar() }
+        ContinuoPlanificador.arrancar()
         Log.log(.sistema, "bitácora: encendida")
     }
 
     static func detener() {
         ContinuoAudio.shared.detener()
         if #available(macOS 14.0, *) { ContinuoPantalla.shared.detener() }
+        ContinuoPlanificador.detener()
         Log.log(.sistema, "bitácora: apagada")
     }
 

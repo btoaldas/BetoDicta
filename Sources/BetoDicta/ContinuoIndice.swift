@@ -209,6 +209,21 @@ final class ContinuoIndice {
         }
     }
 
+    /// Cambia la ruta de una fila tras comprimir el archivo, conservando su
+    /// texto y su marca de procesado.
+    func reemplazarRuta(id: Int64, material: MaterialContinuo, por url: URL, bytes: Int64) {
+        cola.sync {
+            guard let d = db else { return }
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(d, "UPDATE \(material.rawValue) SET ruta = ?, bytes = ? WHERE id = ?;", -1, &st, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(st) }
+            bindTexto(st, 1, url.path)
+            sqlite3_bind_int64(st, 2, bytes)
+            sqlite3_bind_int64(st, 3, id)
+            sqlite3_step(st)
+        }
+    }
+
     /// Lo que falta por transcribir o reconocer, de lo más viejo a lo más nuevo.
     func pendientes(material: MaterialContinuo, limite: Int = 500) -> [PendienteContinuo] {
         cola.sync {

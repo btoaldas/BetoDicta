@@ -934,6 +934,14 @@ struct Config {
         (json()["continuo_audio_cancelacion_eco"] as? Bool) ?? true
     }
 
+    /// Umbral de la puerta de voz en modo `voz`: por debajo de este nivel el
+    /// audio se considera ruido y no se guarda. Subirlo evita transcripciones
+    /// inventadas sobre fragmentos que son casi silencio; bajarlo captura habla
+    /// más lejana. 0,001…0,05 (medido: una voz normal a un metro ronda 0,004).
+    static func continuoAudioUmbralVoz() -> Double {
+        min(0.05, max(0.001, (json()["continuo_audio_umbral_voz"] as? Double) ?? 0.006))
+    }
+
     /// Trozos cerrados periódicamente para que un corte de luz no arruine la
     /// jornada entera. 30…900 s.
     static func continuoAudioSegmentoSegundos() -> Int {
@@ -1026,5 +1034,52 @@ struct Config {
     /// texto reconocido: eso es información que nunca se llegó a extraer.
     static func continuoRetencionAvisarSinProcesar() -> Bool {
         (json()["continuo_retencion_avisar_sin_procesar"] as? Bool) ?? true
+    }
+
+    // ---- Tanda diferida ----
+    //
+    // Transcribir en caliente mantendría un modelo de voz comiendo CPU todo el
+    // día. Se difiere a una pasada única, con el equipo enchufado.
+
+    /// Cuándo corre la tanda. Combinables: `intervalo`, `hora`, `arranque`,
+    /// `apagado`. Vacío = solo a mano desde la pestaña.
+    static func continuoLoteDisparadores() -> [String] {
+        let validos = ["intervalo", "hora", "arranque", "apagado"]
+        let s = (json()["continuo_lote_disparadores"] as? [String]) ?? ["hora"]
+        return s.filter { validos.contains($0) }
+    }
+
+    /// Con el disparador `intervalo`: cada cuántos minutos. 15…1440.
+    static func continuoLoteIntervaloMinutos() -> Int {
+        min(1_440, max(15, (json()["continuo_lote_intervalo_minutos"] as? Int) ?? 60))
+    }
+
+    /// Con el disparador `hora`: minutos desde medianoche. 0…1439.
+    /// 1140 = 19:00.
+    static func continuoLoteMinutoDelDia() -> Int {
+        min(1_439, max(0, (json()["continuo_lote_minuto_del_dia"] as? Int) ?? 1_140))
+    }
+
+    /// Motor de transcripción de la tanda. `apple_speech` va en el dispositivo
+    /// y no manda el audio a ningún sitio: es el que conviene para grabaciones
+    /// de jornada completa.
+    static func continuoLoteMotor() -> String {
+        let s = (json()["continuo_lote_motor"] as? String) ?? "apple_speech"
+        return ["apple_speech", "whisper_local"].contains(s) ? s : "apple_speech"
+    }
+
+    /// Comprimir el PCM crudo a m4a una vez transcrito.
+    static func continuoLoteComprimir() -> Bool {
+        (json()["continuo_lote_comprimir"] as? Bool) ?? true
+    }
+
+    /// Tope de fragmentos por tanda, para que una pasada no se eternice. 10…5000.
+    static func continuoLoteMaximoPorTanda() -> Int {
+        min(5_000, max(10, (json()["continuo_lote_maximo_por_tanda"] as? Int) ?? 500))
+    }
+
+    /// No transcribir con batería.
+    static func continuoLoteSoloConCorriente() -> Bool {
+        (json()["continuo_lote_solo_con_corriente"] as? Bool) ?? true
     }
 }
