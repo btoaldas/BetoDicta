@@ -182,6 +182,12 @@ enum ContinuoLote {
         if semaforo.wait(timeout: .now() + 300) == .timedOut {
             return .failure(ErrorLote.tiempoAgotado)
         }
+        // El diccionario propio de la app —reemplazos, siglas y corrección por
+        // sonido— se aplica igual que en el dictado. Aquí importa más todavía:
+        // nadie está mirando el texto en el momento para corregirlo a mano.
+        if Config.continuoDiccionarioAudio() {
+            return salida.map { applyReplacements($0) }
+        }
         return salida
     }
 

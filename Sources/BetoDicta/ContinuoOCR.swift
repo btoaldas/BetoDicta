@@ -67,6 +67,9 @@ enum ContinuoOCR {
             let s = mejor.string.trimmingCharacters(in: .whitespacesAndNewlines)
             return s.isEmpty ? nil : s
         }
-        return lineas.joined(separator: "\n")
+        let texto = lineas.joined(separator: "\n")
+        // El reconocimiento visual se equivoca con las mismas palabras propias
+        // que el de voz, así que pasa por el mismo diccionario.
+        return Config.continuoDiccionarioOcr() ? applyReplacements(texto) : texto
     }
 }

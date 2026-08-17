@@ -1143,4 +1143,29 @@ struct Config {
     static func continuoResumenIncluirPantalla() -> Bool {
         (json()["continuo_resumen_incluir_pantalla"] as? Bool) ?? true
     }
+
+    // ---- Diccionario propio ----
+    //
+    // BetoDicta ya sabe cómo habla su dueño: reemplazos, corrección por sonido,
+    // siglas y glosario, afinados a fuerza de dictar. Ese conocimiento vale
+    // igual para lo que graba la bitácora, y hasta más: ahí no hay nadie
+    // revisando el texto en el momento.
+
+    /// Pasar las transcripciones por las reglas de reemplazo, incluida la
+    /// corrección fonética. Es lo que convierte «Kikox» en el término correcto.
+    static func continuoDiccionarioAudio() -> Bool {
+        (json()["continuo_diccionario_audio"] as? Bool) ?? true
+    }
+
+    /// Lo mismo para el texto leído de las capturas: el reconocimiento visual
+    /// se equivoca con las mismas palabras raras que el de voz.
+    static func continuoDiccionarioOcr() -> Bool {
+        (json()["continuo_diccionario_ocr"] as? Bool) ?? true
+    }
+
+    /// Adjuntar el glosario al prompt para que el modelo tenga el contexto de
+    /// los términos propios y pueda deducirlos cuando el audio los deformó.
+    static func continuoGlosarioEnPrompt() -> Bool {
+        (json()["continuo_glosario_en_prompt"] as? Bool) ?? true
+    }
 }

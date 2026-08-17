@@ -58,6 +58,9 @@ final class ContinuoModel: ObservableObject {
     @Published var resumenPantalla: Bool { didSet { Config.set("continuo_resumen_incluir_pantalla", to: resumenPantalla) } }
     @Published var resumenMax: Double { didSet { Config.set("continuo_resumen_max_caracteres", to: Int(resumenMax)) } }
     @Published var resumenInstruccion: String { didSet { Config.set("continuo_resumen_instruccion", to: resumenInstruccion) } }
+    @Published var diccAudio: Bool { didSet { Config.set("continuo_diccionario_audio", to: diccAudio) } }
+    @Published var diccOcr: Bool { didSet { Config.set("continuo_diccionario_ocr", to: diccOcr) } }
+    @Published var glosarioPrompt: Bool { didSet { Config.set("continuo_glosario_en_prompt", to: glosarioPrompt) } }
     @Published var resumenEstado: String = "—"
     @Published var loteEstado: String = "—"
     @Published var loteCorriendo = false
@@ -105,6 +108,9 @@ final class ContinuoModel: ObservableObject {
         ocrPreciso = Config.continuoOcrPreciso()
         resumenActivo = Config.continuoResumenActivo()
         resumenPantalla = Config.continuoResumenIncluirPantalla()
+        diccAudio = Config.continuoDiccionarioAudio()
+        diccOcr = Config.continuoDiccionarioOcr()
+        glosarioPrompt = Config.continuoGlosarioEnPrompt()
         resumenMax = Double(Config.continuoResumenMaxCaracteres())
         resumenInstruccion = Config.continuoResumenInstruccion()
         let p0 = ContinuoPrompts.activo()
@@ -407,6 +413,24 @@ struct ContinuoView: View {
                     Toggle("Modo preciso", isOn: $m.ocrPreciso)
                         .help("Preciso reconoce mejor y tarda más. Rápido basta para buscar por palabras sueltas.")
                     Text("Se ejecuta en la misma pasada que la transcripción.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            SeccionPlegable("Diccionario propio", icono: "character.book.closed") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("BetoDicta ya sabe cómo hablas: reemplazos, siglas, corrección por sonido y glosario, afinados a fuerza de dictar. La bitácora usa ese mismo conocimiento — y ahí hace más falta, porque nadie está revisando el texto en el momento.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle("Corregir las transcripciones con el diccionario", isOn: $m.diccAudio)
+                        .help("Aplica tus reglas de reemplazo, incluidas las de corrección por sonido.")
+                    Toggle("Corregir también el texto leído de la pantalla", isOn: $m.diccOcr)
+                        .help("El reconocimiento visual se equivoca con las mismas palabras propias que el de voz.")
+                    Toggle("Pasar el glosario a la IA", isOn: $m.glosarioPrompt)
+                        .help("Le da el contexto de tus términos para que deduzca los que el audio deformó demasiado como para que el reemplazo literal los alcance.")
+
+                    Text("Reglas activas: \(Config.replacements().count) · términos de glosario: \(Config.keyterms().count)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

@@ -108,10 +108,27 @@ enum ContinuoResumen {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let instruccion = suelta.isEmpty ? plantilla.texto : suelta
 
+        // El glosario da al modelo el contexto de los términos propios: con él
+        // puede deducir que una palabra deformada por el reconocimiento era en
+        // realidad un nombre conocido, cosa que el reemplazo literal no alcanza
+        // cuando lo que se oyó no se parece lo bastante.
+        var glosario = ""
+        if Config.continuoGlosarioEnPrompt() {
+            let terminos = Config.keyterms()
+            if !terminos.isEmpty {
+                glosario = """
+
+                Términos propios que pueden aparecer deformados por el
+                reconocimiento; si ves algo que se le parezca, interpreta que era
+                esto: \(terminos.prefix(120).joined(separator: ", ")).
+                """
+            }
+        }
+
         return """
         \(instruccion)
 
-        Fecha: \(fecha.string(from: dia))
+        Fecha: \(fecha.string(from: dia))\(glosario)
 
         A continuación va la línea de tiempo cruda del día, con la hora entre
         corchetes al inicio de cada línea.
