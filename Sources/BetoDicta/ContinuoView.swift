@@ -34,6 +34,7 @@ final class ContinuoModel: ObservableObject {
     @Published var pantallaUmbral: Double { didSet { Config.set("continuo_pantalla_umbral_cambio", to: pantallaUmbral) } }
     @Published var pantallaForzar: Double { didSet { Config.set("continuo_pantalla_forzar_minutos", to: Int(pantallaForzar)) } }
     @Published var pantallaPausar: Bool { didSet { Config.set("continuo_pantalla_pausar_bloqueada", to: pantallaPausar) } }
+    @Published var pantallaTodas: Bool { didSet { Config.set("continuo_pantalla_todos_monitores", to: pantallaTodas); aplicar() } }
     @Published var appsExcluidas: String { didSet { Config.set("continuo_pantalla_apps_excluidas", to: listaDe(appsExcluidas)) } }
 
     @Published var soloCorriente: Bool { didSet { Config.set("continuo_solo_con_corriente", to: soloCorriente) } }
@@ -133,6 +134,7 @@ final class ContinuoModel: ObservableObject {
         pantallaUmbral = Config.continuoPantallaUmbralCambio()
         pantallaForzar = Double(Config.continuoPantallaForzarMinutos())
         pantallaPausar = Config.continuoPantallaPausarBloqueada()
+        pantallaTodas = Config.continuoPantallaTodosMonitores()
         appsExcluidas = Config.continuoPantallaAppsExcluidas().joined(separator: ", ")
         soloCorriente = Config.continuoSoloConCorriente()
         retencionDias = Double(Config.continuoRetencionDias())
@@ -492,6 +494,8 @@ struct ContinuoView: View {
                         Text(m.pantallaForzar == 0 ? "nunca" : "\(Int(m.pantallaForzar)) min").monospacedDigit()
                     }
 
+                    Toggle("Capturar todas las pantallas conectadas", isOn: $m.pantallaTodas)
+                        .help("Con dos o tres monitores, cada uno se captura y se deduplica por separado. Apagado, solo el principal.")
                     Toggle("Pausar con la pantalla bloqueada o dormida", isOn: $m.pantallaPausar)
                     Toggle("Anotar qué aplicaciones estaban a la vista", isOn: $m.pantallaVisibles)
                         .help("Con cada captura se guarda la app activa y las demás visibles: «activa Claude; también a la vista Edge, Finder».")

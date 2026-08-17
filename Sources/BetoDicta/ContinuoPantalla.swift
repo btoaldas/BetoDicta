@@ -24,8 +24,10 @@ final class ContinuoPantalla {
     private var reloj: Timer?
     private var capturando = false
     private var inicioIntento = Date.distantPast
-    private var huellaPrevia: [UInt8]?
-    private var ultimaEscritura = Date.distantPast
+    /// Por monitor: comparar la huella de una pantalla contra la de OTRA haría
+    /// que la deduplicación no funcionara nunca (o siempre) con varias.
+    private var huellaPrevia: [Int: [UInt8]] = [:]
+    private var ultimaEscritura: [Int: Date] = [:]
     private let contexto = CIContext(options: [.useSoftwareRenderer: false])
     private let escribir = DispatchQueue(label: "betodicta.continuo.pantalla", qos: .utility)
 
@@ -55,7 +57,7 @@ final class ContinuoPantalla {
             self?.reloj?.invalidate()
             self?.reloj = nil
             self?.activo = false
-            self?.huellaPrevia = nil
+            self?.huellaPrevia = [:]
         }
     }
 
@@ -135,21 +137,22 @@ final class ContinuoPantalla {
     private func procesar(_ imagen: CGImage, monitor: Int) {
         let ahora = Date()
         let forzarMin = Config.continuoPantallaForzarMinutos()
-        let forzado = forzarMin > 0 && ahora.timeIntervalSince(ultimaEscritura) >= Double(forzarMin) * 60
+        let ultima = ultimaEscritura[monitor] ?? .distantPast
+        let forzado = forzarMin > 0 && ahora.timeIntervalSince(ultima) >= Double(forzarMin) * 60
 
         // La deduplicación se salta cuando toca fotograma forzado: primero se
         // decide si es obligatorio guardar, y solo si no lo es se compara.
         if !forzado, Config.continuoPantallaDeduplicar() {
             let huella = Self.huella(de: imagen)
-            if let previa = huellaPrevia, Self.diferencia(previa, huella) < Config.continuoPantallaUmbralCambio() {
+            if let previa = huellaPrevia[monitor], Self.diferencia(previa, huella) < Config.continuoPantallaUmbralCambio() {
                 return
             }
-            huellaPrevia = huella
+            huellaPrevia[monitor] = huella
         } else {
-            huellaPrevia = Self.huella(de: imagen)
+            huellaPrevia[monitor] = Self.huella(de: imagen)
         }
 
-        ultimaEscritura = ahora
+        ultimaEscritura[monitor] = ahora
         let frente = NSWorkspace.shared.frontmostApplication
         let app = frente?.localizedName
         let ventana = Self.tituloVentanaAlFrente()
@@ -158,14 +161,14 @@ final class ContinuoPantalla {
             : []
 
         escribir.async { [weak self] in
-            guard let self, let url = self.guardar(imagen, instante: ahora) else { return }
+            guard let self, let url = self.guardar(imagen, instante: ahora, monitor: monitor) else { return }
             ContinuoIndice.shared.registrarPantalla(ruta: url, instante: ahora,
                                                     app: app, ventana: ventana,
                                                     monitor: monitor, visibles: visibles)
         }
     }
 
-    private func guardar(_ imagen: CGImage, instante: Date) -> URL? {
+    private func guardar(_ imagen: CGImage, instante: Date, monitor: Int) -> URL? {
         let carpeta = ContinuoAudio.carpetaDelDia(instante, sub: "pantalla")
         try? FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
 
@@ -173,7 +176,9 @@ final class ContinuoPantalla {
         let extensiones = ["jpeg": "jpg", "heic": "heic", "png": "png"]
         let tipos: [String: UTType] = ["jpeg": .jpeg, "heic": .heic, "png": .png]
         let ext = extensiones[formato] ?? "jpg"
-        let url = carpeta.appendingPathComponent(ContinuoAudio.sello(instante) + "." + ext)
+        // El identificador del monitor va en el nombre: tres pantallas en el
+        // mismo segundo no pueden pisarse el archivo.
+        let url = carpeta.appendingPathComponent(ContinuoAudio.sello(instante) + "-m\(monitor)." + ext)
 
         guard let destino = CGImageDestinationCreateWithURL(url as CFURL,
                                                             (tipos[formato] ?? .jpeg).identifier as CFString,
@@ -228,6 +233,12 @@ final class ContinuoPantalla {
     }
 
     private static func monitoresElegidos(de contenido: SCShareableContent) -> [SCDisplay] {
+        // Con «todas» activo (el valor de fábrica), cada pantalla conectada se
+        // captura: quien enchufa tres monitores espera ver los tres en la
+        // bitácora, no solo el principal.
+        if Config.continuoPantallaTodosMonitores() {
+            return contenido.displays
+        }
         let pedidos = Config.continuoPantallaMonitores()
         if pedidos.isEmpty {
             if let principal = contenido.displays.first(where: { $0.displayID == CGMainDisplayID() }) {

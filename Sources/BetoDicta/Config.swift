@@ -1027,7 +1027,14 @@ struct Config {
         (json()["continuo_pantalla_apps_visibles"] as? Bool) ?? true
     }
 
-    /// Monitores a capturar por identificador. Vacío = el principal.
+    /// Capturar TODAS las pantallas conectadas. Es lo que uno espera al
+    /// enchufar dos o tres monitores; apagado, manda la lista de abajo.
+    static func continuoPantallaTodosMonitores() -> Bool {
+        (json()["continuo_pantalla_todos_monitores"] as? Bool) ?? true
+    }
+
+    /// Con «todas» apagado: monitores concretos por identificador. Vacío = el
+    /// principal.
     static func continuoPantallaMonitores() -> [Int] {
         (json()["continuo_pantalla_monitores"] as? [Int]) ?? []
     }
