@@ -110,24 +110,32 @@ final class ContinuoPantalla {
             let apps = contenido.applications.filter { excluidas.contains($0.bundleIdentifier) }
 
             for pantalla in elegidos {
-                let filtro = SCContentFilter(display: pantalla,
-                                             excludingApplications: apps,
-                                             exceptingWindows: [])
-                let conf = SCStreamConfiguration()
-                let escala = Config.continuoPantallaEscala()
-                // `pointPixelScale` da los píxeles reales del panel: sin él, en
-                // una pantalla Retina se captura a la mitad de resolución y el
-                // texto queda ilegible para un OCR posterior.
-                let anchoReal = Double(pantalla.width) * Double(filtro.pointPixelScale)
-                let altoReal = Double(pantalla.height) * Double(filtro.pointPixelScale)
-                conf.width = max(2, Int(anchoReal * escala) & ~1)
-                conf.height = max(2, Int(altoReal * escala) & ~1)
-                conf.showsCursor = false
-                conf.captureResolution = .best
+                // El fallo de UNA pantalla no puede abortar las demás del
+                // ciclo: con monitores que entran y salen en caliente, la que
+                // se desconectó a mitad de la enumeración lanzaría y las
+                // siguientes perderían su captura sin motivo.
+                do {
+                    let filtro = SCContentFilter(display: pantalla,
+                                                 excludingApplications: apps,
+                                                 exceptingWindows: [])
+                    let conf = SCStreamConfiguration()
+                    let escala = Config.continuoPantallaEscala()
+                    // `pointPixelScale` da los píxeles reales del panel: sin él,
+                    // en una Retina se captura a media resolución y el texto
+                    // queda ilegible para un OCR posterior.
+                    let anchoReal = Double(pantalla.width) * Double(filtro.pointPixelScale)
+                    let altoReal = Double(pantalla.height) * Double(filtro.pointPixelScale)
+                    conf.width = max(2, Int(anchoReal * escala) & ~1)
+                    conf.height = max(2, Int(altoReal * escala) & ~1)
+                    conf.showsCursor = false
+                    conf.captureResolution = .best
 
-                let imagen = try await SCScreenshotManager.captureImage(contentFilter: filtro,
-                                                                       configuration: conf)
-                procesar(imagen, monitor: Int(pantalla.displayID))
+                    let imagen = try await SCScreenshotManager.captureImage(contentFilter: filtro,
+                                                                           configuration: conf)
+                    procesar(imagen, monitor: Int(pantalla.displayID))
+                } catch {
+                    Log.log(.sistema, "bitácora: la pantalla \(pantalla.displayID) no se pudo capturar (\(error.localizedDescription)) — sigo con las demás")
+                }
             }
         } catch {
             Log.log(.sistema, "bitácora: captura de pantalla falló (\(error.localizedDescription))")
