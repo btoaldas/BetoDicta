@@ -266,9 +266,17 @@ final class ContinuoIndice {
 
     /// Todo lo registrado de un día, en orden, ya filtrado de vacíos.
     func materialDelDia(_ dia: Date, incluirPantalla: Bool) -> [PiezaDia] {
-        let cal = Calendar.current
-        let desde = cal.startOfDay(for: dia).timeIntervalSince1970
-        let hasta = desde + 86_400
+        let inicio = Calendar.current.startOfDay(for: dia)
+        return materialEntre(desde: inicio, hasta: inicio.addingTimeInterval(86_400),
+                             incluirPantalla: incluirPantalla)
+    }
+
+    /// Material en un rango arbitrario: es lo que usan las rutinas de «últimas
+    /// N horas», que pueden cruzar la medianoche sin perder el tramo anterior.
+    func materialEntre(desde inicioRango: Date, hasta finRango: Date,
+                       incluirPantalla: Bool) -> [PiezaDia] {
+        let desde = inicioRango.timeIntervalSince1970
+        let hasta = finRango.timeIntervalSince1970
         return cola.sync {
             guard let d = db else { return [] }
             var salida: [PiezaDia] = []

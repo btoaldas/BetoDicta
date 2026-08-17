@@ -70,6 +70,14 @@ final class ContinuoModel: ObservableObject {
     @Published var diccAudio: Bool { didSet { Config.set("continuo_diccionario_audio", to: diccAudio) } }
     @Published var diccOcr: Bool { didSet { Config.set("continuo_diccionario_ocr", to: diccOcr) } }
     @Published var glosarioPrompt: Bool { didSet { Config.set("continuo_glosario_en_prompt", to: glosarioPrompt) } }
+    /// Rutinas: cualquier mutación (toggle, slider, alta, baja) persiste y
+    /// reprograma al instante.
+    @Published var rutinas: [RutinaResumen] = ContinuoRutinas.todas() {
+        didSet {
+            ContinuoRutinas.guardar(rutinas)
+            ContinuoPlanificador.reconfigurar()
+        }
+    }
     @Published var resumenEstado: String = "—"
     @Published var loteEstado: String = "—"
     @Published var loteCorriendo = false
@@ -564,6 +572,69 @@ struct ContinuoView: View {
                                 .help("Vuelve al texto que trae la aplicación. Lo tuyo se descarta.")
                         }
                     }
+
+                    Divider()
+
+                    Text("Rutinas programadas").font(.caption).bold()
+                    Text("Órdenes permanentes, cada una con su horario, su prompt y su material. Conviven: mediodía y noche, cada 3 horas… Ningún documento pisa a otro.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach($m.rutinas) { $r in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Toggle("", isOn: $r.activa).labelsHidden()
+                                Text(r.descripcion).font(.caption).bold()
+                                Spacer()
+                                Button {
+                                    m.rutinas.removeAll { $0.id == r.id }
+                                } label: { Image(systemName: "trash") }.buttonStyle(.plain)
+                            }
+                            if r.activa {
+                                Picker("Prompt", selection: $r.promptId) {
+                                    ForEach(m.prompts) { p in Text(p.nombre).tag(p.id) }
+                                }
+                                Picker("Cuándo", selection: $r.cuando) {
+                                    Text("A una hora fija").tag("hora")
+                                    Text("Cada cierto tiempo").tag("intervalo")
+                                }.pickerStyle(.segmented).frame(width: 300)
+                                if r.cuando == "hora" {
+                                    HStack {
+                                        Slider(value: Binding(get: { Double(r.minutoDelDia) },
+                                                              set: { r.minutoDelDia = Int($0) }),
+                                               in: 0...1439, step: 15).frame(width: 180)
+                                        Text(String(format: "%02d:%02d", r.minutoDelDia / 60, r.minutoDelDia % 60))
+                                            .monospacedDigit().font(.caption)
+                                    }
+                                } else {
+                                    HStack {
+                                        Slider(value: Binding(get: { Double(r.cadaMinutos) },
+                                                              set: { r.cadaMinutos = Int($0) }),
+                                               in: 30...720, step: 30).frame(width: 180)
+                                        Text(r.cadaMinutos % 60 == 0 ? "cada \(r.cadaMinutos / 60) h" : "cada \(r.cadaMinutos) min")
+                                            .monospacedDigit().font(.caption)
+                                    }
+                                }
+                                Picker("Material", selection: $r.rango) {
+                                    Text("Todo el día").tag("dia")
+                                    Text("Últimas horas").tag("horas")
+                                }.pickerStyle(.segmented).frame(width: 300)
+                                if r.rango == "horas" {
+                                    HStack {
+                                        Slider(value: Binding(get: { Double(r.rangoHoras) },
+                                                              set: { r.rangoHoras = Int($0) }),
+                                               in: 1...24, step: 1).frame(width: 180)
+                                        Text("\(r.rangoHoras) h").monospacedDigit().font(.caption)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(.secondary.opacity(0.06)))
+                    }
+                    Button {
+                        m.rutinas.append(RutinaResumen.nueva())
+                    } label: { Label("Añadir rutina", systemImage: "plus") }
 
                     HStack {
                         Button("Ejecutar sobre hoy") { m.resumirAhora() }

@@ -15,13 +15,19 @@ enum ContinuoResumen {
     /// Genera un documento del día con el prompt indicado (o el activo).
     /// `completion` siempre se llama una vez.
     static func generar(dia: Date = Date(), promptId: String? = nil,
+                        desde: Date? = nil,
                         completion: @escaping (Result<URL, Error>) -> Void) {
         guard Config.continuoActivo() else {
             completion(.failure(ErrorResumen.apagado)); return
         }
         ContinuoIndice.shared.abrir()
-        let material = ContinuoIndice.shared.materialDelDia(dia,
-                                                            incluirPantalla: Config.continuoResumenIncluirPantalla())
+        // Con `desde`, el material es un rango (últimas N horas, aunque crucen
+        // la medianoche); sin él, el día natural completo.
+        let material = desde.map {
+            ContinuoIndice.shared.materialEntre(desde: $0, hasta: Date(),
+                                                incluirPantalla: Config.continuoResumenIncluirPantalla())
+        } ?? ContinuoIndice.shared.materialDelDia(dia,
+                                                  incluirPantalla: Config.continuoResumenIncluirPantalla())
         guard !material.isEmpty else {
             completion(.failure(ErrorResumen.sinMaterial)); return
         }
@@ -361,7 +367,17 @@ enum ContinuoResumen {
         try FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
 
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        let url = carpeta.appendingPathComponent("\(prefijo)-\(f.string(from: dia)).md")
+        var url = carpeta.appendingPathComponent("\(prefijo)-\(f.string(from: dia)).md")
+        // Nada se pisa: si ya hay un documento de ese prompt hoy (otra rutina,
+        // una manual anterior), el nuevo lleva la hora en el nombre.
+        if FileManager.default.fileExists(atPath: url.path) {
+            let h = DateFormatter(); h.dateFormat = "HHmm"
+            url = carpeta.appendingPathComponent("\(prefijo)-\(f.string(from: dia))-\(h.string(from: Date())).md")
+            if FileManager.default.fileExists(atPath: url.path) {
+                let hs = DateFormatter(); hs.dateFormat = "HHmmss"
+                url = carpeta.appendingPathComponent("\(prefijo)-\(f.string(from: dia))-\(hs.string(from: Date())).md")
+            }
+        }
 
         let sello = DateFormatter(); sello.dateFormat = "yyyy-MM-dd HH:mm"
         let encabezado = """

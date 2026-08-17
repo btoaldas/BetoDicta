@@ -34,7 +34,8 @@ enum ContinuoPlanificador {
         // haya que mantener sincronizados.
         DispatchQueue.main.async {
             reloj?.invalidate()
-            guard disparadores.contains("intervalo") || disparadores.contains("hora") else { return }
+            let hayRutinas = !ContinuoRutinas.activas().isEmpty
+            guard disparadores.contains("intervalo") || disparadores.contains("hora") || hayRutinas else { return }
             let t = Timer(timeInterval: 60, repeats: true) { _ in tic() }
             RunLoop.main.add(t, forMode: .common)
             reloj = t
@@ -72,7 +73,12 @@ enum ContinuoPlanificador {
     // MARK: Disparadores por tiempo
 
     private static func tic() {
-        guard Config.continuoActivo(), !ContinuoLote.ocupado else { return }
+        guard Config.continuoActivo() else { return }
+        // Rutinas de documentos: independientes de la tanda global y entre sí.
+        for rutina in ContinuoRutinas.vencidas() {
+            ContinuoRutinas.ejecutar(rutina)
+        }
+        guard !ContinuoLote.ocupado else { return }
         let disparadores = Config.continuoLoteDisparadores()
 
         if disparadores.contains("hora") {
