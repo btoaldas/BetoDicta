@@ -2293,6 +2293,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 NovedadesWindowController.shared.show()
             }
         }
+
+        // Bitácora continua. Apagada de fábrica: si el ajuste no está puesto,
+        // esto no hace nada. Va al final y con retraso para no competir con el
+        // arranque del dictado, que es lo que el usuario nota.
+        // 6 s, no 2: la app monta su propio audio en los primeros segundos y
+        // CoreAudio devuelve -10875 si le pedimos la entrada en ese momento.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+            ContinuoBitacora.arrancar()
+            ContinuoBitacora.purgaAutomaticaSiCorresponde()
+        }
     }
 
     private func startDemo() {
@@ -3359,6 +3369,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func reconciliarActivacionVoz() {
+        // Mismo punto para la bitácora continua: en cuanto el micrófono deja de
+        // estar ocupado (fin del dictado, de una captura o del TTS), vuelve sola.
+        if !activacionVozOcupada { ContinuoBitacora.recuperarMicrofono() }
         let habilitado = Config.agenteNucleoActivo() && Config.agenteActivacionReposo()
         var activadores = Config.agenteActivadores()
         if Config.agenteCompatibilidadSiriLocal() {
@@ -3511,10 +3524,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Incluso si el listener todavía figura "preparando", cancelar primero
         // su Task/tap evita la carrera de dos AVAudioEngine por fn o por wake.
         iniciandoDictado = true
-        ActivacionVoz.shared.suspender { [weak self] in
-            guard let self else { return }
-            self.iniciandoDictado = false
-            self.startDictationAhora()
+        // La bitácora continua suelta el micrófono ANTES que el listener: es un
+        // tercer dueño posible del dispositivo y el dictado tiene prioridad
+        // absoluta sobre los dos. Vuelve sola al cerrar el dictado.
+        ContinuoBitacora.cederMicrofono {
+            ActivacionVoz.shared.suspender { [weak self] in
+                guard let self else { return }
+                self.iniciandoDictado = false
+                self.startDictationAhora()
+            }
         }
     }
 

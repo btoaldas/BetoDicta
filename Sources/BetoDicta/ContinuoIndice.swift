@@ -1,0 +1,347 @@
+import Foundation
+import SQLite3
+
+// MARK: - Índice de la bitácora continua
+//
+// Una base SQLite pequeña que sabe QUÉ se grabó, CUÁNDO y si ya se procesó.
+// Los archivos pesados (audio y capturas) viven en disco; aquí solo van rutas,
+// marcas de tiempo y el texto extraído.
+//
+// Sin dependencias: `import SQLite3` usa la biblioteca que ya trae macOS
+// (3.51.0, con FTS5). Package.swift no se toca.
+//
+// Todo el acceso pasa por una cola serie: SQLite en modo WAL aguanta varios
+// lectores, pero serializar aquí evita razonar sobre concurrencia en cada sitio.
+
+/// Qué clase de material guarda una fila.
+enum MaterialContinuo: String {
+    case audio
+    case pantalla
+}
+
+/// Una fila pendiente de procesar (transcribir u OCR).
+struct PendienteContinuo {
+    let id: Int64
+    let material: MaterialContinuo
+    let ruta: URL
+    let instante: Date
+}
+
+/// Resumen de lo que ocuparía una purga, para poder avisar ANTES de borrar.
+struct BalancePurga {
+    let filas: Int
+    let sinProcesar: Int
+    let bytes: Int64
+
+    var hayMaterialSinProcesar: Bool { sinProcesar > 0 }
+}
+
+final class ContinuoIndice {
+
+    static let shared = ContinuoIndice()
+
+    private var db: OpaquePointer?
+    private let cola = DispatchQueue(label: "betodicta.continuo.indice")
+
+    private init() {}
+
+    // MARK: Apertura
+
+    /// Abre (y crea si hace falta) la base dentro de la carpeta de la bitácora.
+    /// Idempotente: llamarla dos veces no hace daño.
+    func abrir() {
+        cola.sync {
+            guard db == nil else { return }
+            let carpeta = Config.continuoCarpeta()
+            try? FileManager.default.createDirectory(at: carpeta, withIntermediateDirectories: true)
+            let ruta = carpeta.appendingPathComponent("bitacora.sqlite")
+
+            // Permisos ANTES del primer PRAGMA: los archivos -wal y -shm heredan
+            // el modo del principal, así que fijarlo después llega tarde.
+            if !FileManager.default.fileExists(atPath: ruta.path) {
+                FileManager.default.createFile(atPath: ruta.path, contents: nil,
+                                               attributes: [.posixPermissions: 0o600])
+            }
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ruta.path)
+
+            var puntero: OpaquePointer?
+            guard sqlite3_open_v2(ruta.path, &puntero,
+                                  SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+                                  nil) == SQLITE_OK else {
+                Log.log(.sistema, "bitácora: no pude abrir el índice en \(ruta.path)")
+                return
+            }
+            db = puntero
+            ejecutar("PRAGMA journal_mode=WAL;")
+            ejecutar("PRAGMA synchronous=NORMAL;")
+            ejecutar("PRAGMA busy_timeout=5000;")
+            crearEsquema()
+            Log.log(.sistema, "bitácora: índice abierto en \(ruta.path)")
+        }
+    }
+
+    func cerrar() {
+        cola.sync {
+            guard let d = db else { return }
+            sqlite3_close_v2(d)
+            db = nil
+        }
+    }
+
+    // MARK: Esquema
+
+    private func crearEsquema() {
+        // Dos tablas de contenido y DOS tablas de texto completo separadas.
+        // Una sola FTS compartida obligaría a inventar un rowid único entre
+        // ambas y colisionaría: más barato tener una por material.
+        ejecutar("""
+        CREATE TABLE IF NOT EXISTS audio (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            instante   REAL NOT NULL,
+            ruta       TEXT NOT NULL UNIQUE,
+            duracion   REAL NOT NULL DEFAULT 0,
+            bytes      INTEGER NOT NULL DEFAULT 0,
+            origen     TEXT NOT NULL DEFAULT 'continuo',
+            procesado  INTEGER NOT NULL DEFAULT 0,
+            texto      TEXT
+        );
+        """)
+        ejecutar("CREATE INDEX IF NOT EXISTS audio_instante ON audio(instante);")
+        ejecutar("CREATE INDEX IF NOT EXISTS audio_pendiente ON audio(procesado, instante);")
+
+        ejecutar("""
+        CREATE TABLE IF NOT EXISTS pantalla (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            instante   REAL NOT NULL,
+            ruta       TEXT NOT NULL UNIQUE,
+            bytes      INTEGER NOT NULL DEFAULT 0,
+            app        TEXT,
+            ventana    TEXT,
+            monitor    INTEGER NOT NULL DEFAULT 0,
+            procesado  INTEGER NOT NULL DEFAULT 0,
+            texto      TEXT
+        );
+        """)
+        ejecutar("CREATE INDEX IF NOT EXISTS pantalla_instante ON pantalla(instante);")
+        ejecutar("CREATE INDEX IF NOT EXISTS pantalla_pendiente ON pantalla(procesado, instante);")
+
+        ejecutar("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS audio_texto
+        USING fts5(texto, fila UNINDEXED, tokenize='unicode61 remove_diacritics 2');
+        """)
+        ejecutar("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS pantalla_texto
+        USING fts5(texto, fila UNINDEXED, tokenize='unicode61 remove_diacritics 2');
+        """)
+    }
+
+    // MARK: Altas
+
+    /// Registra un fragmento de audio recién cerrado. `origen` distingue lo que
+    /// grabó la bitácora de lo que adoptó del dictado.
+    @discardableResult
+    func registrarAudio(ruta: URL, instante: Date, duracion: TimeInterval, origen: String = "continuo") -> Int64? {
+        let bytes = tamano(de: ruta)
+        return cola.sync {
+            guard let d = db else { return nil }
+            var st: OpaquePointer?
+            let sql = """
+            INSERT OR IGNORE INTO audio (instante, ruta, duracion, bytes, origen)
+            VALUES (?, ?, ?, ?, ?);
+            """
+            guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { return nil }
+            defer { sqlite3_finalize(st) }
+            sqlite3_bind_double(st, 1, instante.timeIntervalSince1970)
+            bindTexto(st, 2, ruta.path)
+            sqlite3_bind_double(st, 3, duracion)
+            sqlite3_bind_int64(st, 4, bytes)
+            bindTexto(st, 5, origen)
+            guard sqlite3_step(st) == SQLITE_DONE else { return nil }
+            return sqlite3_last_insert_rowid(d)
+        }
+    }
+
+    /// Registra una captura de pantalla ya escrita en disco.
+    @discardableResult
+    func registrarPantalla(ruta: URL, instante: Date, app: String?, ventana: String?, monitor: Int) -> Int64? {
+        let bytes = tamano(de: ruta)
+        return cola.sync {
+            guard let d = db else { return nil }
+            var st: OpaquePointer?
+            let sql = """
+            INSERT OR IGNORE INTO pantalla (instante, ruta, bytes, app, ventana, monitor)
+            VALUES (?, ?, ?, ?, ?, ?);
+            """
+            guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { return nil }
+            defer { sqlite3_finalize(st) }
+            sqlite3_bind_double(st, 1, instante.timeIntervalSince1970)
+            bindTexto(st, 2, ruta.path)
+            sqlite3_bind_int64(st, 3, bytes)
+            bindTexto(st, 4, app ?? "")
+            bindTexto(st, 5, ventana ?? "")
+            sqlite3_bind_int(st, 6, Int32(monitor))
+            guard sqlite3_step(st) == SQLITE_DONE else { return nil }
+            return sqlite3_last_insert_rowid(d)
+        }
+    }
+
+    // MARK: Marcado de procesado
+
+    /// Guarda el texto extraído y marca la fila como procesada.
+    func anotarTexto(_ texto: String, material: MaterialContinuo, id: Int64) {
+        cola.sync {
+            guard let d = db else { return }
+            let tabla = material.rawValue
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(d, "UPDATE \(tabla) SET texto = ?, procesado = 1 WHERE id = ?;", -1, &st, nil) == SQLITE_OK else { return }
+            bindTexto(st, 1, texto)
+            sqlite3_bind_int64(st, 2, id)
+            sqlite3_step(st)
+            sqlite3_finalize(st)
+
+            guard !texto.isEmpty else { return }
+            var ft: OpaquePointer?
+            guard sqlite3_prepare_v2(d, "INSERT INTO \(tabla)_texto (texto, fila) VALUES (?, ?);", -1, &ft, nil) == SQLITE_OK else { return }
+            bindTexto(ft, 1, texto)
+            sqlite3_bind_int64(ft, 2, id)
+            sqlite3_step(ft)
+            sqlite3_finalize(ft)
+        }
+    }
+
+    /// Lo que falta por transcribir o reconocer, de lo más viejo a lo más nuevo.
+    func pendientes(material: MaterialContinuo, limite: Int = 500) -> [PendienteContinuo] {
+        cola.sync {
+            guard let d = db else { return [] }
+            var st: OpaquePointer?
+            let sql = "SELECT id, ruta, instante FROM \(material.rawValue) WHERE procesado = 0 ORDER BY instante ASC LIMIT ?;"
+            guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(st) }
+            sqlite3_bind_int(st, 1, Int32(limite))
+            var salida: [PendienteContinuo] = []
+            while sqlite3_step(st) == SQLITE_ROW {
+                guard let c = sqlite3_column_text(st, 1) else { continue }
+                salida.append(PendienteContinuo(
+                    id: sqlite3_column_int64(st, 0),
+                    material: material,
+                    ruta: URL(fileURLWithPath: String(cString: c)),
+                    instante: Date(timeIntervalSince1970: sqlite3_column_double(st, 2))
+                ))
+            }
+            return salida
+        }
+    }
+
+    // MARK: Retención
+
+    /// Qué se llevaría por delante una purga anterior a `limite`, y cuánto de
+    /// eso todavía no se ha procesado. Se consulta ANTES de borrar nada.
+    func balanceAnteriorA(_ limite: Date) -> BalancePurga {
+        cola.sync {
+            guard let d = db else { return BalancePurga(filas: 0, sinProcesar: 0, bytes: 0) }
+            var filas = 0, sinProcesar = 0
+            var bytes: Int64 = 0
+            for tabla in ["audio", "pantalla"] {
+                var st: OpaquePointer?
+                let sql = """
+                SELECT COUNT(*), COALESCE(SUM(bytes), 0), COALESCE(SUM(CASE WHEN procesado = 0 THEN 1 ELSE 0 END), 0)
+                FROM \(tabla) WHERE instante < ?;
+                """
+                guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { continue }
+                sqlite3_bind_double(st, 1, limite.timeIntervalSince1970)
+                if sqlite3_step(st) == SQLITE_ROW {
+                    filas += Int(sqlite3_column_int(st, 0))
+                    bytes += sqlite3_column_int64(st, 1)
+                    sinProcesar += Int(sqlite3_column_int(st, 2))
+                }
+                sqlite3_finalize(st)
+            }
+            return BalancePurga(filas: filas, sinProcesar: sinProcesar, bytes: bytes)
+        }
+    }
+
+    /// Borra archivos y filas anteriores a `limite`. Devuelve cuántas filas se
+    /// fueron. No pregunta nada: quien llama ya decidió.
+    @discardableResult
+    func purgarAnteriorA(_ limite: Date) -> Int {
+        cola.sync {
+            guard let d = db else { return 0 }
+            var borradas = 0
+            for tabla in ["audio", "pantalla"] {
+                var rutas: [String] = []
+                var ids: [Int64] = []
+                var st: OpaquePointer?
+                guard sqlite3_prepare_v2(d, "SELECT id, ruta FROM \(tabla) WHERE instante < ?;", -1, &st, nil) == SQLITE_OK else { continue }
+                sqlite3_bind_double(st, 1, limite.timeIntervalSince1970)
+                while sqlite3_step(st) == SQLITE_ROW {
+                    ids.append(sqlite3_column_int64(st, 0))
+                    if let c = sqlite3_column_text(st, 1) { rutas.append(String(cString: c)) }
+                }
+                sqlite3_finalize(st)
+
+                for r in rutas { try? FileManager.default.removeItem(atPath: r) }
+                for id in ids {
+                    var bt: OpaquePointer?
+                    if sqlite3_prepare_v2(d, "DELETE FROM \(tabla)_texto WHERE fila = ?;", -1, &bt, nil) == SQLITE_OK {
+                        sqlite3_bind_int64(bt, 1, id)
+                        sqlite3_step(bt)
+                        sqlite3_finalize(bt)
+                    }
+                }
+                var dt: OpaquePointer?
+                if sqlite3_prepare_v2(d, "DELETE FROM \(tabla) WHERE instante < ?;", -1, &dt, nil) == SQLITE_OK {
+                    sqlite3_bind_double(dt, 1, limite.timeIntervalSince1970)
+                    if sqlite3_step(dt) == SQLITE_DONE { borradas += Int(sqlite3_changes(d)) }
+                    sqlite3_finalize(dt)
+                }
+            }
+            return borradas
+        }
+    }
+
+    // MARK: Estado para la interfaz
+
+    /// Cuántas filas hay y cuánto ocupan, por material. Para la pestaña.
+    func resumen() -> (audio: Int, pantalla: Int, bytes: Int64, pendientes: Int) {
+        cola.sync {
+            guard let d = db else { return (0, 0, 0, 0) }
+            func cuenta(_ tabla: String) -> (Int, Int64, Int) {
+                var st: OpaquePointer?
+                let sql = """
+                SELECT COUNT(*), COALESCE(SUM(bytes), 0), COALESCE(SUM(CASE WHEN procesado = 0 THEN 1 ELSE 0 END), 0)
+                FROM \(tabla);
+                """
+                guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { return (0, 0, 0) }
+                defer { sqlite3_finalize(st) }
+                guard sqlite3_step(st) == SQLITE_ROW else { return (0, 0, 0) }
+                return (Int(sqlite3_column_int(st, 0)), sqlite3_column_int64(st, 1), Int(sqlite3_column_int(st, 2)))
+            }
+            let a = cuenta("audio")
+            let p = cuenta("pantalla")
+            return (a.0, p.0, a.1 + p.1, a.2 + p.2)
+        }
+    }
+
+    // MARK: Utilidades
+
+    private func ejecutar(_ sql: String) {
+        guard let d = db else { return }
+        var err: UnsafeMutablePointer<CChar>?
+        if sqlite3_exec(d, sql, nil, nil, &err) != SQLITE_OK, let e = err {
+            Log.log(.sistema, "bitácora: SQL falló — \(String(cString: e))")
+            sqlite3_free(err)
+        }
+    }
+
+    /// SQLITE_TRANSIENT: SQLite copia la cadena en vez de quedarse el puntero,
+    /// que en Swift muere al salir de la llamada.
+    private func bindTexto(_ st: OpaquePointer?, _ pos: Int32, _ valor: String) {
+        let transitorio = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(st, pos, valor, -1, transitorio)
+    }
+
+    private func tamano(de url: URL) -> Int64 {
+        let a = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return (a?[.size] as? Int64) ?? 0
+    }
+}

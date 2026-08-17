@@ -383,6 +383,7 @@ private enum Seccion: String, CaseIterable, Identifiable {
     case asistente = "Asistente"
     case pendientes = "Tareas y notas"
     case historial = "Historial"
+    case bitacora = "Bitácora"
     case acciones = "Acciones"
     case transcribir = "Transcribir"
     case estadisticas = "Estadísticas"
@@ -397,6 +398,7 @@ private enum Seccion: String, CaseIterable, Identifiable {
         case .asistente: return "brain.head.profile"
         case .pendientes: return "checklist"
         case .historial: return "clock.arrow.circlepath"
+        case .bitacora: return "record.circle"
         case .acciones: return "bolt.fill"
         case .transcribir: return "waveform.badge.mic"
         case .estadisticas: return "chart.bar.fill"
@@ -450,6 +452,7 @@ struct SettingsView: View {
         case .asistente: AgenteView()
         case .pendientes: NotasView()
         case .historial: HistorialView()
+        case .bitacora: ContinuoView()
         case .acciones: acciones
         case .transcribir: TranscribeView()
         case .estadisticas: StatsView()

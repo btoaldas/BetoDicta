@@ -895,4 +895,136 @@ struct Config {
               let rules = try? JSONDecoder().decode([Replacement].self, from: data) else { return [] }
         return rules.filter { $0.activo ?? true }
     }
+
+    // MARK: - Bitácora continua (audio + pantalla en segundo plano)
+    //
+    // Prefijo `continuo_` a propósito: `grabacionContinua` ya está tomado y
+    // significa grabación de PANTALLA en curso (CapturaMac). Son cosas distintas
+    // y confundirlas costaría caro.
+    //
+    // El dictado por doble Fn manda SIEMPRE. Que la bitácora ceda el micrófono
+    // no es un ajuste: es invariante del código. Un interruptor ahí acabaría
+    // rompiendo el dictado un día por descuido.
+
+    /// Interruptor maestro. Apagado de fábrica: nada se graba sin decisión explícita.
+    static func continuoActivo() -> Bool { (json()["continuo_activo"] as? Bool) ?? false }
+
+    /// Carpeta raíz de la bitácora. Vacío = `~/BetoDicta Bitácora` (acceso rápido
+    /// desde el Finder, igual que las grabaciones de pantalla).
+    static func continuoCarpeta() -> URL {
+        let s = (json()["continuo_carpeta"] as? String) ?? ""
+        if !s.isEmpty { return URL(fileURLWithPath: (s as NSString).expandingTildeInPath) }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("BetoDicta Bitácora")
+    }
+
+    // ---- Audio ----
+
+    /// `siempre` graba todo; `voz` solo persiste cuando el detector oye habla;
+    /// `manual` deja el audio en manos del dictado de siempre.
+    static func continuoAudioModo() -> String {
+        let s = (json()["continuo_audio_modo"] as? String) ?? "voz"
+        return ["siempre", "voz", "manual"].contains(s) ? s : "voz"
+    }
+
+    /// Cancelación de eco de Apple (VoiceProcessingIO). Sin esto el micrófono
+    /// integrado entrega una señal tan baja que el detector de voz la descarta
+    /// como silencio: medido, RMS 0,0018 frente a 0,0066 con ella activa.
+    static func continuoAudioCancelacionEco() -> Bool {
+        (json()["continuo_audio_cancelacion_eco"] as? Bool) ?? true
+    }
+
+    /// Trozos cerrados periódicamente para que un corte de luz no arruine la
+    /// jornada entera. 30…900 s.
+    static func continuoAudioSegmentoSegundos() -> Int {
+        min(900, max(30, (json()["continuo_audio_segmento_segundos"] as? Int) ?? 120))
+    }
+
+    /// Absorbe el audio que el dictado ya guardó mientras la bitácora estaba
+    /// cedida. Así ceder el micrófono no deja hueco en la línea de tiempo.
+    static func continuoAudioAdoptarDictado() -> Bool {
+        (json()["continuo_audio_adoptar_dictado"] as? Bool) ?? true
+    }
+
+    // ---- Pantalla ----
+
+    static func continuoPantallaActiva() -> Bool {
+        (json()["continuo_pantalla_activa"] as? Bool) ?? true
+    }
+
+    /// Intervalo libre entre capturas. 5…3600 s.
+    static func continuoPantallaIntervaloSegundos() -> Int {
+        min(3_600, max(5, (json()["continuo_pantalla_intervalo_segundos"] as? Int) ?? 30))
+    }
+
+    static func continuoPantallaFormato() -> String {
+        let s = (json()["continuo_pantalla_formato"] as? String) ?? "jpeg"
+        return ["jpeg", "heic", "png"].contains(s) ? s : "jpeg"
+    }
+
+    /// Calidad de compresión con pérdida. 0,1…1,0 (ignorada en png).
+    static func continuoPantallaCalidad() -> Double {
+        min(1.0, max(0.1, (json()["continuo_pantalla_calidad"] as? Double) ?? 0.6))
+    }
+
+    /// Escala respecto al tamaño nativo. 0,25…1,0.
+    static func continuoPantallaEscala() -> Double {
+        min(1.0, max(0.25, (json()["continuo_pantalla_escala"] as? Double) ?? 0.5))
+    }
+
+    /// No guardar si la pantalla no cambió lo suficiente.
+    static func continuoPantallaDeduplicar() -> Bool {
+        (json()["continuo_pantalla_deduplicar"] as? Bool) ?? true
+    }
+
+    /// Cuánto debe cambiar la imagen para considerarla nueva. 0,0…0,2.
+    static func continuoPantallaUmbralCambio() -> Double {
+        min(0.2, max(0.0, (json()["continuo_pantalla_umbral_cambio"] as? Double) ?? 0.01))
+    }
+
+    /// Aunque no haya cambios, guardar un fotograma cada N minutos para que la
+    /// línea de tiempo no quede en blanco. 0 = desactivado. 0…120 min.
+    static func continuoPantallaForzarMinutos() -> Int {
+        min(120, max(0, (json()["continuo_pantalla_forzar_minutos"] as? Int) ?? 5))
+    }
+
+    static func continuoPantallaPausarBloqueada() -> Bool {
+        (json()["continuo_pantalla_pausar_bloqueada"] as? Bool) ?? true
+    }
+
+    /// Identificadores de paquete excluidos de la captura (banca, gestores de
+    /// contraseñas y lo que el usuario decida).
+    static func continuoPantallaAppsExcluidas() -> [String] {
+        (json()["continuo_pantalla_apps_excluidas"] as? [String]) ?? []
+    }
+
+    /// Monitores a capturar por identificador. Vacío = el principal.
+    static func continuoPantallaMonitores() -> [Int] {
+        (json()["continuo_pantalla_monitores"] as? [Int]) ?? []
+    }
+
+    // ---- Energía ----
+
+    /// No trabajar con batería: ni capturas ni tandas de transcripción.
+    static func continuoSoloConCorriente() -> Bool {
+        (json()["continuo_solo_con_corriente"] as? Bool) ?? false
+    }
+
+    // ---- Retención ----
+
+    /// Días que se conserva la bitácora. 0 = para siempre.
+    static func continuoRetencionDias() -> Int {
+        min(3_650, max(0, (json()["continuo_retencion_dias"] as? Int) ?? 90))
+    }
+
+    /// Purgar sin preguntar al cumplirse el plazo.
+    static func continuoRetencionAutomatica() -> Bool {
+        (json()["continuo_retencion_automatica"] as? Bool) ?? false
+    }
+
+    /// Avisar antes de borrar material que todavía no tiene transcripción ni
+    /// texto reconocido: eso es información que nunca se llegó a extraer.
+    static func continuoRetencionAvisarSinProcesar() -> Bool {
+        (json()["continuo_retencion_avisar_sin_procesar"] as? Bool) ?? true
+    }
 }

@@ -58,6 +58,11 @@ final class HistoryWriter {
         do {
             try wav.write(to: wavURL)
             try? FileManager.default.removeItem(at: pcmURL)
+            // La bitácora continua cede el micrófono mientras dictas. Adoptar
+            // aquí el .wav recién cerrado es lo que evita que esa cesión deje un
+            // hueco en la línea de tiempo. Un único punto para los ocho sitios
+            // que cierran un dictado.
+            ContinuoAudio.adoptar(wav: wavURL, instante: Date())
         } catch {
             Log.log(.sistema, "historial: no pude escribir el .wav (\(error.localizedDescription)) — conservo el .pcm crudo")
         }
