@@ -95,6 +95,64 @@ final class ContinuoModel: ObservableObject {
     @Published var explorarDocs: [URL] = []
     @Published var explorarTrans: [URL] = []
 
+    /// Exporta un documento a donde el usuario elija.
+    func exportar(_ url: URL) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = url.lastPathComponent
+        panel.canCreateDirectories = true
+        panel.begin { [weak self] r in
+            guard r == .OK, let destino = panel.url else { return }
+            do {
+                if FileManager.default.fileExists(atPath: destino.path) {
+                    try FileManager.default.removeItem(at: destino)
+                }
+                try FileManager.default.copyItem(at: url, to: destino)
+                self?.resumenEstado = "Exportado a \(destino.lastPathComponent)"
+            } catch {
+                self?.resumenEstado = "No pude exportar: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Elimina un documento, con confirmación. Es recuperable por diseño: los
+    /// diarios se regeneran en la próxima tanda y un documento de IA se puede
+    /// volver a pedir sobre la misma fecha.
+    func eliminar(_ url: URL) {
+        let alerta = NSAlert()
+        alerta.messageText = "¿Eliminar \(url.lastPathComponent)?"
+        alerta.informativeText = "Un diario se regenera en la próxima tanda; un documento de IA se puede volver a generar sobre la misma fecha."
+        alerta.addButton(withTitle: "Eliminar")
+        alerta.addButton(withTitle: "Cancelar")
+        guard alerta.runModal() == .alertFirstButtonReturn else { return }
+        try? FileManager.default.removeItem(at: url)
+        cargarExplorador()
+    }
+
+    /// Regenera el día de un documento con el prompt HOY elegido en el
+    /// selector. No pisa el original: el nuevo sale con la hora en el nombre.
+    func regenerar(_ url: URL) {
+        // La fecha viaja en el nombre: <prompt>-AAAA-MM-DD[-HHmm].md
+        let nombre = url.deletingPathExtension().lastPathComponent
+        guard let rango = nombre.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression) else {
+            resumenEstado = "No reconozco la fecha en «\(nombre)»."
+            return
+        }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        guard let dia = f.date(from: String(nombre[rango])) else {
+            resumenEstado = "Fecha inválida en «\(nombre)»."
+            return
+        }
+        let prompt = ContinuoPrompts.activo()
+        resumenEstado = "Regenerando el \(String(nombre[rango])) con «\(prompt.nombre)»…"
+        ContinuoResumen.generar(dia: dia, promptId: prompt.id) { [weak self] r in
+            switch r {
+            case .success(let nuevo): self?.resumenEstado = "Escrito: \(nuevo.lastPathComponent)"
+            case .failure(let e): self?.resumenEstado = "No pude: \(e.localizedDescription)"
+            }
+            self?.cargarExplorador()
+        }
+    }
+
     func cargarExplorador() {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             ContinuoIndice.shared.abrir()
@@ -385,7 +443,7 @@ struct ContinuoView: View {
                                 }
                             } else {
                                 ForEach(m.explorarDocs, id: \.self) { url in
-                                    filaExplorador(titulo: url.lastPathComponent, detalle: "", url: url)
+                                    filaDocumento(url)
                                 }
                             }
                         }
@@ -826,6 +884,27 @@ struct ContinuoView: View {
                 .buttonStyle(.plain).help("Abrir con la app predeterminada")
             Button { ContinuoBitacora.revelar(url) } label: { Image(systemName: "magnifyingglass") }
                 .buttonStyle(.plain).help("Mostrar en el Finder")
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Fila de un documento generado: abrir (= editar en tu editor), revelar,
+    /// exportar, regenerar con el prompt hoy elegido, y eliminar.
+    private func filaDocumento(_ url: URL) -> some View {
+        HStack(spacing: 6) {
+            Text(url.lastPathComponent).font(.caption).bold()
+                .lineLimit(1).truncationMode(.middle)
+            Spacer()
+            Button { ContinuoBitacora.abrir(url) } label: { Image(systemName: "pencil") }
+                .buttonStyle(.plain).help("Abrir para leer o modificar")
+            Button { ContinuoBitacora.revelar(url) } label: { Image(systemName: "magnifyingglass") }
+                .buttonStyle(.plain).help("Mostrar en el Finder")
+            Button { m.exportar(url) } label: { Image(systemName: "square.and.arrow.up") }
+                .buttonStyle(.plain).help("Exportar una copia a donde elijas")
+            Button { m.regenerar(url) } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.plain).help("Regenerar ese día con el prompt elegido arriba (no pisa este archivo)")
+            Button { m.eliminar(url) } label: { Image(systemName: "trash") }
+                .buttonStyle(.plain).help("Eliminar (con confirmación)")
         }
         .padding(.vertical, 2)
     }
