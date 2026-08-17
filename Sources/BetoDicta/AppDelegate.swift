@@ -388,6 +388,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // La bitácora cierra y registra el fragmento abierto en vez de dejarlo
+        // huérfano. El rescate del arranque es la red por si el proceso muere
+        // sin llegar hasta aquí.
+        ContinuoBitacora.detener()
         AutoAyudaControles.shared.detener()
         iconoTimer?.invalidate(); iconoVigilante?.invalidate()
         activacionVozTimer?.invalidate()

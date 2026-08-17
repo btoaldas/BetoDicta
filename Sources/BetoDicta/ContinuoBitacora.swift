@@ -18,8 +18,12 @@ enum ContinuoBitacora {
     static func arrancar() {
         guard Config.continuoActivo() else { return }
         ContinuoIndice.shared.abrir()
+        // Lo que quedó a medias en un cierre brusco entra ahora: el archivo
+        // sobrevivía pero nadie volvía a mirarlo.
+        DispatchQueue.global(qos: .utility).async { ContinuoIndice.shared.rescatarHuerfanos() }
         ContinuoAudio.shared.arrancar()
         if #available(macOS 14.0, *) { ContinuoPantalla.shared.arrancar() }
+        if #available(macOS 13.0, *) { ContinuoAudioSistema.shared.arrancar() }
         ContinuoPlanificador.arrancar()
         Log.log(.sistema, "bitácora: encendida")
     }
@@ -27,6 +31,7 @@ enum ContinuoBitacora {
     static func detener() {
         ContinuoAudio.shared.detener()
         if #available(macOS 14.0, *) { ContinuoPantalla.shared.detener() }
+        if #available(macOS 13.0, *) { ContinuoAudioSistema.shared.detener() }
         ContinuoPlanificador.detener()
         Log.log(.sistema, "bitácora: apagada")
     }

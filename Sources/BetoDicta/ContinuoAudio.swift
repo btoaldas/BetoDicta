@@ -36,7 +36,12 @@ final class ContinuoAudio {
     private var bytesTrozo = 0
 
     /// Cedido al dictado. Distinto de "apagado": aquí volvemos solos.
+    /// Protegido por candado propio porque se levanta desde el hilo del dictado
+    /// y se lee desde la cola de audio.
     private var cedido = false
+    private let candadoCesion = NSLock()
+    /// Sube en cada cesión: un reintento de una generación vieja se descarta.
+    private var generacion: UInt64 = 0
     /// Evita que dos arranques concurrentes se pisen el trozo abierto.
     private var montando = false
     /// Intentos de arranque encadenados (micrófono ocupado).
@@ -67,10 +72,20 @@ final class ContinuoAudio {
     /// El dictado pide el micrófono. Suelta TODO y avisa cuando esté libre —
     /// misma semántica que `ActivacionVoz.suspender`, para que `AppDelegate`
     /// encadene las dos igual.
+    ///
+    /// La bandera se levanta AQUÍ MISMO, de forma síncrona, antes de encolar
+    /// nada. Marcarla dentro de la cola era una carrera real: si la cola venía
+    /// ocupada con reintentos de arranque, uno de ellos tomaba el micrófono
+    /// DESPUÉS de que al dictado ya se le hubiera dicho que podía seguir, y el
+    /// dictado grababa silencio.
     func suspender(completion: @escaping () -> Void) {
+        candadoCesion.lock()
+        cedido = true
+        generacion &+= 1          // invalida cualquier reintento en vuelo
+        candadoCesion.unlock()
+
         cola.async { [weak self] in
             guard let self else { DispatchQueue.main.async { completion() }; return }
-            self.cedido = true
             self.detenerEnCola(cerrandoTrozo: true)
             DispatchQueue.main.async { completion() }
         }
@@ -78,12 +93,20 @@ final class ContinuoAudio {
 
     /// El dictado terminó: recuperamos el micrófono si seguimos encendidos.
     func reanudar() {
+        candadoCesion.lock()
+        cedido = false
+        candadoCesion.unlock()
         cola.async { [weak self] in
             guard let self else { return }
-            self.cedido = false
             guard Config.continuoActivo(), Config.continuoAudioModo() != "manual" else { return }
             self.arrancarEnCola()
         }
+    }
+
+    /// Lectura segura desde cualquier hilo.
+    private var estaCedido: Bool {
+        candadoCesion.lock(); defer { candadoCesion.unlock() }
+        return cedido
     }
 
     // MARK: Arranque real
@@ -94,7 +117,7 @@ final class ContinuoAudio {
         // el montaje espera en `main.sync` la bandera `activo` todavía es falsa.
         // Sin esto, el segundo arranque abría otro trozo y dejaba al tap del
         // primero escribiendo en un descriptor ya cerrado: 0 bytes en disco.
-        guard !activo, !cedido, !montando else { return }
+        guard !activo, !estaCedido, !montando else { return }
         montando = true
         defer { montando = false }
         if Config.continuoSoloConCorriente(), !EnergiaMac.conCorriente() {
@@ -131,8 +154,16 @@ final class ContinuoAudio {
             return
         }
         let espera = Double(intentos) * 2.5
+        candadoCesion.lock(); let gen = generacion; candadoCesion.unlock()
         Log.log(.sistema, "bitácora: micrófono ocupado, reintento \(intentos) en \(espera) s")
-        cola.asyncAfter(deadline: .now() + espera) { [weak self] in self?.arrancarEnCola() }
+        cola.asyncAfter(deadline: .now() + espera) { [weak self] in
+            guard let self else { return }
+            // Si entre medias el dictado pidió el micrófono, este reintento es
+            // de una generación anterior y no debe tomarlo.
+            self.candadoCesion.lock(); let vigente = self.generacion; self.candadoCesion.unlock()
+            guard vigente == gen else { return }
+            self.arrancarEnCola()
+        }
     }
 
     /// Monta el motor de captura. SOLO desde el hilo principal.
@@ -246,7 +277,7 @@ final class ContinuoAudio {
     // MARK: Escritura
 
     private func recibir(_ trozo: Data, rms: Double) {
-        guard activo else { return }
+        guard activo, !estaCedido else { return }
 
         if Config.continuoAudioModo() == "voz" {
             // Puerta por energía (no es un detector neuronal: es un umbral sobre

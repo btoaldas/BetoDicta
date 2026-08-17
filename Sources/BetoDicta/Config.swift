@@ -1168,4 +1168,30 @@ struct Config {
     static func continuoGlosarioEnPrompt() -> Bool {
         (json()["continuo_glosario_en_prompt"] as? Bool) ?? true
     }
+
+    // ---- Audio del sistema ----
+    //
+    // Lo que SUENA en el equipo: la otra parte de una videollamada, un vídeo,
+    // una reunión. Pista separada de la del micrófono.
+
+    static func continuoSistemaActivo() -> Bool {
+        (json()["continuo_sistema_activo"] as? Bool) ?? false
+    }
+
+    /// Excluir el audio de la propia aplicación. Sin esto, la bitácora grabaría
+    /// su propia voz sintetizada y se escucharía a sí misma.
+    static func continuoSistemaExcluirPropia() -> Bool {
+        (json()["continuo_sistema_excluir_propia"] as? Bool) ?? true
+    }
+
+    /// Guardar solo cuando el equipo suena de verdad: casi todo el día no suena
+    /// nada y almacenar silencio llenaría el disco sin aportar.
+    static func continuoSistemaSoloConSonido() -> Bool {
+        (json()["continuo_sistema_solo_con_sonido"] as? Bool) ?? true
+    }
+
+    /// Nivel a partir del cual se considera que hay sonido. 0,0001…0,05.
+    static func continuoSistemaUmbral() -> Double {
+        min(0.05, max(0.0001, (json()["continuo_sistema_umbral"] as? Double) ?? 0.002))
+    }
 }

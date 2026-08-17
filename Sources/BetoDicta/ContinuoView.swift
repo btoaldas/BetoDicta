@@ -20,6 +20,10 @@ final class ContinuoModel: ObservableObject {
     @Published var audioSegmento: Double { didSet { Config.set("continuo_audio_segmento_segundos", to: Int(audioSegmento)) } }
     @Published var audioAdoptar: Bool { didSet { Config.set("continuo_audio_adoptar_dictado", to: audioAdoptar) } }
     @Published var audioUmbral: Double { didSet { Config.set("continuo_audio_umbral_voz", to: audioUmbral) } }
+    @Published var sistemaActivo: Bool { didSet { Config.set("continuo_sistema_activo", to: sistemaActivo); aplicar() } }
+    @Published var sistemaExcluirPropia: Bool { didSet { Config.set("continuo_sistema_excluir_propia", to: sistemaExcluirPropia); aplicar() } }
+    @Published var sistemaSoloSonido: Bool { didSet { Config.set("continuo_sistema_solo_con_sonido", to: sistemaSoloSonido) } }
+    @Published var sistemaUmbral: Double { didSet { Config.set("continuo_sistema_umbral", to: sistemaUmbral) } }
 
     @Published var pantallaActiva: Bool { didSet { Config.set("continuo_pantalla_activa", to: pantallaActiva); aplicar() } }
     @Published var pantallaIntervalo: Double { didSet { Config.set("continuo_pantalla_intervalo_segundos", to: Int(pantallaIntervalo)); aplicar() } }
@@ -78,6 +82,10 @@ final class ContinuoModel: ObservableObject {
         audioSegmento = Double(Config.continuoAudioSegmentoSegundos())
         audioAdoptar = Config.continuoAudioAdoptarDictado()
         audioUmbral = Config.continuoAudioUmbralVoz()
+        sistemaActivo = Config.continuoSistemaActivo()
+        sistemaExcluirPropia = Config.continuoSistemaExcluirPropia()
+        sistemaSoloSonido = Config.continuoSistemaSoloConSonido()
+        sistemaUmbral = Config.continuoSistemaUmbral()
         pantallaActiva = Config.continuoPantallaActiva()
         pantallaIntervalo = Double(Config.continuoPantallaIntervaloSegundos())
         pantallaFormato = Config.continuoPantallaFormato()
@@ -300,6 +308,32 @@ struct ContinuoView: View {
                     Label("Al dictar con la tecla de siempre, la bitácora suelta el micrófono y vuelve sola al terminar. El dictado manda: eso no se puede desactivar.",
                           systemImage: "info.circle")
                         .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            SeccionPlegable("Audio del sistema", icono: "speaker.wave.2", abierto: true) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Lo que SUENA en el equipo: la otra parte de una videollamada, un vídeo, una reunión. Es la mitad que el micrófono no capta bien. Se guarda en pista aparte de la tuya.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Toggle("Grabar el audio del sistema", isOn: $m.sistemaActivo)
+                        .help("Usa el permiso de grabación de pantalla, que es la única vía de macOS para tomar el sonido de salida sin instalar un controlador de audio virtual.")
+                    Toggle("Excluir el audio de la propia aplicación", isOn: $m.sistemaExcluirPropia)
+                        .help("Sin esto, la bitácora grabaría su propia voz sintetizada y se escucharía a sí misma.")
+                    Toggle("Guardar solo cuando suene algo", isOn: $m.sistemaSoloSonido)
+                    if m.sistemaSoloSonido {
+                        HStack {
+                            Text("A partir de")
+                            Slider(value: $m.sistemaUmbral, in: 0.0001...0.05).frame(width: 170)
+                            Text(String(format: "%.4f", m.sistemaUmbral)).monospacedDigit().font(.caption)
+                        }
+                    }
+
+                    Label("Grabar la voz de otras personas en una llamada puede exigir su consentimiento. Es tu responsabilidad avisar.",
+                          systemImage: "exclamationmark.shield")
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

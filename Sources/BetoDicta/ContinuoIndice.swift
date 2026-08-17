@@ -282,6 +282,79 @@ final class ContinuoIndice {
         }
     }
 
+    /// Registra los archivos que están en disco pero no en el índice.
+    ///
+    /// Pasa siempre que la aplicación termina de golpe: el fragmento que estaba
+    /// abierto nunca llega a registrarse y queda invisible aunque el audio esté
+    /// entero. Sin esto, la promesa de «lo grabado sobrevive a cualquier corte»
+    /// se cumple a medias: el archivo sobrevive, pero nadie vuelve a mirarlo.
+    @discardableResult
+    func rescatarHuerfanos() -> Int {
+        let raiz = Config.continuoCarpeta()
+        guard let e = FileManager.default.enumerator(at: raiz, includingPropertiesForKeys: nil,
+                                                     options: [.skipsHiddenFiles]) else { return 0 }
+        var rescatados = 0
+        let fm = FileManager.default
+        for caso in e {
+            guard let url = caso as? URL else { continue }
+            let ext = url.pathExtension.lowercased()
+            let carpeta = url.deletingLastPathComponent().lastPathComponent
+
+            let material: MaterialContinuo
+            if ["pcm", "m4a", "wav"].contains(ext), ["audio", "sistema"].contains(carpeta) {
+                material = .audio
+            } else if ["jpg", "jpeg", "heic", "png"].contains(ext), carpeta == "pantalla" {
+                material = .pantalla
+            } else {
+                continue
+            }
+            guard !contiene(ruta: url.path, material: material) else { continue }
+
+            // El instante se reconstruye del nombre HH-mm-ss dentro de la
+            // carpeta aaaa/MM/dd; si no cuadra, se usa la fecha del archivo.
+            let instante = fechaDe(url) ?? ((try? fm.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? nil) ?? Date()
+            let bytes = ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int64) ?? 0
+            guard bytes > 16_000 else { continue }
+
+            if material == .audio {
+                let duracion = ext == "pcm" ? Double(bytes) / 32_000.0 : 0
+                registrarAudio(ruta: url, instante: instante, duracion: duracion,
+                               origen: carpeta == "sistema" ? "sistema" : "continuo")
+            } else {
+                registrarPantalla(ruta: url, instante: instante, app: nil, ventana: nil, monitor: 0)
+            }
+            rescatados += 1
+        }
+        if rescatados > 0 {
+            Log.log(.sistema, "bitácora: \(rescatados) archivos huérfanos incorporados al índice")
+        }
+        return rescatados
+    }
+
+    private func contiene(ruta: String, material: MaterialContinuo) -> Bool {
+        cola.sync {
+            guard let d = db else { return true }
+            var st: OpaquePointer?
+            guard sqlite3_prepare_v2(d, "SELECT 1 FROM \(material.rawValue) WHERE ruta = ? LIMIT 1;", -1, &st, nil) == SQLITE_OK else { return true }
+            defer { sqlite3_finalize(st) }
+            bindTexto(st, 1, ruta)
+            return sqlite3_step(st) == SQLITE_ROW
+        }
+    }
+
+    /// aaaa/MM/dd/<sub>/HH-mm-ss.ext → fecha completa.
+    private func fechaDe(_ url: URL) -> Date? {
+        let partes = url.pathComponents
+        guard partes.count >= 5 else { return nil }
+        let dia = partes[partes.count - 2 - 1]
+        let mes = partes[partes.count - 3 - 1]
+        let anio = partes[partes.count - 4 - 1]
+        let hora = url.deletingPathExtension().lastPathComponent
+        let f = DateFormatter()
+        f.dateFormat = "yyyy/MM/dd HH-mm-ss"
+        return f.date(from: "\(anio)/\(mes)/\(dia) \(hora)")
+    }
+
     // MARK: Retención
 
     /// Qué se llevaría por delante una purga anterior a `limite`, y cuánto de
