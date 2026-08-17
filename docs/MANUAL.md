@@ -29,6 +29,7 @@
 18. [Pestaña Transcribir](#18-pestaña-transcribir)
 19. [Estadísticas y costo por modelo](#19-estadísticas-y-costo-por-modelo)
 20. [Actualizar la app](#20-actualizar-la-app)
+20 bis. [Bitácora continua — tu día, grabado y contado](#20-bis-bitácora-continua--tu-día-grabado-y-contado)
 21. [Apoya el proyecto](#21-apoya-el-proyecto)
 22. [La caja negra: tus datos](#22-la-caja-negra-tus-datos)
 23. [Solución de problemas](#23-solución-de-problemas)
@@ -767,6 +768,38 @@ Si prefieres no revisar nada a mano, activa **Autoactualizar** (*Ajustes → Ava
 - El historial completo de cambios de cada versión está en **Créditos**.
 
 > **Gobernanza — todo parametrizable**: búsqueda al abrir, canal estable/beta, revisión periódica (1–24 h) y Autoactualizar viven en *Ajustes → Avanzado*. Nada se instala sin tu permiso salvo que actives Autoactualizar.
+
+## 20 bis. Bitácora continua — tu día, grabado y contado
+
+**Pestaña Bitácora.** Apagada de fábrica: nada se graba hasta que tú la enciendas.
+
+Encendida, registra tu jornada en segundo plano para poder reconstruirla después: qué dijiste, qué sonó en el equipo, qué había en pantalla — y convertirlo en documentos con la IA que elijas. Todo vive en `~/BetoDicta Bitácora` (carpeta configurable, botón **Abrir carpeta**), organizado por día.
+
+### Qué captura
+
+- **Tu voz (micrófono)** — tres modos: *Siempre*, *Solo cuando hay voz* (con sensibilidad ajustable) o *Solo al dictar*. **El dictado por doble Fn manda siempre**: la bitácora le cede el micrófono y vuelve sola al terminar — eso no es un ajuste, es una regla del código. El audio de tus dictados se incorpora a la línea de tiempo para que la cesión no deje hueco.
+- **El audio del sistema** — la otra parte de una videollamada, un video, una reunión. Pista separada de la tuya, con puerta de silencio (solo guarda cuando suena algo) y **puerta anti-eco**: mientras suena el altavoz, el micrófono exige más nivel para no registrar como tuyo lo que salió por los parlantes.
+- **La pantalla** — capturas cada N segundos (5 s a 1 h, a tu gusto), con deduplicación (si nada cambió, no guarda), pausa con la pantalla bloqueada, apps excluidas por identificador, y **contexto**: app activa, título de ventana y qué otras aplicaciones estaban a la vista.
+
+### Cómo procesa
+
+Nada se transcribe en caliente — eso mantendría un modelo de voz gastando procesador todo el día. La **tanda diferida** corre cuando digas: cada N minutos, a hora fija, al abrir la app, al apagar el equipo o a mano. En una sola pasada transcribe el audio (con el motor que elijas: tu cascada con failover o uno fijo), lee el texto de las capturas (OCR de Apple, en el equipo), aplica tu **glosario y reemplazos** —los mismos del dictado, corrección fonética incluida— y comprime el audio crudo (~88 % menos).
+
+### Documentos con IA
+
+Una **biblioteca de 10 prompts** (resumen del día, transcripción normalizada, ideas principales, lluvia de ideas, tareas, decisiones, informe formal, preguntas abiertas, aprendizajes, cronología) — todos editables y restaurables al original. El material viaja como línea de tiempo con hora y canal (`micrófono`, `dictado`, `audio del sistema`, `en pantalla…`), tu voz con prioridad sobre el resto, y **sin perder nada**: si el día no cabe en un envío, se trocea y se une al final. Cada documento abre con su rango real: *«contexto tomado desde las 15:00 hasta las 17:00»*.
+
+**Rutinas**: órdenes permanentes que conviven — *«a las 23:00, el resumen del día»* y *«cada 3 horas, las ideas de las últimas 3»* a la vez, cada una con su prompt y su rango. Ningún documento pisa a otro. La ejecución manual acepta además un rango exacto con fecha y hora.
+
+El **cerebro** que redacta es elegible entre tus IAs conectadas — nube con clave, cuenta de sesión o local (Ollama, LM Studio). ⚠️ **Es lo único del módulo que puede salir de tu equipo**: con una IA local, nada sale.
+
+### Retención
+
+Conserva 30/60/90 días, para siempre, o purga un rango a mano. Antes de borrar, la app **avisa si hay material sin transcribir ni leer** — eso es información que aún no se extrajo — y la purga automática se detiene hasta tu visto bueno.
+
+> **Gobernanza — todo parametrizable**: cada comportamiento de esta sección tiene su control en la pestaña. La única excepción deliberada es la prioridad del dictado, que no se puede desactivar.
+
+> **Privacidad**: grabar voz de terceros puede exigir su consentimiento según tu legislación. La pestaña te lo recuerda; la responsabilidad de avisar es tuya.
 
 ## 21. Apoya el proyecto
 

@@ -92,7 +92,8 @@ enum ContinuoLote {
                 ContinuoIndice.shared.anotarTexto(texto, material: .audio, id: p.id)
                 guardarTexto(texto, junto: p.ruta)
                 hechos += 1
-                if Config.continuoLoteComprimir(), p.ruta.pathExtension == "pcm" {
+                if Config.continuoLoteComprimir(), p.ruta.pathExtension == "pcm",
+                   p.ruta.path.hasPrefix(Config.continuoCarpeta().path) {
                     if let ahorro = comprimir(p.ruta, id: p.id) { comprimidos += ahorro }
                 }
             case .failure(let e):
@@ -192,7 +193,11 @@ enum ContinuoLote {
     }
 
     /// Deja el texto junto al audio, para poder leerlo sin la app.
+    /// SOLO dentro de la carpeta de la bitácora: un archivo adoptado del
+    /// historial de dictado tiene ya su .txt (pulido) y pisarlo con texto
+    /// crudo destruiría trabajo del usuario.
     private static func guardarTexto(_ texto: String, junto url: URL) {
+        guard url.path.hasPrefix(Config.continuoCarpeta().path) else { return }
         guard !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let destino = url.deletingPathExtension().appendingPathExtension("txt")
         try? texto.write(to: destino, atomically: true, encoding: .utf8)
@@ -247,6 +252,14 @@ enum ContinuoLote {
             let escrito = ((try? FileManager.default.attributesOfItem(atPath: destino.path))?[.size] as? Int64) ?? 0
             guard escrito > 1_024 else {
                 try? FileManager.default.removeItem(at: destino)
+                return nil
+            }
+            // El tamaño no basta: el contenedor tiene que ABRIR y tener marcos.
+            // Borrar el crudo contra un m4a corrupto es perder la grabación.
+            guard let comprobacion = try? AVAudioFile(forReading: destino),
+                  comprobacion.length > 0 else {
+                try? FileManager.default.removeItem(at: destino)
+                Log.log(.sistema, "bitácora: el m4a de \(pcm.lastPathComponent) no valida — conservo el crudo")
                 return nil
             }
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destino.path)

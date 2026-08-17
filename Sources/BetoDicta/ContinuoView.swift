@@ -87,6 +87,26 @@ final class ContinuoModel: ObservableObject {
     @Published var loteEstado: String = "—"
     @Published var loteCorriendo = false
 
+    // ---- Explorador de lo guardado ----
+    @Published var explorarTipo: String = "voz"
+    @Published var explorarAudio: [ContinuoIndice.ElementoReciente] = []
+    @Published var explorarPantalla: [ContinuoIndice.ElementoReciente] = []
+    @Published var explorarDocs: [URL] = []
+
+    func cargarExplorador() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            ContinuoIndice.shared.abrir()
+            let a = ContinuoIndice.shared.recientes(material: .audio)
+            let p = ContinuoIndice.shared.recientes(material: .pantalla)
+            let d = ContinuoBitacora.documentosRecientes()
+            DispatchQueue.main.async {
+                self?.explorarAudio = a
+                self?.explorarPantalla = p
+                self?.explorarDocs = d
+            }
+        }
+    }
+
     @Published var resumen: String = "—"
     @Published var aviso: String?
 
@@ -300,7 +320,7 @@ struct ContinuoView: View {
 
             Text("Bitácora continua")
                 .font(.title2).bold().foregroundStyle(acentoBitacora)
-            Text("Graba audio y toma capturas en segundo plano para poder reconstruir el día. Todo se queda en este equipo.")
+            Text("Graba audio y toma capturas en segundo plano para reconstruir el día. La captura y el índice son locales; revisa el motor de transcripción y el cerebro elegidos, porque ahí decides si algo sale del equipo.")
                 .font(.callout).foregroundStyle(.secondary)
 
             Toggle("Activar la bitácora", isOn: $m.activo)
@@ -315,6 +335,52 @@ struct ContinuoView: View {
             }
 
             Divider()
+
+            SeccionPlegable("Explorar lo guardado", icono: "folder", abierto: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Button("Voz de hoy") { ContinuoBitacora.abrirCarpetaHoy("audio") }
+                        Button("Sistema de hoy") { ContinuoBitacora.abrirCarpetaHoy("sistema") }
+                        Button("Capturas de hoy") { ContinuoBitacora.abrirCarpetaHoy("pantalla") }
+                        Button("Documentos") { ContinuoBitacora.abrirCarpetaHoy("documentos") }
+                    }
+                    Text("Cada botón abre esa carpeta en el Finder (se crea si aún no existe).")
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    Picker("", selection: $m.explorarTipo) {
+                        Text("Voz").tag("voz")
+                        Text("Capturas").tag("capturas")
+                        Text("Documentos").tag("docs")
+                    }.pickerStyle(.segmented).labelsHidden().frame(width: 300)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            if m.explorarTipo == "voz" {
+                                ForEach(m.explorarAudio) { e in
+                                    filaExplorador(
+                                        titulo: "\(Self.horaCorta(e.instante)) · \(e.fuente) · \(Int(e.duracion)) s",
+                                        detalle: e.texto.isEmpty ? "(sin transcribir todavía)" : e.texto,
+                                        url: e.ruta)
+                                }
+                            } else if m.explorarTipo == "capturas" {
+                                ForEach(m.explorarPantalla) { e in
+                                    filaExplorador(
+                                        titulo: "\(Self.horaCorta(e.instante)) · \(e.fuente)",
+                                        detalle: e.texto.isEmpty ? "(sin leer todavía)" : e.texto,
+                                        url: e.ruta)
+                                }
+                            } else {
+                                ForEach(m.explorarDocs, id: \.self) { url in
+                                    filaExplorador(titulo: url.lastPathComponent, detalle: "", url: url)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 260)
+
+                    Button("Actualizar la lista") { m.cargarExplorador() }
+                }
+            }
 
             SeccionPlegable("Audio", icono: "waveform", abierto: true) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -723,7 +789,31 @@ struct ContinuoView: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .onAppear { m.refrescar() }
+        .onAppear { m.refrescar(); m.cargarExplorador() }
+    }
+
+    /// Una fila del explorador: hora + resumen + revelar/abrir en el Finder.
+    private func filaExplorador(titulo: String, detalle: String, url: URL) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(titulo).font(.caption).bold()
+                if !detalle.isEmpty {
+                    Text(detalle).font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer()
+            Button { ContinuoBitacora.abrir(url) } label: { Image(systemName: "arrow.up.forward.app") }
+                .buttonStyle(.plain).help("Abrir con la app predeterminada")
+            Button { ContinuoBitacora.revelar(url) } label: { Image(systemName: "magnifyingglass") }
+                .buttonStyle(.plain).help("Mostrar en el Finder")
+        }
+        .padding(.vertical, 2)
+    }
+
+    private static func horaCorta(_ f: Date) -> String {
+        let d = DateFormatter(); d.dateFormat = "d MMM HH:mm"
+        return d.string(from: f)
     }
 
     private func intervaloLegible(_ s: Int) -> String {

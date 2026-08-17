@@ -64,6 +64,40 @@ enum ContinuoBitacora {
         NSWorkspace.shared.activateFileViewerSelecting([carpeta])
     }
 
+    /// Documentos generados (.md), más nuevos primero, buscados en toda la
+    /// bitácora. Son pocos: un escaneo directo basta.
+    static func documentosRecientes(limite: Int = 60) -> [URL] {
+        let raiz = Config.continuoCarpeta()
+        guard let e = FileManager.default.enumerator(at: raiz, includingPropertiesForKeys: [.contentModificationDateKey],
+                                                     options: [.skipsHiddenFiles]) else { return [] }
+        var docs: [(URL, Date)] = []
+        for caso in e {
+            guard let url = caso as? URL, url.pathExtension == "md" else { continue }
+            let fecha = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            docs.append((url, fecha))
+        }
+        return docs.sorted { $0.1 > $1.1 }.prefix(limite).map(\.0)
+    }
+
+    /// Abre en el Finder la subcarpeta del día (audio, pantalla, sistema) o la
+    /// del mes para los documentos. Se crea si aún no existe, para que el botón
+    /// nunca caiga en el vacío.
+    static func abrirCarpetaHoy(_ sub: String) {
+        let destino: URL
+        if sub == "documentos" {
+            let f = DateFormatter(); f.dateFormat = "yyyy/MM"
+            destino = Config.continuoCarpeta().appendingPathComponent(f.string(from: Date()))
+        } else {
+            destino = ContinuoAudio.carpetaDelDia(Date(), sub: sub)
+        }
+        try? FileManager.default.createDirectory(at: destino, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([destino])
+    }
+
+    /// Revela un archivo en el Finder, o lo abre con su app predeterminada.
+    static func revelar(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    static func abrir(_ url: URL) { NSWorkspace.shared.open(url) }
+
     // MARK: Retención
 
     /// Fecha límite según el ajuste de días. `nil` = conservar para siempre.

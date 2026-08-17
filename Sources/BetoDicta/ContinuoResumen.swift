@@ -242,7 +242,11 @@ enum ContinuoResumen {
             xs.reduce(0) { $0 + $1.linea.count + 1 }
         }
         var recortadas = [0, 0, 0]
-        if Config.continuoResumenPrioridadMicrofono() {
+        // Con el troceo activo NO se recorta nada aquí: recortar antes de
+        // trocear anulaba en silencio la promesa de «sin perder nada».
+        if Config.continuoResumenTrocear() {
+            // sin recorte: el excedente viaja en más envíos
+        } else if Config.continuoResumenPrioridadMicrofono() {
             for nivel in [2, 1, 0] {
                 while total(piezas) > tope, let idx = piezas.firstIndex(where: { $0.prioridad == nivel }) {
                     piezas.remove(at: idx)

@@ -1087,8 +1087,11 @@ struct Config {
     /// y solo ese. No se valida contra una lista cerrada a propósito: el
     /// catálogo de proveedores crece y esto no debe quedarse atrás.
     static func continuoLoteMotor() -> String {
-        let s = (json()["continuo_lote_motor"] as? String) ?? "cadena"
-        return s.isEmpty ? "cadena" : s
+        // Por defecto, Apple en el dispositivo: el audio de una jornada entera
+        // NO debe irse a un STT de nube porque sí. «cadena» (los proveedores
+        // del dictado, que pueden ser nube) es una elección explícita.
+        let s = (json()["continuo_lote_motor"] as? String) ?? "apple_speech"
+        return s.isEmpty ? "apple_speech" : s
     }
 
     /// Comprimir el PCM crudo a m4a una vez transcrito.

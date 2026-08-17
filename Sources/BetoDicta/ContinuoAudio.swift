@@ -139,6 +139,7 @@ final class ContinuoAudio {
         intentos = 0
         activo = true
         let marcaBuffers = buffersVistos
+        candadoCesion.lock(); let genVigia = generacion; candadoCesion.unlock()
         Log.log(.sistema, "bitácora: audio en marcha (modo \(Config.continuoAudioModo()), eco \(Config.continuoAudioCancelacionEco() ? "sí" : "no"))")
         // Vigía del arranque mudo: un engine puede arrancar sin error y no
         // entregar jamás un buffer (pasó con el montaje en cola de fondo y
@@ -146,6 +147,10 @@ final class ContinuoAudio {
         // llegó nada, se desmonta y se reintenta desde cero.
         cola.asyncAfter(deadline: .now() + 8) { [weak self] in
             guard let self, self.activo, self.buffersVistos == marcaBuffers else { return }
+            // Un vigía de una generación anterior no puede matar un motor
+            // recién re-arrancado tras una cesión.
+            self.candadoCesion.lock(); let vigente = self.generacion; self.candadoCesion.unlock()
+            guard vigente == genVigia else { return }
             Log.log(.sistema, "bitácora: el motor arrancó pero no entrega audio — reinicio")
             self.detenerEnCola(cerrandoTrozo: true)
             self.reintentar()
@@ -342,8 +347,17 @@ final class ContinuoAudio {
     private func escribir(_ datos: Data) {
         guard !datos.isEmpty else { return }
         if mano == nil { abrirTrozo() }
-        mano?.write(datos)
-        bytesTrozo += datos.count
+        // write(contentsOf:) LANZA en vez de abortar el proceso: con el disco
+        // lleno, la grabación continua no puede llevarse la app (y el dictado)
+        // por delante. Se cierra el trozo y se deja constancia.
+        do {
+            try mano?.write(contentsOf: datos)
+            bytesTrozo += datos.count
+        } catch {
+            Log.log(.sistema, "bitácora: no pude escribir audio (\(error.localizedDescription)) — ¿disco lleno? Cierro el trozo")
+            cerrarTrozo()
+            return
+        }
         if Date().timeIntervalSince(inicioTrozo) >= Double(Config.continuoAudioSegmentoSegundos()) {
             cerrarTrozo()
             abrirTrozo()
@@ -399,8 +413,15 @@ final class ContinuoAudio {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         let bytes = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int64) ?? 0
         let duracion = Double(bytes) / 32_000.0
-        ContinuoIndice.shared.registrarAudio(ruta: url, instante: instante,
-                                             duracion: duracion, origen: "dictado")
+        guard let id = ContinuoIndice.shared.registrarAudio(ruta: url, instante: instante,
+                                                            duracion: duracion, origen: "dictado") else { return }
+        // El dictado YA tiene su transcripción (el .txt que escribió el propio
+        // flujo, con pulido incluido). Se adopta ese texto y la fila queda
+        // procesada: la tanda no debe retranscribir un dictado ni, mucho menos,
+        // pisar el .txt del historial con texto crudo.
+        let txt = url.deletingPathExtension().appendingPathExtension("txt")
+        let texto = (try? String(contentsOf: txt, encoding: .utf8)) ?? ""
+        ContinuoIndice.shared.anotarTexto(texto, material: .audio, id: id)
     }
 
     // MARK: Utilidades

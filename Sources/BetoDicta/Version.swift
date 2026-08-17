@@ -6,11 +6,18 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.49.0"
-    static let fecha = "2026-07-20"
+    static let numero = "0.50.0"
+    static let fecha = "2026-08-17"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.50.0", "2026-08-17", [
+            "BITÁCORA CONTINUA (apagada de fábrica): graba tu voz, el audio del sistema y capturas de pantalla en segundo plano para reconstruir la jornada. El dictado por doble Fn manda SIEMPRE: la bitácora le cede el micrófono y vuelve sola — es regla del código, no un ajuste",
+            "TANDA DIFERIDA: nada se transcribe en caliente; en una pasada (cada N minutos, a hora fija, al abrir, al apagar o a mano) transcribe con tu cascada de motores, lee las capturas con OCR local, aplica tu glosario y reemplazos —corrección fonética incluida— y comprime el audio crudo un ~88 %",
+            "DOCUMENTOS CON IA: biblioteca de 10 prompts editables y restaurables (resumen, ideas, tareas, decisiones…); rutinas programadas que conviven (mediodía y noche a la vez) sin pisarse; material como línea de tiempo con hora, canal y contexto de apps; tu voz con prioridad; y sin perder nada — si el día no cabe en un envío, se trocea y se une al final",
+            "CEREBRO Y PRIVACIDAD: la IA que redacta es elegible entre tus conectadas, incluidas locales (Ollama, LM Studio) con las que nada sale del equipo; cada documento abre con su rango real de contexto; puerta anti-eco para no registrar como tuyo lo que sonó por los parlantes",
+            "RETENCIÓN CON CABEZA: 30/60/90 días o para siempre; antes de borrar avisa si hay material sin transcribir ni leer, y la purga automática se detiene hasta tu visto bueno",
+        ]),
         ("0.49.0", "2026-07-20", [
             "MODO CONEXIÓN API: un modo puede hablar con cualquier API REST que declares (URL, autenticación, endpoints con variables tipadas y un prompt que le enseña a la IA a usarla). Dictas en lenguaje natural, la IA arma el llamado y te cuenta el resultado hablado con el estilo que pidas. Nada del sistema concreto vive en la app: todo es configuración tuya",
             "AUTENTICACIÓN Y SEGURIDAD: sin auth, API key o usuario+clave→token (con re-login automático). La clave vive en el Llavero, jamás en el archivo ni en los registros. La IA nunca ejecuta HTTP ni ve credenciales: solo propone un plan JSON que Swift valida. Fail-closed en https, sin redirecciones fuera del host declarado",

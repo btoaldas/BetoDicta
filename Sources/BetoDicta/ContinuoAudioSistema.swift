@@ -37,6 +37,9 @@ final class ContinuoAudioSistema: NSObject {
     private(set) var activo = false
     private var montando = false
     private var avisadoDeFormato = false
+    /// Sube en cada detener(): un montaje que termina después de un apagado es
+    /// de una generación vieja y debe soltar el flujo, no publicarlo.
+    private var generacion: UInt64 = 0
 
     /// Último nivel medido de la salida, legible desde cualquier hilo. Es la
     /// señal que usa el micrófono para su puerta anti-eco.
@@ -72,13 +75,14 @@ final class ContinuoAudioSistema: NSObject {
         guard !activo, !montando else { return }
         if Config.continuoSoloConCorriente(), !EnergiaMac.conCorriente() { return }
         montando = true
+        let gen = generacion
         Task { [weak self] in
-            await self?.montar()
+            await self?.montar(gen: gen)
             self?.cola.async { self?.montando = false }
         }
     }
 
-    private func montar() async {
+    private func montar(gen: UInt64) async {
         do {
             let contenido = try await SCShareableContent.excludingDesktopWindows(false,
                                                                                 onScreenWindowsOnly: true)
@@ -106,7 +110,16 @@ final class ContinuoAudioSistema: NSObject {
             try await s.startCapture()
 
             cola.async { [weak self] in
-                guard let self else { return }
+                guard let self else { Task { try? await s.stopCapture() }; return }
+                // Si mientras montábamos hubo un detener() (el usuario apagó el
+                // ajuste, o una reconfiguración), este flujo es de una
+                // generación vieja: se detiene aquí mismo en vez de quedar
+                // huérfano capturando con el indicador encendido.
+                guard self.generacion == gen, Config.continuoActivo(), Config.continuoSistemaActivo() else {
+                    Task { try? await s.stopCapture() }
+                    Log.log(.sistema, "bitácora: montaje del audio del sistema descartado (apagado durante el arranque)")
+                    return
+                }
                 self.flujo = s
                 self.activo = true
                 Log.log(.sistema, "bitácora: audio del sistema en marcha")
@@ -117,6 +130,7 @@ final class ContinuoAudioSistema: NSObject {
     }
 
     private func detenerEnCola() {
+        generacion &+= 1
         Self.publicarNivel(0)
         guard let s = flujo else { cerrarTrozo(); return }
         flujo = nil
@@ -198,8 +212,17 @@ final class ContinuoAudioSistema: NSObject {
 
     private func escribir(_ datos: Data) {
         if mano == nil { abrirTrozo() }
-        mano?.write(datos)
-        bytesTrozo += datos.count
+        // write(contentsOf:) LANZA en vez de abortar el proceso: con el disco
+        // lleno, la grabación continua no puede llevarse la app (y el dictado)
+        // por delante. Se cierra el trozo y se deja constancia.
+        do {
+            try mano?.write(contentsOf: datos)
+            bytesTrozo += datos.count
+        } catch {
+            Log.log(.sistema, "bitácora: no pude escribir audio (\(error.localizedDescription)) — ¿disco lleno? Cierro el trozo")
+            cerrarTrozo()
+            return
+        }
         if Date().timeIntervalSince(inicioTrozo) >= Double(Config.continuoAudioSegmentoSegundos()) {
             cerrarTrozo()
             abrirTrozo()

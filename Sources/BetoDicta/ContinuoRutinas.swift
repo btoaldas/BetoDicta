@@ -116,6 +116,13 @@ enum ContinuoRutinas {
     /// rango. En seco (variable de entorno) se detiene justo antes de llamar a
     /// la IA: deja la mecánica verificable sin enviar nada a nadie.
     static func ejecutar(_ r: RutinaResumen) {
+        // El interruptor maestro del resumen con IA manda sobre las rutinas:
+        // es el consentimiento de que el material pueda salir hacia un modelo.
+        // Con él apagado, ninguna rutina envía nada.
+        guard Config.continuoResumenActivo() else {
+            Log.log(.sistema, "bitácora: rutina «\(r.descripcion)» omitida — el resumen con IA está desactivado")
+            return
+        }
         Log.log(.sistema, "bitácora: rutina «\(r.descripcion)» disparada")
         ContinuoLote.ejecutar { _ in
             let desde: Date? = r.rango == "horas"

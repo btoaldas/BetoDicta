@@ -311,6 +311,46 @@ final class ContinuoIndice {
         }
     }
 
+    /// Elemento para el explorador de la pestaña.
+    struct ElementoReciente: Identifiable {
+        let id: Int64
+        let ruta: URL
+        let instante: Date
+        /// Audio: origen. Pantalla: app activa.
+        let fuente: String
+        let texto: String
+        let duracion: Double
+    }
+
+    /// Los últimos elementos de un material, más nuevos primero. Para navegar
+    /// lo guardado sin salir de la app.
+    func recientes(material: MaterialContinuo, limite: Int = 60) -> [ElementoReciente] {
+        cola.sync {
+            guard let d = db else { return [] }
+            let campos = material == .audio
+                ? "id, ruta, instante, origen, COALESCE(texto,''), duracion"
+                : "id, ruta, instante, COALESCE(app,''), COALESCE(texto,''), 0"
+            var st: OpaquePointer?
+            let sql = "SELECT \(campos) FROM \(material.rawValue) ORDER BY instante DESC LIMIT ?;"
+            guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+            defer { sqlite3_finalize(st) }
+            sqlite3_bind_int(st, 1, Int32(limite))
+            var salida: [ElementoReciente] = []
+            while sqlite3_step(st) == SQLITE_ROW {
+                guard let r = sqlite3_column_text(st, 1) else { continue }
+                salida.append(ElementoReciente(
+                    id: sqlite3_column_int64(st, 0),
+                    ruta: URL(fileURLWithPath: String(cString: r)),
+                    instante: Date(timeIntervalSince1970: sqlite3_column_double(st, 2)),
+                    fuente: sqlite3_column_text(st, 3).map { String(cString: $0) } ?? "",
+                    texto: sqlite3_column_text(st, 4).map { String(cString: $0) } ?? "",
+                    duracion: sqlite3_column_double(st, 5)
+                ))
+            }
+            return salida
+        }
+    }
+
     private func columnaExiste(_ tabla: String, _ columna: String) -> Bool {
         guard let d = db else { return true }
         var st: OpaquePointer?
@@ -427,22 +467,42 @@ final class ContinuoIndice {
     /// fueron. No pregunta nada: quien llama ya decidió.
     @discardableResult
     func purgarAnteriorA(_ limite: Date) -> Int {
-        cola.sync {
-            guard let d = db else { return 0 }
-            var borradas = 0
-            for tabla in ["audio", "pantalla"] {
-                var rutas: [String] = []
-                var ids: [Int64] = []
+        // TRES tramos, y solo los de SQL retienen la cola. El borrado físico de
+        // miles de archivos va FUERA: con él dentro, un registrarAudio desde el
+        // cierre de un dictado (main) esperaba minutos y congelaba la app.
+        var borradas = 0
+        for tabla in ["audio", "pantalla"] {
+            // 1) Leer qué cae (cola retenida milisegundos).
+            var rutas: [String] = []
+            var ids: [Int64] = []
+            cola.sync {
+                guard let d = db else { return }
                 var st: OpaquePointer?
-                guard sqlite3_prepare_v2(d, "SELECT id, ruta FROM \(tabla) WHERE instante < ?;", -1, &st, nil) == SQLITE_OK else { continue }
+                guard sqlite3_prepare_v2(d, "SELECT id, ruta FROM \(tabla) WHERE instante < ?;", -1, &st, nil) == SQLITE_OK else { return }
                 sqlite3_bind_double(st, 1, limite.timeIntervalSince1970)
                 while sqlite3_step(st) == SQLITE_ROW {
                     ids.append(sqlite3_column_int64(st, 0))
                     if let c = sqlite3_column_text(st, 1) { rutas.append(String(cString: c)) }
                 }
                 sqlite3_finalize(st)
+            }
 
-                for r in rutas { try? FileManager.default.removeItem(atPath: r) }
+            // 2) Borrar archivos SIN retener la cola — y SOLO los que viven
+            //    dentro de la bitácora. Un .wav adoptado del historial de
+            //    dictado se des-indexa, pero JAMÁS se borra de disco: es del
+            //    historial del usuario, no nuestro.
+            let raiz = Config.continuoCarpeta().path
+            for r in rutas where r.hasPrefix(raiz) {
+                try? FileManager.default.removeItem(atPath: r)
+                // El .txt hermano acompaña al audio: purgar el sonido y dejar
+                // la transcripción en claro burlaría la retención.
+                let txt = (r as NSString).deletingPathExtension + ".txt"
+                try? FileManager.default.removeItem(atPath: txt)
+            }
+
+            // 3) Borrar filas y texto indexado (cola retenida milisegundos).
+            cola.sync {
+                guard let d = db else { return }
                 for id in ids {
                     var bt: OpaquePointer?
                     if sqlite3_prepare_v2(d, "DELETE FROM \(tabla)_texto WHERE fila = ?;", -1, &bt, nil) == SQLITE_OK {
@@ -458,8 +518,8 @@ final class ContinuoIndice {
                     sqlite3_finalize(dt)
                 }
             }
-            return borradas
         }
+        return borradas
     }
 
     // MARK: Estado para la interfaz
