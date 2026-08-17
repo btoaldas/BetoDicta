@@ -93,6 +93,7 @@ final class ContinuoModel: ObservableObject {
     @Published var explorarAudio: [ContinuoIndice.ElementoReciente] = []
     @Published var explorarPantalla: [ContinuoIndice.ElementoReciente] = []
     @Published var explorarDocs: [URL] = []
+    @Published var explorarTrans: [URL] = []
 
     func cargarExplorador() {
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -100,10 +101,12 @@ final class ContinuoModel: ObservableObject {
             let a = ContinuoIndice.shared.recientes(material: .audio)
             let p = ContinuoIndice.shared.recientes(material: .pantalla)
             let d = ContinuoBitacora.documentosRecientes()
+            let tr = ContinuoBitacora.transcripcionesRecientes()
             DispatchQueue.main.async {
                 self?.explorarAudio = a
                 self?.explorarPantalla = p
                 self?.explorarDocs = d
+                self?.explorarTrans = tr
             }
         }
     }
@@ -186,16 +189,17 @@ final class ContinuoModel: ObservableObject {
         loteEstado = ContinuoPlanificador.descripcion()
     }
 
-    /// Lanza una tanda a mano. Salta la condición de energía: lo pidió alguien
-    /// que está mirando la pantalla.
-    func transcribirAhora() {
+    /// Lanza una tanda a mano, del canal que se pida. Salta la condición de
+    /// energía: lo pidió alguien que está mirando la pantalla.
+    func transcribirAhora(canal: String = "todo") {
         guard !loteCorriendo else { return }
         loteCorriendo = true
-        loteEstado = "Transcribiendo…"
-        ContinuoLote.ejecutar(manual: true) { [weak self] resultado in
+        loteEstado = canal == "todo" ? "Procesando todo…" : "Procesando \(canal)…"
+        ContinuoLote.ejecutar(manual: true, canal: canal) { [weak self] resultado in
             self?.loteCorriendo = false
             self?.loteEstado = resultado
             self?.refrescar()
+            self?.cargarExplorador()
         }
     }
 
@@ -344,6 +348,7 @@ struct ContinuoView: View {
                         Button("Voz de hoy") { ContinuoBitacora.abrirCarpetaHoy("audio") }
                         Button("Sistema de hoy") { ContinuoBitacora.abrirCarpetaHoy("sistema") }
                         Button("Capturas de hoy") { ContinuoBitacora.abrirCarpetaHoy("pantalla") }
+                        Button("Transcripciones") { ContinuoBitacora.abrirCarpetaHoy("transcripciones") }
                         Button("Documentos") { ContinuoBitacora.abrirCarpetaHoy("documentos") }
                     }
                     Text("Cada botón abre esa carpeta en el Finder (se crea si aún no existe).")
@@ -352,8 +357,9 @@ struct ContinuoView: View {
                     Picker("", selection: $m.explorarTipo) {
                         Text("Voz").tag("voz")
                         Text("Capturas").tag("capturas")
+                        Text("Transcripciones").tag("trans")
                         Text("Documentos").tag("docs")
-                    }.pickerStyle(.segmented).labelsHidden().frame(width: 300)
+                    }.pickerStyle(.segmented).labelsHidden().frame(width: 420)
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
@@ -370,6 +376,12 @@ struct ContinuoView: View {
                                         titulo: "\(Self.horaCorta(e.instante)) · \(e.fuente)",
                                         detalle: e.texto.isEmpty ? "(sin leer todavía)" : e.texto,
                                         url: e.ruta)
+                                }
+                            } else if m.explorarTipo == "trans" {
+                                ForEach(m.explorarTrans, id: \.self) { url in
+                                    filaExplorador(titulo: url.lastPathComponent,
+                                                   detalle: url.deletingLastPathComponent().lastPathComponent,
+                                                   url: url)
                                 }
                             } else {
                                 ForEach(m.explorarDocs, id: \.self) { url in
@@ -551,12 +563,15 @@ struct ContinuoView: View {
                         .help("El crudo se guarda sin comprimir para sobrevivir a un corte. Ya transcrito, se comprime y se libera espacio.")
                     Toggle("Solo con el equipo enchufado", isOn: $m.loteCorriente)
 
+                    Text("A petición — procesa solo lo que elijas, ahora mismo").font(.caption)
                     HStack {
-                        Button(m.loteCorriendo ? "Transcribiendo…" : "Transcribir ahora") { m.transcribirAhora() }
-                            .disabled(m.loteCorriendo)
-                        Text(m.loteEstado).font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                        Button("Todo") { m.transcribirAhora() }
+                        Button("Solo voz") { m.transcribirAhora(canal: "voz") }
+                        Button("Solo sistema") { m.transcribirAhora(canal: "sistema") }
+                        Button("Solo pantalla (OCR)") { m.transcribirAhora(canal: "pantalla") }
+                    }.disabled(m.loteCorriendo)
+                    Text(m.loteEstado).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

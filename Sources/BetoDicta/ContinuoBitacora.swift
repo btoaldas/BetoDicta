@@ -66,13 +66,24 @@ enum ContinuoBitacora {
 
     /// Documentos generados (.md), más nuevos primero, buscados en toda la
     /// bitácora. Son pocos: un escaneo directo basta.
+    /// Los tres diarios puros por día (voz, sistema, pantalla), más nuevos
+    /// primero.
+    static func transcripcionesRecientes(limite: Int = 60) -> [URL] {
+        buscarMd(limite: limite) { $0.hasPrefix("transcripcion-") }
+    }
+
     static func documentosRecientes(limite: Int = 60) -> [URL] {
+        buscarMd(limite: limite) { !$0.hasPrefix("transcripcion-") }
+    }
+
+    private static func buscarMd(limite: Int, filtro: (String) -> Bool) -> [URL] {
         let raiz = Config.continuoCarpeta()
         guard let e = FileManager.default.enumerator(at: raiz, includingPropertiesForKeys: [.contentModificationDateKey],
                                                      options: [.skipsHiddenFiles]) else { return [] }
         var docs: [(URL, Date)] = []
         for caso in e {
-            guard let url = caso as? URL, url.pathExtension == "md" else { continue }
+            guard let url = caso as? URL, url.pathExtension == "md",
+                  filtro(url.lastPathComponent) else { continue }
             let fecha = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             docs.append((url, fecha))
         }
@@ -84,7 +95,9 @@ enum ContinuoBitacora {
     /// nunca caiga en el vacío.
     static func abrirCarpetaHoy(_ sub: String) {
         let destino: URL
-        if sub == "documentos" {
+        if sub == "transcripciones" {
+            destino = ContinuoAudio.carpetaDelDia(Date(), sub: "audio").deletingLastPathComponent()
+        } else if sub == "documentos" {
             let f = DateFormatter(); f.dateFormat = "yyyy/MM"
             destino = Config.continuoCarpeta().appendingPathComponent(f.string(from: Date()))
         } else {

@@ -28,7 +28,10 @@ enum ContinuoLote {
 
     /// Lanza una tanda si procede. `manual` salta las condiciones de energía
     /// porque lo pidió una persona mirando la pantalla.
-    static func ejecutar(manual: Bool = false, alTerminar: ((String) -> Void)? = nil) {
+    /// `canal`: qué procesar — "todo", "voz", "sistema" o "pantalla". A
+    /// petición se puede drenar un solo canal sin esperar a los demás.
+    static func ejecutar(manual: Bool = false, canal: String = "todo",
+                         alTerminar: ((String) -> Void)? = nil) {
         candado.lock()
         if enMarcha {
             candado.unlock()
@@ -39,7 +42,7 @@ enum ContinuoLote {
         candado.unlock()
 
         cola.async {
-            let resumen = trabajar(manual: manual)
+            let resumen = trabajar(manual: manual, canal: canal)
             candado.lock(); enMarcha = false; candado.unlock()
             Log.log(.sistema, "bitácora: \(resumen)")
             DispatchQueue.main.async { alTerminar?(resumen) }
@@ -53,18 +56,31 @@ enum ContinuoLote {
 
     // MARK: Trabajo
 
-    private static func trabajar(manual: Bool) -> String {
+    private static func trabajar(manual: Bool, canal: String = "todo") -> String {
         guard Config.continuoActivo() else { return "la bitácora está apagada" }
         if !manual, Config.continuoLoteSoloConCorriente(), !EnergiaMac.conCorriente() {
             return "tanda pospuesta: el equipo está con batería"
         }
 
         ContinuoIndice.shared.abrir()
-        let pendientes = ContinuoIndice.shared.pendientes(material: .audio,
-                                                          limite: Config.continuoLoteMaximoPorTanda())
-        // Sin audio pendiente NO se sale: puede quedar pantalla por leer, y
-        // saltarse el OCR por eso era un error de cableado.
+        // Pase lo que pase al salir (fin normal, corte por dictado, canal sin
+        // pendientes), los diarios del día quedan al día con lo procesado
+        // hasta ese momento. Antes solo se reconstruían al final feliz y una
+        // tanda interrumpida los dejaba viejos.
+        defer { reconstruirDiarios() }
+
+        var pendientes = canal == "pantalla" ? [] : ContinuoIndice.shared.pendientes(
+            material: .audio, limite: Config.continuoLoteMaximoPorTanda())
+        // El canal separa la voz del audio del sistema por su carpeta: ambos
+        // son material "audio" en el índice, pero viven en subcarpetas
+        // distintas y se pueden drenar por separado a petición.
+        if canal == "voz" {
+            pendientes = pendientes.filter { !$0.ruta.path.contains("/sistema/") }
+        } else if canal == "sistema" {
+            pendientes = pendientes.filter { $0.ruta.path.contains("/sistema/") }
+        }
         if pendientes.isEmpty {
+            if canal == "voz" || canal == "sistema" { return "no había \(canal) pendiente" }
             return leerPantallas(prefijo: "no había audio pendiente")
         }
 
@@ -107,7 +123,60 @@ enum ContinuoLote {
         if saltados > 0 { partes.append("\(saltados) sin archivo") }
         if comprimidos > 0 { partes.append("\(ContinuoBitacora.tamanoLegible(comprimidos)) liberados") }
 
+        // Con canal de solo audio no se toca el OCR: eso es lo que pidió quien
+        // pulsó el botón.
+        if canal == "voz" || canal == "sistema" {
+            return partes.joined(separator: ", ")
+        }
         return leerPantallas(prefijo: partes.joined(separator: ", "))
+    }
+
+    /// Tres archivos PUROS por día, uno por canal, siempre completos:
+    ///   transcripcion-voz.md · transcripcion-sistema.md · transcripcion-pantalla.md
+    /// Se reescriben ENTEROS desde el índice tras cada tanda en vez de ir
+    /// añadiendo al final: así son idempotentes (nada se duplica), quedan en
+    /// orden aunque una tanda procese fragmentos viejos, y borrar uno no pierde
+    /// nada — la próxima tanda lo regenera.
+    static func reconstruirDiarios(_ dia: Date = Date()) {
+        let piezas = ContinuoIndice.shared.materialDelDia(dia, incluirPantalla: true)
+        guard !piezas.isEmpty else { return }
+        // OJO con la ruta: `carpetaDelDia(dia, "")` seguido de quitar el último
+        // componente da la carpeta del MES, no la del día — así se colaron los
+        // primeros diarios en 2026/08/. Con un sub real y quitándolo, queda el
+        // día de verdad.
+        let carpeta = ContinuoAudio.carpetaDelDia(dia, sub: "audio").deletingLastPathComponent()
+        let hora = DateFormatter(); hora.dateFormat = "HH:mm:ss"
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+
+        var voz: [String] = [], sistema: [String] = [], pantalla: [String] = []
+        for pieza in piezas {
+            let limpio = pieza.texto.replacingOccurrences(of: "\n", with: " · ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !limpio.isEmpty else { continue }
+            let linea = "[\(hora.string(from: pieza.instante))] \(limpio)"
+            switch (pieza.material, pieza.fuente) {
+            case (.audio, "sistema"): sistema.append(linea)
+            case (.audio, "dictado"): voz.append("[\(hora.string(from: pieza.instante))] (dictado) \(limpio)")
+            case (.audio, _): voz.append(linea)
+            case (.pantalla, _):
+                let app = pieza.fuente.isEmpty ? "" : " [\(pieza.fuente)]"
+                pantalla.append("[\(hora.string(from: pieza.instante))]\(app) \(limpio)")
+            }
+        }
+
+        func escribir(_ lineas: [String], canal: String, titulo: String) {
+            guard !lineas.isEmpty else { return }
+            // La fecha va en el nombre: sin ella, el diario de un día pisaría
+            // al del anterior en cuanto la carpeta coincidiera.
+            let url = carpeta.appendingPathComponent("transcripcion-\(canal)-\(f.string(from: dia)).md")
+            let cuerpo = "# \(titulo) — \(f.string(from: dia))\n\n" + lineas.joined(separator: "\n") + "\n"
+            try? cuerpo.write(to: url, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+        escribir(voz, canal: "voz", titulo: "Voz (micrófono y dictados)")
+        escribir(sistema, canal: "sistema", titulo: "Audio del sistema")
+        escribir(pantalla, canal: "pantalla", titulo: "Texto en pantalla (OCR)")
+        Log.log(.sistema, "bitácora: diarios reconstruidos — voz \(voz.count), sistema \(sistema.count), pantalla \(pantalla.count) líneas")
     }
 
     /// Texto de las capturas, en la MISMA pasada que el audio: si ya pagamos el

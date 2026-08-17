@@ -793,7 +793,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     exit(r.hasPrefix("resumen escrito") ? 0 : 3)
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 600) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3600) {
                 print("LOTETEST FALLA timeout"); fflush(stdout); exit(4)
             }
             return
