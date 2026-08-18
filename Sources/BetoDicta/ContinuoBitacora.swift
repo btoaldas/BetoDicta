@@ -140,8 +140,33 @@ enum ContinuoBitacora {
         }
         let n = ContinuoIndice.shared.purgarAnteriorA(corte)
         Log.log(.sistema, "bitácora: purgados \(n) elementos anteriores a \(corte)")
+        borrarDiariosAnterioresA(corte)
         limpiarCarpetasVacias()
         return (n, false)
+    }
+
+    /// Borra los diarios puros (transcripcion-*.md) de los días que quedaron
+    /// enteros fuera de la retención. Viven fuera del índice, así que la purga
+    /// de filas no los alcanza — y dejarlos sería el mismo agujero que el .txt
+    /// hermano: purgar el sonido y conservar el texto en claro burla la
+    /// retención. El día de la frontera se conserva: aún tiene material vivo y
+    /// los diarios de días pasados no se regeneran.
+    private static func borrarDiariosAnterioresA(_ corte: Date) {
+        let raiz = Config.continuoCarpeta()
+        guard let e = FileManager.default.enumerator(at: raiz, includingPropertiesForKeys: nil,
+                                                     options: [.skipsHiddenFiles]) else { return }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        for caso in e {
+            guard let url = caso as? URL, url.pathExtension == "md",
+                  url.lastPathComponent.hasPrefix("transcripcion-") else { continue }
+            // La fecha va al final del nombre: transcripcion-<canal>-yyyy-MM-dd.md
+            let base = url.deletingPathExtension().lastPathComponent
+            guard base.count > 10, let dia = f.date(from: String(base.suffix(10))),
+                  let fin = Calendar.current.date(byAdding: .day, value: 1,
+                                                  to: Calendar.current.startOfDay(for: dia)),
+                  fin <= corte else { continue }
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     /// La purga automática solo corre si el usuario la pidió Y no hay nada

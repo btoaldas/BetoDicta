@@ -64,24 +64,32 @@ enum ContinuoLote {
 
         ContinuoIndice.shared.abrir()
         // Pase lo que pase al salir (fin normal, corte por dictado, canal sin
-        // pendientes), los diarios del día quedan al día con lo procesado
-        // hasta ese momento. Antes solo se reconstruían al final feliz y una
-        // tanda interrumpida los dejaba viejos.
-        defer { reconstruirDiarios() }
+        // pendientes), los diarios quedan al día con lo procesado hasta ese
+        // momento. Antes solo se reconstruían al final feliz y una tanda
+        // interrumpida los dejaba viejos.
+        //
+        // Y no solo los de HOY: los pendientes llegan de lo más viejo a lo más
+        // nuevo sin filtrar por fecha, así que una tanda procesa rutinariamente
+        // material de días anteriores (el Mac durmió de noche, tanda «al
+        // encender»). Como el diario filtra por día, ese texto no entra en el
+        // de hoy — hay que regenerar también el diario de cada día tocado, o
+        // lo transcrito de ayer no llegaría jamás a ningún diario.
+        var diasTocados: Set<Date> = [Calendar.current.startOfDay(for: Date())]
+        defer { for dia in diasTocados.sorted(by: <) { reconstruirDiarios(dia) } }
 
-        var pendientes = canal == "pantalla" ? [] : ContinuoIndice.shared.pendientes(
-            material: .audio, limite: Config.continuoLoteMaximoPorTanda())
-        // El canal separa la voz del audio del sistema por su carpeta: ambos
-        // son material "audio" en el índice, pero viven en subcarpetas
-        // distintas y se pueden drenar por separado a petición.
-        if canal == "voz" {
-            pendientes = pendientes.filter { !$0.ruta.path.contains("/sistema/") }
-        } else if canal == "sistema" {
-            pendientes = pendientes.filter { $0.ruta.path.contains("/sistema/") }
-        }
+        // El canal separa la voz del audio del sistema por su columna `origen`
+        // en el índice: ambos son material "audio" y se pueden drenar por
+        // separado a petición. El filtro va DENTRO de la consulta, antes del
+        // tope por tanda: filtrarlo aquí después de cortar hacía que una cola
+        // larga del otro canal tapara los fragmentos del canal pedido y la
+        // tanda respondiera «no había pendiente» habiendo trabajo.
+        let pendientes = canal == "pantalla" ? [] : ContinuoIndice.shared.pendientes(
+            material: .audio, limite: Config.continuoLoteMaximoPorTanda(),
+            canal: canal == "voz" || canal == "sistema" ? canal : nil)
         if pendientes.isEmpty {
             if canal == "voz" || canal == "sistema" { return "no había \(canal) pendiente" }
-            return leerPantallas(prefijo: "no había audio pendiente")
+            if canal == "pantalla" { return leerPantallas(prefijo: "", soloPantalla: true, diasTocados: &diasTocados) }
+            return leerPantallas(prefijo: "no había audio pendiente", diasTocados: &diasTocados)
         }
 
         Log.log(.sistema, "bitácora: tanda con \(pendientes.count) fragmentos pendientes")
@@ -107,6 +115,7 @@ enum ContinuoLote {
             case .success(let texto):
                 ContinuoIndice.shared.anotarTexto(texto, material: .audio, id: p.id)
                 guardarTexto(texto, junto: p.ruta)
+                diasTocados.insert(Calendar.current.startOfDay(for: p.instante))
                 hechos += 1
                 if Config.continuoLoteComprimir(), p.ruta.pathExtension == "pcm",
                    p.ruta.path.hasPrefix(Config.continuoCarpeta().path) {
@@ -128,7 +137,7 @@ enum ContinuoLote {
         if canal == "voz" || canal == "sistema" {
             return partes.joined(separator: ", ")
         }
-        return leerPantallas(prefijo: partes.joined(separator: ", "))
+        return leerPantallas(prefijo: partes.joined(separator: ", "), diasTocados: &diasTocados)
     }
 
     /// Tres archivos PUROS por día, uno por canal, siempre completos:
@@ -182,13 +191,26 @@ enum ContinuoLote {
     /// Texto de las capturas, en la MISMA pasada que el audio: si ya pagamos el
     /// coste de despertar el equipo para transcribir, leer la pantalla sale
     /// prácticamente gratis.
-    private static func leerPantallas(prefijo: String) -> String {
-        guard Config.continuoOcrActivo() else { return prefijo }
+    /// Con `soloPantalla` (canal "pantalla" a petición) el mensaje habla de
+    /// capturas y de OCR, nunca de audio: quien pulsó ese botón no preguntó
+    /// por el audio, y «no había audio pendiente» le haría creer que tampoco
+    /// hay capturas.
+    private static func leerPantallas(prefijo: String, soloPantalla: Bool = false,
+                                      diasTocados: inout Set<Date>) -> String {
+        guard Config.continuoOcrActivo() else {
+            return soloPantalla ? "la lectura del texto en pantalla está desactivada" : prefijo
+        }
         let ocr = ContinuoOCR.procesarPendientes(limite: Config.continuoLoteMaximoPorTanda()) {
             dictadoOcupado?() == true
         }
-        guard ocr.hechas > 0 else { return prefijo }
-        return prefijo + ", \(ocr.hechas) capturas leídas (\(ocr.conTexto) con texto)"
+        // Las capturas viejas sufren lo mismo que el audio viejo: su día
+        // también hay que regenerarlo, o su texto no llega a ningún diario.
+        diasTocados.formUnion(ocr.dias)
+        guard ocr.hechas > 0 else {
+            return soloPantalla ? "no había capturas pendientes" : prefijo
+        }
+        let detalle = "\(ocr.hechas) capturas leídas (\(ocr.conTexto) con texto)"
+        return soloPantalla ? detalle : prefijo + ", " + detalle
     }
 
     /// Lanza el resumen del día tras la tanda, si está activado. Separado del

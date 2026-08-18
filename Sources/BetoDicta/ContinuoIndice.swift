@@ -231,11 +231,21 @@ final class ContinuoIndice {
     }
 
     /// Lo que falta por transcribir o reconocer, de lo más viejo a lo más nuevo.
-    func pendientes(material: MaterialContinuo, limite: Int = 500) -> [PendienteContinuo] {
+    /// `canal` (solo audio): "sistema" trae únicamente el audio del sistema;
+    /// "voz" el resto (micrófono y dictados adoptados). El filtro va en el SQL,
+    /// ANTES del límite: filtrar después de cortar dejaba tandas vacías cuando
+    /// los fragmentos más viejos eran mayoritariamente del otro canal.
+    func pendientes(material: MaterialContinuo, limite: Int = 500,
+                    canal: String? = nil) -> [PendienteContinuo] {
         cola.sync {
             guard let d = db else { return [] }
             var st: OpaquePointer?
-            let sql = "SELECT id, ruta, instante FROM \(material.rawValue) WHERE procesado = 0 ORDER BY instante ASC LIMIT ?;"
+            var filtro = ""
+            if material == .audio {
+                if canal == "sistema" { filtro = "AND origen = 'sistema' " }
+                else if canal == "voz" { filtro = "AND origen != 'sistema' " }
+            }
+            let sql = "SELECT id, ruta, instante FROM \(material.rawValue) WHERE procesado = 0 \(filtro)ORDER BY instante ASC LIMIT ?;"
             guard sqlite3_prepare_v2(d, sql, -1, &st, nil) == SQLITE_OK else { return [] }
             defer { sqlite3_finalize(st) }
             sqlite3_bind_int(st, 1, Int32(limite))

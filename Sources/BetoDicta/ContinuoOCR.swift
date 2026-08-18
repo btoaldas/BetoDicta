@@ -12,15 +12,19 @@ import Vision
 
 enum ContinuoOCR {
 
-    /// Procesa las capturas pendientes. Devuelve cuántas quedaron con texto.
+    /// Procesa las capturas pendientes. Devuelve cuántas quedaron con texto y
+    /// los DÍAS (startOfDay) de las que ganaron texto, para que el llamador
+    /// regenere también los diarios de días anteriores: las capturas
+    /// pendientes llegan sin filtrar por fecha, igual que el audio.
     /// `deteneteSi` permite abortar limpio si empieza un dictado.
     @discardableResult
-    static func procesarPendientes(limite: Int, deteneteSi: (() -> Bool)? = nil) -> (hechas: Int, conTexto: Int) {
+    static func procesarPendientes(limite: Int, deteneteSi: (() -> Bool)? = nil) -> (hechas: Int, conTexto: Int, dias: Set<Date>) {
         ContinuoIndice.shared.abrir()
         let pendientes = ContinuoIndice.shared.pendientes(material: .pantalla, limite: limite)
-        guard !pendientes.isEmpty else { return (0, 0) }
+        guard !pendientes.isEmpty else { return (0, 0, []) }
 
         var hechas = 0, conTexto = 0
+        var dias = Set<Date>()
         for p in pendientes {
             if deteneteSi?() == true { break }
             guard FileManager.default.fileExists(atPath: p.ruta.path) else {
@@ -31,9 +35,12 @@ enum ContinuoOCR {
             let texto = leer(p.ruta)
             ContinuoIndice.shared.anotarTexto(texto, material: .pantalla, id: p.id)
             hechas += 1
-            if !texto.isEmpty { conTexto += 1 }
+            if !texto.isEmpty {
+                conTexto += 1
+                dias.insert(Calendar.current.startOfDay(for: p.instante))
+            }
         }
-        return (hechas, conTexto)
+        return (hechas, conTexto, dias)
     }
 
     // MARK: Reconocimiento

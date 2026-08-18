@@ -779,11 +779,19 @@ Encendida, registra tu jornada en segundo plano para poder reconstruirla despué
 
 - **Tu voz (micrófono)** — tres modos: *Siempre*, *Solo cuando hay voz* (con sensibilidad ajustable) o *Solo al dictar*. **El dictado por doble Fn manda siempre**: la bitácora le cede el micrófono y vuelve sola al terminar — eso no es un ajuste, es una regla del código. El audio de tus dictados se incorpora a la línea de tiempo para que la cesión no deje hueco.
 - **El audio del sistema** — la otra parte de una videollamada, un video, una reunión. Pista separada de la tuya, con puerta de silencio (solo guarda cuando suena algo) y **puerta anti-eco**: mientras suena el altavoz, el micrófono exige más nivel para no registrar como tuyo lo que salió por los parlantes.
-- **La pantalla** — capturas cada N segundos (5 s a 1 h, a tu gusto), con deduplicación (si nada cambió, no guarda), pausa con la pantalla bloqueada, apps excluidas por identificador, y **contexto**: app activa, título de ventana y qué otras aplicaciones estaban a la vista.
+- **La pantalla** — capturas cada N segundos (5 s a 1 h, a tu gusto), de **todas las pantallas conectadas** (dos, tres, las que haya — cada una con su deduplicación y su archivo), pausa con la pantalla bloqueada, apps excluidas por identificador, y **contexto**: app activa, título de ventana y qué otras aplicaciones estaban a la vista.
 
 ### Cómo procesa
 
 Nada se transcribe en caliente — eso mantendría un modelo de voz gastando procesador todo el día. La **tanda diferida** corre cuando digas: cada N minutos, a hora fija, al abrir la app, al apagar el equipo o a mano. En una sola pasada transcribe el audio (con el motor que elijas: tu cascada con failover o uno fijo), lee el texto de las capturas (OCR de Apple, en el equipo), aplica tu **glosario y reemplazos** —los mismos del dictado, corrección fonética incluida— y comprime el audio crudo (~88 % menos).
+
+### Los diarios puros y el explorador
+
+Tras cada tanda, el día queda además en **tres archivos legibles sin la app**, en la carpeta del día: `transcripcion-voz-…md` (micrófono y dictados, con hora), `transcripcion-sistema-…md` (lo que sonó en el equipo) y `transcripcion-pantalla-…md` (el OCR con su app). Se reconstruyen completos desde el índice: nunca duplican, y si borras uno, la próxima tanda lo regenera.
+
+En **Explorar lo guardado** navegas voz, capturas, transcripciones y documentos, con botones para abrir cada carpeta del día en el Finder. Los documentos generados se pueden **abrir para editar, exportar, eliminar (con confirmación) o regenerar**: el botón de regenerar vuelve a ejecutar ese día con el prompt que tengas elegido, sin pisar el original.
+
+El procesamiento también va **a petición por canal**: botones «Todo», «Solo voz», «Solo sistema» y «Solo pantalla (OCR)» para drenar exactamente lo que quieras, ahora mismo.
 
 ### Documentos con IA
 

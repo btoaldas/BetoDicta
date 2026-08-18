@@ -131,6 +131,13 @@ final class ContinuoModel: ObservableObject {
     /// Regenera el día de un documento con el prompt HOY elegido en el
     /// selector. No pisa el original: el nuevo sale con la hora en el nombre.
     func regenerar(_ url: URL) {
+        // El interruptor maestro del resumen con IA manda también aquí: es el
+        // consentimiento de que el material pueda salir hacia un modelo. Con él
+        // apagado, este botón no envía nada.
+        guard Config.continuoResumenActivo() else {
+            resumenEstado = "El resumen con IA está desactivado. Actívalo en «Resumen del día con IA» para regenerar."
+            return
+        }
         // La fecha viaja en el nombre: <prompt>-AAAA-MM-DD[-HHmm].md
         let nombre = url.deletingPathExtension().lastPathComponent
         guard let rango = nombre.range(of: #"\d{4}-\d{2}-\d{2}"#, options: .regularExpression) else {

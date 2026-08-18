@@ -6,11 +6,17 @@ import Foundation
 // Version.numero al Info.plist del bundle (CFBundleShortVersionString).
 
 enum Version {
-    static let numero = "0.50.0"
+    static let numero = "0.51.0"
     static let fecha = "2026-08-17"
 
     /// Historial literal, la más nueva primero. Se muestra en Créditos.
     static let historial: [(version: String, fecha: String, cambios: [String])] = [
+        ("0.51.0", "2026-08-17", [
+            "TODAS TUS PANTALLAS: la bitácora captura cada monitor conectado (dos, tres, los que haya), cada uno con su deduplicación y su archivo; el fallo de una pantalla que se desconecta ya no aborta las demás",
+            "DIARIOS PUROS POR CANAL: cada día queda en tres archivos legibles sin la app — voz (micrófono y dictados), audio del sistema y texto en pantalla (OCR) — reconstruidos completos tras cada tanda: nunca duplican y se regeneran si los borras",
+            "PROCESAMIENTO A PETICIÓN: botones «Todo», «Solo voz», «Solo sistema» y «Solo pantalla» para drenar el canal que elijas ahora mismo, sin esperar a la programación",
+            "GESTIÓN DE DOCUMENTOS: desde el explorador puedes abrir para editar, exportar, eliminar con confirmación o REGENERAR un día con otro prompt sin pisar el original; pestaña nueva de transcripciones con acceso directo a la carpeta del día",
+        ]),
         ("0.50.0", "2026-08-17", [
             "BITÁCORA CONTINUA (apagada de fábrica): graba tu voz, el audio del sistema y capturas de pantalla en segundo plano para reconstruir la jornada. El dictado por doble Fn manda SIEMPRE: la bitácora le cede el micrófono y vuelve sola — es regla del código, no un ajuste",
             "TANDA DIFERIDA: nada se transcribe en caliente; en una pasada (cada N minutos, a hora fija, al abrir, al apagar o a mano) transcribe con tu cascada de motores, lee las capturas con OCR local, aplica tu glosario y reemplazos —corrección fonética incluida— y comprime el audio crudo un ~88 %",

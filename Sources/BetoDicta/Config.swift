@@ -1029,8 +1029,13 @@ struct Config {
 
     /// Capturar TODAS las pantallas conectadas. Es lo que uno espera al
     /// enchufar dos o tres monitores; apagado, manda la lista de abajo.
+    /// Sin la clave, «todas» es el valor de fábrica SOLO si no hay lista
+    /// explícita de monitores: quien restringió la captura a monitores
+    /// concretos en una versión anterior conserva su restricción al
+    /// actualizar, sin ampliar el alcance en silencio.
     static func continuoPantallaTodosMonitores() -> Bool {
-        (json()["continuo_pantalla_todos_monitores"] as? Bool) ?? true
+        if let valor = json()["continuo_pantalla_todos_monitores"] as? Bool { return valor }
+        return continuoPantallaMonitores().isEmpty
     }
 
     /// Con «todas» apagado: monitores concretos por identificador. Vacío = el

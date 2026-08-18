@@ -26,6 +26,10 @@ final class ContinuoPantalla {
     private var inicioIntento = Date.distantPast
     /// Por monitor: comparar la huella de una pantalla contra la de OTRA haría
     /// que la deduplicación no funcionara nunca (o siempre) con varias.
+    /// CONFINADOS a la cola `escribir`: los muta el Task de captura (executor
+    /// global) y los vacía `detener()` desde main; además el rescate de 30 s
+    /// de `tic()` puede solapar dos capturas vivas. Mutar un Dictionary desde
+    /// dos hilos corrompe su almacenamiento CoW y tumba la app.
     private var huellaPrevia: [Int: [UInt8]] = [:]
     private var ultimaEscritura: [Int: Date] = [:]
     private let contexto = CIContext(options: [.useSoftwareRenderer: false])
@@ -54,10 +58,13 @@ final class ContinuoPantalla {
 
     func detener() {
         DispatchQueue.main.async { [weak self] in
-            self?.reloj?.invalidate()
-            self?.reloj = nil
-            self?.activo = false
-            self?.huellaPrevia = [:]
+            guard let self else { return }
+            self.reloj?.invalidate()
+            self.reloj = nil
+            self.activo = false
+            // En su cola, no aquí: una captura en vuelo puede estar mutando el
+            // diccionario en este mismo instante.
+            self.escribir.async { [weak self] in self?.huellaPrevia = [:] }
         }
     }
 
@@ -144,32 +151,36 @@ final class ContinuoPantalla {
 
     private func procesar(_ imagen: CGImage, monitor: Int) {
         let ahora = Date()
-        let forzarMin = Config.continuoPantallaForzarMinutos()
-        let ultima = ultimaEscritura[monitor] ?? .distantPast
-        let forzado = forzarMin > 0 && ahora.timeIntervalSince(ultima) >= Double(forzarMin) * 60
-
-        // La deduplicación se salta cuando toca fotograma forzado: primero se
-        // decide si es obligatorio guardar, y solo si no lo es se compara.
-        if !forzado, Config.continuoPantallaDeduplicar() {
-            let huella = Self.huella(de: imagen)
-            if let previa = huellaPrevia[monitor], Self.diferencia(previa, huella) < Config.continuoPantallaUmbralCambio() {
-                return
-            }
-            huellaPrevia[monitor] = huella
-        } else {
-            huellaPrevia[monitor] = Self.huella(de: imagen)
-        }
-
-        ultimaEscritura[monitor] = ahora
-        let frente = NSWorkspace.shared.frontmostApplication
-        let app = frente?.localizedName
-        let ventana = Self.tituloVentanaAlFrente()
-        let visibles = Config.continuoPantallaAppsVisibles()
-            ? Self.appsALaVista(excluyendo: app)
-            : []
-
+        // Todo dentro de `escribir`: es la única dueña de huellaPrevia y
+        // ultimaEscritura, así dos capturas solapadas o un detener() en main
+        // nunca los tocan a la vez.
         escribir.async { [weak self] in
-            guard let self, let url = self.guardar(imagen, instante: ahora, monitor: monitor) else { return }
+            guard let self else { return }
+            let forzarMin = Config.continuoPantallaForzarMinutos()
+            let ultima = self.ultimaEscritura[monitor] ?? .distantPast
+            let forzado = forzarMin > 0 && ahora.timeIntervalSince(ultima) >= Double(forzarMin) * 60
+
+            // La deduplicación se salta cuando toca fotograma forzado: primero se
+            // decide si es obligatorio guardar, y solo si no lo es se compara.
+            if !forzado, Config.continuoPantallaDeduplicar() {
+                let huella = Self.huella(de: imagen)
+                if let previa = self.huellaPrevia[monitor], Self.diferencia(previa, huella) < Config.continuoPantallaUmbralCambio() {
+                    return
+                }
+                self.huellaPrevia[monitor] = huella
+            } else {
+                self.huellaPrevia[monitor] = Self.huella(de: imagen)
+            }
+
+            self.ultimaEscritura[monitor] = ahora
+            let frente = NSWorkspace.shared.frontmostApplication
+            let app = frente?.localizedName
+            let ventana = Self.tituloVentanaAlFrente()
+            let visibles = Config.continuoPantallaAppsVisibles()
+                ? Self.appsALaVista(excluyendo: app)
+                : []
+
+            guard let url = self.guardar(imagen, instante: ahora, monitor: monitor) else { return }
             ContinuoIndice.shared.registrarPantalla(ruta: url, instante: ahora,
                                                     app: app, ventana: ventana,
                                                     monitor: monitor, visibles: visibles)
